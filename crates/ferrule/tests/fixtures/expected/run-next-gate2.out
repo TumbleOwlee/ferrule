@@ -2,42 +2,42 @@ $ run next ns plan status=new file=.claude/tasks/artifacts/ns/issue.md
 next=stop reason=lane
 run: ferrule prompt render gate2 ns issue=new
 do: show the gate 2 stop and wait for the user's approval
-see: ### Gate 2 — plan and tracking issue
+guide: ferrule guide gate2 --slug ns
 exit=0
 $ run next ns plan status=new file=.claude/tasks/artifacts/ns/issue.md
 next=notice
 run: ferrule prompt render gate2-notice ns issue=new
 do: show the notice without stopping, then act on approval as if given
-see: ### Gate 2 — plan and tracking issue
+guide: ferrule guide gate2 --slug ns
 exit=0
 $ run next ns plan status=reuse issue=41 file=.claude/tasks/artifacts/ns/issue.md
 next=stop reason=reuse
 run: ferrule prompt render gate2 ns issue=41
 do: show the gate 2 stop and wait for the user's approval
-see: ### Gate 2 — plan and tracking issue
+guide: ferrule guide gate2 --slug ns
 exit=0
 $ run next ns plan status=new file=.claude/tasks/artifacts/ns/issue.md
 next=stop reason=no-arch-stop
 run: ferrule prompt render gate2 ns issue=new
 do: show the gate 2 stop and wait for the user's approval
-see: ### Gate 2 — plan and tracking issue
+guide: ferrule guide gate2 --slug ns
 exit=0
 $ run next ns plan status=new file=.claude/tasks/artifacts/ns/issue.md
 next=stop reason=outgrown
 run: ferrule prompt render gate2 ns issue=new
 do: show the gate 2 stop and wait for the user's approval
-see: ### Gate 2 — plan and tracking issue
+guide: ferrule guide gate2 --slug ns
 exit=0
 $ run next ns plan status=new file=.claude/tasks/artifacts/ns/issue.md
 next=stop reason=needs-user
 run: ferrule prompt render gate2 ns issue=new
 do: show the gate 2 stop and wait for the user's approval
-see: ### Gate 2 — plan and tracking issue
+guide: ferrule guide gate2 --slug ns
 exit=0
 $ run next ns plan status=new file=.claude/tasks/artifacts/ns/issue.md
 next=stop reason=lane
 run: ferrule prompt render gate2 ns issue=new
 do: show the gate 2 stop and wait for the user's approval
-see: ### Gate 2 — plan and tracking issue
+guide: ferrule guide gate2 --slug ns
 exit=0
 exit=0

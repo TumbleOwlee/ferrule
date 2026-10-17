@@ -6,6 +6,7 @@ use rusqlite::Connection;
 
 use crate::artifacts;
 use crate::board::{self, State};
+use crate::guide::Topic;
 use crate::project::Layout;
 
 /// Where in the run the status line comes from.
@@ -119,8 +120,12 @@ impl Ctx<'_> {
         self.out.push(format!("do: {what}"));
     }
 
-    fn see(&mut self, heading: &str) {
-        self.out.push(format!("see: {heading}"));
+    fn guide(&mut self, topic: Topic) {
+        self.out.push(format!(
+            "guide: ferrule guide {} --slug {}",
+            topic.name(),
+            self.slug
+        ));
     }
 
     fn field(&self, key: &str) -> rusqlite::Result<Option<String>> {
@@ -140,11 +145,11 @@ impl Ctx<'_> {
             .is_some_and(|s| artifacts::stage_rows(&s) > 2)
     }
 
-    fn gate_see(&mut self) {
+    fn gate_guide(&mut self) {
         if self.at == At::Replan {
-            self.see("#### Re-plan");
+            self.guide(Topic::Replan);
         } else {
-            self.see("### Gate 2 — plan and tracking issue");
+            self.guide(Topic::Gate2);
         }
     }
 
@@ -217,24 +222,24 @@ pub fn next(
         (At::Plan | At::Replan | At::Pr, "question") => {
             c.next("relay", None);
             c.act("relay the question file to the user and resume the agent with the answers");
-            c.see("### Relayed question");
+            c.guide(Topic::Question);
         }
         (At::Plan | At::Replan, "arch-gap") => {
             c.next("arch-gap", None);
             c.act("spawn the architect, then resume the planner with its summary");
-            c.gate_see();
+            c.gate_guide();
         }
         (At::Plan | At::Replan, "split") => {
             c.next("split", None);
             c.act("handle the split request");
-            c.see("#### Split");
+            c.guide(Topic::Split);
         }
         (At::Plan | At::Replan, "behavior-change") => {
             c.next("behavior-change", None);
             c.act(
                 "the plan found a behavior change in a non-behavior run: back to the spec author",
             );
-            c.see("### Principles — implementation");
+            c.guide(Topic::Principles);
         }
         (At::Plan | At::Replan, "ready") => {
             if plan_reviews
@@ -247,7 +252,7 @@ pub fn next(
                 c.next("review", None);
                 c.act("spawn the plan reviewer");
             }
-            c.gate_see();
+            c.gate_guide();
         }
         (At::Plan | At::Replan, "findings" | "clean") => {
             plan_review(&mut c, &word, round, count, &events)?;
@@ -259,7 +264,7 @@ pub fn next(
             c.next("stop", None);
             c.run(&format!("ferrule prompt render gate4 {slug}"));
             c.act("show the gate 4 stop and wait for the user's approval");
-            c.see("### Gate 4 — pull request");
+            c.guide(Topic::Gate4);
         }
         (At::Ci, ci) => ci_result(&mut c, ci)?,
         _ => return Err(Error::Unknown(word)),
@@ -288,7 +293,7 @@ fn plan_review(
             let dir = format!(".ferrule/runs/{}", c.slug);
             c.run(&format!("cp {dir}/plan.md {dir}/plan.prev.md"));
             c.act("resume the planner with the review file");
-            c.gate_see();
+            c.gate_guide();
             return Ok(());
         }
     } else {
@@ -308,10 +313,10 @@ fn branch_findings(c: &mut Ctx, count: u64) -> rusqlite::Result<()> {
     c.next("fix", None);
     if c.open_stage()?.is_some() {
         c.act("resume the implementer on the findings, then the gauntlet and the same reviewer's follow-up");
-        c.see("#### Per-stage review");
+        c.guide(Topic::StageReview);
     } else {
         c.act("move the implicated stage to inprogress, resume its implementer, gauntlet, then a fresh branch review");
-        c.see("### Gate 3 — review");
+        c.guide(Topic::Gate3);
     }
     Ok(())
 }
@@ -324,13 +329,13 @@ fn ci_result(c: &mut Ctx, ci: &str) -> rusqlite::Result<()> {
         c.next("done", None);
         c.run(&format!("ferrule run cleanup {slug}"));
         c.act("clean up the run");
-        c.see("### Clean up");
+        c.guide(Topic::Cleanup);
     } else {
         c.next("fix", None);
         let branch = c.field("branch")?.unwrap_or_default();
         c.run(&format!("ferrule pr failed {branch}"));
         c.act("read the failed workflow and fix it");
-        c.see("### Gate 4 — pull request");
+        c.guide(Topic::Gate4);
     }
     Ok(())
 }
@@ -338,7 +343,7 @@ fn ci_result(c: &mut Ctx, ci: &str) -> rusqlite::Result<()> {
 fn ask_issue(c: &mut Ctx) {
     c.next("issue", None);
     c.act("ask the spec author for the tracking issue");
-    c.see("### Gate 2 — plan and tracking issue");
+    c.guide(Topic::Gate2);
 }
 
 /// Gate 2 stops unless a fast-lane run with a dated architecture stop, no
@@ -373,7 +378,7 @@ fn gate2_decision(c: &mut Ctx, word: &str, status: &Status) -> rusqlite::Result<
         ));
         c.act("show the notice without stopping, then act on approval as if given");
     }
-    c.see("### Gate 2 — plan and tracking issue");
+    c.guide(Topic::Gate2);
     Ok(())
 }
 
@@ -432,7 +437,7 @@ fn replan_decision(c: &mut Ctx, events: &[(String, String)]) -> rusqlite::Result
         ));
         c.act("show the notice without stopping, then continue with the re-planned stages");
     }
-    c.see("#### Re-plan");
+    c.guide(Topic::Replan);
     Ok(())
 }
 
@@ -465,17 +470,17 @@ fn branch_resolved(c: &mut Ctx, window: &[&str]) -> rusqlite::Result<()> {
         c.next("stage-stop", None);
         c.run(&format!("ferrule run stage-stop {slug} s{n} --threads <n>"));
         c.act("run the stage stop decision with the PR thread count");
-        c.see("#### Stage stop");
+        c.guide(Topic::StageReview);
     } else if c.needs_user() && c.field("lane")?.as_deref() == Some("full") {
         c.next("stop", None);
         c.run(&format!("ferrule prompt render gate3 {slug}"));
         c.act("show the gate 3 stop with the open Needs user item");
-        c.see("### Gate 3 — review");
+        c.guide(Topic::Gate3);
     } else {
         let reason = c.needs_user().then_some("needs-user");
         c.next("pr", reason);
         c.act("spawn the spec author for the PR body");
-        c.see("### Gate 4 — pull request");
+        c.guide(Topic::Gate4);
     }
     Ok(())
 }

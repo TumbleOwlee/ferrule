@@ -1,0 +1,9 @@
+# replan — Re-planning the uncommitted stages
+
+## Re-plan
+
+Rewrites every stage without a commit on the branch, the current one included; a committed stage is never replanned.
+1. `ferrule run replan {slug} start` → `replan=started from=s<n>`: `from` = the lowest stage id whose card has no `commit=` (asked at gate 4: the next free stage number, parent → `inprogress`); it logs `replan from=s<n>` on the parent card and snapshots `plan.md` as `plan.prev.md` (no `plan.md`, a rebuilt board → no snapshot). The current implementer is dropped, never resumed; its uncommitted work stays in the worktree.
+2. Fresh `spec-planner` (*Gate 2* (`ferrule guide gate2`) input, plus `mode=replan from=s<n>`, the reason verbatim, the worktree path). `question`, `arch-gap` and `split` as at gate 2.
+3. `ready` and the review's status lines → `ferrule run next {slug} replan …`: review rounds as at gate 2 (scope `plan from s<n>`), then the **stop** `ferrule prompt render replan {slug} from=s<n>` (the plan summary, plus the architecture summary and the brief when their revs moved — an arch-gap during the re-plan — and a verdict with a `Needs user` item) or, asked at gate 4's stop with nothing moved, the notice `ferrule prompt render replan-notice {slug} from=s<n>` (it logs `replan=pre-authorized`).
+4. Approved at the stop → `ferrule run approve replan {slug}` first. Then, after the stop or the notice, `ferrule run replan {slug} approve [--stops s<a>,s<b>]` (`--stops`: the stages the user ticked): it re-logs every replaced card's `spec-delta … added` line on the parent card as `-- retired`, so their IDs stay retired, swaps the cards from `from` on for the new plan's stage table in one step, logs `replan=approved` and re-renders the draft PR body. Spawn the implementer (*Every stage* (`ferrule guide stages`)); its brief says the worktree holds the dropped implementer's uncommitted work. The run rejoins at gate 3's branch review, gate 4 (new plan summary shown).

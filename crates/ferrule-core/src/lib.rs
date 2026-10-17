@@ -13,6 +13,7 @@ pub mod gate;
 pub mod gauntlet;
 pub mod git;
 pub mod guard;
+pub mod guide;
 pub mod markdown;
 pub mod next;
 pub mod project;

@@ -50,6 +50,25 @@ Under construction. Implemented so far:
 | `ferrule pr failed [<branch>]` | The error lines of the branch's latest failed CI run |
 | `ferrule hook pre-tool-use` | Session-wide Bash guard; strips attribution trailers from commit, PR and issue text |
 | `ferrule hook reviewer` | Read-only Bash guard for the reviewer agent |
+| `ferrule guide <topic> [--slug <s>] [--stage s<n>] [--lane fast\|full]` | One topic of the workflow's instructions, cut to the run's lane, steps the card shows done marked, placeholders filled; `--list`, `--check` |
+
+## Guide
+
+The workflow's instructions ship inside the binary as topics (`crates/ferrule-core/guide/<topic>.md`): one per orchestrator step (`gate2`, `stages`, `gate4`, …) and one per agent (`implementer`, `planner`, …). `ferrule run next` names the topic for what comes next as a `guide:` line.
+
+- `<!-- lane: fast -->` (or `full`) on the line above a block keeps it for that lane only; above a heading it covers the heading's section. Without a lane both are printed, labelled.
+- `<!-- done: <token> -->` marks a block `(done)` once the run's parent card carries the token (`pr=ready`, or a bare field name such as `gate2`).
+- `{slug}`, `{stage}`, `{card}`, `{run_dir}`, `{worktree}`, `{branch}`, `{issue}`, `{pr}`, `{main}` are filled from the run; unknown ones print as `<slug>`.
+- A project overrides a topic with `.ferrule/guide/<topic>.md`. Without headings the file replaces the topic; with headings each of its sections replaces the default's section of the same heading, and a section the default lacks is appended. A file naming no shipped topic is a topic of the project's own; its first line is `# <topic> — <summary>`.
+- `ferrule guide --check` fails when a topic names a topic that does not exist or carries a malformed tag.
+
+`plan.md`'s `## Shared` section opens with the stage table `ferrule run approve gate2` creates the stage cards from (`ferrule guide planner` defines it):
+
+```
+| Stage | Title | Files | Blocked by |
+|---|---|---|---|
+| s1 | Add backoff | src/client.rs, tests/client.rs | s0 |
+```
 
 ## State
 

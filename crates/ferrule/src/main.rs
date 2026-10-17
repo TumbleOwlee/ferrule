@@ -19,6 +19,7 @@ fn main() -> ExitCode {
         Command::Prompt(command) => commands::prompt::run(command, &mut out),
         Command::Issue(command) => commands::issue::run(command, &mut out),
         Command::Pr(command) => commands::pr::run(command, &mut out),
+        Command::Guide(args) => commands::guide::run(args, &mut out),
         Command::Hook(command) => {
             commands::hook::run(command, &mut std::io::stdin().lock(), &mut out)
         }

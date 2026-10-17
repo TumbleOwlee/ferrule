@@ -36,6 +36,9 @@ pub enum Command {
     /// review threads, its failed CI run.
     #[command(subcommand)]
     Pr(PrCommand),
+    /// The workflow's instructions, one topic at a time, cut to the run's
+    /// lane and state.
+    Guide(GuideArgs),
     /// Claude Code hook handlers: read the hook payload on stdin.
     #[command(subcommand)]
     Hook(HookCommand),
@@ -369,7 +372,7 @@ pub enum RunCommand {
         force: bool,
     },
     /// The next step after an agent's status line: logs what the outcome
-    /// implies and prints `next=`, `run:`, `do:` and `see:` lines.
+    /// implies and prints `next=`, `run:`, `do:` and `guide:` lines: the topic to read next.
     Next {
         slug: String,
         #[arg(value_enum)]
@@ -479,4 +482,29 @@ pub enum ReplanStep {
     Start,
     /// Swap the stage cards from `from` on for the new plan's.
     Approve,
+}
+
+#[derive(Debug, Args)]
+pub struct GuideArgs {
+    /// The topic; `--list` names them all.
+    #[arg(required_unless_present_any = ["list", "check"])]
+    pub topic: Option<String>,
+    /// The run: its lane cuts the topic, its card marks steps done and
+    /// fills `{slug}`, `{run_dir}` and the rest. Default: the run whose
+    /// worktree holds the current directory.
+    #[arg(long)]
+    pub slug: Option<String>,
+    /// The stage the topic is read for: fills `{stage}` and `{card}`.
+    #[arg(long)]
+    pub stage: Option<String>,
+    /// Cut to this lane instead of the card's.
+    #[arg(long, value_parser = ["fast", "full"])]
+    pub lane: Option<String>,
+    /// Every topic, one line each.
+    #[arg(long, conflicts_with_all = ["topic", "check"])]
+    pub list: bool,
+    /// Fail when a topic names a topic that does not exist or carries a
+    /// malformed tag.
+    #[arg(long, conflicts_with = "topic")]
+    pub check: bool,
 }
