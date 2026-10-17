@@ -3,6 +3,7 @@ use std::io::{self, Write};
 use ferrule_core::archive::{self, Error as ArchiveError};
 use ferrule_core::board;
 use ferrule_core::config::Config;
+use ferrule_core::gauntlet::{self, Outcome};
 use ferrule_core::project::{self, Layout};
 use ferrule_core::run::{self as core_run, Error};
 use ferrule_core::store::DIR;
@@ -19,6 +20,7 @@ pub fn run(command: &RunCommand, out: &mut impl Write) -> io::Result<u8> {
     match command {
         RunCommand::ShaCheck { slug, stage, sha } => sha_check(slug, *stage, sha, out),
         RunCommand::Reconcile { slug } => reconcile(slug, out),
+        RunCommand::Gauntlet { slug, force } => gauntlet(slug, *force, out),
         RunCommand::Metrics { slug } => metrics(slug.as_deref(), out),
         RunCommand::Cleanup { slug } => cleanup(slug, out),
         RunCommand::Export { slug, archive, to } => export(slug, *archive, to.as_deref(), out),
@@ -201,4 +203,32 @@ fn export(
         Err(ArchiveError::Io(e)) => Err(e),
         Err(e) => Err(sql(format!("{e:?}"))),
     }
+}
+
+fn gauntlet(slug: &str, force: bool, out: &mut impl Write) -> io::Result<u8> {
+    let layout = layout();
+    let config = Config::load(&layout.root).map_err(sql)?;
+    let Some(s) = store(true)? else {
+        unreachable!("store(true) creates the database");
+    };
+    let wt = board::field(&s.conn, slug, "worktree")
+        .map_err(sql)?
+        .map_or_else(|| layout.worktree(slug), |w| layout.resolve(&w));
+    let log = layout.run_dir(slug).join("gauntlet.log");
+    let outcome = gauntlet::run(
+        &s.conn,
+        slug,
+        &wt,
+        &log,
+        &config.gauntlet.steps,
+        force,
+        &board::now(),
+    )
+    .map_err(sql)?;
+    writeln!(out, "{outcome}")?;
+    Ok(if matches!(outcome, Outcome::Pass { .. }) {
+        exit::OK
+    } else {
+        exit::REFUSED
+    })
 }

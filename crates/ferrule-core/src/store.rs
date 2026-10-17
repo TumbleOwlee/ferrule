@@ -60,6 +60,14 @@ CREATE TABLE metrics (
     PRIMARY KEY (run, start)
 );
 ",
+    r"
+CREATE TABLE gauntlet_cache (
+    run  TEXT PRIMARY KEY,
+    tree TEXT NOT NULL,
+    cov  TEXT NOT NULL,
+    at   TEXT NOT NULL
+);
+",
 ];
 
 #[derive(Debug)]

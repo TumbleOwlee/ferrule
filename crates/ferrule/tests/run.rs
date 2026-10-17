@@ -375,3 +375,66 @@ fn has_ref(dir: &Path, r: &str) -> bool {
         .status
         .success()
 }
+
+const STEPS: &str = r#"
+[[gauntlet.steps]]
+name = "fmt"
+run = ["sh", "-c", "echo fmt-out"]
+
+[[gauntlet.steps]]
+name = "cov"
+run = ["sh", "-c", "echo 'TOTAL 100 20 80.00% 10 1 90.00% 500 94 81.20%'"]
+coverage = true
+"#;
+
+#[test]
+fn it_gauntlet_runs_the_configured_steps_and_caches_a_pass() {
+    let s = Scratch::new(1);
+    let g = |extra: &[&str]| {
+        let mut args = vec!["run", "gauntlet", "ss"];
+        args.extend_from_slice(extra);
+        s.run(&args).text()
+    };
+    assert_eq!(g(&[]), "gauntlet=fail step=config reason=no-steps\nexit=1");
+    s.config(STEPS);
+    let sha = git(&s.wt, &["rev-parse", "--short", "HEAD"]);
+    let pass = format!("gauntlet=pass cov=81.20% sha={sha}");
+    assert_eq!(g(&[]), format!("{pass}\nexit=0"));
+    let log = std::fs::read_to_string(s.root.join(".ferrule/runs/ss/gauntlet.log")).unwrap();
+    assert!(
+        log.starts_with("### fmt: sh -c echo fmt-out\nfmt-out\n### cov:"),
+        "{log}"
+    );
+    assert_eq!(g(&[]), format!("{pass} cached\nexit=0"));
+    assert_eq!(g(&["--force"]), format!("{pass}\nexit=0"));
+
+    std::fs::write(s.wt.join("b.txt"), "b\n").unwrap();
+    assert_eq!(
+        g(&[]),
+        format!("{pass}\nexit=0"),
+        "an untracked file misses the cache"
+    );
+    assert_eq!(git(&s.wt, &["status", "--porcelain"]), "?? b.txt");
+
+    s.config(&format!(
+        "{STEPS}\n[[gauntlet.steps]]\nname = \"lint\"\nrun = [\"false\"]\n"
+    ));
+    let log = s.root.join(".ferrule/runs/ss/gauntlet.log");
+    assert_eq!(
+        g(&["--force"]),
+        format!(
+            "gauntlet=fail step=lint sha={sha} log={}\nexit=1",
+            log.display()
+        )
+    );
+    s.config("[[gauntlet.steps]]\nname = \"test\"\nrun = [\"sleep\", \"5\"]\ntimeout_secs = 1\n");
+    assert_eq!(
+        g(&["--force"]),
+        format!(
+            "gauntlet=fail step=test sha={sha} reason=timeout log={}\nexit=1",
+            log.display()
+        )
+    );
+    std::fs::remove_dir_all(&s.wt).unwrap();
+    assert_eq!(g(&[]), "gauntlet=fail step=cd reason=no-worktree\nexit=1");
+}

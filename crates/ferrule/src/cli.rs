@@ -220,6 +220,14 @@ pub enum RunCommand {
         #[arg(long)]
         to: Option<PathBuf>,
     },
+    /// Run the gauntlet (`ferrule.toml` `[[gauntlet.steps]]`) in the run's
+    /// worktree; one status line, the output in the run's gauntlet.log.
+    Gauntlet {
+        slug: String,
+        /// Run even when this tree passed before.
+        #[arg(long)]
+        force: bool,
+    },
     /// Reconcile a run's cards with git before an interrupted run resumes.
     Reconcile { slug: String },
     /// Decide whether a green, clean-reviewed full-lane stage stops for

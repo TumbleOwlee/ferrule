@@ -7,6 +7,7 @@ pub mod attribution;
 pub mod board;
 pub mod cards;
 pub mod config;
+pub mod gauntlet;
 pub mod git;
 pub mod guard;
 pub mod markdown;
