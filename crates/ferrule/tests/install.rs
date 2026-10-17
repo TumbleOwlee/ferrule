@@ -266,3 +266,59 @@ fn it_uninstall_takes_out_what_install_put_in() {
     assert!(ferrule(root, &["uninstall", "--purge"]).ends_with("exit=0"));
     assert!(!root.join(".ferrule").exists());
 }
+
+#[test]
+fn it_install_writes_into_the_worktree_it_runs_in() {
+    let dir = repo();
+    let root = dir.path();
+    git(
+        root,
+        &[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "commit.gpgsign=false",
+            "add",
+            ".",
+        ],
+    );
+    git(
+        root,
+        &[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-qm",
+            "x",
+        ],
+    );
+    let wt = root.join("wt");
+    git(
+        root,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            wt.to_str().unwrap(),
+            "-b",
+            "feat/x",
+        ],
+    );
+    let out = ferrule(&wt, &["install"]);
+    assert!(out.ends_with("exit=0"), "{out}");
+    assert!(wt.join(".claude/agents/fe-author.md").is_file());
+    assert!(
+        !root.join(".claude").exists(),
+        "the main checkout stays untouched"
+    );
+    assert!(
+        !root.join(".ferrule").exists(),
+        "the main checkout stays untouched"
+    );
+}

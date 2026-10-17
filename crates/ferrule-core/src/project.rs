@@ -45,6 +45,28 @@ pub fn main_checkout() -> PathBuf {
     }
 }
 
+/// The checkout holding [`root`] — a worktree's own top level, not the
+/// main checkout's — for commands that write committed files. Outside git,
+/// [`root`] itself.
+#[must_use]
+pub fn toplevel() -> PathBuf {
+    let root = root();
+    let dir = if root.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        root.as_path()
+    };
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["rev-parse", "--show-toplevel"])
+        .output();
+    match out {
+        Ok(o) if o.status.success() => PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()),
+        _ => root,
+    }
+}
+
 /// Where a run's files live under the main checkout.
 #[derive(Debug, Clone)]
 pub struct Layout {

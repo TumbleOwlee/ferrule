@@ -24,7 +24,7 @@ pub fn pinned(command: &Command) -> Option<u8> {
 }
 
 pub fn install(args: &InstallArgs, out: &mut impl Write) -> io::Result<u8> {
-    let root = project::main_checkout();
+    let root = project::toplevel();
     if args.check {
         return match install::check(&root) {
             Ok(drift) if drift.is_empty() => {
@@ -85,7 +85,7 @@ pub fn install(args: &InstallArgs, out: &mut impl Write) -> io::Result<u8> {
 }
 
 pub fn uninstall(purge: bool, out: &mut impl Write) -> io::Result<u8> {
-    match install::uninstall(&project::main_checkout(), purge) {
+    match install::uninstall(&project::toplevel(), purge) {
         Ok(r) => {
             writeln!(
                 out,
