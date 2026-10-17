@@ -742,8 +742,8 @@ pub fn deny_rules(allow: &[String]) -> Vec<String> {
         "**/.claude/agents/fe-*.md",
         "**/.claude/skills/fe-*/SKILL.md",
     ] {
+        // An `Edit` rule covers every tool that writes files, `Write` included.
         out.push(format!("Edit({path})"));
-        out.push(format!("Write({path})"));
     }
     out
 }
@@ -929,6 +929,7 @@ mod tests {
         let all = deny_rules(&[]);
         assert!(all.contains(&"Bash(git commit:*)".to_owned()));
         assert!(all.contains(&"Edit(**/.ferrule/state.db)".to_owned()));
+        assert!(!all.iter().any(|r| r.starts_with("Write(")));
         let some = deny_rules(&["gh issue".to_owned()]);
         assert!(!some.iter().any(|r| r.starts_with("Bash(gh issue")));
         assert!(some.contains(&"Bash(gh pr create:*)".to_owned()));
