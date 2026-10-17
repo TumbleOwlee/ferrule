@@ -19,7 +19,7 @@ $ card-log.sh rp.s1 read path=src/lib.rs -- still nothing
 card-log=reject event=read reason=budget
 impl: status=blocked stage=s1 reason=parse_frame has no signature in the plan
 $ prompt-render.sh blocked rp stage=s1 reason=parse_frame has no signature in the plan
-Question · rp · s1 · spec-implementer · 1 decision
+Question · rp · s1 · fe-implementer · 1 decision
 ## 1. s1 is blocked: parse_frame has no signature in the plan
 Options:
 - a) answer: <text> — relayed to the implementer

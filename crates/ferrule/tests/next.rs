@@ -139,11 +139,11 @@ fn it_next_plan_rounds() {
         summary("review.verdict.md"),
     );
     for count in ["2", "1", "1"] {
-        b.next(&["ns", "plan", "status=ready", &plan, &ps]);
+        b.next(&["ns", "gate2", "status=ready", &plan, &ps]);
         let c = format!("count={count}");
         b.next(&[
             "ns",
-            "plan",
+            "gate2",
             "status=findings",
             &review,
             &verdict,
@@ -155,16 +155,16 @@ fn it_next_plan_rounds() {
     b.reset("full", "2026-10-02", 2, "clean");
     b.next(&[
         "ns",
-        "plan",
+        "gate2",
         "status=findings",
         &review,
         &verdict,
         "count=0",
         "user=0",
     ]);
-    b.next(&["ns", "plan", "status=clean", &review, &verdict]);
+    b.next(&["ns", "gate2", "status=clean", &review, &verdict]);
     for t in ["question", "arch-gap", "split", "behavior-change"] {
-        b.next(&["ns", "plan", &format!("status={t}")]);
+        b.next(&["ns", "gate2", &format!("status={t}")]);
     }
     b.log_dump();
     b.finish("run-next-plan");
@@ -174,12 +174,12 @@ fn it_next_plan_rounds() {
 fn it_next_gate2_stops_unless_fast_and_small() {
     let mut b = Board::new();
     let issue = file("issue.md");
-    let new = ["ns", "plan", "status=new", issue.as_str()];
+    let new = ["ns", "gate2", "status=new", issue.as_str()];
     b.reset("full", "2026-10-02", 2, "clean");
     b.next(&new);
     b.reset("fast", "2026-10-02", 2, "clean");
     b.next(&new);
-    b.next(&["ns", "plan", "status=reuse", "issue=41", &issue]);
+    b.next(&["ns", "gate2", "status=reuse", "issue=41", &issue]);
     b.reset("fast", "skipped", 1, "clean");
     b.next(&new);
     b.reset("fast", "2026-10-02", 3, "clean");
@@ -255,7 +255,7 @@ fn it_next_branch_review_rounds() {
     let findings = |count: &'static str, user: &'static str| {
         [
             "ns",
-            "branch",
+            "gate3",
             "status=findings",
             review.as_str(),
             verdict.as_str(),
@@ -268,7 +268,7 @@ fn it_next_branch_review_rounds() {
     b.next(&first);
     b.next(&[
         "ns",
-        "branch",
+        "gate3",
         "status=clean",
         &review,
         &verdict,
@@ -292,7 +292,7 @@ fn it_next_branch_review_rounds() {
     b.ok(&["card", "new", "ns.s2", "--state", "done"]);
     let clean = [
         "ns",
-        "branch",
+        "gate3",
         "status=clean",
         review.as_str(),
         verdict.as_str(),
@@ -309,10 +309,16 @@ fn it_next_branch_review_rounds() {
 fn it_next_pr_and_ci() {
     let mut b = Board::new();
     b.reset("full", "2026-10-02", 2, "clean");
-    b.next(&["ns", "pr", "status=ready", &file("pr.md"), "follow-ups=1"]);
     b.next(&[
         "ns",
-        "pr",
+        "gate4",
+        "status=ready",
+        &file("pr.md"),
+        "follow-ups=1",
+    ]);
+    b.next(&[
+        "ns",
+        "gate4",
         "status=question",
         &file("question.md"),
         "count=1",
@@ -329,7 +335,7 @@ fn it_next_usage() {
     b.reset("full", "2026-10-02", 2, "clean");
     b.next(&[]);
     b.next(&["ns", "nowhere", "status=ready"]);
-    b.next(&["ns", "pr", "status=new", "file=x"]);
-    b.next(&["nosuch", "plan", "status=ready"]);
+    b.next(&["ns", "gate4", "status=new", "file=x"]);
+    b.next(&["nosuch", "gate2", "status=ready"]);
     b.finish("run-next-usage");
 }

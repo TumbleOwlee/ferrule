@@ -35,8 +35,27 @@ pub fn run(args: &GuideArgs, out: &mut impl Write) -> io::Result<u8> {
         return Ok(exit::REFUSED);
     };
     let ctx = context(&layout, args)?;
-    write!(out, "{}", guide::render(&text, &ctx))?;
-    Ok(exit::OK)
+    let rendered = guide::render(&text, &ctx);
+    let body = guide::body(&rendered);
+    if args.section.is_empty() {
+        write!(out, "{body}")?;
+        return Ok(exit::OK);
+    }
+    match guide::select(body, &args.section) {
+        Ok(text) => {
+            write!(out, "{text}")?;
+            Ok(exit::OK)
+        }
+        Err(missing) => {
+            for m in missing {
+                writeln!(out, "guide=unknown-section topic={name} section={m}")?;
+            }
+            for h in guide::headings(body) {
+                writeln!(out, "section={h}")?;
+            }
+            Ok(exit::REFUSED)
+        }
+    }
 }
 
 /// The run whose worktree holds the current directory.

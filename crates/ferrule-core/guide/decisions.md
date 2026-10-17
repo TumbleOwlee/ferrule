@@ -1,6 +1,6 @@
 # decisions — decisions.md: one line per decision, every agent
 
-Read by `spec-author`, `spec-architect`, `spec-planner` and `spec-implementer` before recording a decision; `spec-reviewer` reads the file, never writes it.
+Read by `fe-author`, `fe-architect`, `fe-planner` and `fe-implementer` before recording a decision; `fe-reviewer` reads the file, never writes it.
 
 Every decision of the run, asked or settled alone, is one line appended to `{run_dir}/decisions.md` (absolute path from your brief; create it with the heading `# {slug} — decisions` when absent). Append only (`>>`), never edit or delete a line: a decision reversed later is a new line saying so, and the later line wins.
 

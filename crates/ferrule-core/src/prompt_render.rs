@@ -613,7 +613,7 @@ fn blocked(run: &mut Run, args: &[(String, String)]) -> Result<Vec<String>, Erro
     run.log("stop", &["kind=blocked"])?;
     Ok(vec![
         format!(
-            "Question · {} · {sid} · spec-implementer · 1 decision",
+            "Question · {} · {sid} · fe-implementer · 1 decision",
             run.slug
         ),
         format!("## 1. {sid} is blocked: {reason}"),
@@ -650,7 +650,7 @@ fn delta(run: &mut Run, args: &[(String, String)]) -> Result<Vec<String>, Error>
         }
     }
     let mut out = vec![format!(
-        "Question · {} · delta {sid} · spec-reviewer · {n} decision{}",
+        "Question · {} · delta {sid} · fe-reviewer · {n} decision{}",
         run.slug,
         plural(n)
     )];
@@ -753,7 +753,7 @@ fn approval_text(
         }
         Kind::Gate3 => Approval::new(
             "Gate 3",
-            strings(&["- hand the branch to spec-author for the PR body (gate 4)"]),
+            strings(&["- hand the branch to fe-author for the PR body (gate 4)"]),
             Vec::new(),
         ),
         Kind::Gate4 => gate4(run, args)?,

@@ -3,14 +3,40 @@
 //! line, and a line starting with three backticks opens or closes a fence
 //! inside which nothing is a heading.
 
-/// How a requested heading is compared with the file's heading lines.
+/// How a requested heading is compared with the file's headings.
+///
+/// A request is heading text, compared ignoring ASCII case: `Status` finds
+/// a `Status` heading at any level. Leading `#`s and a space also pin the
+/// level: `## Status` finds only level-2 ones.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Match {
-    /// The heading line equals the request; every equal heading matches.
+    /// The heading text equals the request; every equal heading matches.
     Exact,
-    /// The heading line starts with the request; only the first one matches,
-    /// so `## Stage s2:` finds `## Stage s2: <title>` and never `## Stage s20:`.
+    /// The heading text starts with the request; only the first one matches,
+    /// so `Stage s2:` finds `Stage s2: <title>` and never `Stage s20:`.
     Prefix,
+}
+
+/// A request's level, when it pins one, and its heading text.
+fn request(want: &str) -> (Option<usize>, &str) {
+    match heading_level(want) {
+        Some(level) => (Some(level), want[level..].trim()),
+        None => (None, want.trim()),
+    }
+}
+
+fn hits(line: &str, level: usize, want: (Option<usize>, &str), how: Match) -> bool {
+    if want.0.is_some_and(|l| l != level) {
+        return false;
+    }
+    let text = line[level..].trim();
+    let want = want.1;
+    match how {
+        Match::Exact => text.eq_ignore_ascii_case(want),
+        Match::Prefix => text
+            .get(..want.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(want)),
+    }
 }
 
 /// A heading line outside fenced code.
@@ -68,19 +94,20 @@ pub fn section_lines<'a>(text: &'a str, want: &str, how: Match) -> Vec<&'a str> 
     let mut printing = false;
     let mut start_level = 0;
     let mut done = false;
+    let want = request(want);
     for (line, level) in classified(text) {
         if let Some(level) = level {
             if printing && level <= start_level {
                 printing = false;
             }
-            let hit = match how {
-                Match::Exact => line == want,
-                Match::Prefix => !done && line.starts_with(want),
-            };
+            let hit = !(how == Match::Prefix && done) && hits(line, level, want, how);
             if hit {
                 done = true;
+                // A match nested in a section already printing stays part of it.
+                if !printing {
+                    start_level = level;
+                }
                 printing = true;
-                start_level = level;
                 out.push(line);
                 continue;
             }
@@ -139,6 +166,28 @@ mod tests {
             section_lines(text, "## Stage s2: b", Match::Exact),
             ["## Stage s2: b", "two"]
         );
+    }
+
+    #[test]
+    fn ut_request_without_hashes_matches_any_level() {
+        let text = "# Status\ntop\n## Status\nsub\n## Next\n";
+        assert_eq!(
+            section_lines(text, "Status", Match::Exact),
+            ["# Status", "top", "## Status", "sub", "## Next"]
+        );
+        assert_eq!(
+            section_lines(text, "## Status", Match::Exact),
+            ["## Status", "sub"]
+        );
+        assert_eq!(
+            section_lines(text, "status", Match::Exact),
+            section_lines(text, "Status", Match::Exact)
+        );
+        assert_eq!(
+            section_lines(DOC, "alpha ch", Match::Prefix),
+            ["### Alpha child", "Child body.", ""]
+        );
+        assert_eq!(section_lines(DOC, "Alph", Match::Exact), Vec::<&str>::new());
     }
 
     #[test]

@@ -33,7 +33,7 @@ pub const REPLACED: &[Replaced] = &[
     },
     Replaced {
         raw: "git worktree add",
-        instead: "ferrule run approve gate2 <slug>",
+        instead: "ferrule run approve <slug> gate2",
         why: "a run's worktree lives and dies with the run",
     },
     Replaced {
@@ -555,7 +555,7 @@ pub fn readonly(command: &str, cwd: &Path, mutating: &[String]) -> Option<String
         });
         if !program_ok || !redirects_ok {
             return Some(format!(
-                "spec-reviewer is read-only (hook-enforced): '{}' would alter the repo, the working tree, or the filesystem. The only sanctioned writes are an append ('>>' or 'tee -a') onto .ferrule/runs/<slug>/review.md and a rewrite ('>' or 'tee') of .ferrule/runs/<slug>/review.verdict.md. Never run git checkout/stash/reset or anything that touches the worktree; record what you needed to probe as a finding for the implementer instead.",
+                "fe-reviewer is read-only (hook-enforced): '{}' would alter the repo, the working tree, or the filesystem. The only sanctioned writes are an append ('>>' or 'tee -a') onto .ferrule/runs/<slug>/review.md and a rewrite ('>' or 'tee') of .ferrule/runs/<slug>/review.verdict.md. Never run git checkout/stash/reset or anything that touches the worktree; record what you needed to probe as a finding for the implementer instead.",
                 c.words.join(" ")
             ));
         }

@@ -4,10 +4,10 @@
 Goal: A client tab reconnects on its own after the server drops the connection.
 Area: modbus — requirements.md `## Client connection`
 Revisions:
-- rev 2 — added R4 for the error variant (spec-architect)
-- rev 3 — fixed IDs (spec-planner)
+- rev 2 — added R4 for the error variant (fe-architect)
+- rev 3 — fixed IDs (fe-planner)
 - rev 4 (2026-10-05) — MB-R-161 kept: retry forever; MB-E-031 kept: drop in-flight requests (user)
-- rev 5 (2026-10-06) — synced from the branch: MB-R-161 (spec-author)
+- rev 5 (2026-10-06) — synced from the branch: MB-R-161 (fe-author)
 
 ## S1 — Server restarts during polling
 Given a client tab polling a TCP server

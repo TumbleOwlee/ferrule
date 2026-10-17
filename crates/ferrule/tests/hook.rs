@@ -337,7 +337,7 @@ fn it_attribution_in_a_message_file_is_refused() {
 #[test]
 fn it_unreadable_payload_blocks() {
     let p = tempfile::tempdir().unwrap();
-    let out = run_hook("pre-tool-use", p.path(), b"not json");
+    let out = run_hook("shell", p.path(), b"not json");
     assert_eq!(out.status.code(), Some(2));
     assert!(out.stdout.is_empty());
 }
@@ -346,7 +346,7 @@ fn it_unreadable_payload_blocks() {
 fn it_other_tools_pass() {
     let p = tempfile::tempdir().unwrap();
     let payload = json!({"tool_name": "Read", "tool_input": {"file_path": "x"}, "cwd": p.path()});
-    let out = run_hook("pre-tool-use", p.path(), payload.to_string().as_bytes());
+    let out = run_hook("shell", p.path(), payload.to_string().as_bytes());
     assert_eq!(out.status.code(), Some(0));
     assert!(out.stdout.is_empty());
 }

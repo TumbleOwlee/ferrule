@@ -55,7 +55,7 @@ $ card-log.sh rp gauntlet=pass cov=81% sha=0feb5e7
 
 ## the delta review needs the user: delta stop, the user overturns the recommendation
 $ prompt-render.sh delta rp stage=s1
-Question · rp · delta s1 · spec-reviewer · 1 decision
+Question · rp · delta s1 · fe-reviewer · 1 decision
 ## 1. 1. MB-R-002 added: keep the wrap rule?
 Options:
 - a) keep (recommended)

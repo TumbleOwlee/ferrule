@@ -17,7 +17,6 @@ fn main() -> ExitCode {
     let result = match &cli.command {
         Command::Spec(command) => commands::spec::run(command, &mut out),
         Command::Card(command) => commands::card::run(command, &mut out),
-        Command::Import(args) => commands::card::import(args, &mut out),
         Command::Run(command) => commands::run::run(command, &mut out),
         Command::Prompt(command) => commands::prompt::run(command, &mut out),
         Command::Issue(command) => commands::issue::run(command, &mut out),

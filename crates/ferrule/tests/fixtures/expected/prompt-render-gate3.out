@@ -10,6 +10,6 @@ Needs user:
   - a) revert to retry forever (recommended: S1 decided by the user)
   - b) keep the 1 hour limit
 Approving will:
-- hand the branch to spec-author for the PR body (gate 4)
+- hand the branch to fe-author for the PR body (gate 4)
 Answer: approve · change <what> · stop
 exit=0

@@ -6,7 +6,7 @@ Grill the user to a common understanding of the feature and write it down as the
 
 ## Project rules
 
-`AGENTS.md` is already in your context; never re-read it. Its rules on the spec, reading, code, text and scope bind you here. Read, one batched call: `ferrule spec section '## Rules for writing specs' '## Per-area files' docs/specs/README.md`; then the sections of the affected area's `requirements.md`, `edge-cases.md`, `api-contract.md`/`data-contract.md` the goal touches. **Never read source code.** Gate 1 is existing spec + the request; whether code already matches is the implementer's discovery, how it is built the architect's.
+`AGENTS.md` is already in your context; never re-read it. Its rules on the spec, reading, code, text and scope bind you here. Read, one batched call: `ferrule spec section 'Rules for writing specs' 'Per-area files' docs/specs/README.md`; then the sections of the affected area's `requirements.md`, `edge-cases.md`, `api-contract.md`/`data-contract.md` the goal touches. **Never read source code.** Gate 1 is existing spec + the request; whether code already matches is the implementer's discovery, how it is built the architect's.
 
 ## Grilling — gate 1
 
@@ -57,7 +57,7 @@ Answer: a · b · other <text>
 Goal: <one line>
 Area: <area> — requirements.md `## <heading>`, edge-cases.md `## <heading>`, api-contract.md
 Revisions:
-- rev 2 — <what changed and what forced it> (<spec-architect | spec-planner | spec-author | user>)
+- rev 2 — <what changed and what forced it> (<fe-architect | fe-planner | fe-author | user>)
 
 ## S1 — <scenario, ≤ 8 words>
 Given <state>

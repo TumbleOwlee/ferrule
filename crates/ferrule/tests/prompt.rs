@@ -15,7 +15,7 @@ const NOW: &str = "2026-10-05T09:00";
 fn project() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     let board = fixtures().join("board");
-    let got = ferrule(dir.path(), &["import", board.to_str().unwrap()]).text();
+    let got = ferrule(dir.path(), &["card", "import", board.to_str().unwrap()]).text();
     assert_eq!(got, "import=ok cards=13\nexit=0");
     copy_dir(&board.join("artifacts"), &dir.path().join(".ferrule/runs"));
     config(dir.path(), "[viewer]\ncommand = [\"true\"]\n");
@@ -181,45 +181,66 @@ fn stops(p: &Path) -> String {
 fn it_render_every_stop() {
     let p = project();
     let p = p.path();
-    render(p, &["gate1", "demo"]).golden("prompt-render-gate1");
-    render(
-        p,
-        &["gate1", "demo", "size=epic", "reason=two areas, 14 entries"],
-    )
-    .golden("prompt-render-gate1-epic");
-    render(p, &["arch", "demo"]).golden("prompt-render-arch");
-    render(p, &["gate2", "demo", "issue=new"]).golden("prompt-render-gate2");
+    render(p, &["demo", "gate1"]).golden("prompt-render-gate1");
     render(
         p,
         &[
-            "stage",
             "demo",
-            "stage=s1",
-            "reason=verification",
-            "detail=demo TUI",
+            "gate1",
+            "--epic",
+            "--reason",
+            "two areas, 14 entries",
+        ],
+    )
+    .golden("prompt-render-gate1-epic");
+    render(p, &["demo", "arch"]).golden("prompt-render-arch");
+    render(p, &["demo", "gate2", "--issue", "new"]).golden("prompt-render-gate2");
+    render(
+        p,
+        &[
+            "demo",
+            "stage",
+            "--stage",
+            "s1",
+            "--reason",
+            "verification",
+            "--detail",
+            "demo TUI",
         ],
     )
     .golden("prompt-render-stage");
-    render(p, &["replan", "demo", "from=s2"]).golden("prompt-render-replan");
-    render(p, &["gate3", "demo"]).golden("prompt-render-gate3");
-    render(p, &["gate4", "demo"]).golden("prompt-render-gate4");
-    render(p, &["question", "demo", "where=gate1", "agent=spec-author"])
-        .golden("prompt-render-question");
+    render(p, &["demo", "replan", "--from", "s2"]).golden("prompt-render-replan");
+    render(p, &["demo", "gate3"]).golden("prompt-render-gate3");
+    render(p, &["demo", "gate4"]).golden("prompt-render-gate4");
     render(
         p,
         &[
-            "blocked",
             "demo",
-            "stage=s2",
-            "reason=the parse_frame reference names no signature",
+            "question",
+            "--where",
+            "gate1",
+            "--agent",
+            "fe-author",
+        ],
+    )
+    .golden("prompt-render-question");
+    render(
+        p,
+        &[
+            "demo",
+            "blocked",
+            "--stage",
+            "s2",
+            "--reason",
+            "the parse_frame reference names no signature",
         ],
     )
     .golden("prompt-render-blocked");
-    render(p, &["delta", "demo", "stage=s1"]).golden("prompt-render-delta");
-    render(p, &["auto", "demo", "stage=s1"]).golden("prompt-render-auto");
-    render(p, &["gate2-notice", "demo", "issue=new"]).golden("prompt-render-gate2-notice");
-    render(p, &["replan-notice", "demo", "from=s3"]).golden("prompt-render-replan-notice");
-    render(p, &["epic", "lb"]).golden("prompt-render-epic");
+    render(p, &["demo", "delta", "--stage", "s1"]).golden("prompt-render-delta");
+    render(p, &["demo", "auto", "--stage", "s1"]).golden("prompt-render-auto");
+    render(p, &["demo", "gate2-notice", "--issue", "new"]).golden("prompt-render-gate2-notice");
+    render(p, &["demo", "replan-notice", "--from", "s3"]).golden("prompt-render-replan-notice");
+    render(p, &["lb", "epic"]).golden("prompt-render-epic");
     check("prompt-render-stops", &stops(p));
 }
 
@@ -227,18 +248,18 @@ fn it_render_every_stop() {
 fn it_render_approved_records_what_was_shown() {
     let p = project();
     let p = p.path();
-    assert!(render(p, &["gate2", "demo"]).text().ends_with("exit=0"));
-    render(p, &["approved", "demo"]).golden("prompt-render-approved");
-    render(p, &["arch", "demo"]).golden("prompt-render-since-rev");
+    assert!(render(p, &["demo", "gate2"]).text().ends_with("exit=0"));
+    render(p, &["demo", "approved"]).golden("prompt-render-approved");
+    render(p, &["demo", "arch"]).golden("prompt-render-since-rev");
     let set = |kv: &str| assert_eq!(ferrule(p, &["card", "set", "demo", kv]).text(), "exit=0");
     set("gate1=");
     set("lane=fast");
-    render(p, &["arch", "demo"]).golden("prompt-render-arch-fast");
+    render(p, &["demo", "arch"]).golden("prompt-render-arch-fast");
     let plan = art(p, "demo", "plan.summary.md");
     let mut text = std::fs::read_to_string(&plan).unwrap();
     text.extend((1..=40).map(|i| format!("- line {i}\n")));
     std::fs::write(&plan, text).unwrap();
-    assert_eq!(render(p, &["gate2", "demo"]).text(), "exit=3");
+    assert_eq!(render(p, &["demo", "gate2"]).text(), "exit=3");
 }
 
 #[test]
@@ -246,7 +267,7 @@ fn it_render_without_a_viewer_names_the_files() {
     let p = project();
     let p = p.path();
     config(p, "");
-    let out = render(p, &["gate3", "demo"]).text();
+    let out = render(p, &["demo", "gate3"]).text();
     let root = p.canonicalize().unwrap();
     let out = out.replace(root.to_str().unwrap(), "<P>");
     assert_eq!(
@@ -259,8 +280,8 @@ fn it_render_without_a_viewer_names_the_files() {
 fn it_render_usage() {
     let p = project();
     let p = p.path();
-    assert_eq!(render(p, &["nope", "demo"]).text(), "exit=2");
-    assert_eq!(render(p, &["gate1", "demo", "loose"]).text(), "exit=2");
-    assert_eq!(render(p, &["gate1", "nosuch"]).text(), "exit=2");
-    assert_eq!(render(p, &["auto", "demo"]).text(), "exit=2");
+    assert_eq!(render(p, &["demo", "nope"]).text(), "exit=2");
+    assert_eq!(render(p, &["demo", "gate1", "loose"]).text(), "exit=2");
+    assert_eq!(render(p, &["nosuch", "gate1"]).text(), "exit=2");
+    assert_eq!(render(p, &["demo", "auto"]).text(), "exit=2");
 }

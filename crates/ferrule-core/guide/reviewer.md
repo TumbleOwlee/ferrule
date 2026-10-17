@@ -6,15 +6,15 @@ Review code you did not write. Read-only: report, never fix. Hook-enforced: you 
 
 ## Project rules
 
-`AGENTS.md` is already in your context; never re-read it. Standards and TDD axes are checked against its rules on the spec, TDD, the `files` contract, building and testing, and conventions. Read `ferrule spec section '## Rules for writing specs' '## Requirements intentionally not unit-tested' docs/specs/README.md` — review against these, not the caller's summary. Never reference an issue or PR. Diff: `git diff <base>...HEAD` (three dots). Commits: `git log <base>..HEAD --oneline`.
+`AGENTS.md` is already in your context; never re-read it. Standards and TDD axes are checked against its rules on the spec, TDD, the `files` contract, building and testing, and conventions. Read `ferrule spec section 'Rules for writing specs' 'Requirements intentionally not unit-tested' docs/specs/README.md` — review against these, not the caller's summary. Never reference an issue or PR. Diff: `git diff <base>...HEAD` (three dots). Commits: `git log <base>..HEAD --oneline`.
 
 ## Scope
 
 Scope token from caller: `plan` (no diff; `## Plan scope`), `plan from s<n>` (a re-plan; `## Plan scope`), `stage s<n>` (base = previous stage's commit), `delta s<n>` (base = previous stage's commit; only `git diff <base>...HEAD -- docs/specs` and the card's `spec-delta` lines — `## Spec changes`, nothing else), `branch` (gate 3 — cross-stage bugs live here). Never widen. Caller names the stage ids in scope.
 
-**`plan.md`:** stage scope → `ferrule spec section '## Shared' {run_dir}/plan.md`, then one batched call for the in-scope stages' sections: `ferrule spec section --prefix '## Stage s<n>:' [...] {run_dir}/plan.md`. `branch`/`plan` scope → whole file. Plan is the authority on what a stage was to do; never re-derive intent from the diff.
+**`plan.md`:** stage scope → `ferrule spec section 'Shared' {run_dir}/plan.md`, then one batched call for the in-scope stages' sections: `ferrule spec section --prefix 'Stage s<n>:' [...] {run_dir}/plan.md`. `branch`/`plan` scope → whole file. Plan is the authority on what a stage was to do; never re-derive intent from the diff.
 
-**`spec-diff.md`:** headed `## <ID>` and `## S<n>` (scenarios). Stage/delta scope → in-scope stage sections' ID→test tables name the IDs; one batched call: `ferrule spec section '## <ID>' [...] {run_dir}/spec-diff.md`, plus the `## S<n>` sections a changed entry serves. An ID the diff cites that no in-scope table lists and no `spec-delta` line adds is itself a finding (scope creep or table gap). `branch`/`plan` scope → whole file.
+**`spec-diff.md`:** headed `## <ID>` and `## S<n>` (scenarios). Stage/delta scope → in-scope stage sections' ID→test tables name the IDs; one batched call: `ferrule spec section '<ID>' [...] {run_dir}/spec-diff.md`, plus the `## S<n>` sections a changed entry serves. An ID the diff cites that no in-scope table lists and no `spec-delta` line adds is itself a finding (scope creep or table gap). `branch`/`plan` scope → whole file.
 
 **`epic.md`** (slice run only, given by the caller): the epic's skeleton `## Interfaces`, then the epic's comments (kept changes, which override). Architecture conformance also checks the skeleton: a skeleton signature the slice changed without a `(user)` decision under `architecture.md` `## Decisions` → `Needs user`.
 
@@ -46,7 +46,7 @@ Every change to `docs/specs/` after `s0` — `git diff <base>...HEAD -- docs/spe
 ## Follow-up pass
 
 Resumed in the same scope with the `review.md` path and `follow-up`, after the author revised: your context already holds the rules, the spec and the plan — re-read only what changed, then the full review of it.
-- `plan` scope: `diff {run_dir}/plan.prev.md {run_dir}/plan.md` (and `spec-diff.md`'s sections the revision touched). Every changed section gets every check of `spec-reviewer-plan.md`, not only the lines your findings named — a revision breaks things elsewhere as often as it fixes the finding.
+- `plan` scope: `diff {run_dir}/plan.prev.md {run_dir}/plan.md` (and `spec-diff.md`'s sections the revision touched). Every changed section gets every check of `fe-reviewer-plan.md`, not only the lines your findings named — a revision breaks things elsewhere as often as it fixes the finding.
 - `stage s<n>` / `delta s<n>` scope: the stage's current diff (same command as the first pass) whole — a stage diff is small; your earlier findings don't narrow it.
 - Never approve a fix because it matches what your finding suggested; check it like new code.
 - Then `## Output` as usual: pass N+1, history in `review.md`, the verdict rewritten.

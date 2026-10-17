@@ -9,13 +9,13 @@ use ferrule_core::{approval, board, prompt_lines};
 
 use super::card::{sql, store};
 use super::exit;
-use crate::cli::PromptCommand;
+use crate::cli::{PromptCommand, PromptKind, PromptRenderArgs};
 
 pub fn run(command: &PromptCommand, out: &mut impl Write) -> io::Result<u8> {
     match command {
         PromptCommand::Lines { files, seen } => lines(files, *seen, out),
         PromptCommand::Show { files, no_lines } => show(files, !*no_lines, out),
-        PromptCommand::Render { kind, slug, args } => render(kind, slug, args, out),
+        PromptCommand::Render(args) => render(args, out),
     }
 }
 
@@ -144,23 +144,59 @@ fn show(files: &[PathBuf], with_lines: bool, out: &mut impl Write) -> io::Result
     Ok(code)
 }
 
-fn render(kind: &str, slug: &str, args: &[String], out: &mut impl Write) -> io::Result<u8> {
-    let usage = || {
-        eprintln!(
-            "usage: ferrule prompt render <gate1|arch|epic|gate2|stage|replan|gate3|gate4|question|blocked|delta|auto|gate2-notice|replan-notice|approved> <slug> [k=v ...]"
-        );
-        Ok(exit::USAGE)
-    };
-    let Some(kind) = Kind::parse(kind) else {
-        return usage();
-    };
-    let mut pairs = Vec::new();
-    for a in args {
-        let Some((k, v)) = a.split_once('=') else {
-            return usage();
-        };
-        pairs.push((k.to_owned(), v.to_owned()));
+fn kind(k: PromptKind) -> Kind {
+    match k {
+        PromptKind::Gate1 => Kind::Gate1,
+        PromptKind::Arch => Kind::Arch,
+        PromptKind::Epic => Kind::Epic,
+        PromptKind::Gate2 => Kind::Gate2,
+        PromptKind::Stage => Kind::Stage,
+        PromptKind::Replan => Kind::Replan,
+        PromptKind::Gate3 => Kind::Gate3,
+        PromptKind::Gate4 => Kind::Gate4,
+        PromptKind::Question => Kind::Question,
+        PromptKind::Blocked => Kind::Blocked,
+        PromptKind::Delta => Kind::Delta,
+        PromptKind::Auto => Kind::Auto,
+        PromptKind::Gate2Notice => Kind::Gate2Notice,
+        PromptKind::ReplanNotice => Kind::ReplanNotice,
+        PromptKind::Approved => Kind::Approved,
     }
+}
+
+/// The flags as the `(key, value)` pairs `prompt_render` reads.
+fn pairs(args: &PromptRenderArgs) -> Vec<(String, String)> {
+    let mut pairs = Vec::new();
+    let stages = [("stage", args.stage), ("from", args.from)];
+    for (k, n) in stages {
+        if let Some(n) = n {
+            pairs.push((k.to_owned(), format!("s{n}")));
+        }
+    }
+    let texts = [
+        ("reason", &args.reason),
+        ("detail", &args.detail),
+        ("recommend", &args.recommend),
+        ("issue", &args.issue),
+        ("pr", &args.pr),
+        ("where", &args.at),
+        ("agent", &args.agent),
+    ];
+    for (k, v) in texts {
+        if let Some(v) = v {
+            pairs.push((k.to_owned(), v.clone()));
+        }
+    }
+    if args.epic {
+        pairs.push(("size".to_owned(), "epic".to_owned()));
+    }
+    pairs
+}
+
+fn render(args: &PromptRenderArgs, out: &mut impl Write) -> io::Result<u8> {
+    let slug = args.slug.as_str();
+    let kind = kind(args.kind);
+    let pairs = pairs(args);
     let Some(mut s) = store(false)? else {
         eprintln!("prompt render: no card for {slug}");
         return Ok(exit::USAGE);
@@ -200,7 +236,10 @@ fn render(kind: &str, slug: &str, args: &[String], out: &mut impl Write) -> io::
             }
             Ok(exit::OK)
         }
-        Err(prompt_render::Error::Usage) => usage(),
+        Err(prompt_render::Error::Usage) => {
+            eprintln!("prompt render: a flag this kind needs is missing; see --help");
+            Ok(exit::USAGE)
+        }
         Err(prompt_render::Error::Card) => {
             eprintln!("prompt render: no card for {slug}");
             Ok(exit::USAGE)

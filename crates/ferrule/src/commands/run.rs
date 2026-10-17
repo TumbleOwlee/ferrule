@@ -15,7 +15,7 @@ use ferrule_core::store::DIR;
 
 use super::card::{sql, store};
 use super::exit;
-use crate::cli::{NextAt, ReplanStep, RunCommand};
+use crate::cli::{ApproveArgs, GateName, NextAt, ReplanStep, RunCommand};
 
 fn layout() -> Layout {
     Layout::new(project::main_checkout())
@@ -26,7 +26,7 @@ pub fn run(command: &RunCommand, out: &mut impl Write) -> io::Result<u8> {
         RunCommand::ShaCheck { slug, stage, sha } => sha_check(slug, *stage, sha, out),
         RunCommand::Reconcile { slug, local } => reconcile(slug, *local, out),
         RunCommand::Init { slug, issue } => init(slug, issue.as_deref(), out),
-        RunCommand::Approve { gate, slug, args } => approve(gate, slug, args, out),
+        RunCommand::Approve(args) => approve(args, out),
         RunCommand::Replan { slug, step, stops } => replan(slug, *step, stops.as_deref(), out),
         RunCommand::Ci { slug } => ci(slug, out),
         RunCommand::Gauntlet { slug, force } => gauntlet(slug, *force, out),
@@ -264,10 +264,10 @@ fn gauntlet(slug: &str, force: bool, out: &mut impl Write) -> io::Result<u8> {
 
 fn next_step(slug: &str, at: NextAt, status: &[String], out: &mut impl Write) -> io::Result<u8> {
     let at = match at {
-        NextAt::Plan => At::Plan,
+        NextAt::Gate2 => At::Gate2,
         NextAt::Replan => At::Replan,
-        NextAt::Branch => At::Branch,
-        NextAt::Pr => At::Pr,
+        NextAt::Gate3 => At::Gate3,
+        NextAt::Gate4 => At::Gate4,
         NextAt::Ci => At::Ci,
     };
     let status = Status::parse(status);
@@ -399,20 +399,31 @@ fn init(slug: &str, issue: Option<&str>, out: &mut impl Write) -> io::Result<u8>
     }
 }
 
-fn approve(gate_name: &str, slug: &str, args: &[String], out: &mut impl Write) -> io::Result<u8> {
-    let Some(g) = Gate::parse(gate_name) else {
-        eprintln!(
-            "usage: ferrule run approve <gate1|arch|epic|gate2|stage|replan|delta|gate3|gate4> <slug> [k=v ...]"
-        );
-        return Ok(exit::USAGE);
+fn approve(args: &ApproveArgs, out: &mut impl Write) -> io::Result<u8> {
+    let (g, gate_name) = match args.gate {
+        GateName::Gate1 => (Gate::Gate1, "gate1"),
+        GateName::Arch => (Gate::Arch, "arch"),
+        GateName::Epic => (Gate::Epic, "epic"),
+        GateName::Gate2 => (Gate::Gate2, "gate2"),
+        GateName::Stage => (Gate::Other, "stage"),
+        GateName::Replan => (Gate::Other, "replan"),
+        GateName::Delta => (Gate::Other, "delta"),
+        GateName::Gate3 => (Gate::Other, "gate3"),
+        GateName::Gate4 => (Gate::Other, "gate4"),
     };
+    let slug = args.slug.as_str();
     let mut pairs = Vec::new();
-    for a in args {
-        let Some((k, v)) = a.split_once('=') else {
-            eprintln!("approve: expected key=value, got {a}");
-            return Ok(exit::USAGE);
-        };
-        pairs.push((k.to_owned(), v.to_owned()));
+    let mut pair = |k: &str, v: Option<&String>| {
+        if let Some(v) = v {
+            pairs.push((k.to_owned(), v.clone()));
+        }
+    };
+    pair("lane", args.lane.as_ref());
+    pair("issue", args.issue.as_ref());
+    pair("branch", args.branch.as_ref());
+    pair("stops", args.stops.as_ref());
+    if args.epic {
+        pairs.push(("kind".to_owned(), "epic".to_owned()));
     }
     let layout = layout();
     let config = Config::load(&layout.root).map_err(sql)?;

@@ -1,6 +1,6 @@
 # author-late — The split issue and gate 4's sync, PR text and follow-ups
 
-Read by `spec-author` only when resumed for a split or for gate 4; everything in `ferrule guide author` still applies.
+Read by `fe-author` only when resumed for a split or for gate 4; everything in `ferrule guide author` still applies.
 
 ## Split issue — `split-issue.md`
 
@@ -33,7 +33,7 @@ Existing IDs only, never a planned one. No issue number anywhere — the orchest
 
 ## Gate 4 — sync, then `pr.md`
 
-**Sync first.** In the worktree, `git diff {main}...HEAD -- docs/specs` is the run's final spec. Rewrite `spec-diff.md` to match it: one `## <ID>` section per entry the branch added, changed or dropped, headings keep their ` · was R<n>` suffix (the PR's Issue column reads it), scenarios kept, `## Deferred` removed; bump the rev, add `- rev N (<date>) — synced from the branch: <IDs that differ from the filed text> (spec-author)`, then one dated line per ID changed since filing, `- rev N (<date>) — <ID>: <what changed, plain words> (<user | review | impl>)`. Origin = the last `spec-delta <ID> … origin=` of `grep -h ' spec-delta ' <board>/*/{slug}.md <board>/*/{slug}.s*.md`, or `review` for a change with no card line (an architect or planner edit after filing). `ferrule pr body full` renders them under `## Spec changes since filing`, quoting the user.
+**Sync first.** In the worktree, `git diff {main}...HEAD -- docs/specs` is the run's final spec. Rewrite `spec-diff.md` to match it: one `## <ID>` section per entry the branch added, changed or dropped, headings keep their ` · was R<n>` suffix (the PR's Issue column reads it), scenarios kept, `## Deferred` removed; bump the rev, add `- rev N (<date>) — synced from the branch: <IDs that differ from the filed text> (fe-author)`, then one dated line per ID changed since filing, `- rev N (<date>) — <ID>: <what changed, plain words> (<user | review | impl>)`. Origin = the last `spec-delta <ID> … origin=` of `grep -h ' spec-delta ' <board>/*/{slug}.md <board>/*/{slug}.s*.md`, or `review` for a change with no card line (an architect or planner edit after filing). `ferrule pr body full` renders them under `## Spec changes since filing`, quoting the user.
 
 **Then `pr.md`**, full form. Inputs: `spec-diff.md`, `plan.md`, `review.md`, `review.verdict.md`, `gauntlet.log` (its coverage line), `git log {main}..HEAD --stat` in the worktree. Line 1 = `issue.md`'s line 1. The orchestrator prepends the status line and appends scenarios, requirements, spec changes, architecture, decisions and the closing line; write none of them. No stage id, gate or agent name in prose; file, module and script names in backticks — only spans holding `.` or `/` are exempt, a bare stage id in backticks is still refused (`ferrule pr body` refuses otherwise, exit 3 `body=refused stage-ref=…`). Then `## Gate 4 — follow-ups`, and answer `status=ready file={run_dir}/pr.md follow-ups=<n>`.
 

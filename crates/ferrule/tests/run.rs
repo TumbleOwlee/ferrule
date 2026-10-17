@@ -290,7 +290,7 @@ fn pushed_run() -> Scratch {
     };
     let board = golden::fixtures().join("board");
     assert_eq!(
-        s.say(&["import", board.to_str().unwrap()]),
+        s.say(&["card", "import", board.to_str().unwrap()]),
         "import=ok cards=13"
     );
     for slug in ["demo", "nospec"] {

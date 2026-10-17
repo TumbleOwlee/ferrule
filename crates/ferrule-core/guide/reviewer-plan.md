@@ -1,6 +1,6 @@
 # reviewer-plan — Plan and re-plan checks
 
-Read by `spec-reviewer` only in scope `plan` or `plan from s<n>` (its `## Plan scope`); everything in `ferrule guide reviewer` still applies.
+Read by `fe-reviewer` only in scope `plan` or `plan from s<n>` (its `## Plan scope`); everything in `ferrule guide reviewer` still applies.
 
 ## Plan checks
 

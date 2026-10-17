@@ -181,8 +181,7 @@ fn it_render_only_keeps_named_ids_and_uncited_rows_with_first() {
         "entries",
         "--only",
         "R1",
-        "--first",
-        "1",
+        "--with-unnumbered",
     ])
     .golden("spec-render-entries-only");
 }
@@ -226,7 +225,7 @@ fn it_render_writes_fixed_ids_back_as_local_ids() {
 fn it_render_pr_form_marks_requirements_reworded_after_filing() {
     let p = tempfile::tempdir().unwrap();
     let board = fixtures().join("board");
-    let imported = Run::new(["import", board.to_str().unwrap()])
+    let imported = Run::new(["card", "import", board.to_str().unwrap()])
         .env("CLAUDE_PROJECT_DIR", p.path())
         .cwd(p.path())
         .text();

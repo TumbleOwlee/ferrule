@@ -87,6 +87,24 @@ impl Topic {
     pub fn parse(name: &str) -> Option<Topic> {
         Topic::ALL.iter().copied().find(|t| t.name() == name)
     }
+
+    /// Read by a spawned agent rather than the orchestrator.
+    #[must_use]
+    pub fn is_agent(self) -> bool {
+        matches!(
+            self,
+            Topic::Author
+                | Topic::AuthorLate
+                | Topic::Architect
+                | Topic::ArchitectEpic
+                | Topic::Planner
+                | Topic::PlannerReplan
+                | Topic::Implementer
+                | Topic::Reviewer
+                | Topic::ReviewerPlan
+                | Topic::Decisions
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -328,6 +346,68 @@ fn sections(text: &str) -> Vec<(String, usize, usize)> {
         .collect()
 }
 
+/// A heading's text without its `#`s and without the marks `render` adds,
+/// `(fast lane)`, `(full lane)`, `(done)`.
+fn heading_text(line: &str) -> &str {
+    let text = line.trim_start_matches('#').trim();
+    if let Some((bare, mark)) = text.rsplit_once(" (")
+        && let Some(mark) = mark.strip_suffix(')')
+        && mark
+            .split(", ")
+            .all(|m| matches!(m, "fast lane" | "full lane" | "done"))
+    {
+        return bare;
+    }
+    text
+}
+
+/// The topic without its `# <name> — <summary>` line, which only `list`
+/// shows.
+#[must_use]
+pub fn body(text: &str) -> &str {
+    if !text.starts_with("# ") {
+        return text;
+    }
+    let rest = text.split_once('\n').map_or("", |(_, r)| r);
+    rest.trim_start_matches('\n')
+}
+
+/// The text of every heading in `text`, in order.
+#[must_use]
+pub fn headings(text: &str) -> Vec<String> {
+    sections(text)
+        .into_iter()
+        .map(|(h, _, _)| heading_text(&h).to_owned())
+        .collect()
+}
+
+/// The sections whose heading text equals one of `wanted`, ignoring case,
+/// in the order asked; `Err` names the headings `text` lacks.
+pub fn select(text: &str, wanted: &[String]) -> Result<String, Vec<String>> {
+    let all = sections(text);
+    let mut out = String::new();
+    let mut missing = Vec::new();
+    for w in wanted {
+        match all
+            .iter()
+            .find(|(h, _, _)| heading_text(h).eq_ignore_ascii_case(heading_text(w)))
+        {
+            Some((_, start, end)) => {
+                if !out.is_empty() && !out.ends_with("\n\n") {
+                    out.push('\n');
+                }
+                out.push_str(&text[*start..*end]);
+            }
+            None => missing.push(w.clone()),
+        }
+    }
+    if missing.is_empty() {
+        Ok(out)
+    } else {
+        Err(missing)
+    }
+}
+
 /// `default` with `over` laid on top (module docs).
 #[must_use]
 pub fn merge(default: &str, over: &str) -> String {
@@ -407,25 +487,31 @@ fn summary(text: &str) -> &str {
         .map_or(first.trim_start_matches("# "), |(_, s)| s)
 }
 
-/// Every topic, `<name>  <summary>`, overridden ones marked.
+/// Every topic, `<name>  <summary>`, under an `Orchestrator:`, `Agents:`
+/// and `Project:` heading; overridden ones marked.
 #[must_use]
 pub fn list(root: &Path) -> Vec<String> {
     let local = project_topics(root);
-    let mut out: Vec<String> = Topic::ALL
-        .iter()
-        .map(|t| {
-            let text = load(root, t.name()).unwrap_or_default();
-            let mark = if local.iter().any(|n| n == t.name()) {
-                " (project override)"
-            } else {
-                ""
-            };
-            format!("{:<15} {}{mark}", t.name(), summary(&text))
-        })
-        .collect();
-    for name in local.iter().filter(|n| Topic::parse(n).is_none()) {
+    let line = |t: &Topic| {
+        let text = load(root, t.name()).unwrap_or_default();
+        let mark = if local.iter().any(|n| n == t.name()) {
+            " (project override)"
+        } else {
+            ""
+        };
+        format!("  {:<15} {}{mark}", t.name(), summary(&text))
+    };
+    let mut out = vec!["Orchestrator:".to_owned()];
+    out.extend(Topic::ALL.iter().filter(|t| !t.is_agent()).map(line));
+    out.push("Agents:".to_owned());
+    out.extend(Topic::ALL.iter().filter(|t| t.is_agent()).map(line));
+    let own: Vec<&String> = local.iter().filter(|n| Topic::parse(n).is_none()).collect();
+    if !own.is_empty() {
+        out.push("Project:".to_owned());
+    }
+    for name in own {
         let text = load(root, name).unwrap_or_default();
-        out.push(format!("{name:<15} {} (project)", summary(&text)));
+        out.push(format!("  {name:<15} {}", summary(&text)));
     }
     out
 }
@@ -444,8 +530,31 @@ fn references(text: &str) -> Vec<&str> {
         .collect()
 }
 
+/// The `(topic, heading)` pairs of every `ferrule guide <topic> --section
+/// '<heading>'` in `text`; a heading without quotes is one word.
+fn section_references(text: &str) -> Vec<(&str, &str)> {
+    let mut out = Vec::new();
+    for (i, m) in text.match_indices("ferrule guide ") {
+        let rest = &text[i + m.len()..];
+        let rest = &rest[..rest.find('`').unwrap_or(rest.len())];
+        let name = rest.split_whitespace().next().unwrap_or("");
+        let mut args = rest;
+        while let Some(at) = args.find("--section ") {
+            let value = &args[at + "--section ".len()..];
+            let (heading, tail) = match value.strip_prefix('\'') {
+                Some(q) => q.split_once('\'').unwrap_or((q, "")),
+                None => value.split_once(' ').unwrap_or((value, "")),
+            };
+            out.push((name, heading));
+            args = tail;
+        }
+    }
+    out
+}
+
 /// What is wrong with the guide as the project sees it: a topic another
-/// names that does not exist, a malformed tag, a project topic without its
+/// names that does not exist, a section reference whose topic lacks the
+/// heading, a malformed tag, a project topic without its
 /// `# <name> — <summary>` line. Empty when sound.
 #[must_use]
 pub fn check(root: &Path) -> Vec<String> {
@@ -460,6 +569,16 @@ pub fn check(root: &Path) -> Vec<String> {
         for r in references(&text) {
             if !names.iter().any(|n| n == r) {
                 problems.push(format!("topic={name} names-unknown={r}"));
+            }
+        }
+        for (topic, heading) in section_references(&text) {
+            let target = load(root, topic).unwrap_or_default();
+            if names.iter().any(|n| n == topic)
+                && !headings(&target)
+                    .iter()
+                    .any(|h| h.eq_ignore_ascii_case(heading))
+            {
+                problems.push(format!("topic={name} names-unknown={topic}#{heading}"));
             }
         }
         for line in markdown::lines(&text) {
@@ -562,6 +681,54 @@ mod tests {
         assert_eq!(tag("<!-- lane: fast -->"), Some(Ok(Tag::Lane(Lane::Fast))));
         assert!(matches!(tag("<!-- lane: slow -->"), Some(Err(_))));
         assert_eq!(tag("<!-- note: x -->"), None);
+    }
+
+    #[test]
+    fn ut_select_body_and_section_references() {
+        let text = "# t — x\n\nintro\n\n## A\n\na1\n\n### A.1\n\nsub\n\n## B b\n\nb1\n";
+        assert_eq!(
+            body(text),
+            "intro\n\n## A\n\na1\n\n### A.1\n\nsub\n\n## B b\n\nb1\n"
+        );
+        assert_eq!(body("## A\n"), "## A\n");
+        assert_eq!(
+            select(text, &["b B".into(), "a".into()]),
+            Ok("## B b\n\nb1\n\n## A\n\na1\n\n### A.1\n\nsub\n\n".into())
+        );
+        assert_eq!(select(text, &["C".into()]), Err(vec!["C".into()]));
+        assert_eq!(
+            select(
+                "## Fast lane (fast lane, done)\n\nx\n",
+                &["fast lane".into()]
+            ),
+            Ok("## Fast lane (fast lane, done)\n\nx\n".into())
+        );
+        assert_eq!(headings("## Gate (2)\n"), ["Gate (2)"]);
+        assert_eq!(
+            section_references(
+                "see `ferrule guide stages --section 'Full lane' --section Output`, `ferrule guide x`"
+            ),
+            [("stages", "Full lane"), ("stages", "Output")]
+        );
+    }
+
+    #[test]
+    fn ut_list_groups_agent_topics_last() {
+        let dir = tempfile::tempdir().unwrap();
+        let list = list(dir.path());
+        let agents = list.iter().position(|l| l == "Agents:").unwrap();
+        assert_eq!(list[0], "Orchestrator:");
+        assert!(
+            list[1..agents]
+                .iter()
+                .any(|l| l.trim_start().starts_with("gate2 "))
+        );
+        assert!(
+            list[agents..]
+                .iter()
+                .any(|l| l.trim_start().starts_with("implementer "))
+        );
+        assert!(!list.iter().any(|l| l == "Project:"));
     }
 
     #[test]

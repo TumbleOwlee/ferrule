@@ -52,10 +52,22 @@ fn it_guide_cuts_to_the_cards_lane_and_state() {
     ok(root, &["card", "log", "demo", "pr=ready"]);
     let gate4 = ok(root, &["guide", "gate4", "--slug", "demo"]);
     assert!(
-        gate4.contains("(done)\n- **Approved** → `ferrule run approve gate4 demo`"),
+        gate4.contains("(done)\n- **Approved** → `ferrule run approve demo gate4`"),
         "{gate4}"
     );
     assert!(!gate4.contains("(done)\n- **CI**"), "{gate4}");
+
+    assert!(!gate4.starts_with("# "), "{gate4}");
+    let fast = ok(root, &["guide", "stages", "--section", "fast lane"]);
+    assert!(fast.starts_with("## Fast lane"), "{fast}");
+    assert!(!fast.contains("## Full lane"), "{fast}");
+    let missing = ferrule(root, root, &["guide", "stages", "--section", "Nope"]);
+    assert!(
+        missing
+            .starts_with("guide=unknown-section topic=stages section=Nope\nsection=Every stage\n"),
+        "{missing}"
+    );
+    assert!(missing.ends_with("exit=1"), "{missing}");
 }
 
 #[test]
@@ -105,15 +117,15 @@ fn it_guide_check_flags_unknown_topics_and_bad_tags() {
     std::fs::create_dir_all(&guide).unwrap();
     std::fs::write(
         guide.join("deploy.md"),
-        "# deploy — Shipping a release\n\nThen `ferrule guide releases`.\n\n<!-- lane: slow -->\nx\n",
+        "# deploy — Shipping a release\n\nThen `ferrule guide releases`, `ferrule guide stages --section 'Nope'`.\n\n<!-- lane: slow -->\nx\n",
     )
     .unwrap();
     assert_eq!(
         ferrule(root, root, &["guide", "--check"]),
-        "guide-check=fail topic=deploy names-unknown=releases\nguide-check=fail topic=deploy bad-tag=<!-- lane: slow -->\nexit=1"
+        "guide-check=fail topic=deploy names-unknown=releases\nguide-check=fail topic=deploy names-unknown=stages#Nope\nguide-check=fail topic=deploy bad-tag=<!-- lane: slow -->\nexit=1"
     );
     assert!(
-        ok(root, &["guide", "--list"]).contains("deploy          Shipping a release (project)\n")
+        ok(root, &["guide", "--list"]).contains("Project:\n  deploy          Shipping a release\n")
     );
     assert_eq!(
         ferrule(root, root, &["guide", "nosuch"]),

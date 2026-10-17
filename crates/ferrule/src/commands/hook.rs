@@ -48,9 +48,6 @@ pub fn run(command: &HookCommand, input: &mut impl Read, out: &mut impl Write) -
     let verdict = match command {
         HookCommand::Shell => shell(cmd, &cwd),
         HookCommand::Attribution => attribution(cmd, &cwd, &payload.tool_input),
-        HookCommand::PreToolUse => {
-            shell(cmd, &cwd).or_else(|| attribution(cmd, &cwd, &payload.tool_input))
-        }
         HookCommand::Reviewer => reviewer(cmd, &cwd),
         HookCommand::SessionStart | HookCommand::Git { .. } => None,
     };

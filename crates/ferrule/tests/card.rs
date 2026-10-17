@@ -10,7 +10,7 @@ const NOW: &str = "2026-10-05T09:00";
 fn project() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     let board = fixtures().join("board");
-    let got = ferrule(dir.path(), &["import", board.to_str().unwrap()]).text();
+    let got = ferrule(dir.path(), &["card", "import", board.to_str().unwrap()]).text();
     assert_eq!(got, "import=ok cards=13\nexit=0");
     dir
 }
@@ -317,7 +317,7 @@ fn it_new_and_set_validate_fields() {
 fn it_import_is_all_or_nothing() {
     let p = project();
     let board = fixtures().join("board");
-    let again = ferrule(p.path(), &["import", board.to_str().unwrap()]).text();
+    let again = ferrule(p.path(), &["card", "import", board.to_str().unwrap()]).text();
     assert!(again.starts_with("import=refused reason=card "), "{again}");
 
     let bad = tempfile::tempdir().unwrap();
@@ -329,7 +329,11 @@ fn it_import_is_all_or_nothing() {
     )
     .unwrap();
     let fresh = tempfile::tempdir().unwrap();
-    let got = ferrule(fresh.path(), &["import", bad.path().to_str().unwrap()]).text();
+    let got = ferrule(
+        fresh.path(),
+        &["card", "import", bad.path().to_str().unwrap()],
+    )
+    .text();
     assert!(got.contains("unknown frontmatter key color"), "{got}");
     assert_eq!(ferrule(fresh.path(), &["card", "board"]).text(), "exit=0");
 }

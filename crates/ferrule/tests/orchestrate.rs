@@ -214,15 +214,15 @@ fn through_gate2(p: &Project) {
     );
     p.artifacts();
 
-    p.ok(&["prompt", "render", "gate1", "demo"]);
-    let gate1 = p.ok(&["run", "approve", "gate1", "demo", "lane=full"]);
+    p.ok(&["prompt", "render", "demo", "gate1"]);
+    let gate1 = p.ok(&["run", "approve", "demo", "gate1", "--lane", "full"]);
     assert!(
         gate1.starts_with("approve=done gate=gate1 spec-rev=5"),
         "{gate1}"
     );
     assert_eq!(p.field("demo", "gate1"), "2026-10-05");
     assert_eq!(p.field("demo", "lane"), "full");
-    p.ok(&["run", "approve", "arch", "demo"]);
+    p.ok(&["run", "approve", "demo", "arch"]);
 
     gh.serve(
         &[
@@ -248,7 +248,7 @@ fn through_gate2(p: &Project) {
         ],
         "https://github.com/o/r/issues/12\n",
     );
-    let gate2 = p.ok(&["run", "approve", "gate2", "demo", "issue=new"]);
+    let gate2 = p.ok(&["run", "approve", "demo", "gate2", "--issue", "new"]);
     assert!(
         gate2.starts_with(
             "approve=done gate=gate2 issue=12 worktree=.ferrule/worktrees/demo stages=3"
@@ -480,7 +480,7 @@ fn it_replan_swaps_the_uncommitted_stages() {
         ],
         r#"[{"number":12,"title":"Reconnect dropped Modbus clients"}]"#,
     );
-    let gate2 = p.ok(&["run", "approve", "gate2", "demo"]);
+    let gate2 = p.ok(&["run", "approve", "demo", "gate2"]);
     assert!(gate2.contains("issue=12 "), "adopted: {gate2}");
     let sha0 = p.land("s0", "docs/specs/modbus/requirements.md");
     p.ok(&[

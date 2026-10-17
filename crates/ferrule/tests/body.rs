@@ -12,7 +12,7 @@ use golden::{Run, fixtures};
 fn project() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     let board = fixtures().join("board");
-    let got = ferrule(dir.path(), &["import", board.to_str().unwrap()]).text();
+    let got = ferrule(dir.path(), &["card", "import", board.to_str().unwrap()]).text();
     assert_eq!(got, "import=ok cards=13\nexit=0");
     copy_dir(&board.join("artifacts"), &dir.path().join(".ferrule/runs"));
     dir
@@ -82,7 +82,7 @@ fn it_issue_body_refuses_stage_and_agent_names() {
     for (i, (line, golden)) in [
         ("Today s3 restarts it.", Some("issue-body-refused")),
         (
-            "Today the spec-architect restarts it.",
+            "Today the fe-architect restarts it.",
             Some("issue-body-refused-agent"),
         ),
         ("Today `s3` restarts it.", Some("issue-body-refused-code")),

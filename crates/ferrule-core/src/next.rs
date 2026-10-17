@@ -13,13 +13,13 @@ use crate::project::Layout;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum At {
     /// Planner, plan reviewer, the spec author's issue answer.
-    Plan,
+    Gate2,
     /// A re-plan's planner and plan reviewer.
     Replan,
-    /// A review in scope branch.
-    Branch,
-    /// The spec author at gate 4.
-    Pr,
+    /// The branch review.
+    Gate3,
+    /// The spec author's PR body.
+    Gate4,
     /// `ci=<exit code of gh pr checks>`.
     Ci,
 }
@@ -28,10 +28,10 @@ impl At {
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
-            At::Plan => "plan",
+            At::Gate2 => "gate2",
             At::Replan => "replan",
-            At::Branch => "branch",
-            At::Pr => "pr",
+            At::Gate3 => "gate3",
+            At::Gate4 => "gate4",
             At::Ci => "ci",
         }
     }
@@ -189,7 +189,7 @@ pub fn next(
         return Err(Error::Card);
     }
     let events = board::events(conn, slug)?;
-    let window: Vec<&str> = if at == At::Plan {
+    let window: Vec<&str> = if at == At::Gate2 {
         events.iter().map(|(_, b)| b.as_str()).collect()
     } else {
         let from = events
@@ -219,29 +219,29 @@ pub fn next(
     };
     let mut branch_clean = false;
     match (at, word.as_str()) {
-        (At::Plan | At::Replan | At::Pr, "question") => {
+        (At::Gate2 | At::Replan | At::Gate4, "question") => {
             c.next("relay", None);
             c.act("relay the question file to the user and resume the agent with the answers");
             c.guide(Topic::Question);
         }
-        (At::Plan | At::Replan, "arch-gap") => {
+        (At::Gate2 | At::Replan, "arch-gap") => {
             c.next("arch-gap", None);
             c.act("spawn the architect, then resume the planner with its summary");
             c.gate_guide();
         }
-        (At::Plan | At::Replan, "split") => {
+        (At::Gate2 | At::Replan, "split") => {
             c.next("split", None);
             c.act("handle the split request");
             c.guide(Topic::Split);
         }
-        (At::Plan | At::Replan, "behavior-change") => {
+        (At::Gate2 | At::Replan, "behavior-change") => {
             c.next("behavior-change", None);
             c.act(
                 "the plan found a behavior change in a non-behavior run: back to the spec author",
             );
             c.guide(Topic::Principles);
         }
-        (At::Plan | At::Replan, "ready") => {
+        (At::Gate2 | At::Replan, "ready") => {
             if plan_reviews
                 .last()
                 .is_some_and(|t| t.starts_with("plan-review=findings"))
@@ -254,15 +254,15 @@ pub fn next(
             }
             c.gate_guide();
         }
-        (At::Plan | At::Replan, "findings" | "clean") => {
+        (At::Gate2 | At::Replan, "findings" | "clean") => {
             plan_review(&mut c, &word, round, count, &events)?;
         }
-        (At::Plan, "new" | "reuse") => gate2_decision(&mut c, &word, status)?,
-        (At::Branch, "findings") if count > 0 => branch_findings(&mut c, count)?,
-        (At::Branch, "findings" | "clean") => branch_clean = true,
-        (At::Pr, "ready") => {
+        (At::Gate2, "new" | "reuse") => gate2_decision(&mut c, &word, status)?,
+        (At::Gate3, "findings") if count > 0 => branch_findings(&mut c, count)?,
+        (At::Gate3, "findings" | "clean") => branch_clean = true,
+        (At::Gate4, "ready") => {
             c.next("stop", None);
-            c.run(&format!("ferrule prompt render gate4 {slug}"));
+            c.run(&format!("ferrule prompt render {slug} gate4"));
             c.act("show the gate 4 stop and wait for the user's approval");
             c.guide(Topic::Gate4);
         }
@@ -299,7 +299,7 @@ fn plan_review(
     } else {
         c.log(&["plan-review=clean", &round_kv])?;
     }
-    if c.at == At::Plan {
+    if c.at == At::Gate2 {
         ask_issue(c);
         Ok(())
     } else {
@@ -369,12 +369,14 @@ fn gate2_decision(c: &mut Ctx, word: &str, status: &Status) -> rusqlite::Result<
     let slug = c.slug;
     if let Some(r) = reason {
         c.next("stop", Some(r));
-        c.run(&format!("ferrule prompt render gate2 {slug} issue={issue}"));
+        c.run(&format!(
+            "ferrule prompt render {slug} gate2 --issue {issue}"
+        ));
         c.act("show the gate 2 stop and wait for the user's approval");
     } else {
         c.next("notice", None);
         c.run(&format!(
-            "ferrule prompt render gate2-notice {slug} issue=new"
+            "ferrule prompt render {slug} gate2-notice --issue new"
         ));
         c.act("show the notice without stopping, then act on approval as if given");
     }
@@ -427,13 +429,15 @@ fn replan_decision(c: &mut Ctx, events: &[(String, String)]) -> rusqlite::Result
     let slug = c.slug;
     if let Some(r) = reason {
         c.next("stop", Some(r));
-        c.run(&format!("ferrule prompt render replan {slug} from={from}"));
+        c.run(&format!(
+            "ferrule prompt render {slug} replan --from {from}"
+        ));
         c.act("show the re-plan stop and wait for the user's approval");
     } else {
         c.log(&["replan=pre-authorized"])?;
         c.next("notice", None);
         c.run(&format!(
-            "ferrule prompt render replan-notice {slug} from={from}"
+            "ferrule prompt render {slug} replan-notice --from {from}"
         ));
         c.act("show the notice without stopping, then continue with the re-planned stages");
     }
@@ -473,7 +477,7 @@ fn branch_resolved(c: &mut Ctx, window: &[&str]) -> rusqlite::Result<()> {
         c.guide(Topic::StageReview);
     } else if c.needs_user() && c.field("lane")?.as_deref() == Some("full") {
         c.next("stop", None);
-        c.run(&format!("ferrule prompt render gate3 {slug}"));
+        c.run(&format!("ferrule prompt render {slug} gate3"));
         c.act("show the gate 3 stop with the open Needs user item");
         c.guide(Topic::Gate3);
     } else {

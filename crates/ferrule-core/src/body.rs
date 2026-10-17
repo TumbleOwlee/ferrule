@@ -36,11 +36,11 @@ impl From<rusqlite::Error> for Error {
 }
 
 const AGENTS: [&str; 6] = [
-    "spec-author",
-    "spec-architect",
-    "spec-planner",
-    "spec-implementer",
-    "spec-reviewer",
+    "fe-author",
+    "fe-architect",
+    "fe-planner",
+    "fe-implementer",
+    "fe-reviewer",
     "orchestrator",
 ];
 
@@ -977,8 +977,8 @@ mod tests {
         assert_eq!(stage_ref("```\ns1\n```\n"), None);
         assert_eq!(stage_ref("uses2 and s2x"), None);
         assert_eq!(
-            stage_ref("the Spec-Architect said").as_deref(),
-            Some("spec-architect")
+            stage_ref("the Fe-Architect said").as_deref(),
+            Some("fe-architect")
         );
     }
 

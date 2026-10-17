@@ -1,4 +1,5 @@
 use std::io::{self, Write};
+use std::path::Path;
 
 use ferrule_core::board::{self, CardError, LogError, MoveError, State};
 use ferrule_core::config::Config;
@@ -7,7 +8,7 @@ use ferrule_core::store::{OpenError, Store};
 use ferrule_core::{project, vocab};
 
 use super::exit;
-use crate::cli::{CardCommand, CardState, ImportArgs};
+use crate::cli::{CardCommand, CardState};
 
 pub(crate) fn sql(e: impl std::fmt::Display) -> io::Error {
     io::Error::other(e.to_string())
@@ -68,6 +69,7 @@ pub fn run(command: &CardCommand, out: &mut impl Write) -> io::Result<u8> {
         CardCommand::Commit { card, message, .. } => commit(card.as_deref(), message, out),
         CardCommand::Show { card } => show(card, out),
         CardCommand::Board => list(out),
+        CardCommand::Import { board } => import(board, out),
         CardCommand::Vocab => {
             write!(out, "{}", vocab::table())?;
             Ok(exit::OK)
@@ -237,11 +239,11 @@ fn set(card: &str, fields: &[String], out: &mut impl Write) -> io::Result<u8> {
     Ok(exit::OK)
 }
 
-pub fn import(args: &ImportArgs, out: &mut impl Write) -> io::Result<u8> {
+fn import(board_dir: &Path, out: &mut impl Write) -> io::Result<u8> {
     let Some(mut s) = store(true)? else {
         unreachable!("store(true) creates the database");
     };
-    match board::import(&mut s.conn, &args.board, &board::now()) {
+    match board::import(&mut s.conn, board_dir, &board::now()) {
         Ok(n) => {
             writeln!(out, "import=ok cards={n}")?;
             Ok(exit::OK)

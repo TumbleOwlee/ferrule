@@ -4,7 +4,7 @@
 Goal: Modbus read ranges are edited in a separate module settings dialog (`:module`), so loading a module from a device-config file keeps that file's ranges.
 Area: modbus — requirements.md `## Module settings dialog`
 Revisions:
-- rev 5 (2026-10-16) — synced from the branch: MB-R-293, MB-R-294, MB-R-301 (spec-author)
+- rev 5 (2026-10-16) — synced from the branch: MB-R-293, MB-R-294, MB-R-301 (fe-author)
 - rev 6 (2026-10-16) — MB-R-294: `Esc` opens the close-confirmation popup instead of closing directly, following UI-R-023 (user)
 - rev 6 (2026-10-16) — MB-R-293: the inputs' text is trimmed, a whitespace-only input leaves its field unset, as the old setup-dialog inputs did (review)
 - rev 6 (2026-10-16) — MB-R-301: the error box tracks the inputs live instead of appearing only after a refused `Enter` (user)

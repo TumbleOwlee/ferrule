@@ -12,7 +12,7 @@ No issue/PR/tracker knowledge — never reference one; orchestrator owns that.
 
 ## Your stage
 
-Given `plan.md`'s path and your stage id(s): pull only your section(s), one batched call: `ferrule spec section --prefix '## Stage s<n>:' ['## Shared'] {run_dir}/plan.md` (the title is display-only) (`## Shared` only if your steps point to it). A step citing `(code map: `<anchor>`)` → pull those entries in one call: `ferrule spec section --prefix '### `<anchor>`' […] {run_dir}/architecture.md`. Plan refs and cited entries carry the exact existing signature/pattern each step needs. **Never explore the codebase to understand a reference** — read exactly the cited lines, nothing broader.
+Given `plan.md`'s path and your stage id(s): pull only your section(s), one batched call: `ferrule spec section --prefix 'Stage s<n>:' ['Shared'] {run_dir}/plan.md` (the title is display-only) (`## Shared` only if your steps point to it). A step citing `(code map: `<anchor>`)` → pull those entries in one call: `ferrule spec section --prefix '`<anchor>`' […] {run_dir}/architecture.md`. Plan refs and cited entries carry the exact existing signature/pattern each step needs. **Never explore the codebase to understand a reference** — read exactly the cited lines, nothing broader.
 
 **Read budget.** A reference too thin to act on: up to **3 reads per stage** before `blocked`, each a file in your stage's `files` list or the file a cited code-map entry names, each logged before you read it: `ferrule card log <id> read path=<path> -- <what the plan left out>`. `ferrule card log` refuses a fourth (`reason=budget`). Still thin → the plan is wrong (`status=blocked`, `## Ask or stop`); never search beyond the budget.
 
@@ -47,7 +47,7 @@ Given up to 3 code stages of the run (`s0` aside) — and only the plan: a slice
 
 After `s0` the branch's `docs/specs/` is the spec, and it settles with the code. Implementation shows an entry wrong, incomplete or missing (a `## Deferred` item owned by `implementation` included): change `docs/specs/` inside the current stage's commit and keep going. A new entry takes the next free ID of its prefix and series (`-R-` or `-E-`): one above the highest of the branch's `docs/specs/` (`grep -rhoE '<PREFIX>-R-[0-9]+' docs/specs/ | sort -t- -k3 -n | tail -1`), the fixed IDs in `{run_dir}/spec-diff.md`, and every `spec-delta <ID> added` on the run's cards (`ferrule card show {slug}` and each `ferrule card show {slug}.s<n>` — the parent card keeps those of stages a re-plan replaced) — so a number dropped earlier in the run is never reused. `docs/specs/README.md` rules bind the text. Log each change on your card (`spec-delta`, below) and report the count in your status line (`delta=<n>`).
 
-A reviewer classifies every change; one that contradicts a scenario or a user decision goes to the user, who may have you revert it. Before such a change, read the entry's and the scenarios' sections of `{run_dir}/spec-diff.md` (`ferrule spec section '## <ID>' '## S<n>' …`); make it only when the code leaves no way around it. Never change an entry to make a failing test pass when the code is what is wrong.
+A reviewer classifies every change; one that contradicts a scenario or a user decision goes to the user, who may have you revert it. Before such a change, read the entry's and the scenarios' sections of `{run_dir}/spec-diff.md` (`ferrule spec section '<ID>' 'S<n>' …`); make it only when the code leaves no way around it. Never change an entry to make a failing test pass when the code is what is wrong.
 
 ## Stage flow
 

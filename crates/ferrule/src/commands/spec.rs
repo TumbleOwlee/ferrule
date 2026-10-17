@@ -188,7 +188,7 @@ fn render(args: &RenderArgs, out: &mut impl Write) -> io::Result<u8> {
         .filter(|o| !o.is_empty());
     let opts = spec_diff::Render {
         only,
-        first: args.first == 1,
+        first: args.with_unnumbered,
         issue_ids,
     };
     write!(

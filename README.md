@@ -9,23 +9,23 @@ Under construction. Implemented so far:
 | Command | Does |
 |---|---|
 | `ferrule spec sections <file>…` | List a markdown file's headings, fenced code skipped |
-| `ferrule spec section [--prefix] <heading>… <file>` | Print the named sections |
+| `ferrule spec section [--prefix] <heading>… <file>` | Print sections by heading text (`Status`, any case; `## Status` pins the level) |
 | `ferrule spec id [--dir <dir>] <ID>…` | Find spec entries by fixed ID as `file:line:text` |
 | `ferrule spec related <keyword>…` | Spec entries mentioning a keyword |
 | `ferrule spec collisions <worktree> [<ref>]` | Fixed IDs both this branch and the target ref define |
-| `ferrule spec render <spec-diff> <part> [--only <ids>] [--first 0\|1] [--issue-ids]` | Render scenarios, requirements, entries, changes or deferred points of a spec diff |
+| `ferrule spec render <spec-diff> <part> [--only <ids>] [--with-unnumbered] [--issue-ids]` | Render scenarios, requirements, entries, changes or deferred points of a spec diff |
 | `ferrule card field <card> <field>` | A frontmatter field, `log:<key>`, `pass-sha` or `state` |
 | `ferrule card log <card> <event> [pos…] [k=v…] [-- text]` | Append one event the vocabulary accepts |
 | `ferrule card move <card> <state>` | Move a card, refusing what the board's rules forbid; re-renders the run's draft PR body |
 | `ferrule card commit <card> -m <msg>` / `--no-run -m <msg>` | Commit for a stage in review: never on the main branch, trailers stripped, `commit=` logged |
 | `ferrule card show <card>` / `card board` / `card vocab` | A card as markdown, every card, the event vocabulary |
 | `ferrule card new <card> [--state s] [k=v…]` / `card set <card> k=v…` | Create a card, set or clear its fields |
-| `ferrule import <board-dir>` | Load a markdown board into `.ferrule/state.db`, all or nothing |
+| `ferrule card import <board-dir>` | Load a markdown board into `.ferrule/state.db`, all or nothing |
 | `ferrule run init <slug> [--issue <n>]` | Start a run: parent card, run directory, the named issue's request and brief; a slice's epic |
-| `ferrule run approve <gate> <slug> [k=v…]` | Record an approval; gate 2 files the issue, adds the worktree, creates the stage cards from `plan.md`'s `## Shared` table |
+| `ferrule run approve <slug> <gate> [--<flag>…]` | Record an approval; gate 2 files the issue, adds the worktree, creates the stage cards from `plan.md`'s `## Shared` table |
 | `ferrule run replan <slug> start\|approve [--stops s1,…]` | Snapshot the plan and log `from=`; swap the uncommitted stage cards for the new plan's |
 | `ferrule run ci <slug>` | Wait for the PR's checks, log `ci=`, print the next step and the failed run's errors |
-| `ferrule run next <slug> <plan\|replan\|branch\|pr\|ci> <status…>` | The next step after an agent's status line |
+| `ferrule run next <slug> <gate2\|replan\|gate3\|gate4\|ci> <status…>` | The next step after an agent's status line |
 | `ferrule run sha-check <slug> s<n> <sha>` | Verify a reported commit before anything is pushed |
 | `ferrule run stage-stop <slug> s<n> [--threads n]` | Stop or auto-continue a clean stage, logged on its card |
 | `ferrule run reconcile <slug> [--local]` | Cards against git, and the issue, PR and PR body on the host, before an interrupted run resumes |
@@ -36,7 +36,7 @@ Under construction. Implemented so far:
 | `ferrule run export <slug> [--archive id] [--to dir]` | Write an archive back out as files |
 | `ferrule prompt lines [--seen n] <file>…` | The lines of approval files a prompt quotes, then `Confirm:` |
 | `ferrule prompt show [--no-lines] <file>…` | Open files in the `[viewer]` (else stdout) and record the run's approval marker; exit 3 for a summary over its cap |
-| `ferrule prompt render <kind> <slug> [k=v…]` | A stop's whole message (approval, question, notice) or the `approved` record; logs the stop |
+| `ferrule prompt render <slug> <kind> [--<flag>…]` | A stop's whole message (approval, question, notice) or the `approved` record; logs the stop |
 | `ferrule issue view <n\|url\|KEY>` | An issue's title, body and comments as compact text |
 | `ferrule issue request <n> [--spec\|--epic\|--slice-line\|--comments]` | A reused issue's original request, or the part named |
 | `ferrule issue body <slug> [--slice <n>]` | The tracking issue's body from the run's artifacts; exit 3 when it names a stage or an agent |
@@ -51,14 +51,13 @@ Under construction. Implemented so far:
 | `ferrule pr failed [<branch>]` | The error lines of the branch's latest failed CI run |
 | `ferrule hook shell` | Session-wide Bash guard: refuses writes to `.ferrule/state.db` and the lock, output floods, and the raw git and `gh` calls ferrule runs itself, naming the command to run instead |
 | `ferrule hook attribution` | Hands the Bash command back with attribution trailers removed |
-| `ferrule hook pre-tool-use` | `shell` and `attribution` in one call |
 | `ferrule hook reviewer` | Read-only Bash guard for the reviewer agent |
 | `ferrule hook session-start` | Names the cards an interrupted run left in progress |
 | `ferrule hook git pre-commit\|commit-msg\|pre-push` | Git hooks: no commit or push to the main branch; trailers stripped from commit messages |
 | `ferrule pr push --no-run` | Push the current branch outside a run, never the main one |
 | `ferrule install [--stack s] [--force]` / `--check` | Set up or upgrade `.ferrule/` and the Claude Code adapters; `--check` fails on drift |
 | `ferrule uninstall [--purge]` | Remove what install added |
-| `ferrule guide <topic> [--slug <s>] [--stage s<n>] [--lane fast\|full]` | One topic of the workflow's instructions, cut to the run's lane, steps the card shows done marked, placeholders filled; `--list`, `--check` |
+| `ferrule guide <topic> [--section <heading>…] [--slug <s>] [--stage s<n>] [--lane fast\|full]` | One topic of the workflow's instructions, or some of its sections, cut to the run's lane, steps the card shows done marked, placeholders filled; `--list` groups orchestrator and agent topics, `--check` |
 
 ## Guide
 
@@ -68,9 +67,10 @@ The workflow's instructions ship inside the binary as topics (`crates/ferrule-co
 - `<!-- done: <token> -->` marks a block `(done)` once the run's parent card carries the token (`pr=ready`, or a bare field name such as `gate2`).
 - `{slug}`, `{stage}`, `{card}`, `{run_dir}`, `{worktree}`, `{branch}`, `{issue}`, `{pr}`, `{main}` are filled from the run; unknown ones print as `<slug>`.
 - A project overrides a topic with `.ferrule/guide/<topic>.md`. Without headings the file replaces the topic; with headings each of its sections replaces the default's section of the same heading, and a section the default lacks is appended. A file naming no shipped topic is a topic of the project's own; its first line is `# <topic> — <summary>`.
-- `ferrule guide --check` fails when a topic names a topic that does not exist or carries a malformed tag.
+- `ferrule guide --check` fails when a topic names a topic or a `--section` that does not exist, or carries a malformed tag.
+- A topic points at part of another as `ferrule guide <topic> --section '<heading>'`.
 
-`plan.md`'s `## Shared` section opens with the stage table `ferrule run approve gate2` creates the stage cards from (`ferrule guide planner` defines it):
+`plan.md`'s `## Shared` section opens with the stage table `ferrule run approve <slug> gate2` creates the stage cards from (`ferrule guide planner` defines it):
 
 ```
 | Stage | Title | Files | Blocked by |

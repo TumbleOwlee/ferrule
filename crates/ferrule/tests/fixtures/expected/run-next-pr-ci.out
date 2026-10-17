@@ -1,10 +1,10 @@
-$ run next ns pr status=ready file=.claude/tasks/artifacts/ns/pr.md follow-ups=1
+$ run next ns gate4 status=ready file=.claude/tasks/artifacts/ns/pr.md follow-ups=1
 next=stop
-run: ferrule prompt render gate4 ns
+run: ferrule prompt render ns gate4
 do: show the gate 4 stop and wait for the user's approval
 guide: ferrule guide gate4 --slug ns
 exit=0
-$ run next ns pr status=question file=.claude/tasks/artifacts/ns/question.md count=1
+$ run next ns gate4 status=question file=.claude/tasks/artifacts/ns/question.md count=1
 next=relay
 do: relay the question file to the user and resume the agent with the answers
 guide: ferrule guide question --slug ns

@@ -510,7 +510,7 @@ mod tests {
 
     #[test]
     fn ut_revision_needs_date_and_decider() {
-        assert_eq!(revision("- rev 3 — fixed IDs (spec-planner)"), None);
+        assert_eq!(revision("- rev 3 — fixed IDs (fe-planner)"), None);
         let r = revision("- rev 4 (2026-10-05) — A; B (user)").unwrap();
         assert_eq!(r.items, ["A", "B"]);
         assert_eq!(r.who, "user");
