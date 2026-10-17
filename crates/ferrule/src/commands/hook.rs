@@ -2,7 +2,8 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
 use ferrule_core::attribution::{self, Rewrite};
-use ferrule_core::guard;
+use ferrule_core::config::Config;
+use ferrule_core::{guard, project};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -40,7 +41,7 @@ pub fn run(command: &HookCommand, input: &mut impl Read, out: &mut impl Write) -
     let cwd = payload.cwd.clone().unwrap_or_else(|| PathBuf::from("."));
     let verdict = match command {
         HookCommand::PreToolUse => pre_tool_use(cmd, &cwd, &payload.tool_input),
-        HookCommand::Reviewer => guard::readonly(cmd, &cwd).map(Verdict::Deny),
+        HookCommand::Reviewer => reviewer(cmd, &cwd),
     };
     let output = match verdict {
         None => return Ok(exit::OK),
@@ -67,6 +68,15 @@ enum Verdict {
     Deny(String),
     /// The whole tool input with the command replaced.
     Rewrite(Value),
+}
+
+/// The reviewer's guard with the project's extra mutating commands; a
+/// config it cannot read refuses the call rather than guess.
+fn reviewer(cmd: &str, cwd: &Path) -> Option<Verdict> {
+    match Config::load(&project::main_checkout()) {
+        Ok(config) => guard::readonly(cmd, cwd, &config.hook.readonly.mutating).map(Verdict::Deny),
+        Err(e) => Some(Verdict::Deny(format!("ferrule hook reviewer: {e}"))),
+    }
 }
 
 fn pre_tool_use(cmd: &str, cwd: &Path, tool_input: &Value) -> Option<Verdict> {

@@ -172,12 +172,12 @@ fn it_stage_stop_rules_in_order() {
 
     std::fs::write(s.wt.join("a.txt"), "a\n").unwrap();
     std::fs::write(s.wt.join("b.txt"), "b\nc\n").unwrap();
-    s.config("[stage_stop]\nfiles = 1\n");
+    s.config("[thresholds]\nstage_stop_files = 1\n");
     assert_eq!(
         stop("s1"),
         "stop=6 reason=diff-size detail=\"3 lines, 2 files\""
     );
-    s.config("[stage_stop]\nfiles = 2\n");
+    s.config("[thresholds]\nstage_stop_files = 2\n");
     assert_eq!(stop("s1"), "auto");
     assert_eq!(stop("s9"), "stage-stop=card");
 }
@@ -377,14 +377,14 @@ fn has_ref(dir: &Path, r: &str) -> bool {
 }
 
 const STEPS: &str = r#"
-[[gauntlet.steps]]
+[[gauntlet.step]]
 name = "fmt"
-run = ["sh", "-c", "echo fmt-out"]
+cmd = ["sh", "-c", "echo fmt-out"]
 
-[[gauntlet.steps]]
+[[gauntlet.step]]
 name = "cov"
-run = ["sh", "-c", "echo 'TOTAL 100 20 80.00% 10 1 90.00% 500 94 81.20%'"]
-coverage = true
+cmd = ["sh", "-c", "echo 'TOTAL 100 20 80.00% 10 1 90.00% 500 94 81.20%'"]
+coverage = "llvm-cov"
 "#;
 
 #[test]
@@ -417,7 +417,7 @@ fn it_gauntlet_runs_the_configured_steps_and_caches_a_pass() {
     assert_eq!(git(&s.wt, &["status", "--porcelain"]), "?? b.txt");
 
     s.config(&format!(
-        "{STEPS}\n[[gauntlet.steps]]\nname = \"lint\"\nrun = [\"false\"]\n"
+        "{STEPS}\n[[gauntlet.step]]\nname = \"lint\"\ncmd = [\"false\"]\n"
     ));
     let log = s.root.join(".ferrule/runs/ss/gauntlet.log");
     assert_eq!(
@@ -427,7 +427,7 @@ fn it_gauntlet_runs_the_configured_steps_and_caches_a_pass() {
             log.display()
         )
     );
-    s.config("[[gauntlet.steps]]\nname = \"test\"\nrun = [\"sleep\", \"5\"]\ntimeout_secs = 1\n");
+    s.config("[[gauntlet.step]]\nname = \"test\"\ncmd = [\"sleep\", \"5\"]\ntimeout = \"1s\"\n");
     assert_eq!(
         g(&["--force"]),
         format!(

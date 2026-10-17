@@ -16,6 +16,7 @@ fn run_hook(kind: &str, cwd: &Path, payload: &[u8]) -> std::process::Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_ferrule"))
         .args(["hook", kind])
         .current_dir(cwd)
+        .env("CLAUDE_PROJECT_DIR", cwd)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -354,4 +355,24 @@ fn it_other_tools_pass() {
     let out = run_hook("pre-tool-use", p.path(), payload.to_string().as_bytes());
     assert_eq!(out.status.code(), Some(0));
     assert!(out.stdout.is_empty());
+}
+
+#[test]
+fn it_reviewer_refuses_the_configured_mutating_commands() {
+    let p = tempfile::tempdir().unwrap();
+    std::fs::create_dir(p.path().join(".ferrule")).unwrap();
+    std::fs::write(
+        p.path().join(".ferrule/ferrule.toml"),
+        "[hook.readonly]\nmutating = [\"npm install\"]\n",
+    )
+    .unwrap();
+    check(
+        "reviewer",
+        p.path(),
+        &[
+            ("npm install left-pad", "deny"),
+            ("npm ls", "allow"),
+            ("env CI=1 npm install", "deny"),
+        ],
+    );
 }

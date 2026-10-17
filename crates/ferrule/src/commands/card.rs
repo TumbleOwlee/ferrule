@@ -1,6 +1,7 @@
 use std::io::{self, Write};
 
 use ferrule_core::board::{self, CardError, LogError, MoveError, State};
+use ferrule_core::config::Config;
 use ferrule_core::store::{OpenError, Store};
 use ferrule_core::{project, vocab};
 
@@ -103,7 +104,15 @@ fn log(card: &str, event: &str, args: &[String], out: &mut impl Write) -> io::Re
         writeln!(out, "card-log=card")?;
         return Ok(exit::REFUSED);
     };
-    match board::log(&mut s.conn, card, event, args, &board::now()) {
+    let config = Config::load(&project::main_checkout()).map_err(sql)?;
+    match board::log_with_budget(
+        &mut s.conn,
+        card,
+        event,
+        args,
+        &board::now(),
+        config.thresholds.read_budget,
+    ) {
         Ok(()) => Ok(exit::OK),
         Err(LogError::Card) => {
             writeln!(out, "card-log=card")?;

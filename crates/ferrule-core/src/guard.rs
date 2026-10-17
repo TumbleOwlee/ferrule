@@ -451,9 +451,10 @@ fn readonly_gh(args: &[String]) -> bool {
 
 /// The reviewer's guard: nothing that alters the repository, the working
 /// tree or the filesystem, except appending to the run's `review.md` and
-/// rewriting its `review.verdict.md`.
+/// rewriting its `review.verdict.md`. `mutating` adds word prefixes to
+/// refuse (`cargo add`).
 #[must_use]
-pub fn readonly(command: &str, cwd: &Path) -> Option<String> {
+pub fn readonly(command: &str, cwd: &Path, mutating: &[String]) -> Option<String> {
     let mut cwd = cwd.to_path_buf();
     for c in shell::parse(command) {
         let program = shell::program(&c.words);
@@ -468,7 +469,7 @@ pub fn readonly(command: &str, cwd: &Path) -> Option<String> {
                 let (append, targets) = tee_targets(args);
                 targets.iter().all(|t| writable(&cwd, t, append))
             }
-            _ => readonly_program(name, args),
+            _ => readonly_program(name, args) && !has_prefix(name, args, mutating),
         });
         let redirects_ok = c.redirects.iter().all(|r| match r.kind {
             RedirectKind::Append => writable(&cwd, &r.target, true),
@@ -483,6 +484,17 @@ pub fn readonly(command: &str, cwd: &Path) -> Option<String> {
         }
     }
     None
+}
+
+/// Whether the command's words start with one of `prefixes`' words.
+fn has_prefix(name: &str, args: &[String], prefixes: &[String]) -> bool {
+    let words: Vec<&str> = std::iter::once(name)
+        .chain(args.iter().map(String::as_str))
+        .collect();
+    prefixes.iter().any(|p| {
+        let p: Vec<&str> = p.split_whitespace().collect();
+        !p.is_empty() && words.starts_with(&p)
+    })
 }
 
 fn writable(cwd: &Path, target: &str, append: bool) -> bool {

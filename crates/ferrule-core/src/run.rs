@@ -281,7 +281,8 @@ fn decide(
     let base = base.or_else(|| git::out(&wt, &["merge-base", "HEAD", &config.main_branch]));
     if let Some(base) = base.filter(|b| git::commit(&wt, b).is_some())
         && let Some((lines, files)) = diff_size(&wt, &base)
-        && (lines > config.stage_stop.lines || files > config.stage_stop.files)
+        && (lines > config.thresholds.stage_stop_lines
+            || files > config.thresholds.stage_stop_files)
     {
         return Ok(Some(Stop::DiffSize { lines, files }));
     }
@@ -300,7 +301,7 @@ fn decide(
             None => {}
         }
     }
-    Ok((run >= config.stage_stop.checkpoint).then_some(Stop::Checkpoint))
+    Ok((run >= config.thresholds.stage_stop_checkpoint).then_some(Stop::Checkpoint))
 }
 
 /// The stage-stop decision for `s<n>`, logged on its card as `stop=<rule>`

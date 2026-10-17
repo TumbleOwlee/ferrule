@@ -373,8 +373,20 @@ pub fn log(
     args: &[String],
     now: &str,
 ) -> Result<(), LogError> {
+    log_with_budget(conn, id, event, args, now, vocab::READ_BUDGET)
+}
+
+/// [`log`] with the project's `read` budget.
+pub fn log_with_budget(
+    conn: &mut Connection,
+    id: &str,
+    event: &str,
+    args: &[String],
+    now: &str,
+    read_budget: usize,
+) -> Result<(), LogError> {
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    append(&tx, id, event, args, now)?;
+    append(&tx, id, event, args, now, read_budget)?;
     tx.commit()?;
     Ok(())
 }
@@ -385,6 +397,7 @@ fn append(
     event: &str,
     args: &[String],
     now: &str,
+    read_budget: usize,
 ) -> Result<(), LogError> {
     let Some(st) = state(conn, id)? else {
         return Err(LogError::Card);
@@ -399,6 +412,7 @@ fn append(
         stage: card.stage.is_some(),
         in_progress: st == State::InProgress,
         reads,
+        read_budget,
     };
     let line = vocab::check(event, args, ctx).map_err(LogError::Reject)?;
     if now.chars().count() + 1 + line.body.chars().count() > vocab::MAX_LINE {
@@ -468,7 +482,14 @@ pub fn move_card(conn: &mut Connection, id: &str, to: State, now: &str) -> Resul
         "UPDATE cards SET state = ?1 WHERE id = ?2",
         [to.as_str(), id],
     )?;
-    match append(&tx, id, &format!("moved={to}"), &[], now) {
+    match append(
+        &tx,
+        id,
+        &format!("moved={to}"),
+        &[],
+        now,
+        vocab::READ_BUDGET,
+    ) {
         Ok(()) => {}
         Err(LogError::Sql(e)) => return Err(MoveError::Sql(e)),
         Err(LogError::Card | LogError::Reject(_)) => return Err(MoveError::Card),

@@ -220,7 +220,7 @@ pub enum RunCommand {
         #[arg(long)]
         to: Option<PathBuf>,
     },
-    /// Run the gauntlet (`ferrule.toml` `[[gauntlet.steps]]`) in the run's
+    /// Run the gauntlet (`ferrule.toml` `[[gauntlet.step]]`) in the run's
     /// worktree; one status line, the output in the run's gauntlet.log.
     Gauntlet {
         slug: String,

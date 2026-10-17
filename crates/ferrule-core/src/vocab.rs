@@ -181,7 +181,8 @@ pub const VOCABULARY: &[Event] = &[
 
 /// The longest log line, timestamp included, in chars.
 pub const MAX_LINE: usize = 160;
-/// `read` events one stage card may carry.
+/// `read` events one stage card may carry unless `ferrule.toml` says
+/// otherwise.
 pub const READ_BUDGET: usize = 3;
 
 #[must_use]
@@ -246,6 +247,8 @@ pub struct Context {
     pub in_progress: bool,
     /// `read` events already on the card.
     pub reads: usize,
+    /// `read` events one stage card may carry.
+    pub read_budget: usize,
 }
 
 /// A validated event: its name and the line body after the timestamp.
@@ -389,7 +392,7 @@ pub fn check(event: &str, args: &[String], ctx: Context) -> Result<Line, Reject>
     if spec.name == "spec-delta" && !origin {
         return Err(reject(Reason::Value));
     }
-    if spec.name == "read" && ctx.reads >= READ_BUDGET {
+    if spec.name == "read" && ctx.reads >= ctx.read_budget {
         return Err(reject(Reason::Budget));
     }
     let text = text.filter(|t| !t.is_empty());
@@ -500,11 +503,13 @@ mod tests {
         stage: true,
         in_progress: false,
         reads: 0,
+        read_budget: READ_BUDGET,
     };
     const PARENT: Context = Context {
         stage: false,
         in_progress: false,
         reads: 0,
+        read_budget: READ_BUDGET,
     };
 
     fn body(event: &str, a: &str, ctx: Context) -> Result<String, String> {

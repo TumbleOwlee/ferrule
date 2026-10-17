@@ -222,7 +222,7 @@ fn gauntlet(slug: &str, force: bool, out: &mut impl Write) -> io::Result<u8> {
         slug,
         &wt,
         &log,
-        &config.gauntlet.steps,
+        &config.gauntlet.step,
         force,
         &board::now(),
     )

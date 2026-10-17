@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use rusqlite::{Connection, OptionalExtension, params};
 
-use crate::config::Step;
+use crate::config::{Coverage, Step};
 use crate::git;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -124,8 +124,8 @@ enum StepResult {
 /// timeout.
 fn run_step(wt: &Path, step: &Step, log: &Path) -> std::io::Result<StepResult> {
     let mut file = File::options().append(true).create(true).open(log)?;
-    writeln!(file, "### {}: {}", step.name, step.run.join(" "))?;
-    let Some((program, args)) = step.run.split_first() else {
+    writeln!(file, "### {}: {}", step.name, step.cmd.join(" "))?;
+    let Some((program, args)) = step.cmd.split_first() else {
         return Ok(StepResult::Failed);
     };
     let child = Command::new(program)
@@ -138,7 +138,7 @@ fn run_step(wt: &Path, step: &Step, log: &Path) -> std::io::Result<StepResult> {
     let Ok(mut child) = child else {
         return Ok(StepResult::Failed);
     };
-    let deadline = Instant::now() + Duration::from_secs(step.timeout_secs);
+    let deadline = Instant::now() + step.timeout;
     loop {
         if let Some(status) = child.try_wait()? {
             return Ok(if status.success() {
@@ -208,7 +208,7 @@ pub fn run(
                 });
             }
         }
-        if step.coverage {
+        if step.coverage == Some(Coverage::LlvmCov) {
             let text = std::fs::read_to_string(log)?;
             let start = usize::try_from(before).unwrap_or(0).min(text.len());
             cov = coverage(text.get(start..).unwrap_or(&text));
