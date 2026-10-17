@@ -2,6 +2,7 @@
 //! card per plan stage, each in one state, with frontmatter fields and an
 //! append-only event log.
 
+use std::collections::HashSet;
 use std::fmt::{self, Write as _};
 use std::path::Path;
 
@@ -179,6 +180,58 @@ pub fn events(conn: &Connection, id: &str) -> rusqlite::Result<Vec<(String, Stri
     let mut st = conn.prepare("SELECT at, body FROM events WHERE card = ?1 ORDER BY id")?;
     st.query_map([id], |r| Ok((r.get(0)?, r.get(1)?)))?
         .collect()
+}
+
+/// Every log line of run `run`'s cards as `(card, at, body)`, by time;
+/// lines at the same minute keep the parent card first, then the stages in
+/// order.
+pub fn run_events(conn: &Connection, run: &str) -> rusqlite::Result<Vec<(String, String, String)>> {
+    let mut st = conn.prepare(
+        "SELECT e.card, e.at, e.body FROM events e JOIN cards c ON c.id = e.card
+         WHERE c.run = ?1
+         ORDER BY e.at, c.stage IS NOT NULL, length(c.stage), c.stage, e.id",
+    )?;
+    st.query_map([run], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        .collect()
+}
+
+/// The ID of a `spec-delta <ID> changed` line whose leading key fields
+/// (`origin=`, `quote=`, in any order) include an `origin=`: a requirement
+/// reworded after the issue was filed.
+fn reworded_id(body: &str) -> Option<&str> {
+    let mut words = body.splitn(4, ' ');
+    let (event, id, change) = (words.next()?, words.next()?, words.next()?);
+    if event != "spec-delta" || change != "changed" {
+        return None;
+    }
+    let mut rest = words.next().unwrap_or("");
+    loop {
+        rest = rest.trim_start_matches(' ');
+        let (key, value) = if let Some(v) = rest.strip_prefix("origin=") {
+            ("origin", v)
+        } else if let Some(v) = rest.strip_prefix("quote=") {
+            ("quote", v)
+        } else {
+            return None;
+        };
+        if key == "origin" {
+            return Some(id);
+        }
+        rest = match value.strip_prefix('"') {
+            Some(quoted) => quoted.split_once('"').map_or("", |(_, after)| after),
+            None => value.split_once(' ').map_or("", |(_, after)| after),
+        };
+    }
+}
+
+/// IDs of run `run`'s requirements reworded after filing, from the
+/// `spec-delta … changed origin=…` lines on any of its cards.
+pub fn reworded_ids(conn: &Connection, run: &str) -> rusqlite::Result<HashSet<String>> {
+    Ok(run_events(conn, run)?
+        .iter()
+        .filter_map(|(_, _, b)| reworded_id(b))
+        .map(str::to_owned)
+        .collect())
 }
 
 /// The value of the last `<key>=` token in a card's log; the event word
@@ -678,6 +731,23 @@ pub fn import(conn: &mut Connection, board: &Path, now: &str) -> Result<usize, I
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ut_reworded_needs_origin_among_leading_keys() {
+        assert_eq!(
+            reworded_id("spec-delta MB-R-294 changed origin=user popup"),
+            Some("MB-R-294")
+        );
+        assert_eq!(
+            reworded_id("spec-delta MB-R-301 changed quote=\"a b\" origin=user box"),
+            Some("MB-R-301")
+        );
+        assert_eq!(
+            reworded_id("spec-delta MB-R-301 changed popup origin=user"),
+            None
+        );
+        assert_eq!(reworded_id("spec-delta MB-R-301 added origin=user"), None);
+    }
     use crate::store::Store;
 
     #[test]

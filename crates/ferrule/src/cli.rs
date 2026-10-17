@@ -131,9 +131,10 @@ pub struct RenderArgs {
     #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u8).range(0..=1))]
     pub first: u8,
     /// PR form of the entries table: an Issue column, and the requirements
-    /// reworded after filing, read from the run's cards under this board.
-    #[arg(long, value_name = "BOARD")]
-    pub issue_ids: Option<PathBuf>,
+    /// reworded after filing, read from the run's cards (the run is the
+    /// spec diff's directory name).
+    #[arg(long)]
+    pub issue_ids: bool,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]

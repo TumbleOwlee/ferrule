@@ -6,7 +6,6 @@ pub mod archive;
 pub mod artifacts;
 pub mod attribution;
 pub mod board;
-pub mod cards;
 pub mod config;
 pub mod gauntlet;
 pub mod git;

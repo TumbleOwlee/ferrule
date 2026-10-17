@@ -13,7 +13,7 @@ Under construction. Implemented so far:
 | `ferrule spec id [--dir <dir>] <ID>…` | Find spec entries by fixed ID as `file:line:text` |
 | `ferrule spec related <keyword>…` | Spec entries mentioning a keyword |
 | `ferrule spec collisions <worktree> [<ref>]` | Fixed IDs both this branch and the target ref define |
-| `ferrule spec render <spec-diff> <part> [--only <ids>] [--first 0\|1] [--issue-ids <board>]` | Render scenarios, requirements, entries, changes or deferred points of a spec diff |
+| `ferrule spec render <spec-diff> <part> [--only <ids>] [--first 0\|1] [--issue-ids]` | Render scenarios, requirements, entries, changes or deferred points of a spec diff |
 | `ferrule card field <card> <field>` | A frontmatter field, `log:<key>`, `pass-sha` or `state` |
 | `ferrule card log <card> <event> [pos…] [k=v…] [-- text]` | Append one event the vocabulary accepts |
 | `ferrule card move <card> <state>` | Move a card, refusing what the board's rules forbid |

@@ -1,11 +1,11 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::io::{self, Write};
 use std::path::Path;
 use std::process::Command;
 
 use ferrule_core::markdown::{self, Match};
 use ferrule_core::spec_diff::{self, Part, SpecDiff};
-use ferrule_core::{cards, project, spec};
+use ferrule_core::{board, project, spec};
 
 use super::exit;
 use crate::cli::{
@@ -198,17 +198,19 @@ fn render(args: &RenderArgs, out: &mut impl Write) -> io::Result<u8> {
         RenderPart::Changes => Part::Changes,
         RenderPart::Deferred => Part::Deferred,
     };
-    let issue_ids = match &args.issue_ids {
-        Some(board) => {
-            let run_dir = std::fs::canonicalize(&args.spec_diff)?;
-            let slug = run_dir
-                .parent()
-                .and_then(Path::file_name)
-                .map(|s| s.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            Some(cards::reworded_ids(board, &slug)?)
-        }
-        None => None,
+    let issue_ids = if args.issue_ids {
+        let run_dir = std::fs::canonicalize(&args.spec_diff)?;
+        let slug = run_dir
+            .parent()
+            .and_then(Path::file_name)
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        Some(match super::card::store(false)? {
+            Some(s) => board::reworded_ids(&s.conn, &slug).map_err(super::card::sql)?,
+            None => HashSet::new(),
+        })
+    } else {
+        None
     };
     let only = args
         .only

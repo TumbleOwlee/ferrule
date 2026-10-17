@@ -224,15 +224,22 @@ fn it_render_writes_fixed_ids_back_as_local_ids() {
 
 #[test]
 fn it_render_pr_form_marks_requirements_reworded_after_filing() {
-    let board = fixtures().join("board").display().to_string();
+    let p = tempfile::tempdir().unwrap();
+    let board = fixtures().join("board");
+    let imported = Run::new(["import", board.to_str().unwrap()])
+        .env("CLAUDE_PROJECT_DIR", p.path())
+        .cwd(p.path())
+        .text();
+    assert_eq!(imported, "import=ok cards=13\nexit=0");
     Run::new([
         "spec",
         "render",
         &run_diff("mrcpr"),
         "entries",
         "--issue-ids",
-        &board,
     ])
+    .env("CLAUDE_PROJECT_DIR", p.path())
+    .cwd(p.path())
     .golden("spec-render-issue-ids");
 }
 
