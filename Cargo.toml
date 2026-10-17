@@ -1,0 +1,19 @@
+[workspace]
+resolver = "3"
+members = ["crates/ferrule-core", "crates/ferrule"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/TumbleOwlee/ferrule"
+
+[workspace.dependencies]
+ferrule-core = { path = "crates/ferrule-core" }
+clap = { version = "4.6", features = ["derive"] }
+tempfile = "3.27"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"

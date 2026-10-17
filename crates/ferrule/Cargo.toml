@@ -1,0 +1,17 @@
+[package]
+name = "ferrule"
+description = "Swiss-knife CLI for a spec-driven agent workflow"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ferrule-core.workspace = true
+clap.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
