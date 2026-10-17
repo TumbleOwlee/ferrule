@@ -351,6 +351,39 @@ pub fn create(
     Ok(())
 }
 
+/// A card to create with its first log lines.
+#[derive(Debug, Clone)]
+pub struct NewCard {
+    pub id: String,
+    pub state: State,
+    pub fields: Vec<(String, String)>,
+    /// `(event, args)`, each checked against the vocabulary.
+    pub log: Vec<(String, Vec<String>)>,
+}
+
+#[derive(Debug)]
+pub enum BatchError {
+    Card(String, CardError),
+    Log(String, LogError),
+}
+
+/// Creates every card and logs its lines, all or nothing.
+pub fn create_all(conn: &mut Connection, cards: &[NewCard], now: &str) -> Result<(), BatchError> {
+    let sql = |e: rusqlite::Error| BatchError::Card(String::new(), CardError::Sql(e));
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(sql)?;
+    for c in cards {
+        insert(&tx, &c.id, c.state, &c.fields, now)
+            .map_err(|e| BatchError::Card(c.id.clone(), e))?;
+        for (event, args) in &c.log {
+            append(&tx, &c.id, event, args, now, vocab::READ_BUDGET)
+                .map_err(|e| BatchError::Log(c.id.clone(), e))?;
+        }
+    }
+    tx.commit().map_err(sql)
+}
+
 fn insert(
     conn: &Connection,
     id: &str,

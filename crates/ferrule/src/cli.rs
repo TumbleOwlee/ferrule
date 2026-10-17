@@ -29,9 +29,96 @@ pub enum Command {
     /// messages.
     #[command(subcommand)]
     Prompt(PromptCommand),
+    /// The tracking issue: read from the tracker, its body assembled.
+    #[command(subcommand)]
+    Issue(IssueCommand),
+    /// The pull request: read from the host, its body assembled, its
+    /// review threads, its failed CI run.
+    #[command(subcommand)]
+    Pr(PrCommand),
     /// Claude Code hook handlers: read the hook payload on stdin.
     #[command(subcommand)]
     Hook(HookCommand),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum IssueCommand {
+    /// Title, body and comments as compact text: a GitHub number or URL,
+    /// or a Jira key.
+    View { issue: String },
+    /// A reused issue's original request, for the run's request.md.
+    Request {
+        issue: String,
+        #[command(flatten)]
+        part: RequestPart,
+    },
+    /// The tracking issue's body from the run's artifacts, line 1 `# <title>`;
+    /// exit 3 when it names a stage or an agent.
+    Body {
+        slug: String,
+        /// Slice n's own issue instead.
+        #[arg(long)]
+        slice: Option<u32>,
+    },
+}
+
+// Four flags of one exclusive group, read once into `request::Part`; lifts
+// when clap can map a flag group onto one enum field.
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Debug, Clone, Copy, clap::Args)]
+#[group(multiple = false)]
+pub struct RequestPart {
+    /// An assembled body's spec, architecture, requirements and scenarios.
+    #[arg(long)]
+    pub spec: bool,
+    /// The epic number of a slice issue.
+    #[arg(long)]
+    pub epic: bool,
+    /// A slice issue's whole `**Part of epic**` line.
+    #[arg(long)]
+    pub slice_line: bool,
+    /// The issue's comments.
+    #[arg(long)]
+    pub comments: bool,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum BodyForm {
+    /// Progress, from the first push to gate 4.
+    Draft,
+    /// At gate 4, from pr.md.
+    Full,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum PrCommand {
+    /// Title, body and comments as compact text.
+    View { pr: String },
+    /// The PR body from the run's artifacts and cards, ending `Closes
+    /// #<issue>`; exit 3 when it names a stage or an agent.
+    Body { slug: String, form: BodyForm },
+    /// The PR's inline review threads.
+    #[command(subcommand)]
+    Feedback(FeedbackCommand),
+    /// The error lines of the latest failed CI run on a branch.
+    Failed {
+        /// [default: the current branch]
+        branch: Option<String>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum FeedbackCommand {
+    /// Write the unresolved threads to a file; print one status line.
+    Fetch { pr: String, out: PathBuf },
+    /// Post every filled `reply:` of the file; `fixed` needs the stage and
+    /// the pushed sha and resolves the thread.
+    Reply {
+        pr: String,
+        file: PathBuf,
+        stage: Option<String>,
+        sha: Option<String>,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -215,6 +302,9 @@ pub enum RunCommand {
     /// and artifacts archived. Refuses while the worktree holds unpushed
     /// work or CI is not green.
     Cleanup { slug: String },
+    /// Recreate a lost board from the run's issue, its draft PR and git;
+    /// re-adds the worktree.
+    Rebuild { issue: String, pr: String },
     /// Write a run's archive back out as files.
     Export {
         slug: String,

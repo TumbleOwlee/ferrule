@@ -6,6 +6,8 @@ use ferrule_core::config::Config;
 use ferrule_core::gauntlet::{self, Outcome};
 use ferrule_core::next::{self, At, Status};
 use ferrule_core::project::{self, Layout};
+use ferrule_core::rebuild;
+use ferrule_core::remote::{self, Item};
 use ferrule_core::run::{self as core_run, Error};
 use ferrule_core::store::DIR;
 
@@ -25,6 +27,7 @@ pub fn run(command: &RunCommand, out: &mut impl Write) -> io::Result<u8> {
         RunCommand::Next { slug, at, status } => next_step(slug, *at, status, out),
         RunCommand::Metrics { slug } => metrics(slug.as_deref(), out),
         RunCommand::Cleanup { slug } => cleanup(slug, out),
+        RunCommand::Rebuild { issue, pr } => rebuild(issue, pr, out),
         RunCommand::Export { slug, archive, to } => export(slug, *archive, to.as_deref(), out),
         RunCommand::StageStop {
             slug,
@@ -271,5 +274,67 @@ fn next_step(slug: &str, at: NextAt, status: &[String], out: &mut impl Write) ->
             Ok(exit::USAGE)
         }
         Err(next::Error::Sql(e)) => Err(sql(e)),
+    }
+}
+
+/// The remote host behind `run rebuild`.
+struct Remote {
+    config: Config,
+    pr: String,
+    issue: String,
+    root: std::path::PathBuf,
+}
+
+impl rebuild::Source for Remote {
+    fn pr(&self) -> Option<Item> {
+        remote::pr(self.config.backend.ci, &self.pr, &self.root).ok()
+    }
+
+    fn branch(&self) -> Option<String> {
+        remote::pr_branch(self.config.backend.ci, &self.pr, &self.root).ok()
+    }
+
+    fn issue(&self) -> Option<Item> {
+        remote::issue(self.config.backend.tracker, &self.issue, &self.root).ok()
+    }
+}
+
+fn rebuild(issue: &str, pr: &str, out: &mut impl Write) -> io::Result<u8> {
+    let layout = Layout::new(project::main_checkout());
+    let config = Config::load(&layout.root).map_err(sql)?;
+    let main = config.main_branch.clone();
+    let source = Remote {
+        config,
+        pr: pr.to_owned(),
+        issue: issue.to_owned(),
+        root: layout.root.clone(),
+    };
+    let Some(mut s) = store(true)? else {
+        return Ok(exit::REFUSED);
+    };
+    match rebuild::rebuild(
+        &mut s.conn,
+        &layout,
+        &main,
+        issue,
+        pr,
+        &source,
+        &board::now(),
+    ) {
+        Ok((slug, n, next)) => {
+            writeln!(
+                out,
+                "rebuild=done slug={slug} stages={n} next={}",
+                next.as_deref().unwrap_or("none")
+            )?;
+            Ok(exit::OK)
+        }
+        Err(rebuild::Error::Refused(r)) => {
+            writeln!(out, "{r}")?;
+            Ok(exit::REFUSED)
+        }
+        Err(rebuild::Error::Sql(e)) => Err(sql(e)),
+        Err(rebuild::Error::Board(e)) => Err(sql(format!("{e:?}"))),
+        Err(rebuild::Error::Io(e)) => Err(e),
     }
 }

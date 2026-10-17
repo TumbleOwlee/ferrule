@@ -27,10 +27,18 @@ Under construction. Implemented so far:
 | `ferrule run gauntlet <slug> [--force]` | The `ferrule.toml` gauntlet steps in the run's worktree, cached by tree |
 | `ferrule run metrics [<slug>]` | A run's metrics line (needs green CI), or every line recorded |
 | `ferrule run cleanup <slug>` | Remove worktree and branch, archive cards and artifacts |
+| `ferrule run rebuild <issue> <pr>` | Recreate a lost board from the issue, the draft PR and git; re-adds the worktree |
 | `ferrule run export <slug> [--archive id] [--to dir]` | Write an archive back out as files |
 | `ferrule prompt lines [--seen n] <file>…` | The lines of approval files a prompt quotes, then `Confirm:` |
 | `ferrule prompt show [--no-lines] <file>…` | Open files in the `[viewer]` (else stdout) and record the run's approval marker; exit 3 for a summary over its cap |
 | `ferrule prompt render <kind> <slug> [k=v…]` | A stop's whole message (approval, question, notice) or the `approved` record; logs the stop |
+| `ferrule issue view <n\|url\|KEY>` | An issue's title, body and comments as compact text |
+| `ferrule issue request <n> [--spec\|--epic\|--slice-line\|--comments]` | A reused issue's original request, or the part named |
+| `ferrule issue body <slug> [--slice <n>]` | The tracking issue's body from the run's artifacts; exit 3 when it names a stage or an agent |
+| `ferrule pr view <n>` | A PR's title, body and comments as compact text |
+| `ferrule pr body <slug> draft\|full` | The PR body from the run's artifacts and cards; exit 3 when it names a stage or an agent |
+| `ferrule pr feedback fetch <n> <out>` / `pr feedback reply <n> <file> [<stage> <sha>]` | Unresolved review threads into a file; post the filled replies, resolving fixed threads |
+| `ferrule pr failed [<branch>]` | The error lines of the branch's latest failed CI run |
 | `ferrule hook pre-tool-use` | Session-wide Bash guard; strips attribution trailers from commit, PR and issue text |
 | `ferrule hook reviewer` | Read-only Bash guard for the reviewer agent |
 
@@ -42,6 +50,10 @@ The board lives in `.ferrule/state.db` (`SQLite`) in the main checkout; commands
 
 ```toml
 main_branch = "main"
+
+[backend]
+tracker = "github"           # github (gh) | jira (.ferrule/jira.local.json: baseUrl, email, apiToken)
+ci = "github"                # github (gh) | bitbucket (.ferrule/bitbucket.local.json: workspace, repoSlug, username, appPassword)
 
 [[gauntlet.step]]
 name = "test"

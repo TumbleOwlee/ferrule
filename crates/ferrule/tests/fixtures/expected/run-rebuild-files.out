@@ -1,56 +1,56 @@
-==> inprogress/rb.md <==
+==> card rb <==
 ---
 id: rb
+state: inprogress
 branch: docs/rb
 lane: full
 issue: 21
 pr: 22
-gate1: <today>
-arch: <today>
-gate2: <today>
-artifacts: .claude/tasks/artifacts/rb
+gate1: 2026-10-05
+arch: 2026-10-05
+gate2: 2026-10-05
 ---
-<today> rebuild reason=board-missing
-<today> pr=draft
-==> done/rb.s0.md <==
+2026-10-05T09:00 rebuild reason=board-missing
+2026-10-05T09:00 pr=draft
+==> card rb.s0 <==
 ---
 id: rb.s0
 parent: rb
+state: done
 title: Land spec
 blocked-by: []
 files: []
 branch: docs/rb
-worktree: .claude/worktrees/rb
 ---
-<today> commit=SHA0
-==> done/rb.s1.md <==
+2026-10-05T09:00 commit=SHA0
+==> card rb.s1 <==
 ---
 id: rb.s1
 parent: rb
+state: done
 title: Retry with backoff
 blocked-by: [rb.s0]
 files: []
 branch: docs/rb
-worktree: .claude/worktrees/rb
 ---
-<today> commit=SHA1
-==> open/rb.s2.md <==
+2026-10-05T09:00 commit=SHA1
+==> card rb.s2 <==
 ---
 id: rb.s2
 parent: rb
+state: open
 title: Render reconnecting
 blocked-by: [rb.s1]
 files: []
 branch: docs/rb
-worktree: .claude/worktrees/rb
 ---
-==> artifacts/rb/issue.md <==
+==> issue.md <==
 # Reconnect dropped Modbus clients
 
 ## Goal
 A client tab reconnects on its own after the server drops the connection.
 Today the user restarts the tab by hand.
-==> artifacts/rb/spec-diff.md <==
+==> spec-diff.md <==
 # rb — spec diff (rev 1)
 
 ## Summary
@@ -69,7 +69,7 @@ The client connects over TCP.
 
 ## MB-R-002 — new · requirements `## Client`
 The client polls.
-==> artifacts/rb/plan.summary.md <==
+==> plan.summary.md <==
 # rb — plan summary (rebuilt)
 
 | Stage | What | Pins | Files | Stop |
@@ -81,14 +81,14 @@ The client polls.
 Verification beyond unit tests:
 - s2 — demo TUI
   - see "reconnecting" in the tab
-==> artifacts/rb/architecture.summary.md <==
+==> architecture.summary.md <==
 # rb — architecture summary (rebuilt)
 
 Decide: 1 new, 1 changed components in ferrowl-modbus; the backoff is owned by the client task
 
 Public surface:
 - `ClientState::Reconnecting`
-==> artifacts/rb/architecture.md <==
+==> architecture.md <==
 # rb — architecture (rebuilt)
 
 ## Components

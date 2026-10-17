@@ -43,22 +43,33 @@ impl Default for Config {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Backend {
     /// Where issues live.
-    pub tracker: String,
-    /// Where CI runs.
-    pub ci: String,
+    pub tracker: Tracker,
+    /// Where CI runs and pull requests live.
+    pub ci: Ci,
 }
 
-impl Default for Backend {
-    fn default() -> Self {
-        Backend {
-            tracker: "github".to_owned(),
-            ci: "github".to_owned(),
-        }
-    }
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Tracker {
+    /// Through `gh`.
+    #[default]
+    Github,
+    /// Through the REST API, credentials in `.ferrule/jira.local.json`.
+    Jira,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Ci {
+    /// Through `gh`.
+    #[default]
+    Github,
+    /// Through the REST API, credentials in `.ferrule/bitbucket.local.json`.
+    Bitbucket,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
@@ -249,6 +260,7 @@ summary_max_bytes = 2048
         assert_eq!(c.gauntlet.step[1].coverage, Some(Coverage::LlvmCov));
         assert_eq!(c.viewer.command.as_deref(), Some(&["glow".to_owned()][..]));
         assert_eq!(c.hook.readonly.mutating.len(), 4);
+        assert_eq!(c.backend.tracker, Tracker::Github);
     }
 
     #[test]
@@ -262,6 +274,7 @@ summary_max_bytes = 2048
     #[test]
     fn ut_unknown_keys_are_refused() {
         assert!(toml::from_str::<Config>("main = \"x\"\n").is_err());
+        assert!(toml::from_str::<Config>("[backend]\ntracker = \"gitlab\"\n").is_err());
         assert!(
             toml::from_str::<Config>(
                 "[[gauntlet.step]]\nname = \"a\"\ncmd = []\ntimeout = \"soon\"\n"

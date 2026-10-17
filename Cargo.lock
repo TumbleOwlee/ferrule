@@ -175,6 +175,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "ferrule-core",
+ "rusqlite",
  "serde",
  "serde_json",
  "tempfile",
@@ -187,6 +188,7 @@ dependencies = [
  "flate2",
  "rusqlite",
  "serde",
+ "serde_json",
  "tempfile",
  "toml",
 ]

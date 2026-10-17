@@ -1,5 +1,7 @@
 pub mod card;
 pub mod hook;
+pub mod issue;
+pub mod pr;
 pub mod prompt;
 pub mod run;
 pub mod spec;
