@@ -15,6 +15,20 @@ pub enum Command {
     /// Spec files and any markdown file.
     #[command(subcommand)]
     Spec(SpecCommand),
+    /// Claude Code hook handlers: read the hook payload on stdin.
+    #[command(subcommand)]
+    Hook(HookCommand),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum HookCommand {
+    /// The session-wide `PreToolUse` guard: refuses raw card edits, output
+    /// floods, the crashing GitHub views and commits or pushes to main;
+    /// strips attribution trailers from what is left.
+    PreToolUse,
+    /// The reviewer's `PreToolUse` guard: nothing that writes, except the
+    /// run's review.md and review.verdict.md.
+    Reviewer,
 }
 
 #[derive(Debug, Subcommand)]

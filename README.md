@@ -14,6 +14,8 @@ Under construction. Implemented so far:
 | `ferrule spec related <keyword>…` | Spec entries mentioning a keyword |
 | `ferrule spec collisions <worktree> [<ref>]` | Fixed IDs both this branch and the target ref define |
 | `ferrule spec render <spec-diff> <part> [--only <ids>] [--first 0\|1] [--issue-ids <board>]` | Render scenarios, requirements, entries, changes or deferred points of a spec diff |
+| `ferrule hook pre-tool-use` | Session-wide Bash guard; strips attribution trailers from commit, PR and issue text |
+| `ferrule hook reviewer` | Read-only Bash guard for the reviewer agent |
 
 ## Install
 

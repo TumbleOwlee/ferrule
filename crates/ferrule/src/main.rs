@@ -13,6 +13,9 @@ fn main() -> ExitCode {
     let mut out = BufWriter::new(io::stdout().lock());
     let result = match &cli.command {
         Command::Spec(command) => commands::spec::run(command, &mut out),
+        Command::Hook(command) => {
+            commands::hook::run(command, &mut std::io::stdin().lock(), &mut out)
+        }
     }
     .and_then(|code| out.flush().map(|()| code));
     match result {
