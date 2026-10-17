@@ -65,6 +65,7 @@ pub fn run(command: &CardCommand, out: &mut impl Write) -> io::Result<u8> {
         CardCommand::Field { card, field: f } => field(card, f, out),
         CardCommand::Log { card, event, args } => log(card, event, &with_separator(args), out),
         CardCommand::Move { card, state: to } => move_card(card, state(*to), out),
+        CardCommand::Commit { card, message, .. } => commit(card.as_deref(), message, out),
         CardCommand::Show { card } => show(card, out),
         CardCommand::Board => list(out),
         CardCommand::Vocab => {
@@ -274,4 +275,82 @@ pub(crate) fn sync_draft(s: &mut Store, card: &str, out: &mut impl Write) -> io:
             writeln!(out, "pr-body=failed")
         }
     }
+}
+
+/// The checks before a commit, the commit, then `commit=` on the card.
+fn commit(card: Option<&str>, message: &[String], out: &mut impl Write) -> io::Result<u8> {
+    let here = std::env::current_dir()?;
+    let config = ferrule_core::config::Config::load(&project::main_checkout()).map_err(sql)?;
+    let branch = ferrule_core::git::out(&here, &["symbolic-ref", "--short", "-q", "HEAD"]);
+    if branch.as_deref() == Some(config.main_branch.as_str()) {
+        writeln!(
+            out,
+            "commit=refused reason=main branch={}",
+            config.main_branch
+        )?;
+        return Ok(exit::REFUSED);
+    }
+    let mut store = None;
+    if let Some(id) = card {
+        let Some(s) = super::card::store(false)? else {
+            writeln!(out, "commit=refused reason=card")?;
+            return Ok(exit::REFUSED);
+        };
+        match board::state(&s.conn, id).map_err(sql)? {
+            None => {
+                writeln!(out, "commit=refused reason=card")?;
+                return Ok(exit::REFUSED);
+            }
+            Some(State::InReview) => {}
+            Some(other) => {
+                writeln!(out, "commit=refused reason=state state={}", other.as_str())?;
+                return Ok(exit::REFUSED);
+            }
+        }
+        let run = id.split_once('.').map_or(id, |(r, _)| r);
+        let want = board::field(&s.conn, run, "branch")
+            .map_err(sql)?
+            .filter(|b| !b.is_empty());
+        if let Some(want) = want
+            && branch.as_deref() != Some(want.as_str())
+        {
+            writeln!(out, "commit=refused reason=branch want={want}")?;
+            return Ok(exit::REFUSED);
+        }
+        store = Some(s);
+    }
+    let text = message.join("\n\n");
+    let text = ferrule_core::attribution::strip(&text).unwrap_or(text);
+    let mut child = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&here)
+        .args(["commit", "-q", "-F", "-"])
+        .stdin(std::process::Stdio::piped())
+        .spawn()?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(text.as_bytes())?;
+        stdin.write_all(b"\n")?;
+    }
+    if !child.wait()?.success() {
+        writeln!(out, "commit=refused reason=git")?;
+        return Ok(exit::REFUSED);
+    }
+    let sha = ferrule_core::git::out(&here, &["rev-parse", "--short", "HEAD"]).unwrap_or_default();
+    write!(out, "commit=done sha={sha}")?;
+    if let (Some(mut s), Some(id)) = (store, card) {
+        if let Err(e) = board::log(
+            &mut s.conn,
+            id,
+            &format!("commit={sha}"),
+            &[],
+            &board::now(),
+        ) {
+            writeln!(out, " card-log=failed")?;
+            eprintln!("card commit: committed {sha} but could not log it on {id}: {e:?}");
+            return Ok(exit::REFUSED);
+        }
+        write!(out, " card={id}")?;
+    }
+    writeln!(out)?;
+    Ok(exit::OK)
 }

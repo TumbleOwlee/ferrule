@@ -17,6 +17,7 @@ Under construction. Implemented so far:
 | `ferrule card field <card> <field>` | A frontmatter field, `log:<key>`, `pass-sha` or `state` |
 | `ferrule card log <card> <event> [pos…] [k=v…] [-- text]` | Append one event the vocabulary accepts |
 | `ferrule card move <card> <state>` | Move a card, refusing what the board's rules forbid; re-renders the run's draft PR body |
+| `ferrule card commit <card> -m <msg>` / `--no-run -m <msg>` | Commit for a stage in review: never on the main branch, trailers stripped, `commit=` logged |
 | `ferrule card show <card>` / `card board` / `card vocab` | A card as markdown, every card, the event vocabulary |
 | `ferrule card new <card> [--state s] [k=v…]` / `card set <card> k=v…` | Create a card, set or clear its fields |
 | `ferrule import <board-dir>` | Load a markdown board into `.ferrule/state.db`, all or nothing |
@@ -48,8 +49,15 @@ Under construction. Implemented so far:
 | `ferrule pr body <slug> draft\|full` | The PR body from the run's artifacts and cards; exit 3 when it names a stage or an agent |
 | `ferrule pr feedback fetch <n> <out>` / `pr feedback reply <n> <file> [<stage> <sha>]` | Unresolved review threads into a file; post the filled replies, resolving fixed threads |
 | `ferrule pr failed [<branch>]` | The error lines of the branch's latest failed CI run |
-| `ferrule hook pre-tool-use` | Session-wide Bash guard; strips attribution trailers from commit, PR and issue text |
+| `ferrule hook shell` | Session-wide Bash guard: refuses writes to `.ferrule/state.db` and the lock, output floods, and the raw git and `gh` calls ferrule runs itself, naming the command to run instead |
+| `ferrule hook attribution` | Hands the Bash command back with attribution trailers removed |
+| `ferrule hook pre-tool-use` | `shell` and `attribution` in one call |
 | `ferrule hook reviewer` | Read-only Bash guard for the reviewer agent |
+| `ferrule hook session-start` | Names the cards an interrupted run left in progress |
+| `ferrule hook git pre-commit\|commit-msg\|pre-push` | Git hooks: no commit or push to the main branch; trailers stripped from commit messages |
+| `ferrule pr push --no-run` | Push the current branch outside a run, never the main one |
+| `ferrule install [--stack s] [--force]` / `--check` | Set up or upgrade `.ferrule/` and the Claude Code adapters; `--check` fails on drift |
+| `ferrule uninstall [--purge]` | Remove what install added |
 | `ferrule guide <topic> [--slug <s>] [--stage s<n>] [--lane fast\|full]` | One topic of the workflow's instructions, cut to the run's lane, steps the card shows done marked, placeholders filled; `--list`, `--check` |
 
 ## Guide
@@ -112,7 +120,29 @@ summary_max_bytes = 2048
 
 ```sh
 cargo install --git https://github.com/TumbleOwlee/ferrule --tag v<version> --locked ferrule
+cd <repository> && ferrule install
 ```
+
+`ferrule install` writes:
+
+| Path | Committed | What |
+|---|---|---|
+| `.ferrule/ferrule.toml` | yes | Created once (stack detected, a gauntlet for it, `glow` as viewer when on `PATH`); later runs only move `version` |
+| `.ferrule/ferrule.lock` | yes | The installed version and the hash of every generated file and block |
+| `.ferrule/ferrule` | yes | Shim the hooks call: runs `ferrule`, or refuses with the install command when it is missing |
+| `.ferrule/.gitignore` | yes | Ignores the board, run files and worktrees |
+| `.ferrule/lefthook.yml` | yes | The git hooks, when the project uses lefthook (an `extends` block is added to its config) |
+| `.claude/agents/fe-{author,architect,planner,implementer,reviewer}.md` | yes | Identity, status line, never-do rules, the first `ferrule guide` topic |
+| `.claude/skills/fe-{feature,request,review,bootstrap}/SKILL.md` | yes | The entry points |
+| `.claude/settings.json` | yes | The hooks and the `permissions.deny` backstop, merged into the file |
+| `AGENTS.md` | yes | A block between `<!-- ferrule:begin -->` and `<!-- ferrule:end -->` |
+| `CLAUDE.md` | yes | An `@AGENTS.md` line when it has none |
+| `docs/specs/README.md` | yes | The ID and numbering rules, when the file is missing |
+| `.git/hooks/{pre-commit,commit-msg,pre-push}` | no | Without lefthook or husky |
+
+Re-running install upgrades: a generated file whose hash matches the lock is replaced, an edited one is kept with the new version next to it as `<name>.ferrule-new`. A file at a generated path that ferrule never wrote is refused unless `--force`. A `version` in `ferrule.toml` other than the binary's refuses every command but `install`.
+
+The session guard denies the raw git and `gh` calls ferrule replaces; `[guard] allow = ["gh api"]` in `ferrule.toml` re-opens one, in the guard and the deny rules alike.
 
 ## Development
 

@@ -42,7 +42,10 @@ pub fn run(command: &PrCommand, out: &mut impl Write) -> io::Result<u8> {
             )
         }
         PrCommand::Open { slug } => open(&config, slug, out),
-        PrCommand::Push { slug } => push(&config, slug, out),
+        PrCommand::Push {
+            slug: Some(slug), ..
+        } => push(&config, slug, out),
+        PrCommand::Push { slug: None, .. } => push_branch(&config, out),
         PrCommand::Publish { slug, follow_ups } => {
             publish_pr(&config, slug, follow_ups.as_deref(), out)
         }
@@ -307,4 +310,24 @@ fn route(config: &Config, slug: &str, out: &mut impl Write) -> io::Result<u8> {
         }
         Some(Err(e)) => post_failed(e, out),
     }
+}
+
+/// `git push -u origin <current branch>`, refusing the main branch.
+fn push_branch(config: &Config, out: &mut impl Write) -> io::Result<u8> {
+    let here = std::env::current_dir()?;
+    let Some(branch) = ferrule_core::git::out(&here, &["symbolic-ref", "--short", "-q", "HEAD"])
+    else {
+        writeln!(out, "push=refused reason=no-branch")?;
+        return Ok(exit::REFUSED);
+    };
+    if branch == config.main_branch {
+        writeln!(out, "push=refused reason=main")?;
+        return Ok(exit::REFUSED);
+    }
+    if !ferrule_core::git::ok(&here, &["push", "-q", "-u", "origin", &branch]) {
+        writeln!(out, "push=refused reason=push")?;
+        return Ok(exit::REFUSED);
+    }
+    writeln!(out, "push=done branch={branch}")?;
+    Ok(exit::OK)
 }

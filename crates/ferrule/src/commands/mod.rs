@@ -1,6 +1,7 @@
 pub mod card;
 pub mod guide;
 pub mod hook;
+pub mod install;
 pub mod issue;
 pub mod pr;
 pub mod prompt;

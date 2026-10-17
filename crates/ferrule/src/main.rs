@@ -11,6 +11,9 @@ use cli::{Cli, Command};
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let mut out = BufWriter::new(io::stdout().lock());
+    if let Some(code) = commands::install::pinned(&cli.command) {
+        return ExitCode::from(code);
+    }
     let result = match &cli.command {
         Command::Spec(command) => commands::spec::run(command, &mut out),
         Command::Card(command) => commands::card::run(command, &mut out),
@@ -20,6 +23,8 @@ fn main() -> ExitCode {
         Command::Issue(command) => commands::issue::run(command, &mut out),
         Command::Pr(command) => commands::pr::run(command, &mut out),
         Command::Guide(args) => commands::guide::run(args, &mut out),
+        Command::Install(args) => commands::install::install(args, &mut out),
+        Command::Uninstall { purge } => commands::install::uninstall(*purge, &mut out),
         Command::Hook(command) => {
             commands::hook::run(command, &mut std::io::stdin().lock(), &mut out)
         }

@@ -67,19 +67,16 @@ fn check(kind: &str, cwd: &Path, cases: &[(&str, &str)]) {
 }
 
 #[test]
-fn it_shell_guard_refuses_floods_card_edits_and_github_views() {
+fn it_shell_guard_refuses_floods_and_writes_to_ferrules_files() {
     let p = project();
     check(
-        "pre-tool-use",
+        "shell",
         p.path(),
         &[
             ("cat notes.md", "deny"),
             ("cat notes.md | head -5", "allow"),
             ("cat big.txt", "deny"),
             ("cat big.txt > copy.txt", "allow"),
-            ("gh issue view 12", "deny"),
-            ("gh pr view 34", "deny"),
-            ("gh pr view 34 | head", "deny"),
             ("git diff", "deny"),
             ("git diff main...HEAD", "deny"),
             ("git diff --stat", "allow"),
@@ -88,26 +85,84 @@ fn it_shell_guard_refuses_floods_card_edits_and_github_views() {
             ("find . -type f", "deny"),
             ("find . -type f -name '*.rs'", "allow"),
             ("ls -la", "allow"),
-            ("echo x >> .claude/tasks/open/demo.s2.md", "deny"),
-            (
-                "grep a b | tee -a /x/.claude/tasks/inprogress/demo.md",
-                "deny",
-            ),
-            ("cat >> .claude/tasks/done/demo.s0.md <<EOF\nx\nEOF", "deny"),
-            ("echo x | tee --append .claude/tasks/open/a.s1.md", "deny"),
-            ("echo x | tee -a -- .claude/tasks/open/a.s1.md", "deny"),
-            ("echo x >> /tmp/done/notes.md", "allow"),
-            ("echo x >> .claude/tasks/artifacts/demo/review.md", "allow"),
-            ("sh .claude/scripts/card-log.sh demo green", "allow"),
-            (
-                "mv .claude/tasks/open/demo.s2.md .claude/tasks/done/",
-                "deny",
-            ),
-            ("mv /tmp/x.md .claude/tasks/done/demo.s9.md", "deny"),
-            ("mv notes.md docs/notes.md", "allow"),
-            ("sh .claude/scripts/card-move.sh demo.s2 done", "allow"),
+            ("echo x >> .ferrule/state.db", "deny"),
+            ("sqlite3 .ferrule/state.db 'select 1'", "deny"),
+            ("rm -f /x/.ferrule/state.db-wal", "deny"),
+            ("echo x | tee .ferrule/ferrule.lock", "deny"),
+            ("cp backup.db .ferrule/state.db", "deny"),
+            ("echo x >> .ferrule/runs/demo/review.md", "allow"),
+            ("echo 'x' > .ferrule/ferrule.toml", "allow"),
+            ("ferrule card log demo green", "allow"),
             ("echo 'cat notes.md'", "allow"),
             ("echo $(cat notes.md)", "allow"),
+        ],
+    );
+}
+
+#[test]
+fn it_shell_guard_names_the_ferrule_command_for_raw_git_and_gh() {
+    let p = project();
+    check(
+        "shell",
+        p.path(),
+        &[
+            ("git commit -m x", "deny"),
+            ("git -C sub commit -m x", "deny"),
+            ("cd /tmp && git commit -m x", "deny"),
+            ("env git commit -m x", "deny"),
+            ("git commit --dry-run -m x", "allow"),
+            ("git push -u origin feat/demo", "deny"),
+            ("git worktree add ../wt -b x", "deny"),
+            ("git worktree list", "allow"),
+            ("git log --oneline -5", "allow"),
+            ("git status --short", "allow"),
+            ("git fetch -q origin main", "allow"),
+            ("gh issue create --title t --body b", "deny"),
+            ("gh issue comment 12 --body-file f", "deny"),
+            ("gh issue list --state open", "allow"),
+            ("gh issue view 12", "deny"),
+            ("gh pr view 34 | head", "deny"),
+            ("gh pr create --draft", "deny"),
+            ("gh pr ready 34", "deny"),
+            ("gh pr checks 34", "allow"),
+            ("gh run view 99 --log-failed", "deny"),
+            ("gh api repos/o/r/pulls", "allow"),
+            (
+                "gh api -X POST repos/o/r/pulls/1/comments -f body=x",
+                "deny",
+            ),
+            ("gh api graphql -F id=x -f query=y", "deny"),
+        ],
+    );
+    let payload = json!({
+        "tool_name": "Bash",
+        "tool_input": {"command": "gh pr create --draft"},
+        "cwd": p.path(),
+    });
+    let out = run_hook("shell", p.path(), payload.to_string().as_bytes());
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let reason = v["hookSpecificOutput"]["permissionDecisionReason"]
+        .as_str()
+        .unwrap();
+    assert!(reason.contains("Use: ferrule pr open <slug>"), "{reason}");
+}
+
+#[test]
+fn it_shell_guard_honours_the_projects_allow_list() {
+    let p = project();
+    std::fs::create_dir(p.path().join(".ferrule")).unwrap();
+    std::fs::write(
+        p.path().join(".ferrule/ferrule.toml"),
+        "[guard]\nallow = [\"gh api\", \"gh issue create\"]\n",
+    )
+    .unwrap();
+    check(
+        "shell",
+        p.path(),
+        &[
+            ("gh api -X POST repos/o/r/issues -f title=x", "allow"),
+            ("gh issue create --title t", "allow"),
+            ("gh issue edit 3 --title t", "deny"),
         ],
     );
 }
@@ -118,7 +173,7 @@ fn it_shell_guard_resolves_cat_after_cd() {
     std::fs::create_dir(p.path().join("sub")).unwrap();
     std::fs::write(p.path().join("sub/inner.md"), "# y\n").unwrap();
     check(
-        "pre-tool-use",
+        "shell",
         p.path(),
         &[
             ("cd sub && cat inner.md", "deny"),
@@ -138,12 +193,12 @@ fn it_reviewer_guard_allows_reads_and_the_review_files_only() {
             ("git checkout src/x.rs", "deny"),
             ("git diff main...HEAD -- src", "allow"),
             ("git grep -n MB-R-161 main -- docs/specs", "allow"),
-            ("echo x >> .claude/tasks/artifacts/demo/review.md", "allow"),
+            ("echo x >> .ferrule/runs/demo/review.md", "allow"),
             (
-                "cat > .claude/tasks/artifacts/demo/review.verdict.md <<EOF\nx\nEOF",
+                "cat > .ferrule/runs/demo/review.verdict.md <<EOF\nx\nEOF",
                 "allow",
             ),
-            ("echo x > .claude/tasks/artifacts/demo/review.md", "deny"),
+            ("echo x > .ferrule/runs/demo/review.md", "deny"),
             ("echo x > src/lib.rs", "deny"),
             ("rm -rf target", "deny"),
             ("cargo test 2>&1 | tail -5", "allow"),
@@ -166,67 +221,6 @@ fn it_reviewer_guard_allows_reads_and_the_review_files_only() {
             ("git branch", "allow"),
             ("python3 -c 'print(1)'", "deny"),
             ("bash -c 'ls'", "deny"),
-        ],
-    );
-}
-
-fn git(dir: &Path, args: &[&str]) {
-    let status = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args([
-            "-c",
-            "user.name=t",
-            "-c",
-            "user.email=t@t",
-            "-c",
-            "commit.gpgsign=false",
-        ])
-        .args(args)
-        .status()
-        .unwrap();
-    assert!(status.success(), "git {args:?}");
-}
-
-#[test]
-fn it_shell_guard_refuses_commits_and_pushes_to_main() {
-    let p = tempfile::tempdir().unwrap();
-    let repo = p.path().join("r");
-    std::fs::create_dir(&repo).unwrap();
-    git(&repo, &["init", "-q", "-b", "main"]);
-    git(&repo, &["commit", "-q", "--allow-empty", "-m", "init"]);
-    let wt = p.path().join("wt");
-    git(
-        &repo,
-        &[
-            "worktree",
-            "add",
-            "-q",
-            wt.to_str().unwrap(),
-            "-b",
-            "feat/demo",
-        ],
-    );
-    check(
-        "pre-tool-use",
-        &repo,
-        &[
-            ("git commit -m x", "deny"),
-            ("git commit -F - <<EOF\nx\nEOF", "deny"),
-            ("git commit --dry-run -m x", "allow"),
-            ("git push origin main", "deny"),
-            ("git push origin HEAD:main", "deny"),
-            ("git push", "deny"),
-        ],
-    );
-    let other = format!("git -C {} commit -m x", repo.display());
-    check(
-        "pre-tool-use",
-        &wt,
-        &[
-            ("git commit -m x", "allow"),
-            ("git push -u origin feat/demo", "allow"),
-            (&other, "deny"),
         ],
     );
 }
@@ -298,13 +292,13 @@ fn it_attribution_is_stripped_not_refused() {
     ];
     for (cmd, want) in cases {
         assert_eq!(
-            hook("pre-tool-use", p.path(), &cmd),
+            hook("attribution", p.path(), &cmd),
             Got::Rewrite(want),
             "{cmd}"
         );
     }
     check(
-        "pre-tool-use",
+        "attribution",
         p.path(),
         &[
             ("git commit -m \"fix: x\"", "allow"),
@@ -330,7 +324,7 @@ fn it_attribution_in_a_message_file_is_refused() {
     .unwrap();
     std::fs::write(p.path().join("ok.txt"), "fix: x\n").unwrap();
     check(
-        "pre-tool-use",
+        "attribution",
         p.path(),
         &[
             ("git commit -F msg.txt", "deny"),
@@ -374,5 +368,111 @@ fn it_reviewer_refuses_the_configured_mutating_commands() {
             ("npm ls", "allow"),
             ("env CI=1 npm install", "deny"),
         ],
+    );
+}
+
+fn git(dir: &Path, args: &[&str]) -> std::process::Output {
+    Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args([
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "commit.gpgsign=false",
+        ])
+        .args(args)
+        .output()
+        .unwrap()
+}
+
+fn git_hook(dir: &Path, args: &[&str], stdin: &str) -> std::process::Output {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ferrule"))
+        .args(["hook", "git"])
+        .args(args)
+        .current_dir(dir)
+        .env("CLAUDE_PROJECT_DIR", dir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(stdin.as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap()
+}
+
+#[test]
+fn it_git_hooks_refuse_main_and_strip_trailers() {
+    let p = tempfile::tempdir().unwrap();
+    let repo = p.path();
+    assert!(git(repo, &["init", "-q", "-b", "main"]).status.success());
+    assert_eq!(git_hook(repo, &["pre-commit"], "").status.code(), Some(1));
+    assert!(
+        git(repo, &["checkout", "-q", "-b", "feat/x"])
+            .status
+            .success()
+    );
+    assert_eq!(git_hook(repo, &["pre-commit"], "").status.code(), Some(0));
+
+    let push_main = "refs/heads/feat/x abc refs/heads/main def\n";
+    assert_eq!(
+        git_hook(repo, &["pre-push", "origin", "u"], push_main)
+            .status
+            .code(),
+        Some(1)
+    );
+    let push_feat = "refs/heads/feat/x abc refs/heads/feat/x def\n";
+    assert_eq!(
+        git_hook(repo, &["pre-push", "origin", "u"], push_feat)
+            .status
+            .code(),
+        Some(0)
+    );
+
+    let msg = repo.join("MSG");
+    std::fs::write(&msg, format!("Fix it\n\n{}: A <a@b>\n", co())).unwrap();
+    assert_eq!(
+        git_hook(repo, &["commit-msg", msg.to_str().unwrap()], "")
+            .status
+            .code(),
+        Some(0)
+    );
+    assert_eq!(std::fs::read_to_string(&msg).unwrap(), "Fix it\n");
+}
+
+#[test]
+fn it_session_start_names_unfinished_cards() {
+    let p = tempfile::tempdir().unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_ferrule"))
+        .args(["hook", "session-start"])
+        .env("CLAUDE_PROJECT_DIR", p.path())
+        .current_dir(p.path())
+        .output()
+        .unwrap();
+    assert!(out.stdout.is_empty());
+    let new = Command::new(env!("CARGO_BIN_EXE_ferrule"))
+        .args(["card", "new", "demo", "--state", "inprogress"])
+        .env("CLAUDE_PROJECT_DIR", p.path())
+        .current_dir(p.path())
+        .output()
+        .unwrap();
+    assert!(new.status.success());
+    let out = Command::new(env!("CARGO_BIN_EXE_ferrule"))
+        .args(["hook", "session-start"])
+        .env("CLAUDE_PROJECT_DIR", p.path())
+        .current_dir(p.path())
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        text.contains("demo inprogress\n") && text.contains("ferrule guide resume"),
+        "{text}"
     );
 }

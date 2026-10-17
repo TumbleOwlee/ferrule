@@ -51,13 +51,13 @@ A reviewer classifies every change; one that contradicts a scenario or a user de
 
 ## Stage flow
 
-- Every move of your card is `ferrule card move <id> <state>`. Start: `inprogress`. Green: `inreview` in both lanes, then the lane's status below.
+- Every move of your card is `ferrule card move {card} <state>`; every commit is `ferrule card commit {card} -m <msg>` — raw `git commit` is refused here. Start: `inprogress`. Green: `inreview` in both lanes, then the lane's status below.
 
 <!-- lane: fast -->
-- Fast lane (brief says `lane=fast`): on green card → `inreview`, commit — no `status=inreview` — then `sha=$(git log -1 --format=%h)`, `ferrule card log <id> commit=$sha` (refused while the card sits in `inprogress`), end turn on `status=committed stage=s<n> sha=<sha> delta=<n>`; resumed, take the next stage. Fixes (review findings, PR feedback, a red gauntlet) are committed on green the same way, answering `status=committed`. The orchestrator pushes and verifies between stages; a review comes once, over the whole branch.
+- Fast lane (brief says `lane=fast`): on green card → `inreview`, `git add` your stage's files, `ferrule card commit {card} -m <msg>` — no `status=inreview` (it refuses while the card sits in `inprogress`, logs `commit=<sha>` and prints it), end turn on `status=committed stage=s<n> sha=<sha> delta=<n>`; resumed, take the next stage. Fixes (review findings, PR feedback, a red gauntlet) are committed on green the same way, answering `status=committed`. The orchestrator pushes and verifies between stages; a review comes once, over the whole branch.
 
 <!-- lane: full -->
-- Full lane: on green end turn on `status=inreview stage=s<n> delta=<n>`; commit only once resumed with approval, then `sha=$(git log -1 --format=%h)`, `ferrule card log <id> commit=$sha`, `status=committed stage=s<n> sha=<sha> delta=<n>`. Stage messages cheap, squashed later.
+- Full lane: on green end turn on `status=inreview stage=s<n> delta=<n>`; commit only once resumed with approval: `git add` your stage's files, `ferrule card commit {card} -m <msg>`, then `status=committed stage=s<n> sha=<sha> delta=<n>`. Stage messages cheap, squashed later.
 
 - Resumed with a `review.md` path: fix exactly its findings for your stage, re-run the checks (`## Stage completion`), then the lane's status above.
 - Resumed with the user's answer on a spec change (keep, revert, narrow for a split): apply exactly that, re-run the checks (`## Stage completion`), then the lane's status.
@@ -89,25 +89,3 @@ The project's fast checks, cheapest first:
 
 Leave uncommitted work where it is — never revert it: a re-plan starts from the worktree as you left it. Resumed with an answer, go on; a re-plan replaces you with a fresh implementer.
 
-## Never
-
-- Commit a stub, `unimplemented!()`, `TODO`, skipped test, or weakened assertion as "green". Incomplete stage = report, not commit.
-- Claim a verification you didn't run — quote real output.
-- Push, open a PR, merge, reply on or resolve a PR thread — orchestrator's (`ferrule pr feedback reply` posts your reply blocks after the push).
-- Move your card to `done` — orchestrator's, after push + independent verify.
-- Touch the parent card or a card of a stage you weren't given.
-- Fix something outside your stage's goal (duplicated logic, a missing test elsewhere, a bug in code your stage doesn't touch) — log it as `follow-up` instead.
-- Log a step you didn't run or a fake `commit=` sha.
-
-## Hand-off
-
-Every turn ends on exactly one line; orchestrator reads only this line and your card:
-
-```
-status=inreview stage=s<n> delta=<n>
-status=committed stage=s<n> sha=<sha> delta=<n>
-status=question stage=s<n> file={run_dir}/question.md count=<n>   # Ask
-status=blocked stage=s<n> reason=<one line>       # Stop
-```
-
-Everything else goes on your card as the rules above say.

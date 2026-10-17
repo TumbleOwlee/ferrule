@@ -24,6 +24,7 @@ pub struct Config {
     pub gauntlet: Gauntlet,
     pub viewer: Viewer,
     pub hook: Hook,
+    pub guard: Guard,
     pub thresholds: Thresholds,
 }
 
@@ -38,6 +39,7 @@ impl Default for Config {
             gauntlet: Gauntlet::default(),
             viewer: Viewer::default(),
             hook: Hook::default(),
+            guard: Guard::default(),
             thresholds: Thresholds::default(),
         }
     }
@@ -137,6 +139,15 @@ pub struct Viewer {
 #[serde(default, deny_unknown_fields)]
 pub struct Hook {
     pub readonly: Readonly,
+}
+
+/// The command guard of every session.
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Guard {
+    /// Raw commands the project re-opens although ferrule replaces them,
+    /// as word prefixes (`gh api`).
+    pub allow: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]

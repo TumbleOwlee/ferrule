@@ -662,3 +662,51 @@ fn it_reconcile_checks_the_host() {
     let local = p.ferrule(&["run", "reconcile", "demo", "--local"]).text();
     assert!(!local.contains("issue #12"), "{local}");
 }
+
+#[test]
+fn it_card_commit_checks_the_card_and_the_branch() {
+    let p = Project::new();
+    p.ok(&["run", "init", "demo"]);
+    p.ok(&["card", "set", "demo", "branch=feat/demo"]);
+    p.ok(&["card", "new", "demo.s1", "title=Add a"]);
+    git(
+        &p.root,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            p.worktree().to_str().unwrap(),
+            "-b",
+            "feat/demo",
+        ],
+    );
+    std::fs::write(p.worktree().join("a.txt"), "a\n").unwrap();
+    git(&p.worktree(), &["add", "a.txt"]);
+
+    let in_wt = |args: &[&str]| {
+        p.gh.on(Run::new(args))
+            .env("CLAUDE_PROJECT_DIR", &p.root)
+            .env("FERRULE_NOW", "2026-10-05T09:00")
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t")
+            .cwd(p.worktree())
+            .text()
+    };
+    assert_eq!(
+        in_wt(&["card", "commit", "demo.s1", "-m", "Add a"]),
+        "commit=refused reason=state state=open\nexit=1"
+    );
+    p.ok(&["card", "move", "demo.s1", "inprogress"]);
+    p.ok(&["card", "move", "demo.s1", "inreview"]);
+    let trailer = format!("{}: A <a@b>", ["Co", "Authored", "By"].join("-"));
+    let done = in_wt(&["card", "commit", "demo.s1", "-m", "Add a", "-m", &trailer]);
+    let sha = git(&p.worktree(), &["rev-parse", "--short", "HEAD"]);
+    assert_eq!(done, format!("commit=done sha={sha} card=demo.s1\nexit=0"));
+    assert_eq!(git(&p.worktree(), &["log", "-1", "--format=%B"]), "Add a");
+    assert_eq!(p.field("demo.s1", "log:commit"), sha);
+
+    let on_main = p.ferrule(&["card", "commit", "--no-run", "-m", "x"]).text();
+    assert_eq!(on_main, "commit=refused reason=main branch=main\nexit=1");
+}

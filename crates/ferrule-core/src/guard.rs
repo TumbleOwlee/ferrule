@@ -2,15 +2,106 @@
 //! command is refused, or `None` to let it through.
 
 use std::path::{Component, Path, PathBuf};
-use std::process::Command as Process;
 
 use crate::shell::{self, Command, RedirectKind};
 
-/// Board state directories a card lives in.
-const CARD_STATES: &[&str] = &["open", "inprogress", "inreview", "done"];
-const PROTECTED_BRANCH: &str = "main";
 /// A plain `cat` of a longer file is refused.
 const LARGE_LINES: usize = 80;
+
+/// What a session may not run raw, and what to run instead.
+#[derive(Debug, Clone, Copy)]
+pub struct Replaced {
+    /// The program and its leading words (`gh pr create`).
+    pub raw: &'static str,
+    pub instead: &'static str,
+    pub why: &'static str,
+}
+
+/// Every raw command ferrule runs itself. `ferrule install` writes the
+/// `permissions.deny` backstop from this list, so the guard and the rules
+/// cannot drift apart.
+pub const REPLACED: &[Replaced] = &[
+    Replaced {
+        raw: "git commit",
+        instead: "ferrule card commit <card> -m <msg> (outside a run: ferrule card commit --no-run -m <msg>)",
+        why: "it checks the stage card and the branch, strips attribution trailers and logs commit=",
+    },
+    Replaced {
+        raw: "git push",
+        instead: "ferrule pr push <slug> (outside a run: ferrule pr push --no-run)",
+        why: "it runs the sha check and the gauntlet first and refreshes the draft PR",
+    },
+    Replaced {
+        raw: "git worktree add",
+        instead: "ferrule run approve gate2 <slug>",
+        why: "a run's worktree lives and dies with the run",
+    },
+    Replaced {
+        raw: "git worktree remove",
+        instead: "ferrule run cleanup <slug>",
+        why: "a run's worktree lives and dies with the run",
+    },
+    Replaced {
+        raw: "gh issue create",
+        instead: "ferrule issue file <slug> [--slice <n>|--split|--follow-up <k>]",
+        why: "title and body come from the run's files; an open issue with the same title is adopted",
+    },
+    Replaced {
+        raw: "gh issue edit",
+        instead: "ferrule issue file <slug> --reuse <n>",
+        why: "title and body come from the run's files",
+    },
+    Replaced {
+        raw: "gh issue comment",
+        instead: "ferrule issue file <slug> --comment",
+        why: "the comment is the run's issue-comment.md",
+    },
+    Replaced {
+        raw: "gh pr create",
+        instead: "ferrule pr open <slug>, or the run's first ferrule pr push",
+        why: "the body comes from the run state",
+    },
+    Replaced {
+        raw: "gh pr edit",
+        instead: "ferrule card move (re-renders the draft) or ferrule pr publish <slug>",
+        why: "the body comes from the run state",
+    },
+    Replaced {
+        raw: "gh pr ready",
+        instead: "ferrule pr publish <slug>",
+        why: "publishing checks threads and ID collisions first",
+    },
+    Replaced {
+        raw: "gh pr comment",
+        instead: "ferrule pr feedback reply <pr> <file> [<stage> <sha>]",
+        why: "replies follow the threads file",
+    },
+    Replaced {
+        raw: "gh issue view",
+        instead: "ferrule issue view <n>",
+        why: "the raw view crashes on GitHub's Projects-Classic API bug",
+    },
+    Replaced {
+        raw: "gh pr view",
+        instead: "ferrule pr view <n>",
+        why: "the raw view crashes on GitHub's Projects-Classic API bug",
+    },
+    Replaced {
+        raw: "gh run view",
+        instead: "ferrule pr failed <branch>",
+        why: "it prints only the failed job's errors",
+    },
+];
+
+/// Files only ferrule writes, under `.ferrule/`.
+const OWNED: &[&str] = &["state.db", "ferrule.lock"];
+
+/// The guard's project settings.
+#[derive(Debug, Clone, Copy)]
+pub struct Policy<'a> {
+    /// `[guard] allow`: raw commands re-opened.
+    pub allow: &'a [String],
+}
 
 fn components(path: &str) -> Vec<&str> {
     Path::new(path)
@@ -22,11 +113,11 @@ fn components(path: &str) -> Vec<&str> {
         .collect()
 }
 
-/// `…/tasks/<state>/<card>.md`.
-fn is_card(path: &str) -> bool {
+/// `….ferrule/state.db` (and its journal files) or `….ferrule/ferrule.lock`.
+fn is_owned(path: &str) -> bool {
     let c = components(path);
-    matches!(c.as_slice(), [.., "tasks", state, card]
-        if CARD_STATES.contains(state) && is_markdown(card))
+    matches!(c.as_slice(), [.., ".ferrule", f]
+        if OWNED.iter().any(|o| f.strip_prefix(o).is_some_and(|r| r.is_empty() || r.starts_with('-'))))
 }
 
 fn is_markdown(path: &str) -> bool {
@@ -35,10 +126,10 @@ fn is_markdown(path: &str) -> bool {
         .is_some_and(|e| e.eq_ignore_ascii_case("md"))
 }
 
-/// `…/.claude/tasks/artifacts/<slug>/<file>`.
+/// `…/.ferrule/runs/<slug>/<file>`.
 fn is_artifact(path: &str, file: &str) -> bool {
     let c = components(path);
-    matches!(c.as_slice(), [.., ".claude", "tasks", "artifacts", _, f] if *f == file)
+    matches!(c.as_slice(), [.., ".ferrule", "runs", _, f] if *f == file)
 }
 
 fn resolve(cwd: &Path, path: &str) -> PathBuf {
@@ -66,18 +157,6 @@ fn tee_targets(args: &[String]) -> (bool, Vec<&str>) {
     (append, targets)
 }
 
-fn branch(dir: &Path) -> Option<String> {
-    let out = Process::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(["rev-parse", "--abbrev-ref", "HEAD"])
-        .output()
-        .ok()?;
-    out.status
-        .success()
-        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned())
-}
-
 /// The directory `cd <args>` moves to, if it exists.
 fn cd_target(cwd: &Path, args: &[String]) -> Option<PathBuf> {
     let target = args
@@ -88,15 +167,16 @@ fn cd_target(cwd: &Path, args: &[String]) -> Option<PathBuf> {
     dir.is_dir().then_some(dir)
 }
 
-/// The commands every session may not run raw: card edits that bypass the
-/// card tools, output that floods the context, the issue and PR views that
-/// crash on GitHub's Projects-Classic bug, and commits or pushes to `main`.
+/// The commands every session may not run raw: writes to the files only
+/// ferrule writes, output that floods the context, and the git and `gh`
+/// calls ferrule runs itself ([`REPLACED`]) unless the project re-opened
+/// them.
 #[must_use]
-pub fn shell(command: &str, cwd: &Path) -> Option<String> {
+pub fn shell(command: &str, cwd: &Path, policy: Policy) -> Option<String> {
     let mut cwd = cwd.to_path_buf();
     for c in shell::parse(command) {
         let Some((name, args)) = shell::program(&c.words) else {
-            if let Some(reason) = card_redirect(&c) {
+            if let Some(reason) = owned_redirect(&c) {
                 return Some(reason);
             }
             continue;
@@ -107,37 +187,15 @@ pub fn shell(command: &str, cwd: &Path) -> Option<String> {
             }
             continue;
         }
-        let reason = card_redirect(&c)
-            .or_else(|| card_edit(name, args))
+        let reason = owned_redirect(&c)
+            .or_else(|| owned_edit(name, args))
             .or_else(|| flood(&c, name, args, &cwd))
-            .or_else(|| github_view(name, args))
-            .or_else(|| protected_branch(name, args, &cwd));
+            .or_else(|| replaced(name, args, policy));
         if reason.is_some() {
             return reason;
         }
     }
     None
-}
-
-fn card_redirect(c: &Command) -> Option<String> {
-    c.redirects
-        .iter()
-        .any(|r| matches!(r.kind, RedirectKind::Write | RedirectKind::Append) && is_card(&r.target))
-        .then(|| {
-            "Raw write onto a task card bypasses its validation. Use: sh .claude/scripts/card-log.sh <card-id> <event> [k=v …] [-- <text>] (vocabulary in the script).".to_owned()
-        })
-}
-
-fn card_edit(name: &str, args: &[String]) -> Option<String> {
-    match name {
-        "tee" if tee_targets(args).1.iter().any(|t| is_card(t)) => Some(
-            "Raw write onto a task card bypasses its validation. Use: sh .claude/scripts/card-log.sh <card-id> <event> [k=v …] [-- <text>] (vocabulary in the script).".to_owned(),
-        ),
-        "mv" if args.iter().any(|a| is_card(a)) => Some(
-            "Raw mv of a task card skips the transition rules. Use: sh .claude/scripts/card-move.sh <card-id> <open|inprogress|inreview|done>.".to_owned(),
-        ),
-        _ => None,
-    }
 }
 
 /// Output that would land whole in the context: only when nothing captures
@@ -188,63 +246,82 @@ fn flood(c: &Command, name: &str, args: &[String], cwd: &Path) -> Option<String>
     }
 }
 
-fn github_view(name: &str, args: &[String]) -> Option<String> {
-    if name != "gh" {
-        return None;
-    }
-    let words: Vec<&str> = args
+const OWNED_REASON: &str = "Only ferrule writes .ferrule/state.db and .ferrule/ferrule.lock. Use ferrule card log|move|set for the board, ferrule card show|board to read it, ferrule install for the lock.";
+
+fn owned_redirect(c: &Command) -> Option<String> {
+    c.redirects
         .iter()
-        .map(String::as_str)
-        .filter(|a| !a.starts_with('-'))
-        .collect();
-    match words.as_slice() {
-        ["issue", "view", ..] => Some(
-            "Raw 'gh issue view' crashes on GitHub's Projects-Classic API bug. Use: bash .claude/scripts/issue-view.sh <number>".to_owned(),
-        ),
-        ["pr", "view", ..] => Some(
-            "Raw 'gh pr view' crashes on GitHub's Projects-Classic API bug ('repository.pullRequest.projectCards'). Use: bash .claude/scripts/pr-view.sh <number>".to_owned(),
-        ),
-        _ => None,
-    }
+        .any(|r| {
+            matches!(r.kind, RedirectKind::Write | RedirectKind::Append) && is_owned(&r.target)
+        })
+        .then(|| OWNED_REASON.to_owned())
 }
 
-fn protected_branch(name: &str, args: &[String], cwd: &Path) -> Option<String> {
-    if name != "git" {
+fn owned_edit(name: &str, args: &[String]) -> Option<String> {
+    let hit = match name {
+        "tee" => tee_targets(args).1.iter().any(|t| is_owned(t)),
+        "mv" | "cp" | "rm" | "sqlite3" | "truncate" | "dd" => args
+            .iter()
+            .any(|a| is_owned(a) || a.strip_prefix("of=").is_some_and(is_owned)),
+        _ => false,
+    };
+    hit.then(|| OWNED_REASON.to_owned())
+}
+
+/// The command's words that name what it does: the program, then its
+/// non-option words (`git -C x commit -m y` → `git commit y`).
+fn verb_words<'a>(name: &'a str, args: &'a [String]) -> Option<Vec<&'a str>> {
+    let rest: Vec<&str> = match name {
+        "git" => {
+            let g = shell::git(args)?;
+            std::iter::once(g.sub)
+                .chain(
+                    g.args
+                        .iter()
+                        .map(String::as_str)
+                        .filter(|a| !a.starts_with('-')),
+                )
+                .collect()
+        }
+        "gh" => args
+            .iter()
+            .map(String::as_str)
+            .filter(|a| !a.starts_with('-'))
+            .collect(),
+        _ => return None,
+    };
+    Some(std::iter::once(name).chain(rest).collect())
+}
+
+fn replaced(name: &str, args: &[String], policy: Policy) -> Option<String> {
+    if has_prefix(name, args, policy.allow) {
         return None;
     }
-    let g = shell::git(args)?;
-    let dir = g.dir.map_or_else(|| cwd.to_path_buf(), |d| resolve(cwd, d));
-    let on_main = || branch(&dir).as_deref() == Some(PROTECTED_BRANCH);
-    let worktree = format!(
-        "Create/use a git worktree first: git worktree add .claude/worktrees/<slug> -b <type>/<slug> {PROTECTED_BRANCH}"
-    );
-    match g.sub {
-        "commit" if !g.args.iter().any(|a| a == "--dry-run") && on_main() => Some(format!(
-            "'git commit' while the checkout in {} is on '{PROTECTED_BRANCH}': branch off {PROTECTED_BRANCH}, never commit to it. {worktree}",
-            dir.display()
-        )),
-        "push" => {
-            let targets_main = g.args.iter().any(|a| {
-                !a.starts_with('-')
-                    && (a == PROTECTED_BRANCH
-                        || a.rsplit_once(':')
-                            .is_some_and(|(_, dst)| dst == PROTECTED_BRANCH))
-            });
-            if targets_main {
-                Some(format!(
-                    "'git push' targeting '{PROTECTED_BRANCH}' directly: merge to {PROTECTED_BRANCH} by squash-merged PR only. Push the feature branch and open a PR instead."
-                ))
-            } else if on_main() {
-                Some(format!(
-                    "Bare 'git push' while the checkout in {} is on '{PROTECTED_BRANCH}' would push straight to it. {worktree}",
-                    dir.display()
-                ))
-            } else {
-                None
-            }
-        }
-        _ => None,
+    let words = verb_words(name, args)?;
+    if words.starts_with(&["git", "commit"]) && args.iter().any(|a| a == "--dry-run") {
+        return None;
     }
+    if words.starts_with(&["gh", "api"]) {
+        let writes = has(args, &["-f", "-F", "--field", "--raw-field", "--input"])
+            || args.windows(2).any(|w| {
+                matches!(w[0].as_str(), "-X" | "--method") && !w[1].eq_ignore_ascii_case("GET")
+            })
+            || args.iter().any(|a| {
+                a.strip_prefix("--method=")
+                    .is_some_and(|m| !m.eq_ignore_ascii_case("GET"))
+            });
+        return writes.then(|| {
+            "A writing 'gh api' call is ferrule's to run here. Use: ferrule pr feedback reply <pr> <file> [<stage> <sha>] for review threads, ferrule issue file / ferrule pr publish for the rest. Re-open it with [guard] allow = [\"gh api\"] in .ferrule/ferrule.toml if the project needs it.".to_owned()
+        });
+    }
+    let r = REPLACED.iter().find(|r| {
+        let raw: Vec<&str> = r.raw.split(' ').collect();
+        words.starts_with(&raw)
+    })?;
+    Some(format!(
+        "'{}' is ferrule's to run in this project: {}. Use: {}",
+        r.raw, r.why, r.instead
+    ))
 }
 
 const GIT_WRITES: &[&str] = &[
@@ -478,7 +555,7 @@ pub fn readonly(command: &str, cwd: &Path, mutating: &[String]) -> Option<String
         });
         if !program_ok || !redirects_ok {
             return Some(format!(
-                "spec-reviewer is read-only (hook-enforced): '{}' would alter the repo, the working tree, or the filesystem. The only sanctioned writes are an append ('>>' or 'tee -a') onto .claude/tasks/artifacts/<slug>/review.md and a rewrite ('>' or 'tee') of .claude/tasks/artifacts/<slug>/review.verdict.md. Never run git checkout/stash/reset or anything that touches the worktree; record what you needed to probe as a finding for the implementer instead.",
+                "spec-reviewer is read-only (hook-enforced): '{}' would alter the repo, the working tree, or the filesystem. The only sanctioned writes are an append ('>>' or 'tee -a') onto .ferrule/runs/<slug>/review.md and a rewrite ('>' or 'tee') of .ferrule/runs/<slug>/review.verdict.md. Never run git checkout/stash/reset or anything that touches the worktree; record what you needed to probe as a finding for the implementer instead.",
                 c.words.join(" ")
             ));
         }
@@ -511,11 +588,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ut_card_paths() {
-        assert!(is_card(".claude/tasks/open/demo.s2.md"));
-        assert!(is_card("/x/.claude/tasks/done/demo.md"));
-        assert!(!is_card("/tmp/done/notes.md"));
-        assert!(!is_card(".claude/tasks/artifacts/demo/review.md"));
+    fn ut_owned_paths() {
+        assert!(is_owned(".ferrule/state.db"));
+        assert!(is_owned("/x/.ferrule/state.db-wal"));
+        assert!(is_owned(".ferrule/ferrule.lock"));
+        assert!(!is_owned(".ferrule/ferrule.toml"));
+        assert!(!is_owned("/tmp/state.db"));
     }
 
     #[test]

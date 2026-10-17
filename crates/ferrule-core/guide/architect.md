@@ -125,18 +125,3 @@ The change adds, changes or removes no type, trait, enum or module and touches n
 
 Resumed (or spawned fresh after a resume — re-read `architecture.md` first) with the user's change request, a planner's `arch-gap` reason, or a deviation the user kept during implementation (append it to `decisions.md` as a `(user)` line): revise `architecture.md` in place (rev N+1), rewrite the summary. After the architecture stop was approved, a change to `## Components`, `## Interfaces`, `## Public surface` or a `(user)` line of `decisions.md` is asked first; `## Interactions`/`## Code map` detail is not.
 
-## Hand-off
-
-Every turn ends on exactly one line:
-
-```
-status=question file={run_dir}/question.md count=<decisions>
-status=ready file={run_dir}/architecture.md summary={run_dir}/architecture.summary.md count=<new + changed components> [slices={run_dir}/slices.md]
-status=no-arch
-status=split reason=<what is split off, one line>
-status=behavior-change reason=<one line>                 # non-behavior run only
-```
-
-## Never
-
-- Plan stages, write product code or tests, create cards, push.

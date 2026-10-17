@@ -39,6 +39,15 @@ pub enum Command {
     /// The workflow's instructions, one topic at a time, cut to the run's
     /// lane and state.
     Guide(GuideArgs),
+    /// Set up or upgrade the workflow in this repository: `.ferrule/`, the
+    /// agent host's adapter files, the git hooks.
+    Install(InstallArgs),
+    /// Remove what `install` added; `.ferrule/` stays unless `--purge`.
+    Uninstall {
+        /// Also remove `.ferrule/`, the board and every run's files with it.
+        #[arg(long)]
+        purge: bool,
+    },
     /// Claude Code hook handlers: read the hook payload on stdin.
     #[command(subcommand)]
     Hook(HookCommand),
@@ -133,7 +142,13 @@ pub enum PrCommand {
     Open { slug: String },
     /// Push the run's branch: its head must be a stage's verified commit
     /// and pass the gauntlet; logs the pass, updates or opens the draft PR.
-    Push { slug: String },
+    Push {
+        #[arg(required_unless_present = "no_run", conflicts_with = "no_run")]
+        slug: Option<String>,
+        /// Outside a run: push the current branch, never the main one.
+        #[arg(long)]
+        no_run: bool,
+    },
     /// Gate 4 approved: no open threads, no colliding IDs, the full body,
     /// the PR marked ready, the kept follow-ups filed.
     Publish {
@@ -171,13 +186,34 @@ pub enum FeedbackCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum HookCommand {
-    /// The session-wide `PreToolUse` guard: refuses raw card edits, output
-    /// floods, the crashing GitHub views and commits or pushes to main;
-    /// strips attribution trailers from what is left.
+    /// The session-wide `PreToolUse` guard: refuses writes to the files
+    /// only ferrule writes, output floods, and the git and `gh` calls
+    /// ferrule runs itself, naming the command to run instead.
+    Shell,
+    /// The session-wide `PreToolUse` rewrite: hands back the Bash command
+    /// with any attribution trailer removed.
+    Attribution,
+    /// `shell` and `attribution` in one call.
     PreToolUse,
     /// The reviewer's `PreToolUse` guard: nothing that writes, except the
     /// run's review.md and review.verdict.md.
     Reviewer,
+    /// The `SessionStart` hook: names the runs an interrupted session left.
+    SessionStart,
+    /// A git hook: `pre-commit` and `pre-push` refuse the main branch,
+    /// `commit-msg <file>` strips attribution trailers from the message.
+    Git {
+        hook: GitHook,
+        /// The arguments git passes the hook.
+        args: Vec<String>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum GitHook {
+    PreCommit,
+    CommitMsg,
+    PrePush,
 }
 
 #[derive(Debug, Subcommand)]
@@ -297,6 +333,20 @@ pub enum CardCommand {
     },
     /// Move a card to another state, refusing what the board forbids.
     Move { card: String, state: CardState },
+    /// Commit the staged changes for a stage in review: never on the main
+    /// branch, the message stripped of attribution trailers, `commit=`
+    /// logged on the card.
+    Commit {
+        /// The stage card; omitted with `--no-run`.
+        #[arg(required_unless_present = "no_run", conflicts_with = "no_run")]
+        card: Option<String>,
+        /// The message; several make paragraphs.
+        #[arg(short, long = "message", required = true)]
+        message: Vec<String>,
+        /// Outside a run: no card, only the branch and trailer rules.
+        #[arg(long)]
+        no_run: bool,
+    },
     /// The card as markdown: frontmatter and log.
     Show { card: String },
     /// Every card with its state and title.
@@ -507,4 +557,21 @@ pub struct GuideArgs {
     /// malformed tag.
     #[arg(long, conflicts_with = "topic")]
     pub check: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct InstallArgs {
+    /// The agent host to write adapters for; v1 ships `claude` only.
+    #[arg(long, default_value = "claude", value_parser = ["claude"])]
+    pub host: String,
+    /// Override stack detection for a new `ferrule.toml`.
+    #[arg(long, value_parser = ["rust", "node", "go", "python", "none"])]
+    pub stack: Option<String>,
+    /// Write nothing; fail when the generated files drift from the lock
+    /// or from this binary.
+    #[arg(long, conflicts_with_all = ["stack", "force"])]
+    pub check: bool,
+    /// Overwrite files at generated paths that ferrule did not write.
+    #[arg(long)]
+    pub force: bool,
 }

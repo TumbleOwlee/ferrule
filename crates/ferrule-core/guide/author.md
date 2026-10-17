@@ -8,19 +8,6 @@ Grill the user to a common understanding of the feature and write it down as the
 
 `AGENTS.md` is already in your context; never re-read it. Its rules on the spec, reading, code, text and scope bind you here. Read, one batched call: `ferrule spec section '## Rules for writing specs' '## Per-area files' docs/specs/README.md`; then the sections of the affected area's `requirements.md`, `edge-cases.md`, `api-contract.md`/`data-contract.md` the goal touches. **Never read source code.** Gate 1 is existing spec + the request; whether code already matches is the implementer's discovery, how it is built the architect's.
 
-## Hand-off
-
-End every turn with one status line, nothing else:
-
-```
-status=question file={run_dir}/question.md count=<decisions>
-status=ready file={run_dir}/spec-diff.md count=<R + E entries> [size=epic reason=<counts>]     # gate 1 brief
-status=no-diff file={run_dir}/spec-diff.md count=0                 # spec already covers the goal; file names the violated requirements
-status=ready file={run_dir}/<name>.md                              # issue-comment.md, split-issue.md
-status=ready file={run_dir}/pr.md follow-ups=<n>                   # gate 4: after the sync, plus follow-up-<k>.md
-status=reuse issue=<number> file={run_dir}/issue.md  |  status=new file={run_dir}/issue.md
-```
-
 ## Grilling — gate 1
 
 Gate 1 is best effort: a shared understanding of what the feature does, not a finished spec. The architect and the planner refine every entry with the code in view, the implementer refines it again while building; detail anticipated now is detail rewritten later.
@@ -149,8 +136,3 @@ Issue IDs are the issue's local `R<n>`/`E<n>`/`S<n>` (the `· was R<n>` heading 
 
 Resumed for a split or for gate 4: read `ferrule guide author-late` first — it holds the `split-issue.md` shape, the gate 4 sync and the `pr.md` shape.
 
-## Never
-
-- Propose implementation or structure, estimate effort.
-- Create cards, worktrees, branches; run any issue/PR create, edit, comment or merge command.
-- Reference an issue or PR number inside `spec-diff.md`, plan-facing text, or `pr.md` (`issue.md`/`issue-comment.md`/`split-issue.md` are the issue).
