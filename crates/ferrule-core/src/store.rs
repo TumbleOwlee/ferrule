@@ -12,8 +12,10 @@ pub use rusqlite::Error;
 pub const DIR: &str = ".ferrule";
 pub const FILE: &str = "state.db";
 
-/// Schema migrations; the database's `user_version` counts those applied.
-const MIGRATIONS: &[&str] = &[r"
+/// Schema migrations, append-only; the database's `user_version` counts
+/// those applied.
+const MIGRATIONS: &[&str] = &[
+    r"
 CREATE TABLE cards (
     id         TEXT PRIMARY KEY,
     run        TEXT NOT NULL,
@@ -37,7 +39,28 @@ CREATE TABLE events (
     body TEXT NOT NULL
 );
 CREATE INDEX events_card ON events (card, id);
-"];
+",
+    r"
+CREATE TABLE archives (
+    id          INTEGER PRIMARY KEY,
+    run         TEXT NOT NULL,
+    archived_at TEXT NOT NULL
+);
+CREATE INDEX archives_run ON archives (run, id);
+CREATE TABLE archive_files (
+    archive INTEGER NOT NULL REFERENCES archives (id) ON DELETE CASCADE,
+    path    TEXT NOT NULL,
+    data    BLOB NOT NULL,
+    PRIMARY KEY (archive, path)
+);
+CREATE TABLE metrics (
+    run   TEXT NOT NULL,
+    start TEXT NOT NULL,
+    line  TEXT NOT NULL,
+    PRIMARY KEY (run, start)
+);
+",
+];
 
 #[derive(Debug)]
 pub enum OpenError {

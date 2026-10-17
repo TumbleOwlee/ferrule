@@ -393,3 +393,92 @@ fn it_worktree_reaches_the_main_checkouts_board() {
     let shown = ferrule(&repo, &["card", "show", "x"]).text();
     assert!(shown.contains("note from the worktree"), "{shown}");
 }
+
+fn log_at(p: &Path, at: &str, args: &[&str]) {
+    let mut all = vec!["card", "log"];
+    all.extend_from_slice(args);
+    let got = Run::new(&all)
+        .env("CLAUDE_PROJECT_DIR", p)
+        .env("FERRULE_NOW", at)
+        .cwd(p)
+        .text();
+    assert_eq!(got, "exit=0", "{args:?}");
+}
+
+fn metrics(p: &Path, slug: &str) -> String {
+    Run::new(["run", "metrics", slug])
+        .env("CLAUDE_PROJECT_DIR", p)
+        .env("FERRULE_NOW", "2026-10-04T12:00")
+        .cwd(p)
+        .text()
+}
+
+#[test]
+fn it_metrics_count_the_runs_events_and_need_green_ci() {
+    let dir = project();
+    let p = dir.path();
+    log_at(p, "2026-10-03T08:50", &["demo", "stop", "kind=approval"]);
+    log_at(p, "2026-10-03T09:30", &["demo", "stop", "kind=question"]);
+    log_at(p, "2026-10-03T10:40", &["demo", "replan", "from=s2"]);
+    log_at(p, "2026-10-03T10:50", &["demo", "stop", "kind=approval"]);
+    log_at(
+        p,
+        "2026-10-03T10:05",
+        &["demo.s1", "test-red", "MB-R-161", "--", "it_backoff_caps"],
+    );
+    log_at(
+        p,
+        "2026-10-03T11:05",
+        &[
+            "demo",
+            "overturned",
+            "scope=stage",
+            "count=2",
+            "--",
+            "restates",
+        ],
+    );
+    log_at(
+        p,
+        "2026-10-03T11:06",
+        &[
+            "demo",
+            "overturned",
+            "scope=branch",
+            "count=1",
+            "--",
+            "stale",
+        ],
+    );
+    log_at(
+        p,
+        "2026-10-03T11:07",
+        &[
+            "demo.s1",
+            "read",
+            "path=ferrowl-modbus/src/client_core.rs",
+            "--",
+            "no",
+            "signature",
+        ],
+    );
+    log_at(p, "2026-10-04T11:50", &["demo", "ci=0"]);
+    check("metrics", &metrics(p, "demo"));
+    let all = || ferrule(p, &["run", "metrics"]).text();
+    let first = all();
+    assert_eq!(first.lines().count(), 2, "{first}");
+
+    log_at(p, "2026-10-04T11:55", &["demo", "ci=1"]);
+    assert_eq!(metrics(p, "demo"), "metrics=refused reason=ci-red\nexit=1");
+    assert_eq!(all(), first, "a refused run records nothing");
+    log_at(
+        p,
+        "2026-10-04T11:58",
+        &["demo", "ci-waived", "--", "fails", "on", "main"],
+    );
+    assert!(metrics(p, "demo").ends_with(" ci=waived\nexit=0"));
+    assert_eq!(all().lines().count(), 2, "a rerun replaces its line");
+    assert!(metrics(p, "lb").ends_with(" lane=epic ci=-\nexit=0"));
+    assert_eq!(metrics(p, "mrc"), "metrics=refused reason=no-ci\nexit=1");
+    check("metrics-no-card", &metrics(p, "nosuch"));
+}

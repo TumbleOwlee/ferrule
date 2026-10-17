@@ -245,3 +245,133 @@ fn it_sha_check_and_reconcile() {
     );
     assert_eq!(s.run(&["run", "reconcile", "nosuch"]).text(), "exit=2");
 }
+
+/// Run `demo` from the fixture board with its worktree pushed to a bare
+/// remote, and its artifacts in `.ferrule/runs/demo/`.
+fn pushed_run() -> Scratch {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("r");
+    let remote = dir.path().join("remote.git");
+    std::fs::create_dir(&root).unwrap();
+    git(
+        dir.path(),
+        &["init", "-q", "--bare", remote.to_str().unwrap()],
+    );
+    git(&root, &["init", "-q", "-b", "main"]);
+    std::fs::write(root.join(".gitignore"), ".ferrule/\n").unwrap();
+    git(&root, &["add", ".gitignore"]);
+    git(&root, &["commit", "-q", "-m", "init"]);
+    git(
+        &root,
+        &["remote", "add", "origin", remote.to_str().unwrap()],
+    );
+    git(&root, &["push", "-q", "origin", "main"]);
+    let wt = root.join(".ferrule/worktrees/demo");
+    git(
+        &root,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            wt.to_str().unwrap(),
+            "-b",
+            "feat/demo",
+            "main",
+        ],
+    );
+    std::fs::write(wt.join("x.txt"), "x\n").unwrap();
+    git(&wt, &["add", "x.txt"]);
+    git(&wt, &["commit", "-q", "-m", "stage"]);
+    git(&wt, &["push", "-q", "-u", "origin", "feat/demo"]);
+    let s = Scratch {
+        _dir: dir,
+        root,
+        wt,
+    };
+    let board = golden::fixtures().join("board");
+    assert_eq!(
+        s.say(&["import", board.to_str().unwrap()]),
+        "import=ok cards=13"
+    );
+    for slug in ["demo", "nospec"] {
+        let from = board.join("artifacts").join(slug);
+        let to = s.root.join(".ferrule/runs").join(slug);
+        std::fs::create_dir_all(&to).unwrap();
+        for f in std::fs::read_dir(&from).unwrap() {
+            let f = f.unwrap().path();
+            std::fs::copy(&f, to.join(f.file_name().unwrap())).unwrap();
+        }
+    }
+    s
+}
+
+#[test]
+fn it_cleanup_refuses_until_pushed_and_green_then_archives() {
+    let s = pushed_run();
+    let cleanup = || s.say(&["run", "cleanup", "demo"]);
+    std::fs::write(s.wt.join("y.txt"), "y\n").unwrap();
+    assert_eq!(cleanup(), "cleanup=refused reason=uncommitted-changes");
+    git(&s.wt, &["add", "y.txt"]);
+    git(&s.wt, &["commit", "-q", "-m", "more"]);
+    assert_eq!(cleanup(), "cleanup=refused reason=unpushed-commits");
+    git(&s.wt, &["push", "-q"]);
+    assert_eq!(cleanup(), "cleanup=refused reason=no-ci");
+    assert!(s.wt.is_dir());
+    s.ok(&["card", "log", "demo", "ci=1"]);
+    assert_eq!(cleanup(), "cleanup=refused reason=ci-red");
+    assert!(s.wt.is_dir());
+    assert_eq!(s.say(&["run", "metrics"]), "");
+
+    s.ok(&["card", "log", "demo", "ci=0"]);
+    assert_eq!(cleanup(), "cleanup=done archive=1");
+    assert!(!s.wt.exists());
+    assert!(!has_ref(&s.root, "refs/heads/feat/demo"));
+    assert!(!s.root.join(".ferrule/runs/demo").exists());
+    assert!(s.root.join(".ferrule/runs/nospec/issue.md").exists());
+    assert_eq!(s.say(&["card", "field", "nospec", "state"]), "inreview");
+    assert_eq!(s.say(&["card", "field", "demo", "state"]), "");
+    let metrics = s.say(&["run", "metrics"]);
+    assert!(
+        metrics.starts_with("demo start=") && metrics.ends_with(" ci=0"),
+        "{metrics}"
+    );
+    assert_eq!(cleanup(), "cleanup=done archive=none");
+
+    let to = s.root.join("out");
+    assert_eq!(
+        s.say(&["run", "export", "demo", "--to", to.to_str().unwrap()]),
+        format!("export=done archive=1 path={}", to.display())
+    );
+    let card = std::fs::read_to_string(to.join("cards/demo.s1.md")).unwrap();
+    assert!(
+        card.starts_with("---\nid: demo.s1\nparent: demo\nstate: inreview\n"),
+        "{card}"
+    );
+    let original = golden::fixtures().join("board/artifacts/demo/spec-diff.md");
+    assert_eq!(
+        std::fs::read(to.join("artifacts/spec-diff.md")).unwrap(),
+        std::fs::read(original).unwrap()
+    );
+    assert_eq!(s.say(&["run", "export", "nospec"]), "export=none");
+}
+
+#[test]
+fn it_cleanup_of_an_epic_needs_no_ci() {
+    let s = pushed_run();
+    assert_eq!(s.say(&["run", "cleanup", "lb"]), "cleanup=done archive=1");
+    assert_eq!(
+        s.say(&["run", "cleanup", "lb"]),
+        "cleanup=done archive=none"
+    );
+}
+
+fn has_ref(dir: &Path, r: &str) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["rev-parse", "-q", "--verify", r])
+        .output()
+        .unwrap()
+        .status
+        .success()
+}

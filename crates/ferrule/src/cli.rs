@@ -203,6 +203,23 @@ pub enum RunCommand {
         stage: u32,
         sha: String,
     },
+    /// Record and print a run's metrics line; without a slug, every line
+    /// recorded.
+    Metrics { slug: Option<String> },
+    /// Clean up a finished run: worktree and local branch removed, cards
+    /// and artifacts archived. Refuses while the worktree holds unpushed
+    /// work or CI is not green.
+    Cleanup { slug: String },
+    /// Write a run's archive back out as files.
+    Export {
+        slug: String,
+        /// The archive id `run cleanup` printed [default: the latest].
+        #[arg(long)]
+        archive: Option<i64>,
+        /// [default: .ferrule/export/<slug>-<archive>]
+        #[arg(long)]
+        to: Option<PathBuf>,
+    },
     /// Reconcile a run's cards with git before an interrupted run resumes.
     Reconcile { slug: String },
     /// Decide whether a green, clean-reviewed full-lane stage stops for

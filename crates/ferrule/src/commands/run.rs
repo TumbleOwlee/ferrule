@@ -1,9 +1,11 @@
 use std::io::{self, Write};
 
+use ferrule_core::archive::{self, Error as ArchiveError};
 use ferrule_core::board;
 use ferrule_core::config::Config;
 use ferrule_core::project::{self, Layout};
 use ferrule_core::run::{self as core_run, Error};
+use ferrule_core::store::DIR;
 
 use super::card::{sql, store};
 use super::exit;
@@ -17,6 +19,9 @@ pub fn run(command: &RunCommand, out: &mut impl Write) -> io::Result<u8> {
     match command {
         RunCommand::ShaCheck { slug, stage, sha } => sha_check(slug, *stage, sha, out),
         RunCommand::Reconcile { slug } => reconcile(slug, out),
+        RunCommand::Metrics { slug } => metrics(slug.as_deref(), out),
+        RunCommand::Cleanup { slug } => cleanup(slug, out),
+        RunCommand::Export { slug, archive, to } => export(slug, *archive, to.as_deref(), out),
         RunCommand::StageStop {
             slug,
             stage,
@@ -95,4 +100,105 @@ fn stage_stop(slug: &str, stage: u32, threads: u32, out: &mut impl Write) -> io:
         Err(Error::Sql(e)) => return Err(sql(e)),
     }
     Ok(exit::OK)
+}
+
+fn metrics(slug: Option<&str>, out: &mut impl Write) -> io::Result<u8> {
+    let Some(s) = store(false)? else {
+        if let Some(slug) = slug {
+            eprintln!("metrics: no card for {slug}");
+            return Ok(exit::REFUSED);
+        }
+        return Ok(exit::OK);
+    };
+    let Some(slug) = slug else {
+        for line in archive::metrics_log(&s.conn).map_err(sql)? {
+            writeln!(out, "{line}")?;
+        }
+        return Ok(exit::OK);
+    };
+    match archive::metrics(&s.conn, slug, &board::now()) {
+        Ok(line) => {
+            writeln!(out, "{line}")?;
+            Ok(exit::OK)
+        }
+        Err(ArchiveError::Card) => {
+            eprintln!("metrics: no card for {slug}");
+            Ok(exit::REFUSED)
+        }
+        Err(ArchiveError::Ci(r)) => {
+            writeln!(out, "metrics=refused reason={}", r.as_str())?;
+            Ok(exit::REFUSED)
+        }
+        Err(e) => Err(sql(format!("{e:?}"))),
+    }
+}
+
+fn cleanup(slug: &str, out: &mut impl Write) -> io::Result<u8> {
+    let layout = layout();
+    let Some(mut s) = store(true)? else {
+        unreachable!("store(true) creates the database");
+    };
+    let reason = match archive::cleanup(&mut s.conn, &layout, slug, &board::now()) {
+        Ok(Some(id)) => {
+            writeln!(out, "cleanup=done archive={id}")?;
+            return Ok(exit::OK);
+        }
+        Ok(None) => {
+            writeln!(out, "cleanup=done archive=none")?;
+            return Ok(exit::OK);
+        }
+        Err(ArchiveError::Refused(r)) => r,
+        Err(ArchiveError::Ci(r)) => r.as_str(),
+        Err(ArchiveError::Card) => "card",
+        Err(ArchiveError::Io(e)) => return Err(e),
+        Err(ArchiveError::Sql(e)) => return Err(sql(e)),
+    };
+    writeln!(out, "cleanup=refused reason={reason}")?;
+    Ok(exit::REFUSED)
+}
+
+fn export(
+    slug: &str,
+    id: Option<i64>,
+    to: Option<&std::path::Path>,
+    out: &mut impl Write,
+) -> io::Result<u8> {
+    let layout = layout();
+    let Some(s) = store(false)? else {
+        writeln!(out, "export=none")?;
+        return Ok(exit::REFUSED);
+    };
+    let id = match id {
+        Some(id) => Some(id),
+        None => archive::archives(&s.conn, slug)
+            .map_err(sql)?
+            .last()
+            .map(|(id, _)| *id),
+    };
+    let Some(id) = id else {
+        writeln!(out, "export=none")?;
+        return Ok(exit::REFUSED);
+    };
+    let dest = to.map_or_else(
+        || {
+            layout
+                .root
+                .join(DIR)
+                .join("export")
+                .join(format!("{slug}-{id}"))
+        },
+        std::path::Path::to_path_buf,
+    );
+    match archive::export(&s.conn, slug, Some(id), &dest) {
+        Ok(Some((id, path))) => {
+            writeln!(out, "export=done archive={id} path={}", path.display())?;
+            Ok(exit::OK)
+        }
+        Ok(None) => {
+            writeln!(out, "export=none")?;
+            Ok(exit::REFUSED)
+        }
+        Err(ArchiveError::Io(e)) => Err(e),
+        Err(e) => Err(sql(format!("{e:?}"))),
+    }
 }
