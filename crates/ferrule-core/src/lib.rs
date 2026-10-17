@@ -11,6 +11,7 @@ pub mod gauntlet;
 pub mod git;
 pub mod guard;
 pub mod markdown;
+pub mod next;
 pub mod project;
 pub mod run;
 pub mod shell;

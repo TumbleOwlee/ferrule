@@ -228,6 +228,16 @@ pub enum RunCommand {
         #[arg(long)]
         force: bool,
     },
+    /// The next step after an agent's status line: logs what the outcome
+    /// implies and prints `next=`, `run:`, `do:` and `see:` lines.
+    Next {
+        slug: String,
+        #[arg(value_enum)]
+        at: NextAt,
+        /// The agent's status line, as one argument or several.
+        #[arg(required = true, allow_hyphen_values = true)]
+        status: Vec<String>,
+    },
     /// Reconcile a run's cards with git before an interrupted run resumes.
     Reconcile { slug: String },
     /// Decide whether a green, clean-reviewed full-lane stage stops for
@@ -240,4 +250,18 @@ pub enum RunCommand {
         #[arg(long, default_value_t = 0)]
         threads: u32,
     },
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum NextAt {
+    /// Planner, plan reviewer, the spec author's issue answer.
+    Plan,
+    /// A re-plan's planner and plan reviewer.
+    Replan,
+    /// A review in scope branch.
+    Branch,
+    /// The spec author at gate 4.
+    Pr,
+    /// `ci=<exit code of gh pr checks>`.
+    Ci,
 }

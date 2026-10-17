@@ -20,12 +20,41 @@ Under construction. Implemented so far:
 | `ferrule card show <card>` / `card board` / `card vocab` | A card as markdown, every card, the event vocabulary |
 | `ferrule card new <card> [--state s] [k=v…]` / `card set <card> k=v…` | Create a card, set or clear its fields |
 | `ferrule import <board-dir>` | Load a markdown board into `.ferrule/state.db`, all or nothing |
+| `ferrule run next <slug> <plan\|replan\|branch\|pr\|ci> <status…>` | The next step after an agent's status line |
+| `ferrule run sha-check <slug> s<n> <sha>` | Verify a reported commit before anything is pushed |
+| `ferrule run stage-stop <slug> s<n> [--threads n]` | Stop or auto-continue a clean stage, logged on its card |
+| `ferrule run reconcile <slug>` | Cards against git before an interrupted run resumes |
+| `ferrule run gauntlet <slug> [--force]` | The `ferrule.toml` gauntlet steps in the run's worktree, cached by tree |
+| `ferrule run metrics [<slug>]` | A run's metrics line (needs green CI), or every line recorded |
+| `ferrule run cleanup <slug>` | Remove worktree and branch, archive cards and artifacts |
+| `ferrule run export <slug> [--archive id] [--to dir]` | Write an archive back out as files |
 | `ferrule hook pre-tool-use` | Session-wide Bash guard; strips attribution trailers from commit, PR and issue text |
 | `ferrule hook reviewer` | Read-only Bash guard for the reviewer agent |
 
 ## State
 
-The board lives in `.ferrule/state.db` (`SQLite`) in the main checkout; commands run inside a git worktree reach the same database through `git rev-parse --git-common-dir`. `FERRULE_NOW` overrides the log timestamp.
+The board lives in `.ferrule/state.db` (`SQLite`) in the main checkout; commands run inside a git worktree reach the same database through `git rev-parse --git-common-dir`. `FERRULE_NOW` overrides the log timestamp. A run's artifacts live in `.ferrule/runs/<slug>/`, its worktree in `.ferrule/worktrees/<slug>/`.
+
+`.ferrule/ferrule.toml` holds what differs between projects; every key is optional:
+
+```toml
+main_branch = "main"
+
+[stage_stop]
+lines = 400      # a stage diff above this many changed lines stops
+files = 8        # or touching more files than this
+checkpoint = 3   # stages auto-continued in a row before one stops anyway
+
+[[gauntlet.steps]]
+name = "test"
+run = ["cargo", "test", "--workspace"]
+timeout_secs = 1800
+
+[[gauntlet.steps]]
+name = "cov"
+run = ["cargo", "llvm-cov", "--workspace", "--fail-under-lines", "80"]
+coverage = true  # its TOTAL line gives the pass's cov=
+```
 
 ## Install
 

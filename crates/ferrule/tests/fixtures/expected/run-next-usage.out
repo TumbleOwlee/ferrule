@@ -1,0 +1,11 @@
+$ run next 
+exit=2
+$ run next ns nowhere status=ready
+exit=2
+$ run next ns pr status=new file=x
+run-next=unknown at=pr status=new
+exit=2
+$ run next nosuch plan status=ready
+run-next=card
+exit=1
+exit=0

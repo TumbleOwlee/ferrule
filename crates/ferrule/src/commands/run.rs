@@ -4,13 +4,14 @@ use ferrule_core::archive::{self, Error as ArchiveError};
 use ferrule_core::board;
 use ferrule_core::config::Config;
 use ferrule_core::gauntlet::{self, Outcome};
+use ferrule_core::next::{self, At, Status};
 use ferrule_core::project::{self, Layout};
 use ferrule_core::run::{self as core_run, Error};
 use ferrule_core::store::DIR;
 
 use super::card::{sql, store};
 use super::exit;
-use crate::cli::RunCommand;
+use crate::cli::{NextAt, RunCommand};
 
 fn layout() -> Layout {
     Layout::new(project::main_checkout())
@@ -21,6 +22,7 @@ pub fn run(command: &RunCommand, out: &mut impl Write) -> io::Result<u8> {
         RunCommand::ShaCheck { slug, stage, sha } => sha_check(slug, *stage, sha, out),
         RunCommand::Reconcile { slug } => reconcile(slug, out),
         RunCommand::Gauntlet { slug, force } => gauntlet(slug, *force, out),
+        RunCommand::Next { slug, at, status } => next_step(slug, *at, status, out),
         RunCommand::Metrics { slug } => metrics(slug.as_deref(), out),
         RunCommand::Cleanup { slug } => cleanup(slug, out),
         RunCommand::Export { slug, archive, to } => export(slug, *archive, to.as_deref(), out),
@@ -231,4 +233,43 @@ fn gauntlet(slug: &str, force: bool, out: &mut impl Write) -> io::Result<u8> {
     } else {
         exit::REFUSED
     })
+}
+
+fn next_step(slug: &str, at: NextAt, status: &[String], out: &mut impl Write) -> io::Result<u8> {
+    let at = match at {
+        NextAt::Plan => At::Plan,
+        NextAt::Replan => At::Replan,
+        NextAt::Branch => At::Branch,
+        NextAt::Pr => At::Pr,
+        NextAt::Ci => At::Ci,
+    };
+    let status = Status::parse(status);
+    let Some(mut s) = store(false)? else {
+        writeln!(out, "run-next=card")?;
+        return Ok(exit::REFUSED);
+    };
+    match next::next(&mut s.conn, &layout(), slug, at, &status, &board::now()) {
+        Ok(lines) => {
+            for l in lines {
+                writeln!(out, "{l}")?;
+            }
+            Ok(exit::OK)
+        }
+        Err(next::Error::Usage) => {
+            eprintln!(
+                "usage: ferrule run next <slug> {} status=<word>…",
+                at.as_str()
+            );
+            Ok(exit::USAGE)
+        }
+        Err(next::Error::Card) => {
+            writeln!(out, "run-next=card")?;
+            Ok(exit::REFUSED)
+        }
+        Err(next::Error::Unknown(word)) => {
+            writeln!(out, "run-next=unknown at={} status={word}", at.as_str())?;
+            Ok(exit::USAGE)
+        }
+        Err(next::Error::Sql(e)) => Err(sql(e)),
+    }
 }
