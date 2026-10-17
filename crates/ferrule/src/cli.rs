@@ -11,6 +11,19 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,
+    /// How documents print: styled for a terminal, or markdown.
+    #[arg(long, global = true, value_enum, default_value_t = Format::Auto)]
+    pub format: Format,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum Format {
+    /// Styled when stdout is a terminal, markdown otherwise.
+    Auto,
+    /// Styled; colours off under `NO_COLOR`.
+    Text,
+    /// Markdown, as stored.
+    Md,
 }
 
 #[derive(Debug, Subcommand)]

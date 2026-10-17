@@ -1,3 +1,4 @@
+use std::fmt::Write as _;
 use std::io::{self, Write};
 use std::path::Path;
 
@@ -5,6 +6,7 @@ use ferrule_core::board::{self, CardError, LogError, MoveError, State};
 use ferrule_core::config::Config;
 use ferrule_core::publish;
 use ferrule_core::store::{OpenError, Store};
+use ferrule_core::term::{self, Style};
 use ferrule_core::{project, vocab};
 
 use super::exit;
@@ -61,14 +63,14 @@ fn with_separator(args: &[String]) -> Vec<String> {
     out
 }
 
-pub fn run(command: &CardCommand, out: &mut impl Write) -> io::Result<u8> {
+pub fn run(command: &CardCommand, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
     match command {
         CardCommand::Field { card, field: f } => field(card, f, out),
         CardCommand::Log { card, event, args } => log(card, event, &with_separator(args), out),
         CardCommand::Move { card, state: to } => move_card(card, state(*to), out),
         CardCommand::Commit { card, message, .. } => commit(card.as_deref(), message, out),
-        CardCommand::Show { card } => show(card, out),
-        CardCommand::Board => list(out),
+        CardCommand::Show { card } => show(card, style, out),
+        CardCommand::Board => list(style, out),
         CardCommand::Import { board } => import(board, out),
         CardCommand::Vocab => {
             write!(out, "{}", vocab::table())?;
@@ -156,13 +158,16 @@ fn move_card(card: &str, to: State, out: &mut impl Write) -> io::Result<u8> {
     }
 }
 
-fn show(card: &str, out: &mut impl Write) -> io::Result<u8> {
+fn show(card: &str, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
     let shown = match store(false)? {
         Some(s) => board::show(&s.conn, card).map_err(sql)?,
         None => None,
     };
     if let Some(text) = shown {
-        write!(out, "{text}")?;
+        match style {
+            Some(s) => write!(out, "{}", styled_card(&text, s))?,
+            None => write!(out, "{text}")?,
+        }
         Ok(exit::OK)
     } else {
         writeln!(out, "card-show=card")?;
@@ -170,14 +175,48 @@ fn show(card: &str, out: &mut impl Write) -> io::Result<u8> {
     }
 }
 
-fn list(out: &mut impl Write) -> io::Result<u8> {
+/// `board::show`'s card as aligned fields over its log, timestamps dimmed.
+fn styled_card(text: &str, s: Style) -> String {
+    let mut parts = text.splitn(3, "---\n");
+    let fields = parts.nth(1).unwrap_or("");
+    let log = parts.next().unwrap_or("");
+    let pairs: Vec<(&str, &str)> = fields.lines().filter_map(|l| l.split_once(": ")).collect();
+    let w = pairs.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
+    let mut out = String::new();
+    for (k, v) in pairs {
+        let v = if k == "state" {
+            term::state(v, s)
+        } else {
+            v.to_owned()
+        };
+        let _ = writeln!(out, "{}  {v}", term::strong(&format!("{k:<w$}"), s));
+    }
+    if !log.is_empty() {
+        out.push('\n');
+    }
+    for line in log.lines() {
+        let (at, body) = line.split_once(' ').unwrap_or((line, ""));
+        let _ = writeln!(out, "{}  {body}", term::faint(at, s));
+    }
+    out
+}
+
+fn list(style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
     let Some(s) = store(false)? else {
         return Ok(exit::OK);
     };
     for (id, st) in board::all(&s.conn).map_err(sql)? {
+        let state = match style {
+            Some(style) => format!(
+                "{}{}",
+                term::state(st.as_str(), style),
+                " ".repeat(10 - st.as_str().len())
+            ),
+            None => format!("{:<10}", st.as_str()),
+        };
         match board::field(&s.conn, &id, "title").map_err(sql)? {
-            Some(t) => writeln!(out, "{:<10} {id}  {t}", st.as_str())?,
-            None => writeln!(out, "{:<10} {id}", st.as_str())?,
+            Some(t) => writeln!(out, "{state} {id}  {t}")?,
+            None => writeln!(out, "{state} {id}")?,
         }
     }
     Ok(exit::OK)

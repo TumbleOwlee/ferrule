@@ -5,16 +5,20 @@ use ferrule_core::board;
 use ferrule_core::config::Config;
 use ferrule_core::guide::{self, Context, Lane};
 use ferrule_core::project::{self, Layout};
+use ferrule_core::term::{self, Style};
 
 use super::card::{sql, store};
 use super::exit;
 use crate::cli::GuideArgs;
 
-pub fn run(args: &GuideArgs, out: &mut impl Write) -> io::Result<u8> {
+pub fn run(args: &GuideArgs, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
     let layout = Layout::new(project::main_checkout());
     if args.list {
         for line in guide::list(&layout.root) {
-            writeln!(out, "{line}")?;
+            match style {
+                Some(s) if !line.starts_with(' ') => writeln!(out, "{}", term::strong(&line, s))?,
+                _ => writeln!(out, "{line}")?,
+            }
         }
         return Ok(exit::OK);
     }
@@ -38,12 +42,12 @@ pub fn run(args: &GuideArgs, out: &mut impl Write) -> io::Result<u8> {
     let rendered = guide::render(&text, &ctx);
     let body = guide::body(&rendered);
     if args.section.is_empty() {
-        write!(out, "{body}")?;
+        super::doc(out, style, body)?;
         return Ok(exit::OK);
     }
     match guide::select(body, &args.section) {
         Ok(text) => {
-            write!(out, "{text}")?;
+            super::doc(out, style, &text)?;
             Ok(exit::OK)
         }
         Err(missing) => {

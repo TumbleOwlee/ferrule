@@ -29,4 +29,5 @@ pub mod shell;
 pub mod spec;
 pub mod spec_diff;
 pub mod store;
+pub mod term;
 pub mod vocab;

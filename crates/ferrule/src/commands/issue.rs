@@ -5,17 +5,18 @@ use ferrule_core::project::{self, Layout};
 use ferrule_core::publish::{self, Target};
 use ferrule_core::remote;
 use ferrule_core::request::{self, Part};
+use ferrule_core::term::{self, Style};
 use ferrule_core::{board, body};
 
 use super::card::{sql, store};
 use super::exit;
 use crate::cli::{FileTarget, IssueCommand, RequestPart};
 
-pub fn run(command: &IssueCommand, out: &mut impl Write) -> io::Result<u8> {
+pub fn run(command: &IssueCommand, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
     match command {
-        IssueCommand::View { issue } => view(issue, out),
-        IssueCommand::Request { issue, part } => request(issue, *part, out),
-        IssueCommand::Body { slug, slice } => body(slug, *slice, out),
+        IssueCommand::View { issue } => view(issue, style, out),
+        IssueCommand::Request { issue, part } => request(issue, *part, style, out),
+        IssueCommand::Body { slug, slice } => body(slug, *slice, style, out),
         IssueCommand::File {
             slug,
             target,
@@ -28,10 +29,44 @@ fn config() -> io::Result<Config> {
     Config::load(&project::main_checkout()).map_err(sql)
 }
 
-fn view(issue: &str, out: &mut impl Write) -> io::Result<u8> {
+/// Prints an issue or PR: compact text, or styled with its body and
+/// comments rendered.
+pub fn print_item(
+    item: &remote::Item,
+    style: Option<Style>,
+    out: &mut impl Write,
+) -> io::Result<()> {
+    let Some(s) = style else {
+        return write!(out, "{}", item.text());
+    };
+    writeln!(out, "{}", term::strong(&item.head, s))?;
+    let by = match &item.url {
+        Some(url) => format!("{url} · by {}", item.by),
+        None => format!("by {}", item.by),
+    };
+    writeln!(out, "{}\n", term::faint(&by, s))?;
+    write!(out, "{}", term::markdown(&item.body, s))?;
+    let n = item.comments.len();
+    writeln!(
+        out,
+        "\n{}",
+        term::faint(&format!("── {n} comment(s) ──"), s)
+    )?;
+    for c in &item.comments {
+        writeln!(
+            out,
+            "\n{}",
+            term::strong(&format!("{} · {}", c.author, c.at), s)
+        )?;
+        write!(out, "{}", term::markdown(&c.body, s))?;
+    }
+    Ok(())
+}
+
+fn view(issue: &str, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
     match remote::issue(config()?.backend.tracker, issue, &project::root()) {
         Ok(item) => {
-            write!(out, "{}", item.text())?;
+            print_item(&item, style, out)?;
             Ok(exit::OK)
         }
         Err(e) => {
@@ -41,7 +76,12 @@ fn view(issue: &str, out: &mut impl Write) -> io::Result<u8> {
     }
 }
 
-fn request(issue: &str, part: RequestPart, out: &mut impl Write) -> io::Result<u8> {
+fn request(
+    issue: &str,
+    part: RequestPart,
+    style: Option<Style>,
+    out: &mut impl Write,
+) -> io::Result<u8> {
     let item = match remote::issue(config()?.backend.tracker, issue, &project::root()) {
         Ok(item) => item,
         Err(e) => {
@@ -54,7 +94,7 @@ fn request(issue: &str, part: RequestPart, out: &mut impl Write) -> io::Result<u
         let after = text
             .split_once(" comment(s) ---\n")
             .map_or("", |(_, rest)| rest);
-        write!(out, "{}", after.strip_prefix('\n').unwrap_or(after))?;
+        super::doc(out, style, after.strip_prefix('\n').unwrap_or(after))?;
         return Ok(exit::OK);
     }
     let which = if part.spec {
@@ -66,17 +106,23 @@ fn request(issue: &str, part: RequestPart, out: &mut impl Write) -> io::Result<u
     } else {
         Part::Request
     };
-    for l in request::part(&item.body, which) {
-        writeln!(out, "{l}")?;
+    let mut text = request::part(&item.body, which).join("\n");
+    if !text.is_empty() {
+        text.push('\n');
     }
+    super::doc(out, style, &text)?;
     Ok(exit::OK)
 }
 
 /// Prints an assembled body, or the refusal it ran into.
-pub fn print_body(result: Result<String, body::Error>, out: &mut impl Write) -> io::Result<u8> {
+pub fn print_body(
+    result: Result<String, body::Error>,
+    style: Option<Style>,
+    out: &mut impl Write,
+) -> io::Result<u8> {
     match result {
         Ok(text) => {
-            write!(out, "{text}")?;
+            super::doc(out, style, &text)?;
             Ok(exit::OK)
         }
         Err(body::Error::StageRef(t)) => {
@@ -96,19 +142,24 @@ pub fn print_body(result: Result<String, body::Error>, out: &mut impl Write) -> 
     }
 }
 
-fn body(slug: &str, slice: Option<u32>, out: &mut impl Write) -> io::Result<u8> {
+fn body(
+    slug: &str,
+    slice: Option<u32>,
+    style: Option<Style>,
+    out: &mut impl Write,
+) -> io::Result<u8> {
     let layout = Layout::new(project::main_checkout());
     let s = match store(false)? {
         Some(s) => s,
         None => ferrule_core::store::Store::memory().map_err(sql)?,
     };
-    print_body(body::issue(&s.conn, &layout, slug, slice), out)
+    print_body(body::issue(&s.conn, &layout, slug, slice), style, out)
 }
 
 /// Prints the refusal of a post; its exit code.
 pub fn post_failed(e: publish::Error, out: &mut impl Write) -> io::Result<u8> {
     match e {
-        publish::Error::Body(b) => print_body(Err(b), out),
+        publish::Error::Body(b) => print_body(Err(b), None, out),
         publish::Error::Missing(p) => {
             eprintln!("missing {}", p.display());
             Ok(exit::REFUSED)

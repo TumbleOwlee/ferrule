@@ -1,27 +1,46 @@
 mod cli;
 mod commands;
 
-use std::io::{self, BufWriter, Write};
+use std::io::{self, BufWriter, IsTerminal, Write};
 use std::process::ExitCode;
 
 use clap::Parser;
 
-use cli::{Cli, Command};
+use cli::{Cli, Command, Format};
+use ferrule_core::term::Style;
+
+/// The terminal style documents print in; `None` prints markdown.
+fn style(format: Format) -> Option<Style> {
+    let styled = match format {
+        Format::Auto => io::stdout().is_terminal(),
+        Format::Text => true,
+        Format::Md => false,
+    };
+    let width = terminal_size::terminal_size()
+        .map(|(w, _)| usize::from(w.0))
+        .or_else(|| std::env::var("COLUMNS").ok()?.parse().ok())
+        .unwrap_or(100);
+    styled.then(|| Style {
+        color: std::env::var_os("NO_COLOR").is_none_or(|v| v.is_empty()),
+        width,
+    })
+}
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    let style = style(cli.format);
     let mut out = BufWriter::new(io::stdout().lock());
     if let Some(code) = commands::install::pinned(&cli.command) {
         return ExitCode::from(code);
     }
     let result = match &cli.command {
-        Command::Spec(command) => commands::spec::run(command, &mut out),
-        Command::Card(command) => commands::card::run(command, &mut out),
+        Command::Spec(command) => commands::spec::run(command, style, &mut out),
+        Command::Card(command) => commands::card::run(command, style, &mut out),
         Command::Run(command) => commands::run::run(command, &mut out),
         Command::Prompt(command) => commands::prompt::run(command, &mut out),
-        Command::Issue(command) => commands::issue::run(command, &mut out),
-        Command::Pr(command) => commands::pr::run(command, &mut out),
-        Command::Guide(args) => commands::guide::run(args, &mut out),
+        Command::Issue(command) => commands::issue::run(command, style, &mut out),
+        Command::Pr(command) => commands::pr::run(command, style, &mut out),
+        Command::Guide(args) => commands::guide::run(args, style, &mut out),
         Command::Install(args) => commands::install::install(args, &mut out),
         Command::Uninstall { purge } => commands::install::uninstall(*purge, &mut out),
         Command::Hook(command) => {

@@ -4,6 +4,7 @@ use std::path::Path;
 
 use ferrule_core::markdown::{self, Match};
 use ferrule_core::spec_diff::{self, Part, SpecDiff};
+use ferrule_core::term::{self, Style};
 use ferrule_core::{board, project, spec};
 
 use super::exit;
@@ -15,14 +16,14 @@ use crate::cli::{
 /// Longest entry text `spec related` prints before cutting it with `…`.
 const RELATED_TEXT_MAX: usize = 100;
 
-pub fn run(command: &SpecCommand, out: &mut impl Write) -> io::Result<u8> {
+pub fn run(command: &SpecCommand, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
     match command {
-        SpecCommand::Section(args) => section(args, out),
-        SpecCommand::Sections(args) => sections(args, out),
+        SpecCommand::Section(args) => section(args, style, out),
+        SpecCommand::Sections(args) => sections(args, style, out),
         SpecCommand::Id(args) => id(args, out),
         SpecCommand::Related(args) => related(args, out),
         SpecCommand::Collisions(args) => collisions(args, out),
-        SpecCommand::Render(args) => render(args, out),
+        SpecCommand::Render(args) => render(args, style, out),
     }
 }
 
@@ -32,7 +33,7 @@ fn read(path: &Path) -> Option<String> {
         .ok()
 }
 
-fn section(args: &SectionArgs, out: &mut impl Write) -> io::Result<u8> {
+fn section(args: &SectionArgs, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
     let Some(text) = read(&args.file) else {
         return Ok(exit::REFUSED);
     };
@@ -42,6 +43,7 @@ fn section(args: &SectionArgs, out: &mut impl Write) -> io::Result<u8> {
         Match::Exact
     };
     let mut missing = Vec::new();
+    let mut printed = false;
     for want in &args.headings {
         let lines = markdown::section_lines(&text, want, how);
         if lines.is_empty() {
@@ -49,7 +51,12 @@ fn section(args: &SectionArgs, out: &mut impl Write) -> io::Result<u8> {
         } else {
             // Trailing blank lines are dropped: a section ends at its last
             // line of content.
-            writeln!(out, "{}", lines.join("\n").trim_end_matches('\n'))?;
+            let md = format!("{}\n", lines.join("\n").trim_end_matches('\n'));
+            if style.is_some() && printed {
+                writeln!(out)?;
+            }
+            printed = true;
+            super::doc(out, style, &md)?;
         }
     }
     if missing.is_empty() {
@@ -59,17 +66,30 @@ fn section(args: &SectionArgs, out: &mut impl Write) -> io::Result<u8> {
     Ok(exit::REFUSED)
 }
 
-fn sections(args: &SectionsArgs, out: &mut impl Write) -> io::Result<u8> {
+fn sections(args: &SectionsArgs, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
     let mut code = exit::OK;
     for file in &args.files {
+        let name = file.display().to_string();
         if args.files.len() > 1 {
-            writeln!(out, "== {} ==", file.display())?;
+            match style {
+                Some(s) => writeln!(out, "{}", term::faint(&name, s))?,
+                None => writeln!(out, "== {name} ==")?,
+            }
         }
         let Some(text) = read(file) else {
             code = exit::REFUSED;
             continue;
         };
-        for heading in markdown::headings(&text) {
+        let headings = markdown::headings(&text);
+        if let Some(s) = style {
+            let tree: Vec<(usize, &str)> = headings
+                .iter()
+                .map(|h| (h.level, h.line[h.level..].trim()))
+                .collect();
+            write!(out, "{}", term::outline(&tree, s))?;
+            continue;
+        }
+        for heading in headings {
             writeln!(out, "{}", heading.line)?;
         }
     }
@@ -156,7 +176,7 @@ fn collisions(args: &CollisionsArgs, out: &mut impl Write) -> io::Result<u8> {
     }
 }
 
-fn render(args: &RenderArgs, out: &mut impl Write) -> io::Result<u8> {
+fn render(args: &RenderArgs, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
     let Some(text) = read(&args.spec_diff) else {
         return Ok(exit::REFUSED);
     };
@@ -191,10 +211,10 @@ fn render(args: &RenderArgs, out: &mut impl Write) -> io::Result<u8> {
         first: args.with_unnumbered,
         issue_ids,
     };
-    write!(
+    super::doc(
         out,
-        "{}",
-        spec_diff::render(&SpecDiff::parse(&text), part, &opts)
+        style,
+        &spec_diff::render(&SpecDiff::parse(&text), part, &opts),
     )?;
     Ok(exit::OK)
 }

@@ -59,6 +59,10 @@ Under construction. Implemented so far:
 | `ferrule uninstall [--purge]` | Remove what install added |
 | `ferrule guide <topic> [--section <heading>…] [--slug <s>] [--stage s<n>] [--lane fast\|full]` | One topic of the workflow's instructions, or some of its sections, cut to the run's lane, steps the card shows done marked, placeholders filled; `--list` groups orchestrator and agent topics, `--check` |
 
+## Output
+
+Commands print `key=value` status lines; exit codes are 0 done, 1 refused, 2 usage, 3 content. Commands that print a document (`guide`, `spec section`, `spec sections`, `spec render`, `card show`, `card board`, `issue view|request|body`, `pr view|body`) style it when stdout is a terminal: headings indent their sections, `spec sections` draws a tree, lists and tables are aligned and wrapped to the terminal's width, and a table too wide becomes one record per row. Piped or redirected, which is what agents and scripts get, they print markdown unchanged. `--format text|md` overrides the choice; `NO_COLOR` keeps the layout without colours. `prompt` output is already shaped for the user and prints as is.
+
 ## Guide
 
 The workflow's instructions ship inside the binary as topics (`crates/ferrule-core/guide/<topic>.md`): one per orchestrator step (`gate2`, `stages`, `gate4`, …) and one per agent (`implementer`, `planner`, …). `ferrule run next` names the topic for what comes next as a `guide:` line.

@@ -39,6 +39,11 @@ impl Run {
         self
     }
 
+    pub fn env_remove(mut self, key: &str) -> Self {
+        self.command.env_remove(key);
+        self
+    }
+
     pub fn output(mut self) -> Output {
         self.command.output().expect("run ferrule")
     }

@@ -6,6 +6,7 @@ use ferrule_core::config::Config;
 use ferrule_core::feedback::{self, Kind};
 use ferrule_core::project::{self, Layout};
 use ferrule_core::publish;
+use ferrule_core::term::Style;
 use ferrule_core::{board, git, remote};
 
 use super::card::{sql, store};
@@ -13,12 +14,12 @@ use super::exit;
 use super::issue::{post_failed, print_body};
 use crate::cli::{BodyForm, FeedbackCommand, PrCommand};
 
-pub fn run(command: &PrCommand, out: &mut impl Write) -> io::Result<u8> {
+pub fn run(command: &PrCommand, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
     let config = Config::load(&project::main_checkout()).map_err(sql)?;
     match command {
         PrCommand::View { pr } => match remote::pr(config.backend.ci, pr, &project::root()) {
             Ok(item) => {
-                write!(out, "{}", item.text())?;
+                super::issue::print_item(&item, style, out)?;
                 Ok(exit::OK)
             }
             Err(e) => {
@@ -38,6 +39,7 @@ pub fn run(command: &PrCommand, out: &mut impl Write) -> io::Result<u8> {
             };
             print_body(
                 body::pr(&s.conn, &layout, slug, form, &config.main_branch),
+                style,
                 out,
             )
         }
