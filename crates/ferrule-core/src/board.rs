@@ -384,6 +384,39 @@ pub fn create_all(conn: &mut Connection, cards: &[NewCard], now: &str) -> Result
     tx.commit().map_err(sql)
 }
 
+/// Deletes `delete`, logs `parent_log` on `parent` and creates `create`,
+/// all or nothing.
+pub fn replace_cards(
+    conn: &mut Connection,
+    parent: &str,
+    delete: &[String],
+    parent_log: &[(String, Vec<String>)],
+    create: &[NewCard],
+    now: &str,
+) -> Result<(), BatchError> {
+    let sql = |e: rusqlite::Error| BatchError::Card(String::new(), CardError::Sql(e));
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(sql)?;
+    for (event, args) in parent_log {
+        append(&tx, parent, event, args, now, vocab::READ_BUDGET)
+            .map_err(|e| BatchError::Log(parent.to_owned(), e))?;
+    }
+    for id in delete {
+        tx.execute("DELETE FROM cards WHERE id = ?1", [id])
+            .map_err(sql)?;
+    }
+    for c in create {
+        insert(&tx, &c.id, c.state, &c.fields, now)
+            .map_err(|e| BatchError::Card(c.id.clone(), e))?;
+        for (event, args) in &c.log {
+            append(&tx, &c.id, event, args, now, vocab::READ_BUDGET)
+                .map_err(|e| BatchError::Log(c.id.clone(), e))?;
+        }
+    }
+    tx.commit().map_err(sql)
+}
+
 fn insert(
     conn: &Connection,
     id: &str,

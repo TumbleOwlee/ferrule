@@ -23,6 +23,8 @@ pub enum Error {
     Shape(String),
     /// Nothing matched (no failed run, no failing job).
     NotFound(String),
+    /// The configured host has no implementation of this write yet.
+    Unsupported(&'static str),
 }
 
 impl std::fmt::Display for Error {
@@ -31,6 +33,7 @@ impl std::fmt::Display for Error {
             Error::Command(e) | Error::Credentials(e) | Error::Shape(e) | Error::NotFound(e) => {
                 f.write_str(e)
             }
+            Error::Unsupported(what) => write!(f, "{what} is only implemented for GitHub yet"),
         }
     }
 }
@@ -405,6 +408,213 @@ pub fn pr_branch(ci: Ci, n: &str, root: &Path) -> Result<String, Error> {
     Ok(branch)
 }
 
+/// The number at the end of the URL `gh … create` prints.
+fn number_of(url: &str) -> Result<u64, Error> {
+    url.trim()
+        .rsplit('/')
+        .next()
+        .and_then(|n| n.parse().ok())
+        .ok_or_else(|| Error::Shape(format!("no number in {}", url.trim())))
+}
+
+fn github_tracker(tracker: Tracker, what: &'static str) -> Result<(), Error> {
+    match tracker {
+        Tracker::Github => Ok(()),
+        Tracker::Jira => Err(Error::Unsupported(what)),
+    }
+}
+
+fn github_ci(ci: Ci, what: &'static str) -> Result<(), Error> {
+    match ci {
+        Ci::Github => Ok(()),
+        Ci::Bitbucket => Err(Error::Unsupported(what)),
+    }
+}
+
+/// Files an issue; its number.
+pub fn issue_create(tracker: Tracker, title: &str, body: &str, root: &Path) -> Result<u64, Error> {
+    github_tracker(tracker, "issue create")?;
+    let url = run(
+        "gh",
+        &["issue", "create", "--title", title, "--body-file", "-"],
+        Some(body),
+        root,
+    )?;
+    number_of(&url)
+}
+
+/// Replaces an issue's title and body.
+pub fn issue_edit(
+    tracker: Tracker,
+    n: u64,
+    title: &str,
+    body: &str,
+    root: &Path,
+) -> Result<(), Error> {
+    github_tracker(tracker, "issue edit")?;
+    run(
+        "gh",
+        &[
+            "issue",
+            "edit",
+            &n.to_string(),
+            "--title",
+            title,
+            "--body-file",
+            "-",
+        ],
+        Some(body),
+        root,
+    )
+    .map(drop)
+}
+
+pub fn issue_comment(tracker: Tracker, n: u64, body: &str, root: &Path) -> Result<(), Error> {
+    github_tracker(tracker, "issue comment")?;
+    run(
+        "gh",
+        &["issue", "comment", &n.to_string(), "--body-file", "-"],
+        Some(body),
+        root,
+    )
+    .map(drop)
+}
+
+/// The open issue titled exactly `title`, if one exists.
+pub fn issue_find_open(tracker: Tracker, title: &str, root: &Path) -> Result<Option<u64>, Error> {
+    #[derive(Deserialize)]
+    struct Found {
+        number: u64,
+        title: String,
+    }
+    github_tracker(tracker, "issue search")?;
+    let out = run(
+        "gh",
+        &[
+            "issue",
+            "list",
+            "--state",
+            "open",
+            "--search",
+            &format!("{title} in:title"),
+            "--json",
+            "number,title",
+        ],
+        None,
+        root,
+    )?;
+    let found: Vec<Found> = json(&out, "gh issue list")?;
+    Ok(found
+        .into_iter()
+        .find(|f| f.title == title)
+        .map(|f| f.number))
+}
+
+/// Opens a draft pull request of `branch` into `base`; its number.
+pub fn pr_create_draft(
+    ci: Ci,
+    branch: &str,
+    base: &str,
+    title: &str,
+    body: &str,
+    root: &Path,
+) -> Result<u64, Error> {
+    github_ci(ci, "pr create")?;
+    let url = run(
+        "gh",
+        &[
+            "pr",
+            "create",
+            "--draft",
+            "--head",
+            branch,
+            "--base",
+            base,
+            "--title",
+            title,
+            "--body-file",
+            "-",
+        ],
+        Some(body),
+        root,
+    )?;
+    number_of(&url)
+}
+
+/// Replaces a pull request's body, and its title when given.
+pub fn pr_edit(ci: Ci, n: u64, title: Option<&str>, body: &str, root: &Path) -> Result<(), Error> {
+    github_ci(ci, "pr edit")?;
+    let n = n.to_string();
+    let mut args = vec!["pr", "edit", n.as_str(), "--body-file", "-"];
+    if let Some(t) = title {
+        args.extend(["--title", t]);
+    }
+    run("gh", &args, Some(body), root).map(drop)
+}
+
+pub fn pr_ready(ci: Ci, n: u64, root: &Path) -> Result<(), Error> {
+    github_ci(ci, "pr ready")?;
+    run("gh", &["pr", "ready", &n.to_string()], None, root).map(drop)
+}
+
+/// A pull request's state (`open`, `merged`, `closed`), whether it is a
+/// draft, and its body.
+pub fn pr_status(ci: Ci, n: u64, root: &Path) -> Result<(String, bool, String), Error> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Pr {
+        state: String,
+        is_draft: bool,
+        body: Option<String>,
+    }
+    github_ci(ci, "pr status")?;
+    let out = run(
+        "gh",
+        &["pr", "view", &n.to_string(), "--json", "state,isDraft,body"],
+        None,
+        root,
+    )?;
+    let p: Pr = json(&out, "gh pr view")?;
+    Ok((
+        p.state.to_ascii_lowercase(),
+        p.is_draft,
+        p.body.unwrap_or_default(),
+    ))
+}
+
+/// Waits for a pull request's checks; their exit code (0 green) and the
+/// output, which names the failed checks.
+pub fn pr_checks_watch(ci: Ci, n: u64, root: &Path) -> Result<(i32, String), Error> {
+    github_ci(ci, "pr checks")?;
+    let out = Command::new("gh")
+        .args(["pr", "checks", &n.to_string(), "--watch"])
+        .current_dir(if root.as_os_str().is_empty() {
+            Path::new(".")
+        } else {
+            root
+        })
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| Error::Command(format!("gh: {e}")))?;
+    let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
+    text.push_str(&String::from_utf8_lossy(&out.stderr));
+    Ok((out.status.code().unwrap_or(1), text))
+}
+
+/// The names of the failed checks in `gh pr checks` output.
+#[must_use]
+pub fn failed_checks(output: &str) -> Vec<String> {
+    output
+        .lines()
+        .filter_map(|l| {
+            let mut cells = l.split('\t');
+            let name = cells.next()?.trim();
+            let state = cells.next()?.trim();
+            (state == "fail" && !name.is_empty()).then(|| name.to_owned())
+        })
+        .collect()
+}
+
 /// The lines of a CI log that name an error or failure.
 #[must_use]
 pub fn error_lines(log: &str) -> Vec<&str> {
@@ -570,6 +780,16 @@ mod tests {
         )
         .unwrap();
         assert_eq!(adf_text(&v), "a b");
+    }
+
+    #[test]
+    fn ut_failed_checks_and_numbers() {
+        assert_eq!(
+            failed_checks("test\tfail\t1m\thttps://x\nlint\tpass\t5s\thttps://y\n"),
+            ["test"]
+        );
+        assert_eq!(number_of("https://github.com/o/r/pull/41\n").unwrap(), 41);
+        assert!(number_of("nope").is_err());
     }
 
     #[test]

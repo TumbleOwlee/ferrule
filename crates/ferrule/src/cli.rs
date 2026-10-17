@@ -60,6 +60,35 @@ pub enum IssueCommand {
         #[arg(long)]
         slice: Option<u32>,
     },
+    /// Post the run's issue, or a slice, split-off or follow-up issue, or
+    /// issue-comment.md; record the number. An open issue with the same
+    /// title is adopted, never filed twice.
+    File {
+        slug: String,
+        #[command(flatten)]
+        target: FileTarget,
+        /// The tracking issue reuses issue n: its title and body are
+        /// replaced.
+        #[arg(long, conflicts_with_all = ["slice", "split", "follow_up", "comment"])]
+        reuse: Option<u64>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, clap::Args)]
+#[group(multiple = false)]
+pub struct FileTarget {
+    /// Slice n of slices.md, appended to the card's `slices:`.
+    #[arg(long)]
+    pub slice: Option<u32>,
+    /// split-issue.md, appended to the card's `split:`.
+    #[arg(long)]
+    pub split: bool,
+    /// follow-up-k.md.
+    #[arg(long)]
+    pub follow_up: Option<u32>,
+    /// issue-comment.md on the tracking issue, and on the epic of a slice.
+    #[arg(long)]
+    pub comment: bool,
 }
 
 // Four flags of one exclusive group, read once into `request::Part`; lifts
@@ -97,6 +126,19 @@ pub enum PrCommand {
     /// The PR body from the run's artifacts and cards, ending `Closes
     /// #<issue>`; exit 3 when it names a stage or an agent.
     Body { slug: String, form: BodyForm },
+    /// Open the run's draft PR from the rendered draft body; record `pr`.
+    Open { slug: String },
+    /// Push the run's branch: its head must be a stage's verified commit
+    /// and pass the gauntlet; logs the pass, updates or opens the draft PR.
+    Push { slug: String },
+    /// Gate 4 approved: no open threads, no colliding IDs, the full body,
+    /// the PR marked ready, the kept follow-ups filed.
+    Publish {
+        slug: String,
+        /// The follow-ups to file, 1,3, or none [default: all].
+        #[arg(long)]
+        follow_ups: Option<String>,
+    },
     /// The PR's inline review threads.
     #[command(subcommand)]
     Feedback(FeedbackCommand),
@@ -111,6 +153,9 @@ pub enum PrCommand {
 pub enum FeedbackCommand {
     /// Write the unresolved threads to a file; print one status line.
     Fetch { pr: String, out: PathBuf },
+    /// Fetch the threads into the run's pr-feedback.md, log feedback=,
+    /// and move the stages owning the commented files back to inprogress.
+    Route { slug: String },
     /// Post every filled `reply:` of the file; `fixed` needs the stage and
     /// the pushed sha and resolves the thread.
     Reply {
@@ -333,8 +378,42 @@ pub enum RunCommand {
         #[arg(required = true, allow_hyphen_values = true)]
         status: Vec<String>,
     },
-    /// Reconcile a run's cards with git before an interrupted run resumes.
-    Reconcile { slug: String },
+    /// Reconcile a run's cards with git, and with the issue and PR on the
+    /// host, before an interrupted run resumes.
+    Reconcile {
+        slug: String,
+        /// Git only: skip the issue, PR and PR-body rows.
+        #[arg(long)]
+        local: bool,
+    },
+    /// Start a run: the parent card and its directory; with the issue the
+    /// user named, its request, its brief and, for a slice, its epic.
+    Init {
+        slug: String,
+        #[arg(long)]
+        issue: Option<String>,
+    },
+    /// Record an approved gate (gate1, arch, epic, gate2, stage, replan,
+    /// delta, gate3, gate4). gate2 also files the issue, adds the worktree,
+    /// moves the parent and creates the stage cards.
+    Approve {
+        gate: String,
+        slug: String,
+        /// `key=value`: lane, kind=epic (gate1), issue=new|<n>, branch,
+        /// stops=s1,s3 (gate2).
+        args: Vec<String>,
+    },
+    /// Start or approve a re-plan.
+    Replan {
+        slug: String,
+        step: ReplanStep,
+        /// With approve: stages to stop after beyond the plan's, s1,s3.
+        #[arg(long)]
+        stops: Option<String>,
+    },
+    /// Wait for the PR's checks, log ci=, print the next step and, on
+    /// red, the failed run's error lines.
+    Ci { slug: String },
     /// Decide whether a green, clean-reviewed full-lane stage stops for
     /// approval, and log the outcome on its card.
     StageStop {
@@ -392,4 +471,12 @@ pub enum PromptCommand {
         /// detail, from, pr, where, agent.
         args: Vec<String>,
     },
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum ReplanStep {
+    /// Log `replan from=`, snapshot the plan.
+    Start,
+    /// Swap the stage cards from `from` on for the new plan's.
+    Approve,
 }

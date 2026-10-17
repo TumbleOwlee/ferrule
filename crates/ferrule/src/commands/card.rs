@@ -2,6 +2,7 @@ use std::io::{self, Write};
 
 use ferrule_core::board::{self, CardError, LogError, MoveError, State};
 use ferrule_core::config::Config;
+use ferrule_core::publish;
 use ferrule_core::store::{OpenError, Store};
 use ferrule_core::{project, vocab};
 
@@ -132,7 +133,10 @@ fn move_card(card: &str, to: State, out: &mut impl Write) -> io::Result<u8> {
         return Ok(exit::REFUSED);
     };
     match board::move_card(&mut s.conn, card, to, &board::now()) {
-        Ok(()) => Ok(exit::OK),
+        Ok(()) => {
+            sync_draft(&mut s, card, out)?;
+            Ok(exit::OK)
+        }
         Err(MoveError::Card) => {
             writeln!(out, "card-move=card")?;
             Ok(exit::REFUSED)
@@ -244,6 +248,30 @@ pub fn import(args: &ImportArgs, out: &mut impl Write) -> io::Result<u8> {
         Err(e) => {
             writeln!(out, "import=refused reason={e}")?;
             Ok(exit::USAGE)
+        }
+    }
+}
+
+/// After a move, the run's draft PR body re-rendered and pushed when the
+/// run has a PR. A failure to reach the host does not undo the move.
+pub(crate) fn sync_draft(s: &mut Store, card: &str, out: &mut impl Write) -> io::Result<()> {
+    let layout = ferrule_core::project::Layout::new(project::main_checkout());
+    let config = Config::load(&layout.root).map_err(sql)?;
+    let now = board::now();
+    let mut run = publish::Run {
+        conn: &mut s.conn,
+        layout: &layout,
+        config: &config,
+        root: &layout.root,
+        slug: publish::run_of(card),
+        now: &now,
+    };
+    match run.sync_draft() {
+        Ok(Some(sync)) => writeln!(out, "{sync}"),
+        Ok(None) => Ok(()),
+        Err(e) => {
+            eprintln!("pr body: {e:?}");
+            writeln!(out, "pr-body=failed")
         }
     }
 }

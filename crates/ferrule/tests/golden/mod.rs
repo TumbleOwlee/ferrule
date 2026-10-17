@@ -83,7 +83,11 @@ impl FakeGh {
         let script = r#"#!/bin/sh
 printf '%s\n' "$*" >> "$GH_DIR/log"
 key=$(printf '%s' "$*" | tr -c 'A-Za-z0-9=._-' '_' | cut -c1-120)
-if [ -f "$GH_DIR/fx/$key" ]; then cat "$GH_DIR/fx/$key"; exit 0; fi
+if [ -f "$GH_DIR/fx/$key" ]; then
+  cat "$GH_DIR/fx/$key"
+  [ -f "$GH_DIR/fx/$key.exit" ] && exit "$(cat "$GH_DIR/fx/$key.exit")"
+  exit 0
+fi
 case "$*" in
   "api "*"-f body="*|"api graphql -F id="*) echo '{}'; exit 0 ;;
 esac
@@ -117,6 +121,17 @@ exit 1
     /// `gh <args>` prints `text`.
     pub fn serve(&self, args: &[&str], text: &str) {
         std::fs::write(self.dir.path().join("fx").join(Self::key(args)), text).unwrap();
+    }
+
+    /// `gh <args>` prints `text` and exits with `code`.
+    pub fn serve_exit(&self, args: &[&str], text: &str, code: i32) {
+        self.serve(args, text);
+        let exit = self
+            .dir
+            .path()
+            .join("fx")
+            .join(format!("{}.exit", Self::key(args)));
+        std::fs::write(exit, code.to_string()).unwrap();
     }
 
     /// The calls made, one line each.

@@ -1,7 +1,6 @@
-use std::collections::{BTreeSet, HashSet};
+use std::collections::HashSet;
 use std::io::{self, Write};
 use std::path::Path;
-use std::process::Command;
 
 use ferrule_core::markdown::{self, Match};
 use ferrule_core::spec_diff::{self, Part, SpecDiff};
@@ -140,51 +139,21 @@ fn related(args: &RelatedArgs, out: &mut impl Write) -> io::Result<u8> {
     Ok(exit::REFUSED)
 }
 
-fn git(worktree: &Path, args: &[&str]) -> io::Result<std::process::Output> {
-    Command::new("git")
-        .arg("-C")
-        .arg(worktree)
-        .args(args)
-        .output()
-}
-
-fn defined_in(worktree: &Path, id: &str, tree: &str) -> io::Result<bool> {
-    let pattern = format!("^\\*\\*{id}\\*\\*");
-    let status = git(
-        worktree,
-        &["grep", "-q", &pattern, tree, "--", "docs/specs"],
-    )?
-    .status;
-    Ok(status.success())
-}
-
 fn collisions(args: &CollisionsArgs, out: &mut impl Write) -> io::Result<u8> {
-    let wt = args.worktree.as_path();
-    let base = git(wt, &["merge-base", "HEAD", &args.reference])?;
-    if !base.status.success() {
-        writeln!(out, "ids=error reason=no-merge-base")?;
-        return Ok(exit::USAGE);
-    }
-    let base = String::from_utf8_lossy(&base.stdout).trim().to_owned();
-    let diff = git(wt, &["diff", &base, "HEAD", "--", "docs/specs"])?;
-    let diff = String::from_utf8_lossy(&diff.stdout);
-    let added: BTreeSet<&str> = diff
-        .lines()
-        .filter_map(|l| l.strip_prefix('+'))
-        .filter_map(spec::defined_id)
-        .collect();
-    let mut hits = Vec::new();
-    for id in added {
-        if !defined_in(wt, id, &base)? && defined_in(wt, id, &args.reference)? {
-            hits.push(id);
+    match spec::collisions(&args.worktree, &args.reference) {
+        None => {
+            writeln!(out, "ids=error reason=no-merge-base")?;
+            Ok(exit::USAGE)
+        }
+        Some(hits) if hits.is_empty() => {
+            writeln!(out, "ids=clean")?;
+            Ok(exit::OK)
+        }
+        Some(hits) => {
+            writeln!(out, "ids=collide {}", hits.join(","))?;
+            Ok(exit::REFUSED)
         }
     }
-    if hits.is_empty() {
-        writeln!(out, "ids=clean")?;
-        return Ok(exit::OK);
-    }
-    writeln!(out, "ids=collide {}", hits.join(","))?;
-    Ok(exit::REFUSED)
 }
 
 fn render(args: &RenderArgs, out: &mut impl Write) -> io::Result<u8> {

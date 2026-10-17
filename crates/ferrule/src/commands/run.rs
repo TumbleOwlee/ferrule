@@ -3,9 +3,11 @@ use std::io::{self, Write};
 use ferrule_core::archive::{self, Error as ArchiveError};
 use ferrule_core::board;
 use ferrule_core::config::Config;
+use ferrule_core::gate::{self, Gate};
 use ferrule_core::gauntlet::{self, Outcome};
 use ferrule_core::next::{self, At, Status};
 use ferrule_core::project::{self, Layout};
+use ferrule_core::publish;
 use ferrule_core::rebuild;
 use ferrule_core::remote::{self, Item};
 use ferrule_core::run::{self as core_run, Error};
@@ -13,7 +15,7 @@ use ferrule_core::store::DIR;
 
 use super::card::{sql, store};
 use super::exit;
-use crate::cli::{NextAt, RunCommand};
+use crate::cli::{NextAt, ReplanStep, RunCommand};
 
 fn layout() -> Layout {
     Layout::new(project::main_checkout())
@@ -22,7 +24,11 @@ fn layout() -> Layout {
 pub fn run(command: &RunCommand, out: &mut impl Write) -> io::Result<u8> {
     match command {
         RunCommand::ShaCheck { slug, stage, sha } => sha_check(slug, *stage, sha, out),
-        RunCommand::Reconcile { slug } => reconcile(slug, out),
+        RunCommand::Reconcile { slug, local } => reconcile(slug, *local, out),
+        RunCommand::Init { slug, issue } => init(slug, issue.as_deref(), out),
+        RunCommand::Approve { gate, slug, args } => approve(gate, slug, args, out),
+        RunCommand::Replan { slug, step, stops } => replan(slug, *step, stops.as_deref(), out),
+        RunCommand::Ci { slug } => ci(slug, out),
         RunCommand::Gauntlet { slug, force } => gauntlet(slug, *force, out),
         RunCommand::Next { slug, at, status } => next_step(slug, *at, status, out),
         RunCommand::Metrics { slug } => metrics(slug.as_deref(), out),
@@ -56,12 +62,14 @@ fn sha_check(slug: &str, stage: u32, sha: &str, out: &mut impl Write) -> io::Res
     }
 }
 
-fn reconcile(slug: &str, out: &mut impl Write) -> io::Result<u8> {
-    let result = match store(false)? {
-        Some(s) => core_run::reconcile(&s.conn, &layout(), slug),
+fn reconcile(slug: &str, local: bool, out: &mut impl Write) -> io::Result<u8> {
+    let layout = layout();
+    let mut store = store(false)?;
+    let result = match &store {
+        Some(s) => core_run::reconcile(&s.conn, &layout, slug),
         None => Err(Error::Card),
     };
-    let r = match result {
+    let mut r = match result {
         Ok(r) => r,
         Err(Error::Card) => {
             eprintln!("reconcile: no card for {slug}");
@@ -69,6 +77,22 @@ fn reconcile(slug: &str, out: &mut impl Write) -> io::Result<u8> {
         }
         Err(Error::Sql(e)) => return Err(sql(e)),
     };
+    if !local && let Some(s) = store.as_mut() {
+        let config = Config::load(&layout.root).map_err(sql)?;
+        let now = board::now();
+        let run = publish::Run {
+            conn: &mut s.conn,
+            layout: &layout,
+            config: &config,
+            root: &layout.root,
+            slug,
+            now: &now,
+        };
+        match run.reconcile_remote() {
+            Ok(rows) => r.differ.extend(rows),
+            Err(e) => r.differ.push(format!("host unreadable: {e:?}")),
+        }
+    }
     for d in &r.differ {
         writeln!(out, "differ row={d}")?;
     }
@@ -336,5 +360,177 @@ fn rebuild(issue: &str, pr: &str, out: &mut impl Write) -> io::Result<u8> {
         Err(rebuild::Error::Sql(e)) => Err(sql(e)),
         Err(rebuild::Error::Board(e)) => Err(sql(format!("{e:?}"))),
         Err(rebuild::Error::Io(e)) => Err(e),
+    }
+}
+
+fn gate_failed(e: gate::Error, verb: &str, out: &mut impl Write) -> io::Result<u8> {
+    match e {
+        gate::Error::Refused(reason) => {
+            writeln!(out, "{verb}=refused reason={reason}")?;
+            Ok(exit::REFUSED)
+        }
+        gate::Error::Publish(e) => super::issue::post_failed(e, out),
+        gate::Error::Remote(e) => {
+            eprintln!("{verb}: {e}");
+            Ok(exit::REFUSED)
+        }
+        gate::Error::Board(e) => Err(sql(format!("{e:?}"))),
+        gate::Error::Io(e) => Err(e),
+        gate::Error::Sql(e) => Err(sql(e)),
+    }
+}
+
+fn init(slug: &str, issue: Option<&str>, out: &mut impl Write) -> io::Result<u8> {
+    let layout = layout();
+    let config = Config::load(&layout.root).map_err(sql)?;
+    let Some(mut s) = store(true)? else {
+        return Ok(exit::REFUSED);
+    };
+    match gate::init(&mut s.conn, &layout, &config, slug, issue, &board::now()) {
+        Ok(epic) => {
+            write!(out, "init=done slug={slug}")?;
+            if let Some(e) = epic {
+                write!(out, " kind=slice epic={e}")?;
+            }
+            writeln!(out)?;
+            Ok(exit::OK)
+        }
+        Err(e) => gate_failed(e, "init", out),
+    }
+}
+
+fn approve(gate_name: &str, slug: &str, args: &[String], out: &mut impl Write) -> io::Result<u8> {
+    let Some(g) = Gate::parse(gate_name) else {
+        eprintln!(
+            "usage: ferrule run approve <gate1|arch|epic|gate2|stage|replan|delta|gate3|gate4> <slug> [k=v ...]"
+        );
+        return Ok(exit::USAGE);
+    };
+    let mut pairs = Vec::new();
+    for a in args {
+        let Some((k, v)) = a.split_once('=') else {
+            eprintln!("approve: expected key=value, got {a}");
+            return Ok(exit::USAGE);
+        };
+        pairs.push((k.to_owned(), v.to_owned()));
+    }
+    let layout = layout();
+    let config = Config::load(&layout.root).map_err(sql)?;
+    let Some(mut s) = store(false)? else {
+        writeln!(out, "approve=refused reason=card")?;
+        return Ok(exit::REFUSED);
+    };
+    match gate::approve(
+        &mut s.conn,
+        &layout,
+        &config,
+        g,
+        slug,
+        &pairs,
+        &board::now(),
+    ) {
+        Ok(a) => {
+            write!(out, "approve=done gate={gate_name}")?;
+            if let Some(i) = a.issue {
+                write!(out, " issue={i}")?;
+            }
+            if let Some(w) = &a.worktree {
+                write!(out, " worktree={w}")?;
+            }
+            if let Some(n) = a.stages {
+                write!(out, " stages={n}")?;
+            }
+            if !a.record.is_empty() {
+                write!(out, " {}", a.record)?;
+            }
+            writeln!(out)?;
+            Ok(exit::OK)
+        }
+        Err(e) => gate_failed(e, "approve", out),
+    }
+}
+
+fn replan(
+    slug: &str,
+    step: ReplanStep,
+    stops: Option<&str>,
+    out: &mut impl Write,
+) -> io::Result<u8> {
+    let layout = layout();
+    let Some(mut s) = store(false)? else {
+        writeln!(out, "replan=refused reason=card")?;
+        return Ok(exit::REFUSED);
+    };
+    let now = board::now();
+    let result = match step {
+        ReplanStep::Start => gate::replan_start(&mut s.conn, &layout, slug, &now)
+            .map(|from| format!("replan=started from=s{from}")),
+        ReplanStep::Approve => {
+            let stops: Vec<u32> = stops
+                .unwrap_or("")
+                .split(',')
+                .filter_map(|x| x.trim().strip_prefix('s')?.parse().ok())
+                .collect();
+            gate::replan_approve(&mut s.conn, &layout, slug, &stops, &now)
+                .map(|(from, n)| format!("replan=approved from=s{from} stages={n}"))
+        }
+    };
+    match result {
+        Ok(line) => {
+            writeln!(out, "{line}")?;
+            if matches!(step, ReplanStep::Approve) {
+                super::card::sync_draft(&mut s, slug, out)?;
+            }
+            Ok(exit::OK)
+        }
+        Err(e) => gate_failed(e, "replan", out),
+    }
+}
+
+fn ci(slug: &str, out: &mut impl Write) -> io::Result<u8> {
+    let layout = layout();
+    let config = Config::load(&layout.root).map_err(sql)?;
+    let Some(mut s) = store(false)? else {
+        writeln!(out, "ci=refused reason=card")?;
+        return Ok(exit::REFUSED);
+    };
+    let now = board::now();
+    let waited = publish::Run {
+        conn: &mut s.conn,
+        layout: &layout,
+        config: &config,
+        root: &layout.root,
+        slug,
+        now: &now,
+    }
+    .wait_ci();
+    let (code, failed) = match waited {
+        Ok(r) => r,
+        Err(e) => return super::issue::post_failed(e, out),
+    };
+    write!(out, "ci={code}")?;
+    if !failed.is_empty() {
+        write!(out, " failed={}", failed.join(","))?;
+    }
+    writeln!(out)?;
+    if code != 0 {
+        let branch = board::field(&s.conn, slug, "branch")
+            .map_err(sql)?
+            .unwrap_or_default();
+        if let Ok(lines) = ferrule_core::remote::failed(config.backend.ci, &branch, &layout.root) {
+            for l in lines {
+                writeln!(out, "{l}")?;
+            }
+        }
+    }
+    let status = Status::parse(&[format!("ci={code}")]);
+    match next::next(&mut s.conn, &layout, slug, At::Ci, &status, &now) {
+        Ok(lines) => {
+            for l in lines {
+                writeln!(out, "{l}")?;
+            }
+            Ok(exit::OK)
+        }
+        Err(e) => Err(sql(format!("{e:?}"))),
     }
 }

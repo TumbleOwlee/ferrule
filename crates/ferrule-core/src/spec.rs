@@ -182,6 +182,35 @@ pub fn defined_id(line: &str) -> Option<&str> {
     bold_id(line).map(|(id, _)| id)
 }
 
+/// The fixed IDs the worktree's branch adds under `docs/specs/` that
+/// `reference` (`origin/main`) now defines too: another run landed them
+/// first. `None` when the branch shares no history with `reference`.
+#[must_use]
+pub fn collisions(worktree: &Path, reference: &str) -> Option<Vec<String>> {
+    let base = crate::git::out(worktree, &["merge-base", "HEAD", reference])?;
+    let diff =
+        crate::git::out(worktree, &["diff", &base, "HEAD", "--", "docs/specs"]).unwrap_or_default();
+    let added: std::collections::BTreeSet<&str> = diff
+        .lines()
+        .filter_map(|l| l.strip_prefix('+'))
+        .filter_map(defined_id)
+        .collect();
+    let defined_in = |id: &str, tree: &str| {
+        let pattern = format!("^\\*\\*{id}\\*\\*");
+        crate::git::ok(
+            worktree,
+            &["grep", "-q", &pattern, tree, "--", "docs/specs"],
+        )
+    };
+    Some(
+        added
+            .into_iter()
+            .filter(|id| !defined_in(id, &base) && defined_in(id, reference))
+            .map(str::to_owned)
+            .collect(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

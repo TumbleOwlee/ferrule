@@ -5,11 +5,12 @@ use ferrule_core::body::{self, Form};
 use ferrule_core::config::Config;
 use ferrule_core::feedback::{self, Kind};
 use ferrule_core::project::{self, Layout};
+use ferrule_core::publish;
 use ferrule_core::{board, git, remote};
 
 use super::card::{sql, store};
 use super::exit;
-use super::issue::print_body;
+use super::issue::{post_failed, print_body};
 use crate::cli::{BodyForm, FeedbackCommand, PrCommand};
 
 pub fn run(command: &PrCommand, out: &mut impl Write) -> io::Result<u8> {
@@ -40,6 +41,12 @@ pub fn run(command: &PrCommand, out: &mut impl Write) -> io::Result<u8> {
                 out,
             )
         }
+        PrCommand::Open { slug } => open(&config, slug, out),
+        PrCommand::Push { slug } => push(&config, slug, out),
+        PrCommand::Publish { slug, follow_ups } => {
+            publish_pr(&config, slug, follow_ups.as_deref(), out)
+        }
+        PrCommand::Feedback(FeedbackCommand::Route { slug }) => route(&config, slug, out),
         PrCommand::Feedback(FeedbackCommand::Fetch { pr, out: file }) => {
             fetch(&config, pr, file, out)
         }
@@ -142,5 +149,162 @@ fn failed(config: &Config, branch: Option<&str>, out: &mut impl Write) -> io::Re
             eprintln!("pr failed: {e}");
             Ok(exit::REFUSED)
         }
+    }
+}
+
+fn open(config: &Config, slug: &str, out: &mut impl Write) -> io::Result<u8> {
+    let layout = Layout::new(project::main_checkout());
+    let Some(mut s) = store(false)? else {
+        writeln!(out, "post=refused reason=card")?;
+        return Ok(exit::REFUSED);
+    };
+    let now = board::now();
+    let mut run = publish::Run {
+        conn: &mut s.conn,
+        layout: &layout,
+        config,
+        root: &layout.root,
+        slug,
+        now: &now,
+    };
+    match run.open_pr() {
+        Ok((n, _)) => {
+            writeln!(out, "pr={n} state=draft")?;
+            Ok(exit::OK)
+        }
+        Err(e) => post_failed(e, out),
+    }
+}
+
+fn with_run<T>(
+    config: &Config,
+    slug: &str,
+    f: impl FnOnce(&mut publish::Run) -> T,
+) -> io::Result<Option<T>> {
+    let layout = Layout::new(project::main_checkout());
+    let Some(mut s) = store(false)? else {
+        return Ok(None);
+    };
+    let now = board::now();
+    let mut run = publish::Run {
+        conn: &mut s.conn,
+        layout: &layout,
+        config,
+        root: &layout.root,
+        slug,
+        now: &now,
+    };
+    Ok(Some(f(&mut run)))
+}
+
+fn push(config: &Config, slug: &str, out: &mut impl Write) -> io::Result<u8> {
+    let layout = Layout::new(project::main_checkout());
+    let pushed = match store(false)? {
+        None => None,
+        Some(mut s) => {
+            let now = board::now();
+            Some(
+                publish::Run {
+                    conn: &mut s.conn,
+                    layout: &layout,
+                    config,
+                    root: &layout.root,
+                    slug,
+                    now: &now,
+                }
+                .push(),
+            )
+        }
+    };
+    match pushed {
+        None | Some(Err(publish::Error::Card)) => {
+            writeln!(out, "push=refused reason=card")?;
+            Ok(exit::REFUSED)
+        }
+        Some(Ok(Ok(p))) => {
+            writeln!(out, "{p}")?;
+            Ok(exit::OK)
+        }
+        Some(Ok(Err(r))) => {
+            writeln!(out, "{r}")?;
+            Ok(exit::REFUSED)
+        }
+        Some(Err(e)) => post_failed(e, out),
+    }
+}
+
+fn publish_pr(
+    config: &Config,
+    slug: &str,
+    keep: Option<&str>,
+    out: &mut impl Write,
+) -> io::Result<u8> {
+    let keep: Option<Vec<u32>> =
+        keep.map(|k| k.split(',').filter_map(|x| x.trim().parse().ok()).collect());
+    match with_run(config, slug, |r| r.publish(keep.as_deref()))? {
+        None | Some(Err(publish::Error::Card)) => {
+            writeln!(out, "publish=refused reason=card")?;
+            Ok(exit::REFUSED)
+        }
+        Some(Ok(Ok((pr, filed)))) => {
+            let list: Vec<String> = filed.iter().map(|n| format!("#{n}")).collect();
+            let list = if list.is_empty() {
+                "none".to_owned()
+            } else {
+                list.join(",")
+            };
+            writeln!(out, "publish=done pr={pr} follow-ups={list}")?;
+            Ok(exit::OK)
+        }
+        Some(Ok(Err(r))) => {
+            writeln!(out, "{r}")?;
+            Ok(if matches!(r, publish::PublishRefused::StageRef(_)) {
+                exit::CONTENT
+            } else {
+                exit::REFUSED
+            })
+        }
+        Some(Err(e)) => post_failed(e, out),
+    }
+}
+
+fn route(config: &Config, slug: &str, out: &mut impl Write) -> io::Result<u8> {
+    let layout = Layout::new(project::main_checkout());
+    let routed = match store(false)? {
+        None => None,
+        Some(mut s) => {
+            let now = board::now();
+            Some(
+                publish::Run {
+                    conn: &mut s.conn,
+                    layout: &layout,
+                    config,
+                    root: &layout.root,
+                    slug,
+                    now: &now,
+                }
+                .route_feedback(),
+            )
+        }
+    };
+    match routed {
+        None | Some(Err(publish::Error::Card)) => {
+            writeln!(out, "route=refused reason=card")?;
+            Ok(exit::REFUSED)
+        }
+        Some(Ok((pr, threads, stages, sync))) => {
+            let list: Vec<String> = stages.iter().map(|n| format!("s{n}")).collect();
+            let list = if list.is_empty() {
+                "none".to_owned()
+            } else {
+                list.join(",")
+            };
+            writeln!(out, "pr={pr} threads={threads} stages={list}")?;
+            if let Some(sync) = sync {
+                writeln!(out, "{sync}")?;
+            }
+            Ok(exit::OK)
+        }
+        Some(Err(e)) => post_failed(e, out),
     }
 }

@@ -1,20 +1,26 @@
 use std::io::{self, Write};
 
-use ferrule_core::body;
 use ferrule_core::config::Config;
 use ferrule_core::project::{self, Layout};
+use ferrule_core::publish::{self, Target};
 use ferrule_core::remote;
 use ferrule_core::request::{self, Part};
+use ferrule_core::{board, body};
 
 use super::card::{sql, store};
 use super::exit;
-use crate::cli::{IssueCommand, RequestPart};
+use crate::cli::{FileTarget, IssueCommand, RequestPart};
 
 pub fn run(command: &IssueCommand, out: &mut impl Write) -> io::Result<u8> {
     match command {
         IssueCommand::View { issue } => view(issue, out),
         IssueCommand::Request { issue, part } => request(issue, *part, out),
         IssueCommand::Body { slug, slice } => body(slug, *slice, out),
+        IssueCommand::File {
+            slug,
+            target,
+            reuse,
+        } => file(slug, *target, *reuse, out),
     }
 }
 
@@ -97,4 +103,64 @@ fn body(slug: &str, slice: Option<u32>, out: &mut impl Write) -> io::Result<u8> 
         None => ferrule_core::store::Store::memory().map_err(sql)?,
     };
     print_body(body::issue(&s.conn, &layout, slug, slice), out)
+}
+
+/// Prints the refusal of a post; its exit code.
+pub fn post_failed(e: publish::Error, out: &mut impl Write) -> io::Result<u8> {
+    match e {
+        publish::Error::Body(b) => print_body(Err(b), out),
+        publish::Error::Missing(p) => {
+            eprintln!("missing {}", p.display());
+            Ok(exit::REFUSED)
+        }
+        publish::Error::NoIssue => {
+            writeln!(out, "post=refused reason=no-issue")?;
+            Ok(exit::REFUSED)
+        }
+        publish::Error::NoBranch => {
+            writeln!(out, "post=refused reason=no-branch")?;
+            Ok(exit::REFUSED)
+        }
+        publish::Error::Card => {
+            writeln!(out, "post=refused reason=card")?;
+            Ok(exit::REFUSED)
+        }
+        publish::Error::Remote(e) => {
+            eprintln!("{e}");
+            Ok(exit::REFUSED)
+        }
+        publish::Error::Sql(e) => Err(sql(e)),
+    }
+}
+
+fn file(slug: &str, t: FileTarget, reuse: Option<u64>, out: &mut impl Write) -> io::Result<u8> {
+    let target = match (t.slice, t.split, t.follow_up, t.comment) {
+        (Some(n), ..) => Target::Slice(n),
+        (_, true, ..) => Target::Split,
+        (_, _, Some(k), _) => Target::FollowUp(k),
+        (.., true) => Target::Comment,
+        _ => Target::Run,
+    };
+    let layout = Layout::new(project::main_checkout());
+    let config = config()?;
+    let Some(mut s) = store(false)? else {
+        writeln!(out, "post=refused reason=card")?;
+        return Ok(exit::REFUSED);
+    };
+    let now = board::now();
+    let mut run = publish::Run {
+        conn: &mut s.conn,
+        layout: &layout,
+        config: &config,
+        root: &layout.root,
+        slug,
+        now: &now,
+    };
+    match run.file(target, reuse) {
+        Ok((n, action)) => {
+            writeln!(out, "issue={n} action={}", action.as_str())?;
+            Ok(exit::OK)
+        }
+        Err(e) => post_failed(e, out),
+    }
 }

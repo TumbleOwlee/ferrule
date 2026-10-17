@@ -16,14 +16,18 @@ Under construction. Implemented so far:
 | `ferrule spec render <spec-diff> <part> [--only <ids>] [--first 0\|1] [--issue-ids]` | Render scenarios, requirements, entries, changes or deferred points of a spec diff |
 | `ferrule card field <card> <field>` | A frontmatter field, `log:<key>`, `pass-sha` or `state` |
 | `ferrule card log <card> <event> [pos…] [k=v…] [-- text]` | Append one event the vocabulary accepts |
-| `ferrule card move <card> <state>` | Move a card, refusing what the board's rules forbid |
+| `ferrule card move <card> <state>` | Move a card, refusing what the board's rules forbid; re-renders the run's draft PR body |
 | `ferrule card show <card>` / `card board` / `card vocab` | A card as markdown, every card, the event vocabulary |
 | `ferrule card new <card> [--state s] [k=v…]` / `card set <card> k=v…` | Create a card, set or clear its fields |
 | `ferrule import <board-dir>` | Load a markdown board into `.ferrule/state.db`, all or nothing |
+| `ferrule run init <slug> [--issue <n>]` | Start a run: parent card, run directory, the named issue's request and brief; a slice's epic |
+| `ferrule run approve <gate> <slug> [k=v…]` | Record an approval; gate 2 files the issue, adds the worktree, creates the stage cards from `plan.md`'s `## Shared` table |
+| `ferrule run replan <slug> start\|approve [--stops s1,…]` | Snapshot the plan and log `from=`; swap the uncommitted stage cards for the new plan's |
+| `ferrule run ci <slug>` | Wait for the PR's checks, log `ci=`, print the next step and the failed run's errors |
 | `ferrule run next <slug> <plan\|replan\|branch\|pr\|ci> <status…>` | The next step after an agent's status line |
 | `ferrule run sha-check <slug> s<n> <sha>` | Verify a reported commit before anything is pushed |
 | `ferrule run stage-stop <slug> s<n> [--threads n]` | Stop or auto-continue a clean stage, logged on its card |
-| `ferrule run reconcile <slug>` | Cards against git before an interrupted run resumes |
+| `ferrule run reconcile <slug> [--local]` | Cards against git, and the issue, PR and PR body on the host, before an interrupted run resumes |
 | `ferrule run gauntlet <slug> [--force]` | The `ferrule.toml` gauntlet steps in the run's worktree, cached by tree |
 | `ferrule run metrics [<slug>]` | A run's metrics line (needs green CI), or every line recorded |
 | `ferrule run cleanup <slug>` | Remove worktree and branch, archive cards and artifacts |
@@ -35,6 +39,11 @@ Under construction. Implemented so far:
 | `ferrule issue view <n\|url\|KEY>` | An issue's title, body and comments as compact text |
 | `ferrule issue request <n> [--spec\|--epic\|--slice-line\|--comments]` | A reused issue's original request, or the part named |
 | `ferrule issue body <slug> [--slice <n>]` | The tracking issue's body from the run's artifacts; exit 3 when it names a stage or an agent |
+| `ferrule issue file <slug> [--slice <n>\|--split\|--follow-up <k>\|--comment] [--reuse <n>]` | Post an issue or comment from the run's files; adopts an open issue with the same title |
+| `ferrule pr open <slug>` | Open the draft PR from the rendered draft body |
+| `ferrule pr push <slug>` | Push a verified, gauntlet-green head; update the draft body (the first push opens the PR) |
+| `ferrule pr publish <slug> [--follow-ups 1,3\|none]` | Gate 4: threads, ID collisions, full body, ready, follow-ups filed |
+| `ferrule pr feedback route <slug>` | Fetch the threads, log `feedback=`, move the stages owning the commented files back |
 | `ferrule pr view <n>` | A PR's title, body and comments as compact text |
 | `ferrule pr body <slug> draft\|full` | The PR body from the run's artifacts and cards; exit 3 when it names a stage or an agent |
 | `ferrule pr feedback fetch <n> <out>` / `pr feedback reply <n> <file> [<stage> <sha>]` | Unresolved review threads into a file; post the filled replies, resolving fixed threads |
