@@ -1,5 +1,6 @@
 pub mod card;
 pub mod hook;
+pub mod run;
 pub mod spec;
 
 /// Exit codes every subcommand shares.

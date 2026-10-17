@@ -21,6 +21,10 @@ pub enum Command {
     /// Load a markdown board (`<board>/<state>/<id>.md`) into the state
     /// database, all cards or none.
     Import(ImportArgs),
+    /// A run's mechanical steps: checks against git, stop decisions,
+    /// metrics, the gauntlet, clean-up.
+    #[command(subcommand)]
+    Run(RunCommand),
     /// Claude Code hook handlers: read the hook payload on stdin.
     #[command(subcommand)]
     Hook(HookCommand),
@@ -179,4 +183,36 @@ pub struct ImportArgs {
     /// The board directory holding `open/`, `inprogress/`, `inreview/` and
     /// `done/`.
     pub board: PathBuf,
+}
+
+/// A stage id, `s<n>`.
+fn stage_id(s: &str) -> Result<u32, String> {
+    s.strip_prefix('s')
+        .and_then(|n| n.parse().ok())
+        .ok_or_else(|| format!("expected s<n>, got {s}"))
+}
+
+#[derive(Debug, Subcommand)]
+pub enum RunCommand {
+    /// Verify an implementer's reported commit before anything is pushed:
+    /// it exists in the worktree, the run's branch holds it, and it is the
+    /// stage card's last `commit=`.
+    ShaCheck {
+        slug: String,
+        #[arg(value_parser = stage_id, value_name = "s<n>")]
+        stage: u32,
+        sha: String,
+    },
+    /// Reconcile a run's cards with git before an interrupted run resumes.
+    Reconcile { slug: String },
+    /// Decide whether a green, clean-reviewed full-lane stage stops for
+    /// approval, and log the outcome on its card.
+    StageStop {
+        slug: String,
+        #[arg(value_parser = stage_id, value_name = "s<n>")]
+        stage: u32,
+        /// Unresolved PR review threads.
+        #[arg(long, default_value_t = 0)]
+        threads: u32,
+    },
 }

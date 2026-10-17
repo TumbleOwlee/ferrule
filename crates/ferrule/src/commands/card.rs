@@ -7,13 +7,13 @@ use ferrule_core::{project, vocab};
 use super::exit;
 use crate::cli::{CardCommand, CardState, ImportArgs};
 
-fn sql(e: impl std::fmt::Display) -> io::Error {
+pub(crate) fn sql(e: impl std::fmt::Display) -> io::Error {
     io::Error::other(e.to_string())
 }
 
 /// The board's database; `None` when there is none yet, which reads as an
 /// empty board.
-fn store(create: bool) -> io::Result<Option<Store>> {
+pub(crate) fn store(create: bool) -> io::Result<Option<Store>> {
     match Store::open(&project::main_checkout(), create) {
         Ok(s) => Ok(Some(s)),
         Err(OpenError::Missing(_)) => Ok(None),

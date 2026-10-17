@@ -44,3 +44,43 @@ pub fn main_checkout() -> PathBuf {
         _ => root,
     }
 }
+
+/// Where a run's files live under the main checkout.
+#[derive(Debug, Clone)]
+pub struct Layout {
+    pub root: PathBuf,
+}
+
+impl Layout {
+    #[must_use]
+    pub fn new(root: PathBuf) -> Self {
+        Layout { root }
+    }
+
+    /// `.ferrule/runs/<slug>/`, the run's agent-written artifacts.
+    #[must_use]
+    pub fn run_dir(&self, slug: &str) -> PathBuf {
+        self.root.join(crate::store::DIR).join("runs").join(slug)
+    }
+
+    /// `.ferrule/worktrees/<slug>/`, the run's git worktree.
+    #[must_use]
+    pub fn worktree(&self, slug: &str) -> PathBuf {
+        self.root
+            .join(crate::store::DIR)
+            .join("worktrees")
+            .join(slug)
+    }
+
+    /// A path as a card states it: absolute, or under the main checkout.
+    #[must_use]
+    pub fn resolve(&self, path: &str) -> PathBuf {
+        self.root.join(path)
+    }
+
+    /// One of the run's artifacts, `None` when absent.
+    #[must_use]
+    pub fn artifact(&self, slug: &str, name: &str) -> Option<String> {
+        std::fs::read_to_string(self.run_dir(slug).join(name)).ok()
+    }
+}

@@ -94,7 +94,7 @@ pub const PARENT_FIELDS: &[&str] = &[
     "worktree",
 ];
 /// Frontmatter keys a stage card may carry; `id` and `parent` are derived.
-pub const STAGE_FIELDS: &[&str] = &["title", "blocked-by", "files", "branch", "worktree"];
+pub const STAGE_FIELDS: &[&str] = &["title", "blocked-by", "files", "branch", "worktree", "stop"];
 
 fn allowed(card: &CardId, key: &str) -> bool {
     if card.stage.is_some() {
@@ -242,6 +242,28 @@ pub fn all(conn: &Connection) -> rusqlite::Result<Vec<(String, State)>> {
             out.push((id, s));
         }
     }
+    Ok(out)
+}
+
+/// A run's stage cards as `(n, id, state)`, in stage order.
+pub fn stages(conn: &Connection, run: &str) -> rusqlite::Result<Vec<(u32, String, State)>> {
+    let mut st =
+        conn.prepare("SELECT id, stage, state FROM cards WHERE run = ?1 AND stage IS NOT NULL")?;
+    let rows = st.query_map([run], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, String>(2)?,
+        ))
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (id, stage, st) = row?;
+        if let (Ok(n), Some(st)) = (stage.parse(), State::parse(&st)) {
+            out.push((n, id, st));
+        }
+    }
+    out.sort_by_key(|(n, _, _)| *n);
     Ok(out)
 }
 
