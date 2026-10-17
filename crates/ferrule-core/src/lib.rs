@@ -2,6 +2,7 @@
 //! re-parse a workflow file on their own; they go through these modules.
 
 pub mod attribution;
+pub mod board;
 pub mod cards;
 pub mod guard;
 pub mod markdown;
@@ -9,3 +10,5 @@ pub mod project;
 pub mod shell;
 pub mod spec;
 pub mod spec_diff;
+pub mod store;
+pub mod vocab;

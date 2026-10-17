@@ -3,6 +3,9 @@
 //! used. Set `UPDATE=1` to rewrite an expected file from the current output;
 //! review every rewritten file in the diff before committing it.
 
+// Each test binary compiles this module and uses only part of it.
+#![allow(dead_code)]
+
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -49,14 +52,18 @@ impl Run {
     }
 
     pub fn golden(self, name: &str) {
-        let got = self.text();
-        let path = fixtures().join("expected").join(format!("{name}.out"));
-        if std::env::var_os("UPDATE").is_some_and(|v| v == "1") {
-            std::fs::write(&path, format!("{got}\n")).unwrap();
-            return;
-        }
-        let want =
-            std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-        assert_eq!(got, want.trim_end_matches('\n'), "golden {name}");
+        check(name, &self.text());
     }
+}
+
+/// Compares `got` with `expected/<name>.out`, or rewrites it under
+/// `UPDATE=1`.
+pub fn check(name: &str, got: &str) {
+    let path = fixtures().join("expected").join(format!("{name}.out"));
+    if std::env::var_os("UPDATE").is_some_and(|v| v == "1") {
+        std::fs::write(&path, format!("{got}\n")).unwrap();
+        return;
+    }
+    let want = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    assert_eq!(got, want.trim_end_matches('\n'), "golden {name}");
 }

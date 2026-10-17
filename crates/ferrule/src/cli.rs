@@ -15,6 +15,12 @@ pub enum Command {
     /// Spec files and any markdown file.
     #[command(subcommand)]
     Spec(SpecCommand),
+    /// The task board: cards, their fields, log and state.
+    #[command(subcommand)]
+    Card(CardCommand),
+    /// Load a markdown board (`<board>/<state>/<id>.md`) into the state
+    /// database, all cards or none.
+    Import(ImportArgs),
     /// Claude Code hook handlers: read the hook payload on stdin.
     #[command(subcommand)]
     Hook(HookCommand),
@@ -120,4 +126,57 @@ pub struct RenderArgs {
     /// reworded after filing, read from the run's cards under this board.
     #[arg(long, value_name = "BOARD")]
     pub issue_ids: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum CardState {
+    Open,
+    Inprogress,
+    Inreview,
+    Done,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum CardCommand {
+    /// One frontmatter field, `log:<key>` (the last `<key>=` value in the
+    /// log), `pass-sha` (the sha of the last `gauntlet=pass`) or `state` of
+    /// a card; nothing when absent.
+    Field { card: String, field: String },
+    /// Append one validated event to a card's log.
+    Log {
+        card: String,
+        /// `<name>` or `<name>=<value>`, see `ferrule card vocab`.
+        event: String,
+        /// `[positional…] [key=value…] [-- free text]`.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Move a card to another state, refusing what the board forbids.
+    Move { card: String, state: CardState },
+    /// The card as markdown: frontmatter and log.
+    Show { card: String },
+    /// Every card with its state and title.
+    Board,
+    /// The event vocabulary `card log` accepts.
+    Vocab,
+    /// Create a card in `open` (or `--state`) with `key=value` fields.
+    New {
+        card: String,
+        #[arg(long, value_enum, default_value_t = CardState::Open)]
+        state: CardState,
+        fields: Vec<String>,
+    },
+    /// Set frontmatter fields, `key=value` each; an empty value removes one.
+    Set {
+        card: String,
+        #[arg(required = true)]
+        fields: Vec<String>,
+    },
+}
+
+#[derive(Debug, Args)]
+pub struct ImportArgs {
+    /// The board directory holding `open/`, `inprogress/`, `inreview/` and
+    /// `done/`.
+    pub board: PathBuf,
 }

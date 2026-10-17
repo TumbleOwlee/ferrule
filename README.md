@@ -14,8 +14,18 @@ Under construction. Implemented so far:
 | `ferrule spec related <keyword>…` | Spec entries mentioning a keyword |
 | `ferrule spec collisions <worktree> [<ref>]` | Fixed IDs both this branch and the target ref define |
 | `ferrule spec render <spec-diff> <part> [--only <ids>] [--first 0\|1] [--issue-ids <board>]` | Render scenarios, requirements, entries, changes or deferred points of a spec diff |
+| `ferrule card field <card> <field>` | A frontmatter field, `log:<key>`, `pass-sha` or `state` |
+| `ferrule card log <card> <event> [pos…] [k=v…] [-- text]` | Append one event the vocabulary accepts |
+| `ferrule card move <card> <state>` | Move a card, refusing what the board's rules forbid |
+| `ferrule card show <card>` / `card board` / `card vocab` | A card as markdown, every card, the event vocabulary |
+| `ferrule card new <card> [--state s] [k=v…]` / `card set <card> k=v…` | Create a card, set or clear its fields |
+| `ferrule import <board-dir>` | Load a markdown board into `.ferrule/state.db`, all or nothing |
 | `ferrule hook pre-tool-use` | Session-wide Bash guard; strips attribution trailers from commit, PR and issue text |
 | `ferrule hook reviewer` | Read-only Bash guard for the reviewer agent |
+
+## State
+
+The board lives in `.ferrule/state.db` (`SQLite`) in the main checkout; commands run inside a git worktree reach the same database through `git rev-parse --git-common-dir`. `FERRULE_NOW` overrides the log timestamp.
 
 ## Install
 

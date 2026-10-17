@@ -13,6 +13,8 @@ fn main() -> ExitCode {
     let mut out = BufWriter::new(io::stdout().lock());
     let result = match &cli.command {
         Command::Spec(command) => commands::spec::run(command, &mut out),
+        Command::Card(command) => commands::card::run(command, &mut out),
+        Command::Import(args) => commands::card::import(args, &mut out),
         Command::Hook(command) => {
             commands::hook::run(command, &mut std::io::stdin().lock(), &mut out)
         }
