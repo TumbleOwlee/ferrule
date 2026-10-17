@@ -16,6 +16,7 @@ fn main() -> ExitCode {
         Command::Card(command) => commands::card::run(command, &mut out),
         Command::Import(args) => commands::card::import(args, &mut out),
         Command::Run(command) => commands::run::run(command, &mut out),
+        Command::Prompt(command) => commands::prompt::run(command, &mut out),
         Command::Hook(command) => {
             commands::hook::run(command, &mut std::io::stdin().lock(), &mut out)
         }

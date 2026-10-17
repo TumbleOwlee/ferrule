@@ -34,7 +34,7 @@ Needs user:
   - b) keep the 1 hour limit
 Approving will:
 - file the issue
-- create worktree .claude/worktrees/demo on branch feat/demo
+- create worktree .ferrule/worktrees/demo on branch feat/demo
 - create 3 stage cards and spawn the implementer at s0
 - next stop: per the stage-stop rules
 Options:

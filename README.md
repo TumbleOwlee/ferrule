@@ -28,6 +28,9 @@ Under construction. Implemented so far:
 | `ferrule run metrics [<slug>]` | A run's metrics line (needs green CI), or every line recorded |
 | `ferrule run cleanup <slug>` | Remove worktree and branch, archive cards and artifacts |
 | `ferrule run export <slug> [--archive id] [--to dir]` | Write an archive back out as files |
+| `ferrule prompt lines [--seen n] <file>…` | The lines of approval files a prompt quotes, then `Confirm:` |
+| `ferrule prompt show [--no-lines] <file>…` | Open files in the `[viewer]` (else stdout) and record the run's approval marker; exit 3 for a summary over its cap |
+| `ferrule prompt render <kind> <slug> [k=v…]` | A stop's whole message (approval, question, notice) or the `approved` record; logs the stop |
 | `ferrule hook pre-tool-use` | Session-wide Bash guard; strips attribution trailers from commit, PR and issue text |
 | `ferrule hook reviewer` | Read-only Bash guard for the reviewer agent |
 
@@ -40,20 +43,29 @@ The board lives in `.ferrule/state.db` (`SQLite`) in the main checkout; commands
 ```toml
 main_branch = "main"
 
-[stage_stop]
-lines = 400      # a stage diff above this many changed lines stops
-files = 8        # or touching more files than this
-checkpoint = 3   # stages auto-continued in a row before one stops anyway
-
-[[gauntlet.steps]]
+[[gauntlet.step]]
 name = "test"
-run = ["cargo", "test", "--workspace"]
-timeout_secs = 1800
+cmd = ["cargo", "test", "--workspace"]
+timeout = "30m"
 
-[[gauntlet.steps]]
+[[gauntlet.step]]
 name = "cov"
-run = ["cargo", "llvm-cov", "--workspace", "--fail-under-lines", "80"]
-coverage = true  # its TOTAL line gives the pass's cov=
+cmd = ["cargo", "llvm-cov", "--workspace", "--fail-under-lines", "80"]
+coverage = "llvm-cov"        # how the pass's cov= is read from the output
+
+[viewer]
+command = ["glow"]           # prompt show appends the file path; unset: stdout
+
+[hook.readonly]
+mutating = ["cargo add"]     # word prefixes the reviewer's guard also refuses
+
+[thresholds]
+read_budget = 3              # read events one stage card may carry
+stage_stop_lines = 400       # a stage diff above this many changed lines stops
+stage_stop_files = 8         # or touching more files than this
+stage_stop_checkpoint = 3    # stages auto-continued in a row before one stops anyway
+summary_max_lines = 25       # caps on *.summary.md and *.verdict.md
+summary_max_bytes = 2048
 ```
 
 ## Install

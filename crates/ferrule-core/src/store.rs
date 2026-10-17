@@ -68,6 +68,16 @@ CREATE TABLE gauntlet_cache (
     at   TEXT NOT NULL
 );
 ",
+    r"
+CREATE TABLE approvals (
+    run      TEXT NOT NULL,
+    pos      INTEGER NOT NULL,
+    path     TEXT NOT NULL,
+    rev      INTEGER,
+    shown_at TEXT NOT NULL,
+    PRIMARY KEY (run, pos)
+);
+",
 ];
 
 #[derive(Debug)]

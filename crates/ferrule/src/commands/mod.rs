@@ -1,5 +1,6 @@
 pub mod card;
 pub mod hook;
+pub mod prompt;
 pub mod run;
 pub mod spec;
 
@@ -11,4 +12,6 @@ pub mod exit {
     pub const REFUSED: u8 = 1;
     /// Usage, or input the rules reject.
     pub const USAGE: u8 = 2;
+    /// Content the rules refuse: the agent that wrote it fixes it.
+    pub const CONTENT: u8 = 3;
 }

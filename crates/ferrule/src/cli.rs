@@ -25,6 +25,10 @@ pub enum Command {
     /// metrics, the gauntlet, clean-up.
     #[command(subcommand)]
     Run(RunCommand),
+    /// What the user is shown at a stop: quoted lines, files, whole
+    /// messages.
+    #[command(subcommand)]
+    Prompt(PromptCommand),
     /// Claude Code hook handlers: read the hook payload on stdin.
     #[command(subcommand)]
     Hook(HookCommand),
@@ -264,4 +268,37 @@ pub enum NextAt {
     Pr,
     /// `ci=<exit code of gh pr checks>`.
     Ci,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum PromptCommand {
+    /// The lines of approval files the orchestrator quotes, never the rest,
+    /// then `Confirm:` over all of them.
+    Lines {
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+        /// decisions.md's line count the user last approved.
+        #[arg(long, default_value_t = 0)]
+        seen: usize,
+    },
+    /// Open files for the user (the `[viewer]` command, else stdout) and
+    /// record them as the run's approval marker.
+    Show {
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+        /// Print only the shown lines, not each file's quoted lines.
+        #[arg(long)]
+        no_lines: bool,
+    },
+    /// A stop's whole message from the run's files and cards: approval
+    /// (gate1, arch, epic, gate2, stage, replan, gate3, gate4), question
+    /// (question, blocked, delta), notice (auto, gate2-notice,
+    /// replan-notice) or the `approved` record. Logs the stop.
+    Render {
+        kind: String,
+        slug: String,
+        /// `key=value` arguments: size, reason, recommend, issue, stage,
+        /// detail, from, pr, where, agent.
+        args: Vec<String>,
+    },
 }

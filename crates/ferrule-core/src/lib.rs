@@ -1,6 +1,7 @@
 //! Parsers and models shared by the ferrule subcommands. Subcommands never
 //! re-parse a workflow file on their own; they go through these modules.
 
+pub mod approval;
 pub mod archive;
 pub mod artifacts;
 pub mod attribution;
@@ -13,6 +14,8 @@ pub mod guard;
 pub mod markdown;
 pub mod next;
 pub mod project;
+pub mod prompt_lines;
+pub mod prompt_render;
 pub mod run;
 pub mod shell;
 pub mod spec;
