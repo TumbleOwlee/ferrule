@@ -4,10 +4,14 @@ use std::path::Path;
 use std::process::Command;
 
 use ferrule_core::markdown::{self, Match};
-use ferrule_core::{project, spec};
+use ferrule_core::spec_diff::{self, Part, SpecDiff};
+use ferrule_core::{cards, project, spec};
 
 use super::exit;
-use crate::cli::{CollisionsArgs, IdArgs, RelatedArgs, SectionArgs, SectionsArgs, SpecCommand};
+use crate::cli::{
+    CollisionsArgs, IdArgs, RelatedArgs, RenderArgs, RenderPart, SectionArgs, SectionsArgs,
+    SpecCommand,
+};
 
 /// Longest entry text `spec related` prints before cutting it with `…`.
 const RELATED_TEXT_MAX: usize = 100;
@@ -19,6 +23,7 @@ pub fn run(command: &SpecCommand, out: &mut impl Write) -> io::Result<u8> {
         SpecCommand::Id(args) => id(args, out),
         SpecCommand::Related(args) => related(args, out),
         SpecCommand::Collisions(args) => collisions(args, out),
+        SpecCommand::Render(args) => render(args, out),
     }
 }
 
@@ -180,4 +185,45 @@ fn collisions(args: &CollisionsArgs, out: &mut impl Write) -> io::Result<u8> {
     }
     writeln!(out, "ids=collide {}", hits.join(","))?;
     Ok(exit::REFUSED)
+}
+
+fn render(args: &RenderArgs, out: &mut impl Write) -> io::Result<u8> {
+    let Some(text) = read(&args.spec_diff) else {
+        return Ok(exit::REFUSED);
+    };
+    let part = match args.part {
+        RenderPart::Scenarios => Part::Scenarios,
+        RenderPart::Requirements => Part::Requirements,
+        RenderPart::Entries => Part::Entries,
+        RenderPart::Changes => Part::Changes,
+        RenderPart::Deferred => Part::Deferred,
+    };
+    let issue_ids = match &args.issue_ids {
+        Some(board) => {
+            let run_dir = std::fs::canonicalize(&args.spec_diff)?;
+            let slug = run_dir
+                .parent()
+                .and_then(Path::file_name)
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            Some(cards::reworded_ids(board, &slug)?)
+        }
+        None => None,
+    };
+    let only = args
+        .only
+        .as_deref()
+        .map(|o| o.split_whitespace().map(str::to_owned).collect::<Vec<_>>())
+        .filter(|o| !o.is_empty());
+    let opts = spec_diff::Render {
+        only,
+        first: args.first == 1,
+        issue_ids,
+    };
+    write!(
+        out,
+        "{}",
+        spec_diff::render(&SpecDiff::parse(&text), part, &opts)
+    )?;
+    Ok(exit::OK)
 }

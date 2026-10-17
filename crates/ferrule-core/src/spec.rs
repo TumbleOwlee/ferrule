@@ -36,16 +36,19 @@ pub struct SpecEntry {
 
 /// Length of the fixed ID at the start of `s`: two capital letters, `-`, `R`
 /// or `E`, `-`, digits.
-fn id_len(s: &str) -> Option<usize> {
-    let b = s.as_bytes();
-    let head = b.get(..6)?;
+pub(crate) fn fixed_id_len(s: &[u8]) -> Option<usize> {
+    let head = s.get(..6)?;
     let shape = head[0].is_ascii_uppercase()
         && head[1].is_ascii_uppercase()
         && head[2] == b'-'
         && matches!(head[3], b'R' | b'E')
         && head[4] == b'-'
         && head[5].is_ascii_digit();
-    shape.then(|| 5 + b[5..].iter().take_while(|c| c.is_ascii_digit()).count())
+    shape.then(|| 5 + s[5..].iter().take_while(|c| c.is_ascii_digit()).count())
+}
+
+fn id_len(s: &str) -> Option<usize> {
+    fixed_id_len(s.as_bytes())
 }
 
 /// `**<ID>**` at the start of `s`: the ID and what follows the closing `**`.

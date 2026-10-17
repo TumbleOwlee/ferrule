@@ -1,0 +1,11 @@
+### Requirements
+| ID | Kind | Requirement |
+|---|---|---|
+| R3 | new | A group's members never exceed the group's cap in total. |
+
+### Other spec changes
+| File | Section | Change |
+|---|---|---|
+| ocpp/api-contract.md | Config keys | `group.cap_a` row (R3) |
+
+exit=0

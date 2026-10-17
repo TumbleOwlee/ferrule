@@ -1,0 +1,18 @@
+## Requirements
+- **R1** `:module` on a Modbus client or server tab opens the module settings dialog, holding one single-line text input per `read_ranges` field: `holding`, `input`, `coils`, `discrete`.
+- **R2** Each input of the module settings dialog (R1) opens prefilled with the tab's current `read_ranges` value for its field, empty where that field is unset.
+- **R3** A Modbus monitor tab does not handle `:module`, so the application logs the unknown-command warning of UI-R-348.
+- **R4** A module settings dialog input (R1) whose text holds a malformed or reversed range entry paints the error border (UI-R-068) while that text stands.
+- **R5** `Enter` in the module settings dialog is refused while any input fails R4's check: the dialog stays open and the tab's `read_ranges` are unchanged.
+- **R6** Confirming a module settings dialog whose inputs all parse sets the tab's in-memory device-config `read_ranges` to the inputs' trimmed text, a blank input leaving its field unset.
+- **R7** Closing the module settings dialog through its close-confirmation popup (UI-R-023) leaves the tab's `read_ranges` unchanged, whether or not an input fails R4's check.
+- **R8** A running client polls with the `read_ranges` confirmed through the module settings dialog (R6, MB-R-083) from its next poll cycle on, without reconnecting.
+- **R9** Confirming the module settings dialog (R6) declares the gap cells of the confirmed `read_ranges` (MB-R-084) in the tab's store, a rejected declaration logged per MB-R-129.
+- **R10** Confirming the module settings dialog (R6) writes no file; `:write-device` saves the confirmed `read_ranges` into the device config.
+- **R11** The Modbus setup dialog, opened by the new-module flow, `:load`, `:edit` or `:clone`, carries no read-range input.
+- **R12** A tab created by confirming a Modbus setup dialog that names a device-config path takes that file's `read_ranges`.
+- **R13** Confirming `:edit`'s Modbus setup dialog leaves the tab's `read_ranges` unchanged.
+- **R14** The module settings dialog's error message box tracks its inputs live: while any input fails R4's check it names the first failing input's field and its malformed entry, and it disappears once every input passes, as the add/edit register dialog shows its inline error (MB-R-224).
+- **E1** Gap cells declared for a read range that a later module settings dialog confirm removes (R9) stay declared in the store, so a read spanning them still succeeds.
+
+exit=0

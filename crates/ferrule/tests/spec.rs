@@ -148,3 +148,104 @@ fn it_collisions_without_merge_base_is_an_error() {
     .text();
     assert_eq!(out, "ids=error reason=no-merge-base\nexit=2");
 }
+
+fn run_diff(slug: &str) -> String {
+    fixtures()
+        .join("board/artifacts")
+        .join(slug)
+        .join("spec-diff.md")
+        .display()
+        .to_string()
+}
+
+#[test]
+fn it_render_each_part_of_a_spec_diff() {
+    for part in [
+        "scenarios",
+        "requirements",
+        "entries",
+        "changes",
+        "deferred",
+    ] {
+        Run::new(["spec", "render", &run_diff("demo"), part])
+            .golden(&format!("spec-render-{part}"));
+    }
+}
+
+#[test]
+fn it_render_only_keeps_named_ids_and_uncited_rows_with_first() {
+    Run::new([
+        "spec",
+        "render",
+        &run_diff("lb"),
+        "entries",
+        "--only",
+        "R1",
+        "--first",
+        "1",
+    ])
+    .golden("spec-render-entries-only");
+}
+
+#[test]
+fn it_render_only_without_first_drops_uncited_rows() {
+    Run::new(["spec", "render", &run_diff("lb"), "entries", "--only", "R3"])
+        .golden("spec-render-lb-entries-only-nofirst");
+}
+
+#[test]
+fn it_render_only_matches_local_or_fixed_ids() {
+    Run::new([
+        "spec",
+        "render",
+        &run_diff("mrcpr"),
+        "entries",
+        "--only",
+        "R2 MB-E-105",
+    ])
+    .golden("spec-render-entries-only-fixed");
+    Run::new([
+        "spec",
+        "render",
+        &run_diff("lb"),
+        "scenarios",
+        "--only",
+        "S1 S3",
+    ])
+    .golden("spec-render-scenarios-only");
+}
+
+#[test]
+fn it_render_writes_fixed_ids_back_as_local_ids() {
+    Run::new(["spec", "render", &run_diff("mrcpr"), "requirements"])
+        .golden("spec-render-mrcpr-requirements");
+    Run::new(["spec", "render", &run_diff("mrcpr"), "changes"]).golden("spec-render-mrcpr-changes");
+}
+
+#[test]
+fn it_render_pr_form_marks_requirements_reworded_after_filing() {
+    let board = fixtures().join("board").display().to_string();
+    Run::new([
+        "spec",
+        "render",
+        &run_diff("mrcpr"),
+        "entries",
+        "--issue-ids",
+        &board,
+    ])
+    .golden("spec-render-issue-ids");
+}
+
+#[test]
+fn it_render_violated_requirements_lead_with_no_spec_change() {
+    Run::new(["spec", "render", &run_diff("violated"), "requirements"])
+        .golden("spec-render-violated");
+    Run::new(["spec", "render", &run_diff("violated"), "entries"])
+        .golden("spec-render-violated-entries");
+}
+
+#[test]
+fn it_render_usage_and_missing_file() {
+    Run::new(["spec", "render"]).golden("spec-render-usage");
+    Run::new(["spec", "render", "nosuch.md", "scenarios"]).golden("spec-render-missing");
+}

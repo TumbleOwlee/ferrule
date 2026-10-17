@@ -1,0 +1,5 @@
+- MB-R-294 — `Esc` opens the close-confirmation popup instead of closing directly, following UI-R-023 — user
+- MB-R-293 — the inputs' text is trimmed, a whitespace-only input leaves its field unset, as the old setup-dialog inputs did — review
+- MB-R-301 — the error box tracks the inputs live instead of appearing only after a refused `Enter` — user
+
+exit=0

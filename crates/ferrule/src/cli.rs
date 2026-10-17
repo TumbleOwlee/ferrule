@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 
 /// Swiss-knife CLI for a spec-driven agent workflow.
 #[derive(Debug, Parser)]
@@ -31,6 +31,8 @@ pub enum SpecCommand {
     Related(RelatedArgs),
     /// Fixed IDs this branch defines that the target ref now defines too.
     Collisions(CollisionsArgs),
+    /// Render one part of a run's spec-diff.md as markdown.
+    Render(RenderArgs),
 }
 
 #[derive(Debug, Args)]
@@ -73,4 +75,35 @@ pub struct CollisionsArgs {
     /// The branch the run merges into.
     #[arg(default_value = "origin/main")]
     pub reference: String,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum RenderPart {
+    /// `## Scenarios` with Given/When/Then sub-items.
+    Scenarios,
+    /// `## Requirements` list, local IDs written back.
+    Requirements,
+    /// `### Requirements` table and `### Other spec changes`.
+    Entries,
+    /// Dated revision items ending in who decided them.
+    Changes,
+    /// `### Deferred` list.
+    Deferred,
+}
+
+#[derive(Debug, Args)]
+pub struct RenderArgs {
+    pub spec_diff: PathBuf,
+    pub part: RenderPart,
+    /// Keep only the scenarios and entries named, by local or fixed ID,
+    /// space-separated.
+    #[arg(long, value_name = "IDS")]
+    pub only: Option<String>,
+    /// With --only: 1 keeps "Other spec changes" rows that cite no ID.
+    #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u8).range(0..=1))]
+    pub first: u8,
+    /// PR form of the entries table: an Issue column, and the requirements
+    /// reworded after filing, read from the run's cards under this board.
+    #[arg(long, value_name = "BOARD")]
+    pub issue_ids: Option<PathBuf>,
 }
