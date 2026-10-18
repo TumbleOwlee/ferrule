@@ -1,10 +1,28 @@
 use std::io::{self, Write};
 
+use clap::Args;
 use ferrule_core::install::{self, Error, Options, Stack, VERSION};
 use ferrule_core::project;
 
 use super::exit;
-use crate::cli::{Command, InstallArgs};
+use crate::cli::Command;
+
+#[derive(Debug, Args)]
+pub struct InstallArgs {
+    /// The agent host to write files for.
+    #[arg(long, default_value = "claude", value_parser = ["claude"])]
+    pub host: String,
+    /// The stack for a new `ferrule.toml` [default: detected].
+    #[arg(long, value_parser = ["rust", "node", "go", "python", "none"])]
+    pub stack: Option<String>,
+    /// Write nothing; fail when the generated files drift from the lock or
+    /// from this binary.
+    #[arg(long, conflicts_with_all = ["stack", "force"])]
+    pub check: bool,
+    /// Overwrite files at generated paths that ferrule did not write.
+    #[arg(long)]
+    pub force: bool,
+}
 
 /// Refuses every command but install's when the project pins another
 /// version. A hook refuses with exit 2, the code that blocks its call.
@@ -82,25 +100,4 @@ pub fn install(args: &InstallArgs, out: &mut impl Write) -> io::Result<u8> {
         writeln!(out, "{h}")?;
     }
     Ok(exit::OK)
-}
-
-pub fn uninstall(purge: bool, out: &mut impl Write) -> io::Result<u8> {
-    match install::uninstall(&project::toplevel(), purge) {
-        Ok(r) => {
-            writeln!(
-                out,
-                "uninstall=done removed={} kept={}",
-                r.removed.len(),
-                r.kept.len()
-            )?;
-            for k in &r.kept {
-                writeln!(out, "kept={k} reason=edited")?;
-            }
-            Ok(exit::OK)
-        }
-        Err(e) => {
-            writeln!(out, "uninstall=refused reason={e}")?;
-            Ok(exit::REFUSED)
-        }
-    }
 }

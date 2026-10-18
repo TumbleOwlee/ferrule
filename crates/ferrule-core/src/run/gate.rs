@@ -15,14 +15,17 @@ use std::path::Path;
 
 use rusqlite::Connection;
 
-use crate::board::{self, NewCard, State};
+use crate::card::board::{self, NewCard, State};
 use crate::config::Config;
 use crate::git;
+use crate::issue::request::{self, Part};
+use crate::pr::publish::{self, Target};
 use crate::project::Layout;
-use crate::prompt_render::{self, Kind, Viewed};
-use crate::publish::{self, Target};
+use crate::prompt::{
+    self,
+    render::{Kind, Viewed},
+};
 use crate::remote::{self, Item};
-use crate::request::{self, Part};
 
 #[derive(Debug)]
 pub enum Error {
@@ -427,9 +430,9 @@ pub fn approve(
         set(conn, slug, "lane", lane)?;
     }
     let mut no_view = |_: &[std::path::PathBuf]| Ok(Viewed::Opened);
-    let record = prompt_render::render(conn, layout, Kind::Approved, slug, &[], now, &mut no_view)
+    let record = prompt::render::render(conn, layout, Kind::Approved, slug, &[], now, &mut no_view)
         .map_err(|e| match e {
-            prompt_render::Error::Sql(e) => Error::Sql(e),
+            prompt::render::Error::Sql(e) => Error::Sql(e),
             _ => Error::Refused("card"),
         })?;
     record

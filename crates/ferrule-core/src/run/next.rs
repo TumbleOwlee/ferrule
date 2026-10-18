@@ -5,7 +5,7 @@
 use rusqlite::Connection;
 
 use crate::artifacts;
-use crate::board::{self, State};
+use crate::card::board::{self, State};
 use crate::guide::Topic;
 use crate::project::Layout;
 

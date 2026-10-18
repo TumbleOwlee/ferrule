@@ -1,16 +1,100 @@
 use std::fmt::Write as _;
 use std::io::{self, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use ferrule_core::board::{self, CardError, LogError, MoveError, State};
+use clap::{Subcommand, ValueEnum};
+use ferrule_core::card::board::{self, CardError, LogError, MoveError, State};
+use ferrule_core::card::vocab;
 use ferrule_core::config::Config;
-use ferrule_core::publish;
+use ferrule_core::pr::publish;
+use ferrule_core::project;
 use ferrule_core::store::{OpenError, Store};
 use ferrule_core::term::{self, Style};
-use ferrule_core::{project, vocab};
 
 use super::exit;
-use crate::cli::{CardCommand, CardState};
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum CardState {
+    Open,
+    Inprogress,
+    Inreview,
+    Done,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum CardCommand {
+    /// List every card with its state and title.
+    Board,
+    /// Print a card: frontmatter and log.
+    Show {
+        /// Card id: `<slug>` or `<slug>.s<n>`.
+        card: String,
+    },
+    /// Print one value of a card; nothing when absent.
+    Field {
+        /// Card id: `<slug>` or `<slug>.s<n>`.
+        card: String,
+        /// A frontmatter field, `log:<key>` (the last `<key>=` in the log),
+        /// `pass-sha` (the sha of the last `gauntlet=pass`) or `state`.
+        field: String,
+    },
+    /// Create a card.
+    New {
+        /// Card id: `<slug>` or `<slug>.s<n>`.
+        card: String,
+        #[arg(long, value_enum, default_value_t = CardState::Open)]
+        state: CardState,
+        /// Frontmatter fields, `key=value` each.
+        fields: Vec<String>,
+    },
+    /// Set frontmatter fields; an empty value removes one.
+    Set {
+        /// Card id: `<slug>` or `<slug>.s<n>`.
+        card: String,
+        /// `key=value` each.
+        #[arg(required = true)]
+        fields: Vec<String>,
+    },
+    /// Move a card to another state, if the board allows it.
+    Move {
+        /// Card id: `<slug>` or `<slug>.s<n>`.
+        card: String,
+        state: CardState,
+    },
+    /// Append an event to a card's log.
+    Log {
+        /// Card id: `<slug>` or `<slug>.s<n>`.
+        card: String,
+        /// `<name>` or `<name>=<value>`; `card vocab` lists them.
+        event: String,
+        /// `[positional…] [key=value…] [-- free text]`.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// List the events `card log` accepts.
+    Vocab,
+    /// Commit the staged changes of a stage in review.
+    ///
+    /// Refuses the main branch and a branch other than the run's, strips
+    /// attribution trailers from the message and logs `commit=` on the card.
+    Commit {
+        /// The stage card, `<slug>.s<n>`; omitted with `--no-run`.
+        #[arg(required_unless_present = "no_run", conflicts_with = "no_run")]
+        card: Option<String>,
+        /// The message; several make paragraphs.
+        #[arg(short, long = "message", required = true)]
+        message: Vec<String>,
+        /// Commit outside a run: only the branch and trailer rules apply.
+        #[arg(long)]
+        no_run: bool,
+    },
+    /// Load a markdown board into the state database: all cards or none.
+    Import {
+        /// Directory holding `open/`, `inprogress/`, `inreview/` and
+        /// `done/`, one `<id>.md` per card.
+        board: PathBuf,
+    },
+}
 
 pub(crate) fn sql(e: impl std::fmt::Display) -> io::Error {
     io::Error::other(e.to_string())
@@ -361,7 +445,7 @@ fn commit(card: Option<&str>, message: &[String], out: &mut impl Write) -> io::R
         store = Some(s);
     }
     let text = message.join("\n\n");
-    let text = ferrule_core::attribution::strip(&text).unwrap_or(text);
+    let text = ferrule_core::hook::attribution::strip(&text).unwrap_or(text);
     let mut child = std::process::Command::new("git")
         .arg("-C")
         .arg(&here)

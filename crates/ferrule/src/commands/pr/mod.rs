@@ -1,18 +1,85 @@
+mod feedback;
+
 use std::io::{self, Write};
 use std::path::Path;
 
+use clap::{Subcommand, ValueEnum};
 use ferrule_core::body::{self, Form};
+use ferrule_core::card::board;
 use ferrule_core::config::Config;
-use ferrule_core::feedback::{self, Kind};
+use ferrule_core::pr::publish;
 use ferrule_core::project::{self, Layout};
-use ferrule_core::publish;
 use ferrule_core::term::Style;
-use ferrule_core::{board, git, remote};
+use ferrule_core::{git, remote};
 
 use super::card::{sql, store};
 use super::exit;
 use super::issue::{post_failed, print_body};
-use crate::cli::{BodyForm, FeedbackCommand, PrCommand};
+use feedback::FeedbackCommand;
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum BodyForm {
+    /// Progress, from the first push to gate 4.
+    Draft,
+    /// At gate 4, from pr.md.
+    Full,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum PrCommand {
+    /// Print a PR's title, body and comments as compact text.
+    View {
+        /// The PR number or URL.
+        pr: String,
+    },
+    /// Assemble the PR body from the run's files and cards.
+    ///
+    /// Ends `Closes #<issue>`. Exits 3 when the body names a stage or an
+    /// agent.
+    Body {
+        /// The run's slug.
+        slug: String,
+        form: BodyForm,
+    },
+    /// Open the run's draft PR and record its number.
+    Open {
+        /// The run's slug.
+        slug: String,
+    },
+    /// Push the run's branch and update or open the draft PR.
+    ///
+    /// The branch head must be a stage's verified commit and pass the
+    /// gauntlet; the pass is logged.
+    Push {
+        /// The run's slug; omitted with `--no-run`.
+        #[arg(required_unless_present = "no_run", conflicts_with = "no_run")]
+        slug: Option<String>,
+        /// Push the current branch outside a run, never the main one.
+        #[arg(long)]
+        no_run: bool,
+    },
+    /// Publish the PR once gate 4 is approved.
+    ///
+    /// Refuses open threads and colliding IDs; writes the full body, marks
+    /// the PR ready and files the kept follow-ups.
+    Publish {
+        /// The run's slug.
+        slug: String,
+        /// The follow-ups to file: `1,3`, or `none` [default: all].
+        #[arg(long, value_name = "LIST")]
+        follow_ups: Option<String>,
+    },
+    /// Fetch, route and answer the PR's inline review threads.
+    #[command(subcommand)]
+    Feedback(FeedbackCommand),
+    /// Print the error lines of a branch's latest failed CI run.
+    ///
+    /// `run ci` prints them too when it waits for a run's checks.
+    Failed {
+        /// The branch [default: the current branch].
+        branch: Option<String>,
+    },
+}
 
 pub fn run(command: &PrCommand, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
     let config = Config::load(&project::main_checkout()).map_err(sql)?;
@@ -51,85 +118,9 @@ pub fn run(command: &PrCommand, style: Option<Style>, out: &mut impl Write) -> i
         PrCommand::Publish { slug, follow_ups } => {
             publish_pr(&config, slug, follow_ups.as_deref(), out)
         }
-        PrCommand::Feedback(FeedbackCommand::Route { slug }) => route(&config, slug, out),
-        PrCommand::Feedback(FeedbackCommand::Fetch { pr, out: file }) => {
-            fetch(&config, pr, file, out)
-        }
-        PrCommand::Feedback(FeedbackCommand::Reply {
-            pr,
-            file,
-            stage,
-            sha,
-        }) => reply(&config, pr, file, stage.as_deref(), sha.as_deref(), out),
+        PrCommand::Feedback(command) => feedback::run(&config, command, out),
         PrCommand::Failed { branch } => failed(&config, branch.as_deref(), out),
     }
-}
-
-fn fetch(config: &Config, pr: &str, file: &Path, out: &mut impl Write) -> io::Result<u8> {
-    let f = match feedback::fetch(config.backend.ci, pr, &project::root()) {
-        Ok(f) => f,
-        Err(e) => {
-            eprintln!("pr feedback: {e}");
-            return Ok(exit::REFUSED);
-        }
-    };
-    std::fs::write(file, f.file(&board::now()))?;
-    writeln!(
-        out,
-        "pr={pr} state={} draft={} threads={} file={}",
-        f.state,
-        f.draft,
-        f.threads.len(),
-        file.display()
-    )?;
-    Ok(exit::OK)
-}
-
-fn reply(
-    config: &Config,
-    pr: &str,
-    file: &Path,
-    stage: Option<&str>,
-    sha: Option<&str>,
-    out: &mut impl Write,
-) -> io::Result<u8> {
-    let Ok(text) = std::fs::read_to_string(file) else {
-        eprintln!("pr feedback: no such file: {}", file.display());
-        return Ok(exit::REFUSED);
-    };
-    let (replies, total) = feedback::replies(&text);
-    let fixed_any = replies.iter().any(|r| r.kind == Kind::Fixed);
-    let (stage, sha) = match (stage, sha) {
-        (Some(st), Some(sh)) => (st, sh),
-        _ if fixed_any => {
-            eprintln!("pr feedback: a 'reply: fixed' thread needs <stage> <sha> (the pushed head)");
-            return Ok(exit::USAGE);
-        }
-        _ => ("", ""),
-    };
-    let (mut fixed, mut declined) = (0, 0);
-    for r in &replies {
-        let body = feedback::reply_text(r, stage, sha);
-        if let Err(e) = feedback::post(config.backend.ci, pr, r, &body, &project::root()) {
-            eprintln!("pr feedback: thread {}: {e}", r.thread);
-            writeln!(
-                out,
-                "pr={pr} fixed={fixed} declined={declined} open={}",
-                total - fixed
-            )?;
-            return Ok(exit::REFUSED);
-        }
-        match r.kind {
-            Kind::Fixed => fixed += 1,
-            Kind::Declined => declined += 1,
-        }
-    }
-    writeln!(
-        out,
-        "pr={pr} fixed={fixed} declined={declined} open={}",
-        total - fixed
-    )?;
-    Ok(exit::OK)
 }
 
 fn failed(config: &Config, branch: Option<&str>, out: &mut impl Write) -> io::Result<u8> {
@@ -268,47 +259,6 @@ fn publish_pr(
             } else {
                 exit::REFUSED
             })
-        }
-        Some(Err(e)) => post_failed(e, out),
-    }
-}
-
-fn route(config: &Config, slug: &str, out: &mut impl Write) -> io::Result<u8> {
-    let layout = Layout::new(project::main_checkout());
-    let routed = match store(false)? {
-        None => None,
-        Some(mut s) => {
-            let now = board::now();
-            Some(
-                publish::Run {
-                    conn: &mut s.conn,
-                    layout: &layout,
-                    config,
-                    root: &layout.root,
-                    slug,
-                    now: &now,
-                }
-                .route_feedback(),
-            )
-        }
-    };
-    match routed {
-        None | Some(Err(publish::Error::Card)) => {
-            writeln!(out, "route=refused reason=card")?;
-            Ok(exit::REFUSED)
-        }
-        Some(Ok((pr, threads, stages, sync))) => {
-            let list: Vec<String> = stages.iter().map(|n| format!("s{n}")).collect();
-            let list = if list.is_empty() {
-                "none".to_owned()
-            } else {
-                list.join(",")
-            };
-            writeln!(out, "pr={pr} threads={threads} stages={list}")?;
-            if let Some(sync) = sync {
-                writeln!(out, "{sync}")?;
-            }
-            Ok(exit::OK)
         }
         Some(Err(e)) => post_failed(e, out),
     }

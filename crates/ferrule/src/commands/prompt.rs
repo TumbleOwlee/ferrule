@@ -2,14 +2,118 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use clap::{Args, Subcommand, ValueEnum};
+use ferrule_core::card::board;
 use ferrule_core::config::Config;
 use ferrule_core::project::{self, Layout};
-use ferrule_core::prompt_render::{self, Kind, Viewed};
-use ferrule_core::{approval, board, prompt_lines};
+use ferrule_core::prompt::render::{Kind, Viewed};
+use ferrule_core::prompt::{self, approval};
 
 use super::card::{sql, store};
 use super::exit;
-use crate::cli::{PromptCommand, PromptKind, PromptRenderArgs};
+use crate::cli::stage_id;
+
+#[derive(Debug, Subcommand)]
+pub enum PromptCommand {
+    /// Print a stop's whole message and log the stop.
+    ///
+    /// Built from the run's files and cards; opens the files the user
+    /// reviews in the viewer.
+    Render(PromptRenderArgs),
+    /// Print the lines of approval files the user is shown.
+    ///
+    /// Ends with `Confirm:` over the decisions made since the last approval.
+    Lines {
+        /// The approval files.
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+        /// decisions.md's line count at the last approval.
+        #[arg(long, default_value_t = 0)]
+        seen: usize,
+    },
+    /// Open files in the viewer and record them as shown.
+    ///
+    /// Uses the `[viewer]` command of `ferrule.toml`, else prints to stdout.
+    Show {
+        /// The files to show.
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+        /// Print only which files were shown, not their quoted lines.
+        #[arg(long)]
+        no_lines: bool,
+    },
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum PromptKind {
+    /// Approval: the brief.
+    Gate1,
+    /// Approval: the architecture.
+    Arch,
+    /// Approval: an epic's slices.
+    Epic,
+    /// Approval: the plan and the tracking issue.
+    Gate2,
+    /// Approval: a stage.
+    Stage,
+    /// Approval: a re-plan.
+    Replan,
+    /// Approval: the branch review.
+    Gate3,
+    /// Approval: the pull request.
+    Gate4,
+    /// Question: an agent's decision batch.
+    Question,
+    /// Question: a blocked stage.
+    Blocked,
+    /// Question: a meaningful spec change.
+    Delta,
+    /// Notice: a stage continued on its own.
+    Auto,
+    /// Notice: the fast lane's gate 2.
+    Gate2Notice,
+    /// Notice: the fast lane's re-plan.
+    ReplanNotice,
+    /// The record of the last approval.
+    Approved,
+}
+
+#[derive(Debug, Args)]
+pub struct PromptRenderArgs {
+    /// The run's slug.
+    pub slug: String,
+    pub kind: PromptKind,
+    /// stage, auto, blocked, delta: the stage, `s<n>`.
+    #[arg(long, value_parser = stage_id, value_name = "STAGE")]
+    pub stage: Option<u32>,
+    /// replan, replan-notice: the first stage re-planned, `s<n>`.
+    #[arg(long, value_parser = stage_id, value_name = "STAGE")]
+    pub from: Option<u32>,
+    /// gate1, stage, blocked: why the run stops.
+    #[arg(long)]
+    pub reason: Option<String>,
+    /// stage: the reason's detail.
+    #[arg(long)]
+    pub detail: Option<String>,
+    /// gate1: the brief proposes an epic.
+    #[arg(long)]
+    pub epic: bool,
+    /// gate1, arch: the recommended lane.
+    #[arg(long, value_parser = ["fast", "full"])]
+    pub recommend: Option<String>,
+    /// gate2, epic: `new`, or the number of an issue the run reuses.
+    #[arg(long)]
+    pub issue: Option<String>,
+    /// gate4: the PR number.
+    #[arg(long)]
+    pub pr: Option<String>,
+    /// question: where the run is, a gate or `s<n>`.
+    #[arg(long = "where", value_name = "WHERE")]
+    pub at: Option<String>,
+    /// question: the agent that asks.
+    #[arg(long)]
+    pub agent: Option<String>,
+}
 
 pub fn run(command: &PromptCommand, out: &mut impl Write) -> io::Result<u8> {
     match command {
@@ -21,7 +125,7 @@ pub fn run(command: &PromptCommand, out: &mut impl Write) -> io::Result<u8> {
 
 fn lines(files: &[PathBuf], seen: usize, out: &mut impl Write) -> io::Result<u8> {
     let paths: Vec<&Path> = files.iter().map(PathBuf::as_path).collect();
-    let (lines, unreadable) = prompt_lines::lines(&paths, seen);
+    let (lines, unreadable) = prompt::lines::lines(&paths, seen);
     for l in lines {
         writeln!(out, "{l}")?;
     }
@@ -135,7 +239,7 @@ fn show(files: &[PathBuf], with_lines: bool, out: &mut impl Write) -> io::Result
             }
         }
         if with_lines {
-            let (lines, _) = prompt_lines::lines(&[path.as_path()], 0);
+            let (lines, _) = prompt::lines::lines(&[path.as_path()], 0);
             for l in lines {
                 writeln!(out, "{l}")?;
             }
@@ -164,7 +268,7 @@ fn kind(k: PromptKind) -> Kind {
     }
 }
 
-/// The flags as the `(key, value)` pairs `prompt_render` reads.
+/// The flags as the `(key, value)` pairs `prompt::render` reads.
 fn pairs(args: &PromptRenderArgs) -> Vec<(String, String)> {
     let mut pairs = Vec::new();
     let stages = [("stage", args.stage), ("from", args.from)];
@@ -221,7 +325,7 @@ fn render(args: &PromptRenderArgs, out: &mut impl Write) -> io::Result<u8> {
             ))
         }
     };
-    match prompt_render::render(
+    match prompt::render::render(
         &mut s.conn,
         &layout,
         kind,
@@ -236,15 +340,15 @@ fn render(args: &PromptRenderArgs, out: &mut impl Write) -> io::Result<u8> {
             }
             Ok(exit::OK)
         }
-        Err(prompt_render::Error::Usage) => {
+        Err(prompt::render::Error::Usage) => {
             eprintln!("prompt render: a flag this kind needs is missing; see --help");
             Ok(exit::USAGE)
         }
-        Err(prompt_render::Error::Card) => {
+        Err(prompt::render::Error::Card) => {
             eprintln!("prompt render: no card for {slug}");
             Ok(exit::USAGE)
         }
-        Err(prompt_render::Error::Show(code)) => Ok(code),
-        Err(prompt_render::Error::Sql(e)) => Err(sql(e)),
+        Err(prompt::render::Error::Show(code)) => Ok(code),
+        Err(prompt::render::Error::Sql(e)) => Err(sql(e)),
     }
 }

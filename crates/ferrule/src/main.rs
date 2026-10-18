@@ -42,7 +42,7 @@ fn main() -> ExitCode {
         Command::Pr(command) => commands::pr::run(command, style, &mut out),
         Command::Guide(args) => commands::guide::run(args, style, &mut out),
         Command::Install(args) => commands::install::install(args, &mut out),
-        Command::Uninstall { purge } => commands::install::uninstall(*purge, &mut out),
+        Command::Uninstall { purge } => commands::uninstall::run(*purge, &mut out),
         Command::Hook(command) => {
             commands::hook::run(command, &mut std::io::stdin().lock(), &mut out)
         }

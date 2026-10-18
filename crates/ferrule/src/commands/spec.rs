@@ -1,17 +1,115 @@
 use std::collections::HashSet;
 use std::io::{self, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use clap::{Args, Subcommand, ValueEnum};
+use ferrule_core::card::board;
 use ferrule_core::markdown::{self, Match};
-use ferrule_core::spec_diff::{self, Part, SpecDiff};
+use ferrule_core::spec::diff::{Part, SpecDiff};
 use ferrule_core::term::{self, Style};
-use ferrule_core::{board, project, spec};
+use ferrule_core::{project, spec};
 
 use super::exit;
-use crate::cli::{
-    CollisionsArgs, IdArgs, RelatedArgs, RenderArgs, RenderPart, SectionArgs, SectionsArgs,
-    SpecCommand,
-};
+
+#[derive(Debug, Subcommand)]
+pub enum SpecCommand {
+    /// Print markdown sections by heading.
+    ///
+    /// A section runs from its heading to the next heading of equal or
+    /// shallower depth. Ask for every heading of one file in one call.
+    Section(SectionArgs),
+    /// List a markdown file's headings.
+    Sections(SectionsArgs),
+    /// Print spec entries by fixed ID, as `file:line:text`.
+    Id(IdArgs),
+    /// Print spec entries that mention a keyword.
+    Related(RelatedArgs),
+    /// List fixed IDs the branch adds that the target ref now has too.
+    Collisions(CollisionsArgs),
+    /// Render one part of a run's spec-diff.md.
+    Render(RenderArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct SectionArgs {
+    /// Match the first heading that starts with each given text.
+    #[arg(long)]
+    pub prefix: bool,
+    /// Heading texts, e.g. `Status`, ignoring case; a leading `## ` also
+    /// pins the level.
+    #[arg(required = true, num_args = 1..)]
+    pub headings: Vec<String>,
+    /// The markdown file.
+    pub file: PathBuf,
+}
+
+#[derive(Debug, Args)]
+pub struct SectionsArgs {
+    /// Markdown files.
+    #[arg(required = true)]
+    pub files: Vec<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+pub struct IdArgs {
+    /// Spec directory [default: docs/specs under the project root].
+    #[arg(long)]
+    pub dir: Option<PathBuf>,
+    /// Fixed IDs, requirements and edge cases mixed.
+    #[arg(required = true)]
+    pub ids: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct RelatedArgs {
+    /// Keywords, matched as case-insensitive substrings.
+    #[arg(required = true)]
+    pub keywords: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct CollisionsArgs {
+    /// The run's worktree, already fetched.
+    pub worktree: PathBuf,
+    /// The branch the run merges into.
+    #[arg(default_value = "origin/main")]
+    pub reference: String,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum RenderPart {
+    /// `## Scenarios` with Given/When/Then sub-items.
+    Scenarios,
+    /// `## Requirements` list, local IDs written back.
+    Requirements,
+    /// `### Requirements` table and `### Other spec changes`.
+    Entries,
+    /// Dated revision items ending in who decided them.
+    Changes,
+    /// `### Deferred` list.
+    Deferred,
+}
+
+#[derive(Debug, Args)]
+pub struct RenderArgs {
+    /// The run's spec-diff.md.
+    pub spec_diff: PathBuf,
+    /// The part to render.
+    pub part: RenderPart,
+    /// Keep only these scenarios and entries, by local or fixed ID,
+    /// space-separated.
+    #[arg(long, value_name = "IDS")]
+    pub only: Option<String>,
+    /// With `--only`: also keep "Other spec changes" rows that cite no ID.
+    #[arg(long, requires = "only")]
+    pub with_unnumbered: bool,
+    /// The PR's form of the entries table: an Issue column, and the
+    /// requirements reworded after filing.
+    ///
+    /// Read from the run's cards; the run is the spec diff's directory name.
+    #[arg(long)]
+    pub issue_ids: bool,
+}
 
 /// Longest entry text `spec related` prints before cutting it with `…`.
 const RELATED_TEXT_MAX: usize = 100;
@@ -206,7 +304,7 @@ fn render(args: &RenderArgs, style: Option<Style>, out: &mut impl Write) -> io::
         .as_deref()
         .map(|o| o.split_whitespace().map(str::to_owned).collect::<Vec<_>>())
         .filter(|o| !o.is_empty());
-    let opts = spec_diff::Render {
+    let opts = spec::diff::Render {
         only,
         first: args.with_unnumbered,
         issue_ids,
@@ -214,7 +312,7 @@ fn render(args: &RenderArgs, style: Option<Style>, out: &mut impl Write) -> io::
     super::doc(
         out,
         style,
-        &spec_diff::render(&SpecDiff::parse(&text), part, &opts),
+        &spec::diff::render(&SpecDiff::parse(&text), part, &opts),
     )?;
     Ok(exit::OK)
 }

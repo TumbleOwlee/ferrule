@@ -8,9 +8,10 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 
-use crate::board::{self, State};
+use crate::artifacts;
+use crate::card::board::{self, State};
 use crate::project::Layout;
-use crate::{approval, artifacts, prompt_lines};
+use crate::prompt::{approval, lines};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
@@ -448,7 +449,7 @@ fn quoted(
     let mut lines = if files.is_empty() {
         Vec::new()
     } else {
-        prompt_lines::lines(&files, seen).0
+        lines::lines(&files, seen).0
     };
     if kind == Kind::Gate1 && arg(args, "size") == Some("epic") {
         lines.push(format!(

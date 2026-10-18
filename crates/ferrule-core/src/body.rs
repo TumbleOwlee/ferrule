@@ -11,9 +11,12 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 
-use crate::board::{self, State};
+use crate::card::board::{self, State};
 use crate::project::Layout;
-use crate::spec_diff::{self, Part, Render, SpecDiff};
+use crate::spec::{
+    self,
+    diff::{Part, Render, SpecDiff},
+};
 use crate::{artifacts, git};
 
 #[derive(Debug)]
@@ -239,7 +242,7 @@ fn slices(text: &str) -> Vec<Slice> {
 }
 
 fn render(diff: &SpecDiff, part: Part, only: Option<Vec<String>>) -> String {
-    spec_diff::render(
+    spec::diff::render(
         diff,
         part,
         &Render {
@@ -642,7 +645,7 @@ fn requirements(c: &Ctx, diff: Option<&SpecDiff>) -> Result<String, Error> {
     let Some(diff) = diff else {
         return Ok(String::new());
     };
-    let req = spec_diff::render(
+    let req = spec::diff::render(
         diff,
         Part::Entries,
         &Render {

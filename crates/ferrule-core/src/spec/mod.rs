@@ -1,6 +1,8 @@
 //! The spec tree: `docs/specs/<area>/requirements.md` and `edge-cases.md`,
 //! whose entries carry fixed IDs such as `MB-R-012` or `OC-E-003`.
 
+pub mod diff;
+
 use std::io;
 use std::path::{Path, PathBuf};
 

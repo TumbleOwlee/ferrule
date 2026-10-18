@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use crate::shell::{self, Command};
+use crate::hook::shell::{self, Command};
 
 /// Leading decoration a footer line may carry: list markers, emphasis,
 /// quotes, blanks.

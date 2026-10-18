@@ -7,6 +7,7 @@ pub mod pr;
 pub mod prompt;
 pub mod run;
 pub mod spec;
+pub mod uninstall;
 
 use std::io::{self, Write};
 

@@ -1,7 +1,8 @@
 use std::io::{self, Write};
 use std::path::Path;
 
-use ferrule_core::board;
+use clap::Args;
+use ferrule_core::card::board;
 use ferrule_core::config::Config;
 use ferrule_core::guide::{self, Context, Lane};
 use ferrule_core::project::{self, Layout};
@@ -9,7 +10,33 @@ use ferrule_core::term::{self, Style};
 
 use super::card::{sql, store};
 use super::exit;
-use crate::cli::GuideArgs;
+
+#[derive(Debug, Args)]
+pub struct GuideArgs {
+    /// The topic; `--list` names them all.
+    #[arg(required_unless_present_any = ["list", "check"])]
+    pub topic: Option<String>,
+    /// Print only this section, by heading text ignoring case; repeatable.
+    #[arg(long, value_name = "HEADING")]
+    pub section: Vec<String>,
+    /// The run the topic is read for [default: the run whose worktree holds
+    /// the current directory].
+    #[arg(long)]
+    pub slug: Option<String>,
+    /// The stage the topic is read for, `s<n>`.
+    #[arg(long)]
+    pub stage: Option<String>,
+    /// Cut to this lane instead of the run's.
+    #[arg(long, value_parser = ["fast", "full"])]
+    pub lane: Option<String>,
+    /// List the topics.
+    #[arg(long, conflicts_with_all = ["topic", "check"])]
+    pub list: bool,
+    /// Check that every topic and section a topic names exists and every
+    /// tag is well-formed.
+    #[arg(long, conflicts_with = "topic")]
+    pub check: bool,
+}
 
 pub fn run(args: &GuideArgs, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
     let layout = Layout::new(project::main_checkout());

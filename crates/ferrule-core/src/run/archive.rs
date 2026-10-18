@@ -10,7 +10,7 @@ use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
-use crate::board;
+use crate::card::board;
 use crate::git;
 use crate::project::Layout;
 

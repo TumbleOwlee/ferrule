@@ -3,7 +3,7 @@
 
 use std::path::{Component, Path, PathBuf};
 
-use crate::shell::{self, Command, RedirectKind};
+use crate::hook::shell::{self, Command, RedirectKind};
 
 /// A plain `cat` of a longer file is refused.
 const LARGE_LINES: usize = 80;

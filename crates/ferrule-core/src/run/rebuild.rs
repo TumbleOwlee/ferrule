@@ -10,7 +10,7 @@ use std::path::Path;
 
 use rusqlite::Connection;
 
-use crate::board::{self, NewCard, State};
+use crate::card::board::{self, NewCard, State};
 use crate::git;
 use crate::project::Layout;
 use crate::remote::Item;

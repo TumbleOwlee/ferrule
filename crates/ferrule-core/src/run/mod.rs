@@ -2,11 +2,17 @@
 //! reported commit, reconciling cards with git, and the stage-stop
 //! decision.
 
+pub mod archive;
+pub mod gate;
+pub mod gauntlet;
+pub mod next;
+pub mod rebuild;
+
 use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 
-use crate::board::{self, State};
+use crate::card::board::{self, State};
 use crate::config::Config;
 use crate::project::Layout;
 use crate::{artifacts, git};

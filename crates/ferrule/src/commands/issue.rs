@@ -1,16 +1,96 @@
 use std::io::{self, Write};
 
+use clap::Subcommand;
+use ferrule_core::body;
+use ferrule_core::card::board;
 use ferrule_core::config::Config;
+use ferrule_core::issue::request::{self, Part};
+use ferrule_core::pr::publish::{self, Target};
 use ferrule_core::project::{self, Layout};
-use ferrule_core::publish::{self, Target};
 use ferrule_core::remote;
-use ferrule_core::request::{self, Part};
 use ferrule_core::term::{self, Style};
-use ferrule_core::{board, body};
 
 use super::card::{sql, store};
 use super::exit;
-use crate::cli::{FileTarget, IssueCommand, RequestPart};
+
+#[derive(Debug, Subcommand)]
+pub enum IssueCommand {
+    /// Print an issue's title, body and comments as compact text.
+    View {
+        /// A GitHub number or URL, or a Jira key.
+        issue: String,
+    },
+    /// Print part of a reused issue, for the run's request.md.
+    ///
+    /// Without a flag: the issue's original request.
+    Request {
+        /// A GitHub number or URL, or a Jira key.
+        issue: String,
+        #[command(flatten)]
+        part: RequestPart,
+    },
+    /// Assemble the tracking issue's body from the run's files.
+    ///
+    /// Line 1 is `# <title>`. Exits 3 when the body names a stage or an
+    /// agent.
+    Body {
+        /// The run's slug.
+        slug: String,
+        /// Slice n's own issue instead.
+        #[arg(long, value_name = "N")]
+        slice: Option<u32>,
+    },
+    /// File the run's issue, or a related one, and record its number.
+    ///
+    /// An open issue with the same title is adopted, never filed twice.
+    File {
+        /// The run's slug.
+        slug: String,
+        #[command(flatten)]
+        target: FileTarget,
+        /// Reuse issue n as the tracking issue: its title and body are
+        /// replaced.
+        #[arg(long, value_name = "N", conflicts_with_all = ["slice", "split", "follow_up", "comment"])]
+        reuse: Option<u64>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, clap::Args)]
+#[group(multiple = false)]
+pub struct FileTarget {
+    /// File slice n of slices.md; appended to the card's `slices:`.
+    #[arg(long, value_name = "N")]
+    pub slice: Option<u32>,
+    /// File split-issue.md; appended to the card's `split:`.
+    #[arg(long)]
+    pub split: bool,
+    /// File follow-up-k.md.
+    #[arg(long, value_name = "K")]
+    pub follow_up: Option<u32>,
+    /// Post issue-comment.md on the tracking issue, and on a slice's epic.
+    #[arg(long)]
+    pub comment: bool,
+}
+
+// Four flags of one exclusive group, read once into `request::Part`; lifts
+// when clap can map a flag group onto one enum field.
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Debug, Clone, Copy, clap::Args)]
+#[group(multiple = false)]
+pub struct RequestPart {
+    /// An assembled body's spec, architecture, requirements and scenarios.
+    #[arg(long)]
+    pub spec: bool,
+    /// The epic number of a slice issue.
+    #[arg(long)]
+    pub epic: bool,
+    /// A slice issue's whole `**Part of epic**` line.
+    #[arg(long)]
+    pub slice_line: bool,
+    /// The issue's comments.
+    #[arg(long)]
+    pub comments: bool,
+}
 
 pub fn run(command: &IssueCommand, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
     match command {

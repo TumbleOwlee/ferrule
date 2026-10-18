@@ -1,21 +1,219 @@
 use std::io::{self, Write};
+use std::path::PathBuf;
 
-use ferrule_core::archive::{self, Error as ArchiveError};
-use ferrule_core::board;
+use clap::{Args, Subcommand, ValueEnum};
+use ferrule_core::card::board;
 use ferrule_core::config::Config;
-use ferrule_core::gate::{self, Gate};
-use ferrule_core::gauntlet::{self, Outcome};
-use ferrule_core::next::{self, At, Status};
+use ferrule_core::pr::publish;
 use ferrule_core::project::{self, Layout};
-use ferrule_core::publish;
-use ferrule_core::rebuild;
 use ferrule_core::remote::{self, Item};
+use ferrule_core::run::archive::{self, Error as ArchiveError};
+use ferrule_core::run::gate::{self, Gate};
+use ferrule_core::run::gauntlet::{self, Outcome};
+use ferrule_core::run::next::{self, At, Status};
+use ferrule_core::run::rebuild;
 use ferrule_core::run::{self as core_run, Error};
 use ferrule_core::store::DIR;
 
 use super::card::{sql, store};
 use super::exit;
-use crate::cli::{ApproveArgs, GateName, NextAt, ReplanStep, RunCommand};
+use crate::cli::stage_id;
+
+#[derive(Debug, Subcommand)]
+pub enum RunCommand {
+    /// Start a run: its parent card and directory.
+    ///
+    /// With `--issue`, also the issue's request, its brief and, for a
+    /// slice, its epic.
+    Init {
+        /// The run's slug.
+        slug: String,
+        /// The issue the user named: a GitHub number or URL, or a Jira key.
+        #[arg(long)]
+        issue: Option<String>,
+    },
+    /// Record an approved gate.
+    ///
+    /// `gate2` also files the issue, adds the worktree, moves the parent
+    /// card to inprogress and creates the stage cards.
+    Approve(ApproveArgs),
+    /// Log an agent's outcome and print the next step.
+    ///
+    /// Prints `next=`, then `run:` and `do:` lines and a `guide:` line
+    /// naming the topic to read next.
+    Next {
+        /// The run's slug.
+        slug: String,
+        /// Where the run is.
+        #[arg(value_enum)]
+        at: NextAt,
+        /// The agent's status line, as one argument or several.
+        #[arg(required = true, allow_hyphen_values = true)]
+        status: Vec<String>,
+    },
+    /// Run the gauntlet in the run's worktree.
+    ///
+    /// The steps are `[[gauntlet.step]]` of `ferrule.toml`. Prints one
+    /// status line; the output goes to the run's gauntlet.log.
+    Gauntlet {
+        /// The run's slug.
+        slug: String,
+        /// Run even when this tree passed before.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Verify a stage's reported commit before anything is pushed.
+    ///
+    /// The commit exists in the worktree, the run's branch holds it, and
+    /// it is the stage card's last `commit=`.
+    ShaCheck {
+        /// The run's slug.
+        slug: String,
+        /// The stage, `s<n>`.
+        #[arg(value_parser = stage_id, value_name = "STAGE")]
+        stage: u32,
+        /// The commit the implementer reported.
+        sha: String,
+    },
+    /// Decide whether a green full-lane stage stops for approval.
+    ///
+    /// Logs the outcome on the stage card.
+    StageStop {
+        /// The run's slug.
+        slug: String,
+        /// The stage, `s<n>`.
+        #[arg(value_parser = stage_id, value_name = "STAGE")]
+        stage: u32,
+        /// Unresolved PR review threads.
+        #[arg(long, default_value_t = 0)]
+        threads: u32,
+    },
+    /// Start or approve a re-plan.
+    Replan {
+        /// The run's slug.
+        slug: String,
+        step: ReplanStep,
+        /// With `approve`: stages that stop for approval beyond the plan's,
+        /// e.g. `s1,s3`.
+        #[arg(long)]
+        stops: Option<String>,
+    },
+    /// Wait for the PR's checks and print the next step.
+    ///
+    /// Logs `ci=`; on red, also prints the failed run's error lines.
+    Ci {
+        /// The run's slug.
+        slug: String,
+    },
+    /// Reconcile a run's cards with git and the host before resuming.
+    Reconcile {
+        /// The run's slug.
+        slug: String,
+        /// Check git only: skip the issue, PR and PR-body rows.
+        #[arg(long)]
+        local: bool,
+    },
+    /// Recreate a lost board from the issue, its draft PR and git.
+    ///
+    /// Also adds the worktree back.
+    Rebuild {
+        /// The tracking issue.
+        issue: String,
+        /// The run's draft PR.
+        pr: String,
+    },
+    /// Clean up a finished run.
+    ///
+    /// Removes the worktree and the local branch and archives the cards and
+    /// files. Refuses while the worktree holds unpushed work or CI is not
+    /// green.
+    Cleanup {
+        /// The run's slug.
+        slug: String,
+    },
+    /// Record and print a run's metrics line.
+    Metrics {
+        /// The run's slug; without one, every line recorded.
+        slug: Option<String>,
+    },
+    /// Write an archived run back out as files.
+    Export {
+        /// The run's slug.
+        slug: String,
+        /// The archive id `run cleanup` printed [default: the latest].
+        #[arg(long)]
+        archive: Option<i64>,
+        /// Target directory [default: .ferrule/export/<slug>-<archive>].
+        #[arg(long)]
+        to: Option<PathBuf>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum GateName {
+    /// The brief.
+    Gate1,
+    /// The architecture.
+    Arch,
+    /// An epic's slices.
+    Epic,
+    /// The plan and the tracking issue.
+    Gate2,
+    /// A stage stop.
+    Stage,
+    /// A re-plan.
+    Replan,
+    /// A meaningful spec change.
+    Delta,
+    /// The branch review.
+    Gate3,
+    /// The pull request.
+    Gate4,
+}
+
+#[derive(Debug, Args)]
+pub struct ApproveArgs {
+    /// The run's slug.
+    pub slug: String,
+    pub gate: GateName,
+    /// The lane the user settled on.
+    #[arg(long, value_parser = ["fast", "full"])]
+    pub lane: Option<String>,
+    /// gate1: the run is an epic.
+    #[arg(long)]
+    pub epic: bool,
+    /// gate2: `new`, or the number of an issue the run reuses.
+    #[arg(long)]
+    pub issue: Option<String>,
+    /// gate2: the branch [default: feat/<slug>].
+    #[arg(long)]
+    pub branch: Option<String>,
+    /// gate2: stages that stop for approval beyond the plan's, e.g. `s1,s3`.
+    #[arg(long)]
+    pub stops: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum NextAt {
+    /// Planner, plan reviewer, the spec author's issue answer.
+    Gate2,
+    /// A re-plan's planner and plan reviewer.
+    Replan,
+    /// The branch review.
+    Gate3,
+    /// The spec author's PR body.
+    Gate4,
+    /// `ci=<exit code of gh pr checks>`.
+    Ci,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum ReplanStep {
+    /// Log `replan from=` and snapshot the plan.
+    Start,
+    /// Swap the stage cards from `from` on for the new plan's.
+    Approve,
+}
 
 fn layout() -> Layout {
     Layout::new(project::main_checkout())

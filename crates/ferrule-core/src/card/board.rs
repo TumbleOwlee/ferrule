@@ -8,7 +8,7 @@ use std::path::Path;
 
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
-use crate::vocab::{self, Context, Reject};
+use crate::card::vocab::{self, Context, Reject};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
