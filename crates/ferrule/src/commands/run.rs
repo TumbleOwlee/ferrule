@@ -726,7 +726,12 @@ fn ci(slug: &str, out: &mut impl Write) -> io::Result<u8> {
         let branch = board::field(&s.conn, slug, "branch")
             .map_err(sql)?
             .unwrap_or_default();
-        if let Ok(lines) = ferrule_core::remote::failed(config.backend.ci, &branch, &layout.root) {
+        if let Ok(lines) = ferrule_core::remote::failed(
+            config.backend.ci,
+            &branch,
+            ferrule_core::remote::Query::default(),
+            &layout.root,
+        ) {
             for l in lines {
                 writeln!(out, "{l}")?;
             }

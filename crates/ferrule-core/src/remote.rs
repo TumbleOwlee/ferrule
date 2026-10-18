@@ -615,29 +615,88 @@ pub fn failed_checks(output: &str) -> Vec<String> {
         .collect()
 }
 
-/// The lines of a CI log that name an error or failure.
+fn names_an_error(line: &str) -> bool {
+    let l = line.to_ascii_lowercase();
+    (l.contains("error") || l.contains("failed") || l.contains("failure"))
+        && !l.contains("post job cleanup")
+        && !l.contains("deprecated")
+}
+
+/// The lines of a CI log that name an error or failure, each followed by
+/// the `after` lines below it; with context, `--` separates lines that are
+/// not adjacent in the log.
 #[must_use]
-pub fn error_lines(log: &str) -> Vec<&str> {
-    log.lines()
-        .filter(|l| {
-            let l = l.to_ascii_lowercase();
-            (l.contains("error") || l.contains("failed") || l.contains("failure"))
-                && !l.contains("post job cleanup")
-                && !l.contains("deprecated")
-        })
-        .collect()
+pub fn error_lines(log: &str, after: usize) -> Vec<&str> {
+    let lines: Vec<&str> = log.lines().collect();
+    let mut keep = vec![false; lines.len()];
+    for (i, l) in lines.iter().enumerate() {
+        if names_an_error(l) {
+            let end = (i + after + 1).min(lines.len());
+            keep[i..end].iter_mut().for_each(|k| *k = true);
+        }
+    }
+    let mut out = Vec::new();
+    let mut last = None;
+    for (i, l) in lines.iter().enumerate().filter(|(i, _)| keep[*i]) {
+        if after > 0 && last.is_some_and(|j: usize| j + 1 != i) {
+            out.push("--");
+        }
+        out.push(*l);
+        last = Some(i);
+    }
+    out
 }
 
-/// The error lines of the latest failed CI run on `branch`.
-pub fn failed(ci: Ci, branch: &str, root: &Path) -> Result<Vec<String>, Error> {
+/// Which failed CI run and job `failed` reads.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Query<'a> {
+    /// A run id (GitHub) or pipeline uuid or number (Bitbucket) instead of
+    /// the branch's latest failure.
+    pub run: Option<&'a str>,
+    /// A failing job (step) whose name contains this, ignoring case,
+    /// instead of the first failing one.
+    pub job: Option<&'a str>,
+    /// Lines printed after each error line.
+    pub context: usize,
+}
+
+/// The error lines of a failed CI run: the latest on `branch` unless the
+/// query names one.
+pub fn failed(ci: Ci, branch: &str, query: Query, root: &Path) -> Result<Vec<String>, Error> {
     let log = match ci {
-        Ci::Github => github_failed_log(branch, root)?,
-        Ci::Bitbucket => bitbucket_failed_log(branch, root)?,
+        Ci::Github => github_failed_log(branch, query, root)?,
+        Ci::Bitbucket => bitbucket_failed_log(branch, query, root)?,
     };
-    Ok(error_lines(&log).into_iter().map(str::to_owned).collect())
+    Ok(error_lines(&log, query.context)
+        .into_iter()
+        .map(str::to_owned)
+        .collect())
 }
 
-fn github_failed_log(branch: &str, root: &Path) -> Result<String, Error> {
+/// The failing job `query` picks among `(name, id)` pairs, or why none.
+fn pick_job<'a>(failing: &[(&'a str, &'a str)], query: Query, run: &str) -> Result<&'a str, Error> {
+    let found = match query.job {
+        Some(want) => {
+            let want = want.to_lowercase();
+            failing
+                .iter()
+                .find(|(name, _)| name.to_lowercase().contains(&want))
+        }
+        None => failing.first(),
+    };
+    found.map(|(_, id)| *id).ok_or_else(|| {
+        let names: Vec<&str> = failing.iter().map(|(n, _)| *n).collect();
+        Error::NotFound(match query.job {
+            Some(want) => format!(
+                "Run {run} has no failing job matching '{want}'; failing: {}",
+                names.join(", ")
+            ),
+            None => format!("Run {run} failed but no failing job found"),
+        })
+    })
+}
+
+fn github_failed_log(branch: &str, query: Query, root: &Path) -> Result<String, Error> {
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct Run {
@@ -647,52 +706,61 @@ fn github_failed_log(branch: &str, root: &Path) -> Result<String, Error> {
     #[serde(rename_all = "camelCase")]
     struct Job {
         database_id: u64,
+        #[serde(default)]
+        name: String,
         conclusion: Option<String>,
     }
     #[derive(Deserialize)]
     struct Jobs {
         jobs: Vec<Job>,
     }
-    let runs: Vec<Run> = json(
-        &run(
-            "gh",
-            &[
-                "run",
-                "list",
-                "--branch",
-                branch,
-                "--status",
-                "failure",
-                "--limit",
-                "1",
-                "--json",
-                "databaseId",
-            ],
-            None,
-            root,
-        )?,
-        "gh run list",
-    )?;
-    let Some(r) = runs.first() else {
-        return Err(Error::NotFound(format!(
-            "No failed run found for branch '{branch}'"
-        )));
+    let id = if let Some(given) = query.run {
+        given.to_owned()
+    } else {
+        let runs: Vec<Run> = json(
+            &run(
+                "gh",
+                &[
+                    "run",
+                    "list",
+                    "--branch",
+                    branch,
+                    "--status",
+                    "failure",
+                    "--limit",
+                    "1",
+                    "--json",
+                    "databaseId",
+                ],
+                None,
+                root,
+            )?,
+            "gh run list",
+        )?;
+        let Some(r) = runs.first() else {
+            return Err(Error::NotFound(format!(
+                "No failed run found for branch '{branch}'"
+            )));
+        };
+        r.database_id.to_string()
     };
-    let id = r.database_id.to_string();
     let jobs: Jobs = json(
         &run("gh", &["run", "view", &id, "--json", "jobs"], None, root)?,
         "gh run view",
     )?;
-    let Some(job) = jobs
+    let ids: Vec<String> = jobs
         .jobs
         .iter()
-        .find(|j| j.conclusion.as_deref() == Some("failure"))
-    else {
-        return Err(Error::NotFound(format!(
-            "Run {id} failed but no failing job found"
-        )));
-    };
-    let job = job.database_id.to_string();
+        .map(|j| j.database_id.to_string())
+        .collect();
+    let failing: Vec<(&str, &str)> = jobs
+        .jobs
+        .iter()
+        .zip(&ids)
+        .filter(|(j, _)| j.conclusion.as_deref() == Some("failure"))
+        .map(|(j, id)| (j.name.as_str(), id.as_str()))
+        .collect();
+    let job = pick_job(&failing, query, &id)?.to_owned();
     match run(
         "gh",
         &["run", "view", &id, "--job", &job, "--log-failed"],
@@ -712,46 +780,48 @@ fn github_failed_log(branch: &str, root: &Path) -> Result<String, Error> {
     }
 }
 
-fn bitbucket_failed_log(branch: &str, root: &Path) -> Result<String, Error> {
+fn bitbucket_failed_log(branch: &str, query: Query, root: &Path) -> Result<String, Error> {
     let bb = Bitbucket::load(root)?;
     let api = bb.api("pipelines/");
-    let q = format!("target.ref_name=\"{branch}\" AND state.result.name=\"FAILED\"");
-    let pipelines: Value = json(
-        &bb.call(
-            &[
-                "-G",
-                &api,
-                "--data-urlencode",
-                "sort=-created_on",
-                "--data-urlencode",
-                "pagelen=1",
-                "--data-urlencode",
-                &format!("q={q}"),
-            ],
-            root,
-        )?,
-        "bitbucket",
-    )?;
-    let Some(uuid) = pipelines["values"][0]["uuid"].as_str() else {
-        return Err(Error::NotFound(format!(
-            "No failed pipeline found for branch '{branch}'"
-        )));
+    let uuid = if let Some(given) = query.run {
+        given.to_owned()
+    } else {
+        let q = format!("target.ref_name=\"{branch}\" AND state.result.name=\"FAILED\"");
+        let pipelines: Value = json(
+            &bb.call(
+                &[
+                    "-G",
+                    &api,
+                    "--data-urlencode",
+                    "sort=-created_on",
+                    "--data-urlencode",
+                    "pagelen=1",
+                    "--data-urlencode",
+                    &format!("q={q}"),
+                ],
+                root,
+            )?,
+            "bitbucket",
+        )?;
+        let Some(uuid) = pipelines["values"][0]["uuid"].as_str().map(str::to_owned) else {
+            return Err(Error::NotFound(format!(
+                "No failed pipeline found for branch '{branch}'"
+            )));
+        };
+        uuid
     };
     let steps: Value = json(
         &bb.call(&["-g", &format!("{api}{uuid}/steps/")], root)?,
         "bitbucket",
     )?;
-    let step = steps["values"]
+    let failing: Vec<(&str, &str)> = steps["values"]
         .as_array()
         .into_iter()
         .flatten()
-        .find(|s| s["state"]["result"]["name"] == "FAILED")
-        .and_then(|s| s["uuid"].as_str());
-    let Some(step) = step else {
-        return Err(Error::NotFound(format!(
-            "Pipeline {uuid} failed but no failing step found"
-        )));
-    };
+        .filter(|s| s["state"]["result"]["name"] == "FAILED")
+        .filter_map(|s| Some((s["name"].as_str().unwrap_or(""), s["uuid"].as_str()?)))
+        .collect();
+    let step = pick_job(&failing, query, &uuid)?;
     bb.call(&["-g", &format!("{api}{uuid}/steps/{step}/log")], root)
 }
 
@@ -795,8 +865,15 @@ mod tests {
     #[test]
     fn ut_error_lines() {
         assert_eq!(
-            error_lines("ok\nerror[E0308]: x\nPost job cleanup failed\ntest a ... FAILED\n"),
+            error_lines(
+                "ok\nerror[E0308]: x\nPost job cleanup failed\ntest a ... FAILED\n",
+                0
+            ),
             ["error[E0308]: x", "test a ... FAILED"]
+        );
+        assert_eq!(
+            error_lines("error: a\n  at 1\n  at 2\nok\nerror: b\nerror: c\nend\n", 1),
+            ["error: a", "  at 1", "--", "error: b", "error: c", "end"]
         );
     }
 }

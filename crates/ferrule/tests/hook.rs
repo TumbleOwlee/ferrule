@@ -126,6 +126,9 @@ fn it_shell_guard_names_the_ferrule_command_for_raw_git_and_gh() {
             ("gh pr ready 34", "deny"),
             ("gh pr checks 34", "allow"),
             ("gh run view 99 --log-failed", "deny"),
+            ("gh run view 99 --job 7 --log", "deny"),
+            ("gh run view 99", "allow"),
+            ("gh run view 99 --json jobs,status", "allow"),
             ("gh api repos/o/r/pulls", "allow"),
             (
                 "gh api -X POST repos/o/r/pulls/1/comments -f body=x",

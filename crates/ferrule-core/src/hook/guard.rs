@@ -86,11 +86,6 @@ pub const REPLACED: &[Replaced] = &[
         instead: "ferrule pr view <n>",
         why: "the raw view crashes on GitHub's Projects-Classic API bug",
     },
-    Replaced {
-        raw: "gh run view",
-        instead: "ferrule pr failed <branch>",
-        why: "it prints only the failed job's errors",
-    },
 ];
 
 /// Files only ferrule writes, under `.ferrule/`.
@@ -312,6 +307,16 @@ fn replaced(name: &str, args: &[String], policy: Policy) -> Option<String> {
             });
         return writes.then(|| {
             "A writing 'gh api' call is ferrule's to run here. Use: ferrule pr feedback reply <pr> <file> [<stage> <sha>] for review threads, ferrule issue file / ferrule pr publish for the rest. Re-open it with [guard] allow = [\"gh api\"] in .ferrule/ferrule.toml if the project needs it.".to_owned()
+        });
+    }
+    // A run's summary and its `--json` fields are short; its logs flood.
+    // Hook-only: a `permissions.deny` prefix rule cannot tell them apart.
+    if words.starts_with(&["gh", "run", "view"]) {
+        let logs = args
+            .iter()
+            .any(|a| a == "--log" || a == "--log-failed" || a.starts_with("--log="));
+        return logs.then(|| {
+            "A raw CI log floods the context. Use: ferrule pr failed [<branch>] [--run <id>] [--job <name>] [--context <n>]: the failed job's error lines, each with the n lines after it. A run's summary or --json fields (gh run view <id>) stay allowed.".to_owned()
         });
     }
     let r = REPLACED.iter().find(|r| {

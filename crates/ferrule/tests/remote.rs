@@ -210,3 +210,44 @@ fn it_failed_prints_the_error_lines() {
         "exit=1"
     );
 }
+
+#[test]
+fn it_failed_takes_a_run_a_job_and_context() {
+    let gh = FakeGh::new();
+    let p = tempfile::tempdir().unwrap();
+    gh.serve(
+        &["run", "view", "6", "--json", "jobs"],
+        r#"{"jobs":[{"databaseId":8,"name":"test","conclusion":"failure"},{"databaseId":9,"name":"lint (stable)","conclusion":"failure"}]}"#,
+    );
+    gh.serve(
+        &["run", "view", "6", "--job", "9", "--log-failed"],
+        "lint\tChecking x\nlint\terror: unused import\nlint\t  --> src/a.rs:1\nlint\tdone\nlint\twarning: x\nlint\terror: second\nlint\tnote: y\n",
+    );
+    assert_eq!(
+        ferrule(
+            &gh,
+            p.path(),
+            &[
+                "pr",
+                "failed",
+                "--run",
+                "6",
+                "--job",
+                "LINT",
+                "--context",
+                "1"
+            ]
+        )
+        .text(),
+        "lint\terror: unused import\nlint\t  --> src/a.rs:1\n--\nlint\terror: second\nlint\tnote: y\nexit=0"
+    );
+    assert_eq!(
+        ferrule(
+            &gh,
+            p.path(),
+            &["pr", "failed", "--run", "6", "--job", "docs"]
+        )
+        .text(),
+        "exit=1"
+    );
+}

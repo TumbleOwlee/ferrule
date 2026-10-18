@@ -72,12 +72,24 @@ pub enum PrCommand {
     /// Fetch, route and answer the PR's inline review threads.
     #[command(subcommand)]
     Feedback(FeedbackCommand),
-    /// Print the error lines of a branch's latest failed CI run.
+    /// Print the error lines of a failed CI run.
     ///
-    /// `run ci` prints them too when it waits for a run's checks.
+    /// The branch's latest failed run and its first failing job unless
+    /// `--run` and `--job` name others. `run ci` prints the same lines when
+    /// it waits for a run's checks.
     Failed {
         /// The branch [default: the current branch].
+        #[arg(conflicts_with = "run")]
         branch: Option<String>,
+        /// A run id (GitHub) or pipeline uuid or number (Bitbucket).
+        #[arg(long, value_name = "ID")]
+        run: Option<String>,
+        /// The failing job (step) whose name contains this, ignoring case.
+        #[arg(long, value_name = "NAME")]
+        job: Option<String>,
+        /// Lines to print after each error line.
+        #[arg(long, value_name = "N", default_value_t = 0)]
+        context: usize,
     },
 }
 
@@ -119,11 +131,28 @@ pub fn run(command: &PrCommand, style: Option<Style>, out: &mut impl Write) -> i
             publish_pr(&config, slug, follow_ups.as_deref(), out)
         }
         PrCommand::Feedback(command) => feedback::run(&config, command, out),
-        PrCommand::Failed { branch } => failed(&config, branch.as_deref(), out),
+        PrCommand::Failed {
+            branch,
+            run,
+            job,
+            context,
+        } => {
+            let query = remote::Query {
+                run: run.as_deref(),
+                job: job.as_deref(),
+                context: *context,
+            };
+            failed(&config, branch.as_deref(), query, out)
+        }
     }
 }
 
-fn failed(config: &Config, branch: Option<&str>, out: &mut impl Write) -> io::Result<u8> {
+fn failed(
+    config: &Config,
+    branch: Option<&str>,
+    query: remote::Query,
+    out: &mut impl Write,
+) -> io::Result<u8> {
     let root = project::root();
     let dir = if root.as_os_str().is_empty() {
         Path::new(".")
@@ -134,7 +163,7 @@ fn failed(config: &Config, branch: Option<&str>, out: &mut impl Write) -> io::Re
         || git::out(dir, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_default(),
         str::to_owned,
     );
-    match remote::failed(config.backend.ci, &branch, &root) {
+    match remote::failed(config.backend.ci, &branch, query, &root) {
         Ok(lines) => {
             for l in lines {
                 writeln!(out, "{l}")?;

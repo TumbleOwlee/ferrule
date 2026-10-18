@@ -48,7 +48,7 @@ Under construction. Implemented so far:
 | `ferrule pr view <n>` | A PR's title, body and comments as compact text |
 | `ferrule pr body <slug> draft\|full` | The PR body from the run's artifacts and cards; exit 3 when it names a stage or an agent |
 | `ferrule pr feedback fetch <n> <out>` / `pr feedback reply <n> <file> [<stage> <sha>]` | Unresolved review threads into a file; post the filled replies, resolving fixed threads |
-| `ferrule pr failed [<branch>]` | The error lines of the branch's latest failed CI run |
+| `ferrule pr failed [<branch>] [--run <id>] [--job <name>] [--context <n>]` | The error lines of a failed CI run, the branch's latest unless `--run` names one, each with `n` lines after it |
 | `ferrule hook shell` | Session-wide Bash guard: refuses writes to `.ferrule/state.db` and the lock, output floods, and the raw git and `gh` calls ferrule runs itself, naming the command to run instead |
 | `ferrule hook attribution` | Hands the Bash command back with attribution trailers removed |
 | `ferrule hook reviewer` | Read-only Bash guard for the reviewer agent |
@@ -146,7 +146,7 @@ cd <repository> && ferrule install
 
 Re-running install upgrades: a generated file whose hash matches the lock is replaced, an edited one is kept with the new version next to it as `<name>.ferrule-new`. A file at a generated path that ferrule never wrote is refused unless `--force`. A `version` in `ferrule.toml` other than the binary's refuses every command but `install`.
 
-The session guard denies the raw git and `gh` calls ferrule replaces; `[guard] allow = ["gh api"]` in `ferrule.toml` re-opens one, in the guard and the deny rules alike.
+The session guard denies the raw git and `gh` calls ferrule replaces; `[guard] allow = ["gh api"]` in `ferrule.toml` re-opens one, in the guard and the deny rules alike. Two are denied only in some forms, by the guard alone since a deny rule matches a prefix: `gh api` when it writes, `gh run view` with `--log` or `--log-failed` (`ferrule pr failed` replaces those).
 
 ## Development
 
