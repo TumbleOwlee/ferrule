@@ -115,6 +115,24 @@ fn is_owned(path: &str) -> bool {
         if OWNED.iter().any(|o| f.strip_prefix(o).is_some_and(|r| r.is_empty() || r.starts_with('-'))))
 }
 
+/// Whether `word`, run from `cwd`, could name one of [`OWNED`]: a path to
+/// it, inline code mentioning it, or a glob in the file name directly under
+/// `.ferrule/`. A name built from shell variables stays unseen.
+fn names_owned(cwd: &Path, word: &str) -> bool {
+    let globbed = |f: &str| f.contains(['*', '?', '[']);
+    let in_ferrule = cwd.file_name().is_some_and(|n| n == ".ferrule");
+    is_owned(word)
+        || is_owned(&resolve(cwd, word).to_string_lossy())
+        || OWNED
+            .iter()
+            .any(|o| word.contains(&format!(".ferrule/{o}")) || (in_ferrule && word.contains(o)))
+        || word
+            .split(".ferrule/")
+            .skip(1)
+            .any(|f| !f.contains('/') && globbed(f))
+        || (in_ferrule && !word.contains('/') && globbed(word))
+}
+
 fn is_markdown(path: &str) -> bool {
     Path::new(path)
         .extension()
@@ -171,7 +189,7 @@ pub fn shell(command: &str, cwd: &Path, policy: Policy) -> Option<String> {
     let mut cwd = cwd.to_path_buf();
     for c in shell::parse(command) {
         let Some((name, args)) = shell::program(&c.words) else {
-            if let Some(reason) = owned_redirect(&c) {
+            if let Some(reason) = owned_redirect(&c, &cwd) {
                 return Some(reason);
             }
             continue;
@@ -182,8 +200,8 @@ pub fn shell(command: &str, cwd: &Path, policy: Policy) -> Option<String> {
             }
             continue;
         }
-        let reason = owned_redirect(&c)
-            .or_else(|| owned_edit(name, args))
+        let reason = owned_redirect(&c, &cwd)
+            .or_else(|| owned_edit(&c, name, args, &cwd))
             .or_else(|| flood(&c, name, args, &cwd))
             .or_else(|| replaced(name, args, policy));
         if reason.is_some() {
@@ -243,22 +261,56 @@ fn flood(c: &Command, name: &str, args: &[String], cwd: &Path) -> Option<String>
 
 const OWNED_REASON: &str = "Only ferrule writes .ferrule/state.db and .ferrule/ferrule.lock. Use ferrule card log|move|set for the board, ferrule card show|board to read it, ferrule install for the lock.";
 
-fn owned_redirect(c: &Command) -> Option<String> {
+/// Programs that may name ferrule's files: they only list or read them.
+const OWNED_READERS: &[&str] = &[
+    "ls",
+    "stat",
+    "file",
+    "test",
+    "[",
+    "cat",
+    "head",
+    "tail",
+    "less",
+    "wc",
+    "grep",
+    "rg",
+    "diff",
+    "cmp",
+    "sha256sum",
+    "md5sum",
+    "ferrule",
+];
+
+/// Readers only in some forms: [`readonly_program`] tells which.
+const OWNED_READERS_IF_READONLY: &[&str] = &["git", "sed", "awk", "gawk", "mawk", "find"];
+
+fn owned_redirect(c: &Command, cwd: &Path) -> Option<String> {
     c.redirects
         .iter()
         .any(|r| {
-            matches!(r.kind, RedirectKind::Write | RedirectKind::Append) && is_owned(&r.target)
+            matches!(r.kind, RedirectKind::Write | RedirectKind::Append)
+                && names_owned(cwd, &r.target)
         })
         .then(|| OWNED_REASON.to_owned())
 }
 
-fn owned_edit(name: &str, args: &[String]) -> Option<String> {
-    let hit = match name {
-        "tee" => tee_targets(args).1.iter().any(|t| is_owned(t)),
-        "mv" | "cp" | "rm" | "sqlite3" | "truncate" | "dd" => args
-            .iter()
-            .any(|a| is_owned(a) || a.strip_prefix("of=").is_some_and(is_owned)),
-        _ => false,
+/// Any program but a reader that names ferrule's files, in its words or in
+/// the heredoc or here-string it reads: a writer, an interpreter running
+/// inline code, or a command feeding the name to `xargs`.
+fn owned_edit(c: &Command, name: &str, args: &[String], cwd: &Path) -> Option<String> {
+    let reader = OWNED_READERS.contains(&name)
+        || (OWNED_READERS_IF_READONLY.contains(&name) && readonly_program(name, args));
+    let hit = if name == "tee" {
+        tee_targets(args).1.iter().any(|t| names_owned(cwd, t))
+    } else {
+        !reader
+            && (args.iter().any(|a| names_owned(cwd, a))
+                || c.redirects.iter().any(|r| match r.kind {
+                    RedirectKind::HereDoc => r.body.as_deref().is_some_and(|b| names_owned(cwd, b)),
+                    RedirectKind::HereString => names_owned(cwd, &r.target),
+                    _ => false,
+                }))
     };
     hit.then(|| OWNED_REASON.to_owned())
 }

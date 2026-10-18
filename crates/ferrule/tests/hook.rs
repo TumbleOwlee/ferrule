@@ -100,6 +100,52 @@ fn it_shell_guard_refuses_floods_and_writes_to_ferrules_files() {
 }
 
 #[test]
+fn it_shell_guard_refuses_ferrules_files_however_they_are_named() {
+    let p = project();
+    std::fs::create_dir(p.path().join(".ferrule")).unwrap();
+    check(
+        "shell",
+        p.path(),
+        &[
+            (
+                "python3 -c 'import sqlite3; sqlite3.connect(\".ferrule/state.db\")'",
+                "deny",
+            ),
+            ("perl -e 'unlink \"/x/.ferrule/ferrule.lock\"'", "deny"),
+            ("bash -c 'rm .ferrule/state.db'", "deny"),
+            ("sed -i s/a/b/ .ferrule/ferrule.lock", "deny"),
+            ("echo .ferrule/state.db | xargs rm", "deny"),
+            (
+                "cd .ferrule && sqlite3 state.db 'delete from cards'",
+                "deny",
+            ),
+            ("cd .ferrule && echo x > state.db", "deny"),
+            (
+                "cd .ferrule && python3 -c 'open(\"ferrule.lock\", \"w\")'",
+                "deny",
+            ),
+            (
+                "python3 <<'EOF'\nimport os; os.remove('.ferrule/state.db')\nEOF",
+                "deny",
+            ),
+            ("sh <<< 'rm .ferrule/ferrule.lock'", "deny"),
+            ("rm .ferrule/state.d?", "deny"),
+            ("rm .ferrule/*", "deny"),
+            ("cd .ferrule && rm *.db", "deny"),
+            ("ls -la .ferrule/state.db", "allow"),
+            ("git diff -- .ferrule/ferrule.lock", "allow"),
+            ("git check-ignore .ferrule/state.db", "allow"),
+            ("grep version .ferrule/ferrule.lock", "allow"),
+            ("ls .ferrule/*", "allow"),
+            ("cat .ferrule/runs/*/review.verdict.md | head", "allow"),
+            ("cp notes.md .ferrule/runs/demo/notes.md", "allow"),
+            ("python3 -c 'print(1)'", "allow"),
+            ("cd .ferrule && ls", "allow"),
+        ],
+    );
+}
+
+#[test]
 fn it_shell_guard_names_the_ferrule_command_for_raw_git_and_gh() {
     let p = project();
     check(
