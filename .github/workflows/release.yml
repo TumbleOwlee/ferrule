@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  release:
+    types: [created]
+
+permissions:
+  contents: write
+
+jobs:
+  # Projects pin and lock the binary's own version, and `ferrule install`
+  # names `--tag v<version>`; a release whose tag differs from the version
+  # it builds would break both.
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Tag matches the workspace version
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml)
+          if [ "${TAG#v}" != "$version" ]; then
+            echo "::error::tag $TAG does not match workspace version $version"
+            exit 1
+          fi
+
+  release:
+    name: release ${{ matrix.target }}
+    needs: version
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [x86_64-pc-windows-gnu, x86_64-unknown-linux-musl]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Compile and release
+        uses: rust-build/rust-build.action@v1.4.5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # The repo root is a virtual workspace manifest; point the action at the
+          # binary package so `cargo read-manifest` resolves a target.
+          SRC_DIR: "crates/ferrule"
+          RUSTTARGET: ${{ matrix.target }}
+          EXTRA_FILES: "README.md LICENSE"
+          # The toolchain rust-toolchain.toml pins and CI tests with.
+          TOOLCHAIN_VERSION: 1.95.0
