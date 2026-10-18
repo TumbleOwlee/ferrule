@@ -146,6 +146,8 @@ cd <repository> && ferrule install
 
 Re-running install upgrades: a generated file whose hash matches the lock is replaced, an edited one is kept with the new version next to it as `<name>.ferrule-new`. A file at a generated path that ferrule never wrote is refused unless `--force`. A `version` in `ferrule.toml` other than the binary's refuses every command but `install`.
 
+A binary whose version differs from `version` in `ferrule.toml` or in `ferrule.lock` refuses every command but `install` and `uninstall`, and names the fix: an older binary than the project's says which tag to `cargo install`; a newer one says to run `ferrule install` and commit the updated files. The Bash guard refuses every call the same way except those two updates, and the session-start hook reports the mismatch.
+
 The session guard denies the raw git and `gh` calls ferrule replaces; `[guard] allow = ["gh api"]` in `ferrule.toml` re-opens one, in the guard and the deny rules alike. Two are denied only in some forms, by the guard alone since a deny rule matches a prefix: `gh api` when it writes, `gh run view` with `--log` or `--log-failed` (`ferrule pr failed` replaces those).
 
 ## Development

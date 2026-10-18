@@ -8,6 +8,7 @@ use ferrule_core::card::board::{self, State};
 use ferrule_core::config::Config;
 use ferrule_core::hook::attribution::{self, Rewrite};
 use ferrule_core::hook::guard;
+use ferrule_core::install;
 use ferrule_core::project;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -76,7 +77,13 @@ pub fn run(command: &HookCommand, input: &mut impl Read, out: &mut impl Write) -
         return Ok(exit::OK);
     };
     let cwd = payload.cwd.clone().unwrap_or_else(|| PathBuf::from("."));
+    // A version mismatch refuses every call but the update it asks for.
+    let guards = matches!(command, HookCommand::Shell | HookCommand::Reviewer);
+    let mismatch = (guards && !install::is_update(cmd))
+        .then(|| install::version_mismatch(&project::main_checkout()))
+        .flatten();
     let verdict = match command {
+        _ if let Some(m) = &mismatch => Some(Verdict::Deny(m.message())),
         HookCommand::Shell => shell(cmd, &cwd),
         HookCommand::Attribution => attribution(cmd, &cwd, &payload.tool_input),
         HookCommand::Reviewer => reviewer(cmd, &cwd),
@@ -150,6 +157,9 @@ fn attribution(cmd: &str, cwd: &Path, tool_input: &Value) -> Option<Verdict> {
 
 /// Unfinished runs: any card in inprogress or inreview. Silent otherwise.
 fn session_start(out: &mut impl Write) -> io::Result<u8> {
+    if let Some(m) = install::version_mismatch(&project::main_checkout()) {
+        writeln!(out, "[ferrule] {}", m.message())?;
+    }
     let Ok(Some(s)) = super::card::store(false) else {
         return Ok(exit::OK);
     };

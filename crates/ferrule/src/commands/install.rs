@@ -6,6 +6,7 @@ use ferrule_core::project;
 
 use super::exit;
 use crate::cli::Command;
+use crate::commands::hook::HookCommand;
 
 #[derive(Debug, Args)]
 pub struct InstallArgs {
@@ -25,15 +26,18 @@ pub struct InstallArgs {
 }
 
 /// Refuses every command but install's when the project pins another
-/// version. A hook refuses with exit 2, the code that blocks its call.
+/// version or its generated files come from one. A git hook refuses with
+/// exit 2, the code that blocks it; the Claude Code hooks check for
+/// themselves, so that the update they ask for can still run.
 pub fn pinned(command: &Command) -> Option<u8> {
     if matches!(command, Command::Install(_) | Command::Uninstall { .. }) {
         return None;
     }
-    let pinned = install::version_mismatch(&project::main_checkout())?;
-    eprintln!(
-        "ferrule=refused reason=version pinned={pinned} binary={VERSION}: run cargo install --git https://github.com/TumbleOwlee/ferrule --tag v{pinned} --locked, or ferrule install to move the project to {VERSION}"
-    );
+    if matches!(command, Command::Hook(h) if !matches!(h, HookCommand::Git { .. })) {
+        return None;
+    }
+    let mismatch = install::version_mismatch(&project::main_checkout())?;
+    eprintln!("{}", mismatch.message());
     Some(if matches!(command, Command::Hook(_)) {
         exit::USAGE
     } else {

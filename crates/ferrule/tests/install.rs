@@ -236,6 +236,86 @@ fn it_a_pinned_version_refuses_other_binaries() {
     assert!(ferrule(root, &["card", "board"]).ends_with("exit=0"));
 }
 
+/// Runs `ferrule` in `root`: its stderr, and its exit code.
+fn stderr(root: &Path, args: &[&str], stdin: &str) -> (String, String, i32) {
+    use std::io::Write as _;
+    use std::process::Stdio;
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ferrule"))
+        .args(args)
+        .current_dir(root)
+        .env("CLAUDE_PROJECT_DIR", root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(stdin.as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    (
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+        out.status.code().unwrap(),
+    )
+}
+
+fn bash(command: &str) -> String {
+    format!(r#"{{"tool_name":"Bash","tool_input":{{"command":"{command}"}}}}"#)
+}
+
+#[test]
+fn it_a_lock_from_another_version_names_the_update() {
+    let dir = repo();
+    let root = dir.path();
+    ferrule(root, &["install"]);
+    let lock = read(root, ".ferrule/ferrule.lock");
+    let lock_at = |v: &str| {
+        let text = lock.replace(
+            &format!("version = \"{VERSION}\""),
+            &format!("version = \"{v}\""),
+        );
+        std::fs::write(root.join(".ferrule/ferrule.lock"), text).unwrap();
+    };
+
+    lock_at("0.0.1");
+    let (_, err, code) = stderr(root, &["card", "board"], "");
+    assert_eq!(code, 1);
+    assert!(
+        err.contains(&format!("reason=version locked=0.0.1 binary={VERSION}")),
+        "{err}"
+    );
+    assert!(err.contains("run ferrule install"), "{err}");
+
+    let (out, _, code) = stderr(root, &["hook", "shell"], &bash("git status"));
+    assert_eq!(code, 0);
+    assert!(
+        out.contains("\"deny\"") && out.contains("run ferrule install"),
+        "{out}"
+    );
+    let (out, _, code) = stderr(root, &["hook", "shell"], &bash(".ferrule/ferrule install"));
+    assert_eq!((out.as_str(), code), ("", 0));
+    let (out, _, _) = stderr(root, &["hook", "session-start"], "");
+    assert!(out.contains("run ferrule install"), "{out}");
+
+    lock_at("99.0.0");
+    let (_, err, code) = stderr(root, &["card", "board"], "");
+    assert_eq!(code, 1);
+    assert!(err.contains("--tag v99.0.0"), "{err}");
+    let (out, _, code) = stderr(
+        root,
+        &["hook", "shell"],
+        &bash("cargo install --git https://github.com/TumbleOwlee/ferrule --tag v99.0.0 --locked"),
+    );
+    assert_eq!((out.as_str(), code), ("", 0));
+
+    assert!(ferrule(root, &["install"]).ends_with("exit=0"));
+    assert!(ferrule(root, &["card", "board"]).ends_with("exit=0"));
+}
+
 #[test]
 fn it_uninstall_takes_out_what_install_put_in() {
     let dir = repo();
