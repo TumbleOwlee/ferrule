@@ -19,6 +19,7 @@ status=<token> [file=<path>] [summary=<path>] [stage=s<n>] [issue=<n>] [reason=<
 `file` is lossless, for the next agent: as long as it must be. `summary` is for the user: decisions and open findings only, rewritten whole on every pass, capped at 25 lines / 2 KB (`ferrule prompt show` refuses a larger one and exits 3 — the agent trims it).
 
 - `question` = a batch of decisions in `{run_dir}/question.md` (`ferrule guide question`).
+- A refused ferrule command names its fix in `hint=`; `ferrule <cmd> --help` lists its outputs and refusals.
 - An agent returning more than the status line is told to move the rest into its file and answer again.
 - A status line naming a file the user must approve (`spec-diff.md`, `pr.md`, a `summary=` path) → the stop's `ferrule prompt render` call (`ferrule guide approval`): it opens the files outside the context (`ferrule prompt show`) and quotes only their `ferrule prompt lines` lines. Exit 3 = a summary over its cap: the agent that wrote it trims it, never show the full file instead.
 

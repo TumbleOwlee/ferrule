@@ -17,6 +17,6 @@ Every status line of the gate (planner, plan reviewer, the author's issue answer
 1. Files or rewrites the issue (`ferrule guide issue`) and records `issue`; records `gate1` too while it is pending (fast lane without an architecture stop).
 2. Adds the worktree `{worktree}` on a new branch off `{main}` (`branch=` names it; default `feat/{slug}`).
 3. Records `gate2` (and `lane=`, for a non-behavior change with `no-arch`), moves the parent → `inprogress`.
-4. Creates one stage card per row of `plan.md`'s `## Shared` stage table (`s0` only when the plan has one): `title`, `files` and `blocked-by` from the table, `stop: yes` for every stage `plan.summary.md`'s `Stop` column marks and every stage `stops=` names (the user's ticks at the stop). Stage ids match plan ids. It prints `approve=done gate=gate2 issue=<n> worktree=… stages=<count>`; `approve=refused reason=no-stages` → the planner's table is missing or malformed: resume the planner.
+4. Creates one stage card per row of `plan.md`'s `## Shared` stage table (`s0` only when the plan has one): `title`, `files` and `blocked-by` from the table, `stop: yes` for every stage `plan.summary.md`'s `Stop` column marks and every stage `stops=` names (the user's ticks at the stop). Stage ids match plan ids. It prints `approve=done gate=gate2 issue=<n> worktree=… stages=<count>`; `approve=refused reason=no-stages` (every `approve=refused` line ends in `hint=<fix>`) → the planner's table is missing or malformed: resume the planner.
 
 Then spawn the implementer, its brief naming the lane (`ferrule guide stages`).

@@ -123,8 +123,8 @@ const IGNORED: &[(&str, &str)] = &[
         "matched in the card log, not printed",
     ),
     (
-        "ferrule/src/cli.rs:key=value",
-        "the root help's own description of status lines",
+        "ferrule/src/cli.rs",
+        "the root help's own description of status lines and refusals",
     ),
     (
         "ferrule-core/src/remote.rs",

@@ -21,6 +21,10 @@ Output:
   Status lines are `key=value`, one fact per line. Documents (guide, spec,
   card show|board, issue and pr view|request|body) are styled on a terminal
   and printed as markdown when piped; `--format` overrides that.
+  A refusal ends in `hint=<fix>`. Each command's --help lists its outputs
+  and refusals. Every command but install and uninstall refuses (stderr)
+  with `ferrule=refused reason=version pinned=<v> binary=<v>: <fix>` when
+  the binary and the project's version differ; the line names the fix.
 
 Exit codes:
   0  done, or a negative answer that is not an error
