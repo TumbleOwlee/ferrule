@@ -344,7 +344,6 @@ fn help_run() {
 }
 
 #[test]
-#[ignore = "filled by its group's task"]
 fn help_spec_guide_install() {
     check_group(&["spec", "guide", "install", "uninstall"]);
 }

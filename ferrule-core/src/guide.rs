@@ -568,7 +568,9 @@ pub fn check(root: &Path) -> Vec<String> {
         let text = load(root, name).unwrap_or_default();
         for r in references(&text) {
             if !names.iter().any(|n| n == r) {
-                problems.push(format!("topic={name} names-unknown={r}"));
+                problems.push(format!(
+                    "topic={name} names-unknown={r} hint=fix the name or add the topic"
+                ));
             }
         }
         for (topic, heading) in section_references(&text) {
@@ -578,16 +580,18 @@ pub fn check(root: &Path) -> Vec<String> {
                     .iter()
                     .any(|h| h.eq_ignore_ascii_case(heading))
             {
-                problems.push(format!("topic={name} names-unknown={topic}#{heading}"));
+                problems.push(format!("topic={name} names-unknown={topic}#{heading} hint=add the heading to the topic or fix the reference"));
             }
         }
         for line in markdown::lines(&text) {
             if let Some(Err(bad)) = tag(line) {
-                problems.push(format!("topic={name} bad-tag={bad}"));
+                problems.push(format!("topic={name} bad-tag={bad} hint=a tag is <!-- lane: fast|full --> or <!-- done: pr=ready -->"));
             }
         }
         if Topic::parse(name).is_none() && !text.starts_with(&format!("# {name} — ")) {
-            problems.push(format!("topic={name} no-summary-line"));
+            problems.push(format!(
+                "topic={name} no-summary-line hint=start the file with # {name} — <summary>"
+            ));
         }
     }
     problems

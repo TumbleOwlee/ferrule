@@ -122,7 +122,7 @@ fn it_guide_check_flags_unknown_topics_and_bad_tags() {
     .unwrap();
     assert_eq!(
         ferrule(root, root, &["guide", "--check"]),
-        "guide-check=fail topic=deploy names-unknown=releases\nguide-check=fail topic=deploy names-unknown=stages#Nope\nguide-check=fail topic=deploy bad-tag=<!-- lane: slow -->\nexit=1"
+        "guide-check=fail topic=deploy names-unknown=releases hint=fix the name or add the topic\nguide-check=fail topic=deploy names-unknown=stages#Nope hint=add the heading to the topic or fix the reference\nguide-check=fail topic=deploy bad-tag=<!-- lane: slow --> hint=a tag is <!-- lane: fast|full --> or <!-- done: pr=ready -->\nexit=1"
     );
     assert!(
         ok(root, &["guide", "--list"]).contains("Project:\n  deploy          Shipping a release\n")

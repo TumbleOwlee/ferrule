@@ -12,28 +12,117 @@ use ferrule_core::{project, spec};
 
 use super::exit;
 
+/// Shown after `ferrule spec section --help`.
+const SECTION_AFTER_LONG_HELP: &str = "\
+Output:
+  The markdown of each matched section, heading line included, in the order
+  the headings were given, trailing blank lines dropped. No status line.
+Refusals (stderr, exit 1):
+  no section matched:            Followed by the unmatched HEADING texts, one
+                                 per line; matched sections still print. List
+                                 the file's headings with `ferrule spec
+                                 sections FILE`, or add --prefix.
+  cannot read <file>: <error>    The file is missing or unreadable.
+Exit codes: 0 every heading matched, 1 refused, 2 usage.
+Example:
+  ferrule spec section Status Scope docs/specs/mb/requirements.md";
+
+/// Shown after `ferrule spec sections --help`.
+const SECTIONS_AFTER_LONG_HELP: &str = "\
+Output:
+  Each heading line of the file, in file order, fenced code skipped. With
+  more than one FILE, each list follows a `== <file> ==` line.
+Refusals (stderr, exit 1):
+  cannot read <file>: <error>    The file is missing or unreadable; the other
+                                 files still list.
+Exit codes: 0 ok, 1 a file could not be read, 2 usage.";
+
+/// Shown after `ferrule spec id --help`.
+const ID_AFTER_LONG_HELP: &str = "\
+Output:
+  <file>:<line>:<text>           One line per spec line that carries
+                                 **<ID>**, files in path order.
+Refusals (stderr, exit 1):
+  Spec directory not found: <dir>
+                                 Pass --dir, or run in a project with
+                                 docs/specs.
+  No spec entry found for ID(s): <ids> (searched <dir>)
+                                 Matched IDs still print. Check the ID's
+                                 spelling, e.g. MB-R-012; `ferrule spec
+                                 related` finds IDs by keyword.
+Exit codes: 0 every ID found, 1 refused, 2 usage.";
+
+/// Shown after `ferrule spec related --help`.
+const RELATED_AFTER_LONG_HELP: &str = "\
+Output:
+  <id> — <area>/<file> `## <heading>` — <text>
+                                 One line per requirement or edge case under
+                                 docs/specs whose text contains a keyword;
+                                 the heading part is left out when the entry
+                                 has none, the text is cut at 100 characters
+                                 with `…`.
+Refusals:
+  related=none hint=try other keywords
+                                 No entry mentions any keyword (stdout, exit
+                                 1). Nothing to cite; try other nouns, or
+                                 go on when none fits.
+Exit codes: 0 ok, 1 refused, 2 usage.
+See: ferrule guide author";
+
+/// Shown after `ferrule spec collisions --help`.
+const COLLISIONS_AFTER_LONG_HELP: &str = "\
+Output:
+  ids=clean                      The branch adds no fixed ID that REF
+                                 defines too.
+Refusals:
+  ids=collide <id>,… hint=renumber these IDs on the branch
+                                 Another run landed these IDs first; resume
+                                 the implementer to renumber them on the
+                                 branch (spec, test citations, spec-delta
+                                 log), then check again.
+  ids=error reason=no-merge-base hint=fetch the REF, or pass a REF the branch
+                                 descends from
+                                 The branch and REF share no history (exit
+                                 2). Fetch REF, or name the right one.
+Exit codes: 0 clean, 1 collide, 2 error or usage.
+See: ferrule guide gate4";
+
+/// Shown after `ferrule spec render --help`.
+const RENDER_AFTER_LONG_HELP: &str = "\
+Output:
+  The part as markdown, filtered by --only. Prints nothing for a part the
+  spec-diff does not have. No status line.
+Refusals (stderr, exit 1):
+  cannot read <file>: <error>    The spec-diff.md is missing or unreadable.
+Exit codes: 0 ok, 1 refused, 2 usage.
+Example:
+  ferrule spec render .ferrule/runs/<slug>/spec-diff.md entries --only 'R1 R3'";
+
 #[derive(Debug, Subcommand)]
 pub enum SpecCommand {
     /// Print markdown sections by heading.
     ///
     /// A section runs from its heading to the next heading of equal or
     /// shallower depth. Ask for every heading of one file in one call.
+    #[command(after_long_help = SECTION_AFTER_LONG_HELP)]
     Section(SectionArgs),
     /// List markdown files' headings, fenced code skipped.
+    #[command(after_long_help = SECTIONS_AFTER_LONG_HELP)]
     Sections(SectionsArgs),
     /// Print spec entries by fixed ID, as `file:line:text`.
+    #[command(after_long_help = ID_AFTER_LONG_HELP)]
     Id(IdArgs),
     /// Print spec entries that mention a keyword.
+    #[command(after_long_help = RELATED_AFTER_LONG_HELP)]
     Related(RelatedArgs),
     /// List fixed IDs the branch adds that the target ref now has too.
     ///
     /// Prints `ids=clean` (exit 0), `ids=collide <id>,…` (exit 1), or
     /// `ids=error` when the two share no merge base (exit 2).
+    #[command(after_long_help = COLLISIONS_AFTER_LONG_HELP)]
     Collisions(CollisionsArgs),
     /// Render one part of a run's spec-diff.md.
-    #[command(
-        after_help = "Example:\n  ferrule spec render .ferrule/runs/<slug>/spec-diff.md entries --only 'R1 R3'"
-    )]
+    #[command(after_long_help = RENDER_AFTER_LONG_HELP)]
     Render(RenderArgs),
 }
 
@@ -262,7 +351,7 @@ fn related(args: &RelatedArgs, out: &mut impl Write) -> io::Result<u8> {
     if found {
         return Ok(exit::OK);
     }
-    writeln!(out, "related=none")?;
+    writeln!(out, "related=none hint=try other keywords")?;
     Ok(exit::REFUSED)
 }
 
@@ -275,7 +364,10 @@ fn collisions(args: &CollisionsArgs, out: &mut impl Write) -> io::Result<u8> {
     };
     match spec::collisions(&args.worktree, &reference) {
         None => {
-            writeln!(out, "ids=error reason=no-merge-base")?;
+            writeln!(
+                out,
+                "ids=error reason=no-merge-base hint=fetch the REF, or pass a REF the branch descends from"
+            )?;
             Ok(exit::USAGE)
         }
         Some(hits) if hits.is_empty() => {
@@ -283,7 +375,11 @@ fn collisions(args: &CollisionsArgs, out: &mut impl Write) -> io::Result<u8> {
             Ok(exit::OK)
         }
         Some(hits) => {
-            writeln!(out, "ids=collide {}", hits.join(","))?;
+            writeln!(
+                out,
+                "ids=collide {} hint=renumber these IDs on the branch",
+                hits.join(",")
+            )?;
             Ok(exit::REFUSED)
         }
     }

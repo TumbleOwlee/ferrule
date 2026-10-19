@@ -12,7 +12,42 @@ use super::card::{sql, store};
 use super::exit;
 use crate::cli::stage_name;
 
+/// Shown after `ferrule guide --help`.
+const GUIDE_AFTER_LONG_HELP: &str = "\
+Output:
+  The topic's markdown, cut to the run's lane (a `<!-- lane: … -->` part
+  for the other lane is left out), finished steps marked, placeholders such
+  as {slug} and {run_dir} filled. With --section, only those sections.
+  --list prints the topics, `Orchestrator:`, `Agents:` and `Project:`
+  groups with `  <topic>  <summary>` lines.
+  --check prints guide-check=ok, or one guide-check=fail line per problem.
+Refusals (stdout, exit 1):
+  guide=unknown topic=<name> list=ferrule guide --list
+                                 No such topic; the list command names them.
+  guide=unknown-section topic=<name> section=<heading>
+                                 The topic has no section of that heading
+                                 (one line per miss). Followed by one
+                                 section=<heading> line for each heading the
+                                 topic has; pick from those.
+  guide-check=fail topic=<name> names-unknown=<topic>[#<heading>]
+                                 The topic names a topic or section that does
+                                 not exist. Last key hint=fix the name or add
+                                 the topic (or hint=add the heading to the
+                                 topic or fix the reference).
+  guide-check=fail topic=<name> bad-tag=<line>
+                                 A malformed tag comment. Last key hint=a tag
+                                 is <!-- lane: fast|full --> or <!-- done:
+                                 pr=ready -->.
+  guide-check=fail topic=<name> no-summary-line
+                                 A project topic must start with
+                                 `# <name> — <summary>`. Last key hint=start
+                                 the file with # <name> — <summary>.
+Exit codes: 0 ok, 1 refused, 2 usage.
+Example:
+  ferrule guide gate4 --section 'Gate 4 — pull request' --slug my-run";
+
 #[derive(Debug, Args)]
+#[command(after_long_help = GUIDE_AFTER_LONG_HELP)]
 pub struct GuideArgs {
     /// The topic, e.g. `gate2` or `implementer`; `--list` names them all.
     #[arg(required_unless_present_any = ["list", "check"])]

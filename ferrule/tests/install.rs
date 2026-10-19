@@ -204,7 +204,7 @@ fn it_install_keeps_edited_files_and_refuses_foreign_ones() {
     let check = ferrule(root, &["install", "--check"]);
     assert!(
         check.starts_with(
-            "install-check=drift count=1\ndrift path=.claude/agents/fe-planner.md reason=edited\n"
+            "install-check=drift count=1 hint=run ferrule install, review the diff, commit\ndrift path=.claude/agents/fe-planner.md reason=edited\n"
         ),
         "{check}"
     );

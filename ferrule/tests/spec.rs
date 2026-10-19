@@ -132,7 +132,10 @@ fn it_collisions_reports_ids_both_branches_took() {
     append(&spec, "**MB-R-002** — The server answers.\n");
     git(wt, &["commit", "-q", "-am", "y"]);
     git(wt, &["checkout", "-q", "feat/x"]);
-    assert_eq!(run(), "ids=collide MB-R-002\nexit=1");
+    assert_eq!(
+        run(),
+        "ids=collide MB-R-002 hint=renumber these IDs on the branch\nexit=1"
+    );
 }
 
 #[test]
@@ -163,7 +166,10 @@ fn it_collisions_defaults_to_the_configured_main_branch() {
     let out = Run::new(["spec", "collisions", &wt.display().to_string()])
         .cwd(wt)
         .text();
-    assert_eq!(out, "ids=collide MB-R-002\nexit=1");
+    assert_eq!(
+        out,
+        "ids=collide MB-R-002 hint=renumber these IDs on the branch\nexit=1"
+    );
 }
 
 #[test]
@@ -177,7 +183,10 @@ fn it_collisions_without_merge_base_is_an_error() {
         "nosuch",
     ])
     .text();
-    assert_eq!(out, "ids=error reason=no-merge-base\nexit=2");
+    assert_eq!(
+        out,
+        "ids=error reason=no-merge-base hint=fetch the REF, or pass a REF the branch descends from\nexit=2"
+    );
 }
 
 fn run_diff(slug: &str) -> String {

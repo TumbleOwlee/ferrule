@@ -86,6 +86,7 @@ pub enum Command {
     /// Remove what `install` added.
     ///
     /// Keeps `.ferrule/` (the board and every run's files) unless `--purge`.
+    #[command(after_long_help = crate::commands::uninstall::UNINSTALL_AFTER_LONG_HELP)]
     Uninstall {
         /// Also remove `.ferrule/`: the board and every run's files.
         #[arg(long)]
