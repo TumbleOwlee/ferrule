@@ -38,7 +38,12 @@ Environment:
 /// The board, specs, issues, pull requests, gates and hooks of a run, as
 /// subcommands with the workflow's rules built in.
 #[derive(Debug, Parser)]
-#[command(name = "ferrule", version, after_long_help = AFTER_LONG_HELP)]
+#[command(
+    name = "ferrule",
+    version,
+    after_long_help = AFTER_LONG_HELP,
+    disable_help_flag = true
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,
@@ -55,6 +60,9 @@ pub struct Cli {
         help_heading = "Global options"
     )]
     pub format: Format,
+    /// Print help.
+    #[arg(short, long, global = true, action = clap::ArgAction::HelpLong, help_heading = "Global options")]
+    pub help: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
