@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/ferrule-core", "crates/ferrule"]
+members = ["ferrule-core", "ferrule"]
 
 [workspace.package]
 version = "0.1.0"
@@ -9,7 +9,7 @@ license = "MIT"
 repository = "https://github.com/TumbleOwlee/ferrule"
 
 [workspace.dependencies]
-ferrule-core = { path = "crates/ferrule-core" }
+ferrule-core = { path = "ferrule-core" }
 clap = { version = "4.6", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
