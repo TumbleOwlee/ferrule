@@ -85,10 +85,11 @@ Fields (`ferrule card set` takes the same):
                                  worktree. The workflow sets these itself, so
                                  do not set them by hand: gate1, arch, gate2
                                  and lane (`ferrule run approve`), branch
-                                 (approve gate2), kind and epic (`run init`,
-                                 `run approve gate1 kind=epic`), issue, slices
-                                 and split (`ferrule issue file`), pr
-                                 (`ferrule pr open`).
+                                 (approve gate2), kind and epic (`run init`
+                                 of a slice, `run approve gate1 --epic`),
+                                 issue, slices and split (`ferrule issue
+                                 file`; gate2 files the issue too), pr
+                                 (`ferrule pr open`, or the first `pr push`).
 Exit codes: 0 ok, 1 refused (exists), 2 rejected input.
 See: ferrule guide board";
 
