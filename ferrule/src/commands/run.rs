@@ -231,14 +231,19 @@ Output:
 Refusals (nothing is removed):
   cleanup=refused reason=card                 No such run
   cleanup=refused reason=detached-head        The worktree is on no branch
-  cleanup=refused reason=uncommitted-changes  Commit or discard, then push
+  cleanup=refused reason=uncommitted-changes  The worktree has changes; commit
+                                              them, or ask the user, then push
   cleanup=refused reason=no-upstream          The branch was never pushed
   cleanup=refused reason=unpushed-commits     Push with `ferrule pr push <slug>`
   cleanup=refused reason=no-ci                No ci= logged; `ferrule run ci`
   cleanup=refused reason=ci-red               The last ci= is not 0 and no later
                                               ci-waived line exists
   cleanup=refused reason=worktree-remove-failed
-  cleanup=refused reason=branch-delete-failed Remove it by hand with git
+                                              git could not remove the worktree;
+                                              ask the user (the shell guard
+                                              refuses `git worktree remove`)
+  cleanup=refused reason=branch-delete-failed The local branch could not be
+                                              deleted; `git branch -D` it
 Refusals end in ` hint=<fix>`.
 Exit codes: 0 done, 1 refused.
 See: ferrule guide cleanup";
@@ -584,10 +589,13 @@ fn hint(reason: &str, slug: &str) -> String {
         }
         "no-replan" => format!("start it first: ferrule run replan {slug} start"),
         "detached-head" => "check the run's branch out in its worktree".to_owned(),
-        "uncommitted-changes" => "commit or discard the worktree's changes, then push".to_owned(),
+        "uncommitted-changes" => {
+            "commit them with `ferrule card commit`, or ask the user, then push".to_owned()
+        }
         "no-upstream" | "unpushed-commits" => format!("push the branch: ferrule pr push {slug}"),
         "worktree-remove-failed" => {
-            "remove the worktree by hand with `git worktree remove`, then rerun".to_owned()
+            "the shell guard refuses `git worktree remove`; ask the user to remove it, then rerun"
+                .to_owned()
         }
         "branch-delete-failed" => {
             "delete the branch by hand with `git branch -D`, then rerun".to_owned()
