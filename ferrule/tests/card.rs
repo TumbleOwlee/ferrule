@@ -246,7 +246,16 @@ fn it_move_follows_the_board_rules() {
     new(p, &["ss.s2", "title=Two", "blocked-by=[s1]"]);
     let mv = |card: &str, to: &str| ferrule(p, &["card", "move", card, to]).text();
     let refused = |from: &str, to: &str, reason: &str| {
-        format!("card-move=refused from={from} to={to} reason={reason}\nexit=2")
+        let hint = match reason {
+            "transition" => "see the card table in `ferrule guide board` for allowed moves",
+            "blocked-by" => "move the cards in its blocked-by to done first",
+            "commit" => "commit the stage with `ferrule card commit <card> -m <msg>` first",
+            "unverified" => {
+                "run `ferrule run gauntlet <slug>` so a gauntlet=pass covers the commit sha"
+            }
+            _ => "approve gate 2 first: `ferrule run approve <slug> gate2`",
+        };
+        format!("card-move=refused from={from} to={to} reason={reason} hint={hint}\nexit=2")
     };
 
     assert_eq!(
@@ -293,10 +302,13 @@ fn it_new_and_set_validate_fields() {
     let p = dir.path();
     new(p, &["r", "lane=fast"]);
     let run = |args: &[&str]| ferrule(p, args).text();
-    assert_eq!(run(&["card", "new", "r"]), "card-new=exists\nexit=1");
+    assert_eq!(
+        run(&["card", "new", "r"]),
+        "card-new=exists hint=pick another id, or change the card with `ferrule card set`\nexit=1"
+    );
     assert_eq!(
         run(&["card", "new", "r.s1", "lane=fast"]),
-        "card-new=reject key=lane\nexit=2"
+        "card-new=reject key=lane hint=that key is not a field of this kind of card; see `ferrule guide board`\nexit=2"
     );
     assert_eq!(
         run(&["card", "set", "r", "gate2=2026-10-03", "pr=7"]),
@@ -306,7 +318,10 @@ fn it_new_and_set_validate_fields() {
     assert_eq!(run(&["card", "field", "r", "gate2"]), "2026-10-03\nexit=0");
     assert_eq!(run(&["card", "field", "r", "lane"]), "exit=0");
     assert_eq!(run(&["card", "field", "r", "state"]), "open\nexit=0");
-    assert_eq!(run(&["card", "set", "x", "pr=1"]), "card-set=card\nexit=1");
+    assert_eq!(
+        run(&["card", "set", "x", "pr=1"]),
+        "card-set=card hint=check the id with `ferrule card board`\nexit=1"
+    );
     assert_eq!(
         run(&["card", "show", "r"]),
         "---\nid: r\nstate: open\ngate2: 2026-10-03\npr: 7\n---\nexit=0"

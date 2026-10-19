@@ -1,2 +1,2 @@
-card-log=reject event=stop reason=key
+card-log=reject event=stop reason=key hint=use only the keys the event lists in `ferrule card vocab`
 exit=2

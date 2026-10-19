@@ -570,6 +570,22 @@ impl Refusal {
     }
 }
 
+impl Refusal {
+    /// How to get past the refusal, for the `hint=` of the status line.
+    #[must_use]
+    pub fn hint(self) -> &'static str {
+        match self {
+            Refusal::Transition => "see the card table in `ferrule guide board` for allowed moves",
+            Refusal::BlockedBy => "move the cards in its blocked-by to done first",
+            Refusal::Commit => "commit the stage with `ferrule card commit <card> -m <msg>` first",
+            Refusal::Unverified => {
+                "run `ferrule run gauntlet <slug>` so a gauntlet=pass covers the commit sha"
+            }
+            Refusal::Gate2 => "approve gate 2 first: `ferrule run approve <slug> gate2`",
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum MoveError {
     Card,

@@ -523,7 +523,7 @@ fn it_replan_swaps_the_uncommitted_stages() {
     assert_eq!(p.field("demo.s1", "stop"), "yes");
     assert_eq!(
         p.ferrule(&["card", "show", "demo.s2"]).text(),
-        "card-show=card\nexit=1"
+        "card-show=card hint=check the id with `ferrule card board`\nexit=1"
     );
     let parent = p.ok(&["card", "show", "demo"]);
     assert!(
@@ -696,7 +696,7 @@ fn it_card_commit_checks_the_card_and_the_branch() {
     };
     assert_eq!(
         in_wt(&["card", "commit", "demo.s1", "-m", "Add a"]),
-        "commit=refused reason=state state=open\nexit=1"
+        "commit=refused reason=state state=open hint=move the card to inreview first: `ferrule card move demo.s1 inreview`\nexit=1"
     );
     p.ok(&["card", "move", "demo.s1", "inprogress"]);
     p.ok(&["card", "move", "demo.s1", "inreview"]);
@@ -708,5 +708,8 @@ fn it_card_commit_checks_the_card_and_the_branch() {
     assert_eq!(p.field("demo.s1", "log:commit"), sha);
 
     let on_main = p.ferrule(&["card", "commit", "--no-run", "-m", "x"]).text();
-    assert_eq!(on_main, "commit=refused reason=main branch=main\nexit=1");
+    assert_eq!(
+        on_main,
+        "commit=refused reason=main branch=main hint=commit on the run's branch, not main\nexit=1"
+    );
 }

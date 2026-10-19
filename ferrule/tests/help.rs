@@ -332,7 +332,6 @@ fn check_group(groups: &[&str]) {
 }
 
 #[test]
-#[ignore = "filled by its group's task"]
 fn help_card() {
     check_group(&["card"]);
 }

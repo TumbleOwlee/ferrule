@@ -234,7 +234,23 @@ impl fmt::Display for Reject {
                     Reason::Length => "length",
                     _ => "budget",
                 };
-                write!(f, "card-log=reject event={} reason={reason}", self.event)
+                let hint = match r {
+                    Reason::Event => "run `ferrule card vocab` for the events",
+                    Reason::Key => "use only the keys the event lists in `ferrule card vocab`",
+                    Reason::Scope => {
+                        "the event is for the other card kind; see `ferrule card vocab`"
+                    }
+                    Reason::Value => {
+                        "check the value, positional words and `-- text` against `ferrule card vocab`"
+                    }
+                    Reason::Length => "shorten the line to 160 characters with its timestamp",
+                    _ => "this card's read budget is spent; log `note -- <text>` instead",
+                };
+                write!(
+                    f,
+                    "card-log=reject event={} reason={reason} hint={hint}",
+                    self.event
+                )
             }
         }
     }
@@ -513,9 +529,22 @@ mod tests {
     };
 
     fn body(event: &str, a: &str, ctx: Context) -> Result<String, String> {
-        check(event, &args(a), ctx)
-            .map(|l| l.body)
-            .map_err(|r| r.to_string())
+        check(event, &args(a), ctx).map(|l| l.body).map_err(|r| {
+            r.to_string()
+                .split(" hint=")
+                .next()
+                .unwrap_or("")
+                .to_owned()
+        })
+    }
+
+    #[test]
+    fn ut_reject_ends_in_a_hint() {
+        let r = check("nosuch", &[], STAGE).unwrap_err().to_string();
+        assert_eq!(
+            r,
+            "card-log=reject event=nosuch reason=event hint=run `ferrule card vocab` for the events"
+        );
     }
 
     #[test]

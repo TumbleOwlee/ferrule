@@ -1,2 +1,2 @@
-card-log=reject event=stopped reason=length
+card-log=reject event=stopped reason=length hint=shorten the line to 160 characters with its timestamp
 exit=2
