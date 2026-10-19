@@ -247,7 +247,7 @@ fn it_move_follows_the_board_rules() {
     let mv = |card: &str, to: &str| ferrule(p, &["card", "move", card, to]).text();
     let refused = |from: &str, to: &str, reason: &str| {
         let hint = match reason {
-            "transition" => "see the card table in `ferrule guide board` for allowed moves",
+            "transition" => "TRANSITION",
             "blocked-by" => "move the cards in its blocked-by to done first",
             "commit" => "commit the stage with `ferrule card commit <card> -m <msg>` first",
             "unverified" => {
@@ -257,6 +257,7 @@ fn it_move_follows_the_board_rules() {
         };
         format!("card-move=refused from={from} to={to} reason={reason} hint={hint}\nexit=2")
     };
+    let moves = |line: String, hint: &str| line.replace("TRANSITION", hint);
 
     assert_eq!(
         mv("ss.s1", "inprogress"),
@@ -276,10 +277,19 @@ fn it_move_follows_the_board_rules() {
     assert_eq!(mv("ss.s0", "done"), "exit=0");
     assert_eq!(mv("ss.s0", "done"), "exit=0", "same state is a no-op");
     assert_eq!(mv("ss.s1", "inprogress"), "exit=0");
-    assert_eq!(mv("ss.s2", "done"), refused("open", "done", "transition"));
+    assert_eq!(
+        mv("ss.s2", "done"),
+        moves(
+            refused("open", "done", "transition"),
+            "from open a stage card can move only to inprogress"
+        )
+    );
     assert_eq!(
         mv("ss", "done"),
-        refused("inprogress", "done", "transition")
+        moves(
+            refused("inprogress", "done", "transition"),
+            "from inprogress a parent card can move only to inreview"
+        )
     );
 
     new(p, &["tt"]);
@@ -289,7 +299,10 @@ fn it_move_follows_the_board_rules() {
     );
     assert_eq!(
         mv("tt", "inreview"),
-        refused("open", "inreview", "transition")
+        moves(
+            refused("open", "inreview", "transition"),
+            "from open a parent card can move only to inprogress (after gate2), or inreview for an epic"
+        )
     );
     new(p, &["ep", "kind=epic"]);
     assert_eq!(mv("ep", "inreview"), "exit=0");
@@ -308,7 +321,7 @@ fn it_new_and_set_validate_fields() {
     );
     assert_eq!(
         run(&["card", "new", "r.s1", "lane=fast"]),
-        "card-new=reject key=lane hint=that key is not a field of this kind of card; see `ferrule guide board`\nexit=2"
+        "card-new=reject key=lane hint=a stage card takes only title, blocked-by, files, branch, worktree, stop\nexit=2"
     );
     assert_eq!(
         run(&["card", "set", "r", "gate2=2026-10-03", "pr=7"]),

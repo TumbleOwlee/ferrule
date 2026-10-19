@@ -70,12 +70,25 @@ Output:
 Refusals:
   card-new=exists                The card exists already; pick another id, or
                                  change it with `ferrule card set`
-  card-new=reject key=<k>        <k> is not a field of this kind of card (a
-                                 stage card `<slug>.s<n>` takes title,
-                                 blocked-by, files, branch, worktree, stop; a
-                                 parent card the run's fields, see the guide)
+  card-new=reject key=<k>        <k> is not a field of this kind of card; the
+                                 hint lists the allowed ones (see Fields)
   card-new=reject arg=<a>        A field argument without `=`; write key=value
 Every refusal ends in `hint=<fix>`. Nothing is created on a refusal.
+Fields (`ferrule card set` takes the same):
+  stage card <slug>.s<n>         title, blocked-by, files, branch, worktree,
+                                 stop. `ferrule run approve <slug> gate2`
+                                 creates the stage cards and sets title,
+                                 blocked-by, files, branch and stop itself.
+  parent card <slug>             kind, epic, slices, issue, pr, branch, lane,
+                                 gate1, with-arch, with-plan, skipped, arch,
+                                 no-arch, gate2, split, upstream, artifacts,
+                                 worktree. The workflow sets these itself, so
+                                 do not set them by hand: gate1, arch, gate2
+                                 and lane (`ferrule run approve`), branch
+                                 (approve gate2), kind and epic (`run init`,
+                                 `run approve gate1 kind=epic`), issue, slices
+                                 and split (`ferrule issue file`), pr
+                                 (`ferrule pr open`).
 Exit codes: 0 ok, 1 refused (exists), 2 rejected input.
 See: ferrule guide board";
 
@@ -85,8 +98,12 @@ Output:
 Refusals:
   card-set=card                  No such card; check the id with
                                  `ferrule card board`
-  card-set=reject key=<k>        <k> is not a field of this kind of card (see
-                                 `ferrule card new --help`); fields before it
+  card-set=reject key=<k>        <k> is not a field of this kind of card; the
+                                 hint lists the allowed ones, also under
+                                 Fields in `ferrule card new --help` (do not
+                                 hand-set the ones the workflow commands
+                                 write: gate1, arch, gate2, lane, branch,
+                                 issue, pr, slices, split); fields before it
                                  in the call are already written
   card-set=reject arg=<a>        A field argument without `=`; write key=value;
                                  nothing is written
@@ -110,8 +127,16 @@ Refusals:
   card-move=refused from=<s> to=<s> reason=<r> hint=<fix>
                                  The board forbids the move; nothing changes.
 Reasons:
-  transition                     Not an allowed move for this kind of card; see
-                                 the table in `ferrule guide board`
+  transition                     Not an allowed move for this kind of card; the
+                                 hint names the moves allowed from its state:
+                                   stage:  open -> inprogress
+                                           inprogress -> inreview
+                                           inreview -> done | inprogress
+                                           done -> inprogress
+                                   parent: open -> inprogress (gate2 set), or
+                                             inreview (epic only)
+                                           inprogress <-> inreview
+                                           done -> nowhere
   blocked-by                     A stage moved to inprogress while a card in its
                                  `blocked-by` is not done
   commit                         A stage moved to done with no `commit=` in its
@@ -154,11 +179,20 @@ Reasons:
                                  `use=<event>` names the event to log instead
   reason=inprogress              `commit=` on a card still in `inprogress`;
                                  `move=inreview` says to move it first
+  The `hint=` of `reason=value` and `reason=key` names what that event
+  takes, e.g. the one-of set (`checks=` takes pass|fail), required keys
+  (`stop` needs `kind=question|approval|stage|blocked`; `spec-delta` needs
+  `origin=user|review|impl`) and whether `-- text` is required, optional or
+  not allowed.
+  `[ids]` in a hint or in `card vocab` is an optional list of fixed spec IDs
+  like MB-R-001, comma-separated without spaces if several (MB-R-001,MB-R-002).
+  The hint of a value refusal names what that event takes.
 Exit codes: 0 ok, 1 refused (no such card), 2 rejected line.
 See: ferrule guide board
 
 Examples:
-  ferrule card log <slug>.s1 test-red R2 -- parses_empty: panicked
+  ferrule card log <slug>.s1 test-red MB-R-001 -- parses_empty: panicked
+  ferrule card log <slug>.s1 test-red MB-R-001,MB-R-002 -- two tests: red
   ferrule card log <slug>.s1 read path=src/lib.rs -- what the plan left out
   ferrule card vocab               every event and its arguments";
 
@@ -169,7 +203,8 @@ Output:
   event       The name; a trailing `=` means the value follows it (`commit=`)
   values      For a valued event: `any` or the allowed values, `|`-separated
   positional  Words before the keys: `id,kind` (a spec ID, then added,
-              changed or dropped) or `[ids]` (optional comma-separated IDs)
+              changed or dropped) or `[ids]` (optional fixed spec IDs like MB-R-001, comma-separated
+              without spaces if several)
   keys        The `key=value` arguments the event accepts
   text        Whether `-- <free text>` is no, yes or required
 Exit codes: 0 always.
@@ -187,7 +222,9 @@ Output:
 Refusals (checked in this order; each line ends in `hint=<fix>`):
   commit=refused reason=main branch=<b>
                                  On the main branch <b>; commit on the run's
-                                 branch
+                                 branch: `ferrule run approve <slug> gate2`
+                                 creates it and its worktree (cd there); with
+                                 --no-run, check out another branch first
   commit=refused reason=card     No such card; check the id with
                                  `ferrule card board`
   commit=refused reason=state state=<s>
@@ -220,7 +257,10 @@ See: ferrule guide board";
 const HINT_CARD: &str = "check the id with `ferrule card board`";
 const HINT_KEY_VALUE: &str = "pass each field as key=value";
 const HINT_EXISTS: &str = "pick another id, or change the card with `ferrule card set`";
-const HINT_FIELD: &str = "that key is not a field of this kind of card; see `ferrule guide board`";
+
+fn hint_field(card: &str) -> String {
+    board::fields_hint(board::CardId::parse(card).stage.is_some())
+}
 const HINT_GIT: &str =
     "git commit failed; stage the changes with `git add` and read the message git prints on stderr";
 
@@ -458,7 +498,7 @@ fn move_card(card: &str, to: State, out: &mut impl Write) -> io::Result<u8> {
                 out,
                 "card-move=refused from={from} to={to} reason={} hint={}",
                 reason.as_str(),
-                reason.hint()
+                reason.hint(from, board::CardId::parse(card).stage.is_some())
             )?;
             Ok(exit::USAGE)
         }
@@ -548,7 +588,7 @@ fn new(card: &str, st: State, fields: &[String], out: &mut impl Write) -> io::Re
             Ok(exit::REFUSED)
         }
         Err(CardError::Field(k)) => {
-            writeln!(out, "card-new=reject key={k} hint={HINT_FIELD}")?;
+            writeln!(out, "card-new=reject key={k} hint={}", hint_field(card))?;
             Ok(exit::USAGE)
         }
         Err(CardError::Card) => unreachable!("create never looks a card up"),
@@ -576,7 +616,7 @@ fn set(card: &str, fields: &[String], out: &mut impl Write) -> io::Result<u8> {
                 return Ok(exit::REFUSED);
             }
             Err(CardError::Field(k)) => {
-                writeln!(out, "card-set=reject key={k} hint={HINT_FIELD}")?;
+                writeln!(out, "card-set=reject key={k} hint={}", hint_field(card))?;
                 return Ok(exit::USAGE);
             }
             Err(CardError::Exists) => unreachable!("set never creates a card"),
@@ -632,7 +672,10 @@ fn commit(card: Option<&str>, message: &[String], out: &mut impl Write) -> io::R
     let config = ferrule_core::config::Config::load(&project::main_checkout()).map_err(sql)?;
     let branch = ferrule_core::git::out(&here, &["symbolic-ref", "--short", "-q", "HEAD"]);
     if branch.as_deref() == Some(config.main_branch.as_str()) {
-        let hint = format!("commit on the run's branch, not {}", config.main_branch);
+        let hint = format!(
+            "commit on the run's branch, not {}: `ferrule run approve <slug> gate2` creates it and its worktree; with --no-run, check out another branch first",
+            config.main_branch
+        );
         writeln!(
             out,
             "commit=refused reason=main branch={} hint={hint}",

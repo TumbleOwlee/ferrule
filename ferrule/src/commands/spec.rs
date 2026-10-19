@@ -24,8 +24,10 @@ Refusals (stderr, exit 1):
                                  sections FILE`, or add --prefix.
   cannot read <file>: <error>    The file is missing or unreadable.
 Exit codes: 0 every heading matched, 1 refused, 2 usage.
-Example:
-  ferrule spec section Status Scope docs/specs/mb/requirements.md";
+Examples:
+  ferrule spec section Status Scope docs/specs/mb/requirements.md
+  ferrule spec section Status 'Open questions' docs/specs/x.md
+  (headings first, the file last; quote a heading that has spaces)";
 
 /// Shown after `ferrule spec sections --help`.
 const SECTIONS_AFTER_LONG_HELP: &str = "\

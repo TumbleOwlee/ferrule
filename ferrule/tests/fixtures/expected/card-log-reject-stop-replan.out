@@ -1,2 +1,2 @@
-card-log=reject event=stop reason=value hint=check the value, positional words and `-- text` against `ferrule card vocab`
+card-log=reject event=stop reason=value hint=stop takes kind=question|approval|stage|blocked, optional keys gate,agent,count, no -- text
 exit=2

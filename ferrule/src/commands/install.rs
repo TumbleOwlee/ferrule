@@ -16,6 +16,11 @@ Output:
       hooks is lefthook, git or manual.
   written=<path>
       One line per file created or replaced.
+      Not listed: `.ferrule/ferrule.lock` (the hashes of everything install
+      wrote, always written or updated) and the git hooks (written into
+      .git/hooks, or into the lefthook file; reported only as `hooks=<k>` of
+      the summary). `.ferrule/state.db` is not created by install; it appears
+      on first board use (`ferrule run init`, `ferrule card new`).
   kept=<path> new=<path>.ferrule-new diff=+<a>/-<b>
       A file someone edited was kept; the new version is beside it. Merge
       it in, then delete the .ferrule-new file.

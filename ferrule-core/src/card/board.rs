@@ -97,6 +97,17 @@ pub const PARENT_FIELDS: &[&str] = &[
 /// Frontmatter keys a stage card may carry; `id` and `parent` are derived.
 pub const STAGE_FIELDS: &[&str] = &["title", "blocked-by", "files", "branch", "worktree", "stop"];
 
+/// The `hint=` of a refused field: the keys a stage or a parent card
+/// takes.
+#[must_use]
+pub fn fields_hint(stage: bool) -> String {
+    if stage {
+        format!("a stage card takes only {}", STAGE_FIELDS.join(", "))
+    } else {
+        format!("a parent card takes only {}", PARENT_FIELDS.join(", "))
+    }
+}
+
 fn allowed(card: &CardId, key: &str) -> bool {
     if card.stage.is_some() {
         STAGE_FIELDS.contains(&key)
@@ -538,6 +549,7 @@ fn append(
         return Err(LogError::Reject(Reject {
             event: line.name.trim_end_matches('=').to_owned(),
             reason: vocab::Reason::Length,
+            spec: vocab::lookup(line.name),
         }));
     }
     conn.execute(
@@ -573,15 +585,35 @@ impl Refusal {
 impl Refusal {
     /// How to get past the refusal, for the `hint=` of the status line.
     #[must_use]
-    pub fn hint(self) -> &'static str {
+    pub fn hint(self, from: State, stage: bool) -> String {
         match self {
-            Refusal::Transition => "see the card table in `ferrule guide board` for allowed moves",
-            Refusal::BlockedBy => "move the cards in its blocked-by to done first",
-            Refusal::Commit => "commit the stage with `ferrule card commit <card> -m <msg>` first",
+            Refusal::Transition => {
+                let to = if stage {
+                    match from {
+                        State::Open | State::Done => "inprogress",
+                        State::InProgress => "inreview",
+                        State::InReview => "done or inprogress",
+                    }
+                } else {
+                    match from {
+                        State::Open => "inprogress (after gate2), or inreview for an epic",
+                        State::InProgress => "inreview",
+                        State::InReview => "inprogress",
+                        State::Done => "nowhere; a done parent stays done",
+                    }
+                };
+                let kind = if stage { "stage" } else { "parent" };
+                format!("from {from} a {kind} card can move only to {to}")
+            }
+            Refusal::BlockedBy => "move the cards in its blocked-by to done first".to_owned(),
+            Refusal::Commit => {
+                "commit the stage with `ferrule card commit <card> -m <msg>` first".to_owned()
+            }
             Refusal::Unverified => {
                 "run `ferrule run gauntlet <slug>` so a gauntlet=pass covers the commit sha"
+                    .to_owned()
             }
-            Refusal::Gate2 => "approve gate 2 first: `ferrule run approve <slug> gate2`",
+            Refusal::Gate2 => "approve gate 2 first: `ferrule run approve <slug> gate2`".to_owned(),
         }
     }
 }

@@ -715,6 +715,6 @@ fn it_card_commit_checks_the_card_and_the_branch() {
     let on_main = p.ferrule(&["card", "commit", "--no-run", "-m", "x"]).text();
     assert_eq!(
         on_main,
-        "commit=refused reason=main branch=main hint=commit on the run's branch, not main\nexit=1"
+        "commit=refused reason=main branch=main hint=commit on the run's branch, not main: `ferrule run approve <slug> gate2` creates it and its worktree; with --no-run, check out another branch first\nexit=1"
     );
 }

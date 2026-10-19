@@ -210,6 +210,48 @@ pub struct Reject {
     /// The event name without its `=`.
     pub event: String,
     pub reason: Reason,
+    /// The event's vocabulary entry, when the name is one.
+    pub spec: Option<&'static Event>,
+}
+
+/// What `spec` takes, as a one-line hint: its value set, positional words,
+/// required keys and `-- text`.
+fn usage(spec: &Event) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    match spec.values {
+        Values::OneOf(set) => parts.push(set.join("|")),
+        Values::Any => parts.push("a value".to_owned()),
+        Values::None => {}
+    }
+    match spec.positional {
+        Positional::IdKind => {
+            parts.push("<ID> added|changed|dropped (a fixed ID like MB-R-001)".to_owned());
+        }
+        Positional::OptionalIds => {
+            parts.push("[ids] (fixed IDs like MB-R-001, comma-separated)".to_owned());
+        }
+        Positional::None => {}
+    }
+    match spec.name {
+        "spec-delta" => parts.push("origin=user|review|impl".to_owned()),
+        "stop" => parts.push("kind=question|approval|stage|blocked".to_owned()),
+        _ => {}
+    }
+    let optional: Vec<&str> = spec
+        .keys
+        .iter()
+        .copied()
+        .filter(|k| !matches!((spec.name, *k), ("spec-delta", "origin") | ("stop", "kind")))
+        .collect();
+    if !optional.is_empty() {
+        parts.push(format!("optional keys {}", optional.join(",")));
+    }
+    match spec.text {
+        Text::Required => parts.push("-- text (required)".to_owned()),
+        Text::Yes => parts.push("optional -- text".to_owned()),
+        Text::No => parts.push("no -- text".to_owned()),
+    }
+    format!("{} takes {}", spec.name, parts.join(", "))
 }
 
 impl fmt::Display for Reject {
@@ -236,12 +278,42 @@ impl fmt::Display for Reject {
                 };
                 let hint = match r {
                     Reason::Event => "run `ferrule card vocab` for the events",
-                    Reason::Key => "use only the keys the event lists in `ferrule card vocab`",
+                    Reason::Key => {
+                        let hint = self.spec.map_or_else(
+                            || {
+                                "use only the keys the event lists in `ferrule card vocab`"
+                                    .to_owned()
+                            },
+                            |s| {
+                                if s.keys.is_empty() {
+                                    format!("{} takes no keys", s.name)
+                                } else {
+                                    format!("{} takes only the keys {}", s.name, s.keys.join(","))
+                                }
+                            },
+                        );
+                        return write!(
+                            f,
+                            "card-log=reject event={} reason=key hint={hint}",
+                            self.event
+                        );
+                    }
                     Reason::Scope => {
                         "the event is for the other card kind; see `ferrule card vocab`"
                     }
                     Reason::Value => {
-                        "check the value, positional words and `-- text` against `ferrule card vocab`"
+                        let hint = self.spec.map_or_else(
+                            || {
+                                "check the value, positional words and `-- text` against `ferrule card vocab`"
+                                    .to_owned()
+                            },
+                            usage,
+                        );
+                        return write!(
+                            f,
+                            "card-log=reject event={} reason=value hint={hint}",
+                            self.event
+                        );
                     }
                     Reason::Length => "shorten the line to 160 characters with its timestamp",
                     _ => "the read budget is spent: stop with status=blocked, the plan is too thin",
@@ -367,11 +439,13 @@ pub fn check(event: &str, args: &[String], ctx: Context) -> Result<Line, Reject>
         Some((n, v)) => (format!("{n}="), Some(v)),
         None => (event.to_owned(), None),
     };
+    let spec = lookup(&name);
     let reject = |reason| Reject {
         event: name.trim_end_matches('=').to_owned(),
         reason,
+        spec,
     };
-    let spec = lookup(&name).ok_or_else(|| reject(Reason::Event))?;
+    let spec = spec.ok_or_else(|| reject(Reason::Event))?;
     let scope_ok = match spec.scope {
         Both => true,
         Stage => ctx.stage,
@@ -545,6 +619,23 @@ mod tests {
             r,
             "card-log=reject event=nosuch reason=event hint=run `ferrule card vocab` for the events"
         );
+    }
+
+    #[test]
+    fn ut_value_hint_names_the_events_constraint() {
+        let hint = |e, a| {
+            let r = check(e, &args(a), STAGE).unwrap_err().to_string();
+            r.split(" hint=").nth(1).unwrap().to_owned()
+        };
+        assert_eq!(
+            hint("test-red", "R1"),
+            "test-red takes [ids] (fixed IDs like MB-R-001, comma-separated), optional -- text"
+        );
+        assert_eq!(
+            hint("checks=maybe", ""),
+            "checks= takes pass|fail, optional keys crates, optional -- text"
+        );
+        assert_eq!(hint("note", ""), "note takes -- text (required)");
     }
 
     #[test]
