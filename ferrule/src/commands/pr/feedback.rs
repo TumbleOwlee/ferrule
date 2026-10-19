@@ -13,17 +13,67 @@ use crate::commands::card::store;
 use crate::commands::exit;
 use crate::commands::issue::post_failed;
 
+const FB_ROUTE_AFTER_LONG_HELP: &str = "\
+Output:
+  pr=<n> threads=<k> stages=<list>
+      The PR's <k> unresolved threads were written to the run's
+      pr-feedback.md; <list> is the stages moved back to inprogress
+      (`s0,s2`), `none` when <k> is 0. Each thread goes to the stage whose
+      `files` hold its path, else the last stage. Logs `feedback=<k>`.
+  pr-body=<state>
+      Printed after it when a stage moved: `pushed` or `unchanged`.
+  pr-body=refused stage-ref=<token> hint=reword the text naming it; the PR keeps its previous body
+      The draft body names a stage or an agent (the token sits in a card's
+      `spec-delta` why or a `decisions.md` line); the PR keeps its body.
+Refusals (stdout, exit 1):
+  route=refused reason=card hint=needs the run's card and a PR: ferrule pr open <slug>
+      No card for the slug, or the card has no PR. Fix: check the slug, or
+      `ferrule pr open <slug>`.
+Errors (stderr, exit 1): the CI host's error.
+Exit codes: 0 ok, 1 refused.
+Backend: reads threads from the configured CI host.
+See: ferrule guide feedback";
+
+const FB_FETCH_AFTER_LONG_HELP: &str = "\
+Output:
+  pr=<pr> state=<state> draft=<bool> threads=<k> file=<file>
+      Wrote the PR's <k> unresolved inline threads to <file>: per thread a
+      `## thread <id>` block with `comment:`, `path:`, the comments and an
+      empty `reply:` line. <state> is lowercase (`open`).
+Errors (stderr, exit 1): `pr feedback: <the host's error>`.
+Exit codes: 0 ok, 1 refused.
+Backend: reads the threads from the configured CI host.
+See: ferrule guide feedback";
+
+const FB_REPLY_AFTER_LONG_HELP: &str = "\
+Output:
+  pr=<pr> fixed=<n> declined=<n> open=<n>
+      Posted every thread whose `reply:` is `fixed` or `declined`, in file
+      order. `fixed` resolves the thread; `declined` leaves it open. <open> is
+      the file's threads minus the fixed ones. The same line is printed, with
+      exit 1, when a post fails part way (the earlier ones stay posted).
+Errors (stderr):
+  pr feedback: no such file: <file>                 exit 1
+  pr feedback: thread <id>: <the host's error>      exit 1
+  pr feedback: a 'reply: fixed' thread needs <stage> <sha> (the pushed head)
+      exit 2. Fix: give the stage and the pushed commit.
+Exit codes: 0 ok, 1 refused, 2 usage.
+Backend: posts to the configured CI host.
+See: ferrule guide feedback";
+
 #[derive(Debug, Subcommand)]
 pub enum FeedbackCommand {
     /// Fetch a run's threads and send their stages back to work.
     ///
     /// Writes the run's pr-feedback.md, logs `feedback=` and moves the
     /// stages owning the commented files back to inprogress.
+    #[command(after_long_help = FB_ROUTE_AFTER_LONG_HELP)]
     Route {
         /// The run's slug.
         slug: String,
     },
     /// Write a PR's unresolved threads to a file.
+    #[command(after_long_help = FB_FETCH_AFTER_LONG_HELP)]
     Fetch {
         /// The PR number or URL.
         pr: String,
@@ -34,6 +84,7 @@ pub enum FeedbackCommand {
     ///
     /// A `fixed` reply needs the stage and the pushed sha, and resolves the
     /// thread.
+    #[command(after_long_help = FB_REPLY_AFTER_LONG_HELP)]
     Reply {
         /// The PR number or URL.
         pr: String,
@@ -149,7 +200,10 @@ fn route(config: &Config, slug: &str, out: &mut impl Write) -> io::Result<u8> {
     };
     match routed {
         None | Some(Err(publish::Error::Card)) => {
-            writeln!(out, "route=refused reason=card")?;
+            writeln!(
+                out,
+                "route=refused reason=card hint=needs the run's card and a PR: ferrule pr open <slug>"
+            )?;
             Ok(exit::REFUSED)
         }
         Some(Ok((pr, threads, stages, sync))) => {

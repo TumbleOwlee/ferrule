@@ -13,9 +13,77 @@ use ferrule_core::term::{self, Style};
 use super::card::{sql, store};
 use super::exit;
 
+const ISSUE_VIEW_AFTER_LONG_HELP: &str = "\
+Output (stdout; compact text, styled on a terminal):
+  #<n> <title> [<STATE>]         Line 1: the head (`KEY-1 <summary> [<status>]`
+                                 for Jira), then the URL when the host has
+                                 one and `by <author>`
+  <body>                         The description
+  --- <n> comment(s) ---         Then each comment as `[<author> @ <time>]`
+                                 and its text
+Errors (stderr, exit 1): `issue view: <the host's error>` for an unknown issue, a
+missing credential or a failing `gh`/`curl`.
+Exit codes: 0 ok, 1 refused.
+Backend: reads from the configured tracker (`backend` in ferrule.toml).";
+
+const ISSUE_REQUEST_AFTER_LONG_HELP: &str = "\
+Output (stdout): the requested part as plain text, nothing when the issue has
+no such part. With `--comments`, the comments in the form `issue view` prints
+them (`[<author> @ <time>]` then the text).
+Errors (stderr, exit 1): `issue request: <the tracker's error>` for an unknown
+issue, a missing credential or a failing `gh`/`curl`.
+Exit codes: 0 ok, 1 refused.
+Backend: reads from the configured tracker.
+See: ferrule guide epic";
+
+const ISSUE_BODY_AFTER_LONG_HELP: &str = "\
+Output (stdout): the body, line 1 `# <title>`, nothing else. Reads the run's
+files and cards; posts nothing.
+Refusals:
+  body=refused stage-ref=<token> hint=reword the source text so it names no stage or agent
+      The visible text names a stage (`s<n>`) or an agent (`fe-author`, ...);
+      only backticked spans holding `.` or `/` are exempt. Exit 3. Fix: have
+      the agent that wrote the source file reword it; never edit the body.
+  (no line; stderr `body: missing <path>`)
+      A run file the body needs is absent. Exit 1. Fix: run the step that
+      writes it.
+  (no line; stderr `body: no slice <n> in slices.md`)
+      `--slice` names a slice slices.md does not have. Exit 1.
+  (no line, nothing printed)
+      The body would be empty. Exit 1.
+Exit codes: 0 ok, 1 refused, 3 content (stage-ref).
+See: ferrule guide issue";
+
+const ISSUE_FILE_AFTER_LONG_HELP: &str = "\
+Output:
+  issue=<n> action=<action>
+      Filed or updated issue <n>; the card's `issue:` (or `slices:` /
+      `split:`) records it. <action> is one of:
+        created    A new issue was filed
+        adopted    An open issue with the same title became the run's
+        edited     The tracking issue's title and body were replaced (an
+                   epic's, or `--reuse`)
+        commented  `--comment` posted issue-comment.md
+        recorded   The card already names the issue; nothing was posted
+Refusals (stdout, exit 1):
+  post=refused reason=card hint=no card for this slug: check it or ferrule run init <slug>
+      No card for the slug. Fix: check the slug, or `ferrule run init <slug>`.
+  post=refused reason=no-issue hint=file the tracking issue first: ferrule issue file <slug>
+      `--split`, `--follow-up` or `--comment` before the card has an issue.
+      Fix: `ferrule issue file <slug>` first.
+  body=refused stage-ref=<token> hint=reword the source text so it names no stage or agent
+      The tracking or slice body names a stage or an agent. Exit 3. Fix:
+      reword the source file (see `issue body`).
+Errors (stderr, exit 1): `missing <path>` for an absent run file; the tracker's
+error when the host call fails.
+Exit codes: 0 ok, 1 refused, 3 content.
+Backend: writes to the configured tracker (`gh`, Jira or Bitbucket).
+See: ferrule guide issue";
+
 #[derive(Debug, Subcommand)]
 pub enum IssueCommand {
     /// Print an issue's title, body and comments as compact text.
+    #[command(after_long_help = ISSUE_VIEW_AFTER_LONG_HELP)]
     View {
         /// A GitHub number or URL, or a Jira key.
         issue: String,
@@ -23,6 +91,7 @@ pub enum IssueCommand {
     /// Print part of a reused issue, for the run's request.md.
     ///
     /// Without a flag: the issue's original request.
+    #[command(after_long_help = ISSUE_REQUEST_AFTER_LONG_HELP)]
     Request {
         /// A GitHub number or URL, or a Jira key.
         issue: String,
@@ -33,6 +102,7 @@ pub enum IssueCommand {
     ///
     /// Line 1 is `# <title>`. Exits 3 when the body names a stage or an
     /// agent.
+    #[command(after_long_help = ISSUE_BODY_AFTER_LONG_HELP)]
     Body {
         /// The run's slug.
         slug: String,
@@ -43,6 +113,7 @@ pub enum IssueCommand {
     /// File the run's issue, or a related one, and record its number.
     ///
     /// An open issue with the same title is adopted, never filed twice.
+    #[command(after_long_help = ISSUE_FILE_AFTER_LONG_HELP)]
     File {
         /// The run's slug.
         slug: String,
@@ -206,7 +277,11 @@ pub fn print_body(
             Ok(exit::OK)
         }
         Err(body::Error::StageRef(t)) => {
-            writeln!(out, "body=refused stage-ref={t}")?;
+            writeln!(
+                out,
+                "body=refused stage-ref={t} \
+                 hint=reword the source text so it names no stage or agent"
+            )?;
             Ok(exit::CONTENT)
         }
         Err(body::Error::Missing(p)) => {
@@ -245,15 +320,26 @@ pub fn post_failed(e: publish::Error, out: &mut impl Write) -> io::Result<u8> {
             Ok(exit::REFUSED)
         }
         publish::Error::NoIssue => {
-            writeln!(out, "post=refused reason=no-issue")?;
+            writeln!(
+                out,
+                "post=refused reason=no-issue \
+                 hint=file the tracking issue first: ferrule issue file <slug>"
+            )?;
             Ok(exit::REFUSED)
         }
         publish::Error::NoBranch => {
-            writeln!(out, "post=refused reason=no-branch")?;
+            writeln!(
+                out,
+                "post=refused reason=no-branch \
+                 hint=approve gate2 first: ferrule run approve <slug> gate2"
+            )?;
             Ok(exit::REFUSED)
         }
         publish::Error::Card => {
-            writeln!(out, "post=refused reason=card")?;
+            writeln!(
+                out,
+                "post=refused reason=card hint=no card for this slug: check it or ferrule run init <slug>"
+            )?;
             Ok(exit::REFUSED)
         }
         publish::Error::Remote(e) => {
@@ -275,7 +361,10 @@ fn file(slug: &str, t: FileTarget, reuse: Option<u64>, out: &mut impl Write) -> 
     let layout = Layout::new(project::main_checkout());
     let config = config()?;
     let Some(mut s) = store(false)? else {
-        writeln!(out, "post=refused reason=card")?;
+        writeln!(
+            out,
+            "post=refused reason=card hint=no card for this slug: check it or ferrule run init <slug>"
+        )?;
         return Ok(exit::REFUSED);
     };
     let now = board::now();

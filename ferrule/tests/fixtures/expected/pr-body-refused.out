@@ -1,2 +1,2 @@
-body=refused stage-ref=s2
+body=refused stage-ref=s2 hint=reword the source text so it names no stage or agent
 exit=3

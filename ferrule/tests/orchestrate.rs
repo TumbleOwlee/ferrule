@@ -421,7 +421,8 @@ fn it_publish_refuses_threads_and_stage_refs() {
     serve(&p.gh, &graphql("34"), &threads("src/x.rs"));
     assert_eq!(
         p.ferrule(&["pr", "publish", "demo"]).text(),
-        "publish=refused reason=threads threads=1\nexit=1"
+        "publish=refused reason=threads threads=1 \
+         hint=resolve the open threads: ferrule guide feedback\nexit=1"
     );
     serve(&p.gh, &graphql("34"), NO_THREADS);
     let pr = p.run_dir().join("pr.md");
@@ -431,7 +432,8 @@ fn it_publish_refuses_threads_and_stage_refs() {
     std::fs::write(&pr, text).unwrap();
     assert_eq!(
         p.ferrule(&["pr", "publish", "demo"]).text(),
-        "publish=refused reason=stage-ref stage-ref=s2\nexit=3"
+        "publish=refused reason=stage-ref stage-ref=s2 \
+         hint=reword the text naming it, then publish again\nexit=3"
     );
 }
 
@@ -442,7 +444,7 @@ fn it_push_refuses_an_unverified_head_and_main() {
     p.ok(&["card", "set", "demo", "branch=main"]);
     assert_eq!(
         p.ferrule(&["pr", "push", "demo"]).text(),
-        "push=refused reason=main\nexit=1"
+        "push=refused reason=main hint=push from a branch other than main\nexit=1"
     );
     p.ok(&["card", "set", "demo", "branch=feat/demo"]);
     git(
@@ -458,7 +460,8 @@ fn it_push_refuses_an_unverified_head_and_main() {
     );
     assert_eq!(
         p.ferrule(&["pr", "push", "demo"]).text(),
-        "push=refused reason=sha mismatch=card-commit\nexit=1"
+        "push=refused reason=sha mismatch=card-commit hint=push a stage's last commit= \
+         on the run's branch: ferrule run sha-check\nexit=1"
     );
 }
 
@@ -567,7 +570,8 @@ fn it_issue_file_variants() {
     p.artifacts();
     assert_eq!(
         p.ferrule(&["issue", "file", "demo", "--split"]).text(),
-        "post=refused reason=no-issue\nexit=1"
+        "post=refused reason=no-issue \
+         hint=file the tracking issue first: ferrule issue file <slug>\nexit=1"
     );
     p.ok(&["card", "set", "demo", "issue=12"]);
     assert_eq!(p.ok(&["issue", "file", "demo"]), "issue=12 action=recorded");

@@ -345,11 +345,22 @@ pub enum PushRefused {
 impl std::fmt::Display for PushRefused {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PushRefused::Main => f.write_str("push=refused reason=main"),
-            PushRefused::NoBranch => f.write_str("push=refused reason=branch"),
-            PushRefused::Sha(m) => write!(f, "push=refused reason=sha mismatch={m}"),
-            PushRefused::Gauntlet(g) => write!(f, "push=refused reason=gauntlet {g}"),
-            PushRefused::Push => f.write_str("push=refused reason=push"),
+            PushRefused::Main => f.write_str("push=refused reason=main hint=push from a branch other than main"),
+            PushRefused::NoBranch => f.write_str(
+                "push=refused reason=branch hint=approve gate2 first: ferrule run approve <slug> gate2",
+            ),
+            PushRefused::Sha(m) => write!(
+                f,
+                "push=refused reason=sha mismatch={m} \
+hint=push a stage's last commit= on the run's branch: ferrule run sha-check"
+            ),
+            PushRefused::Gauntlet(g) => write!(
+                f,
+                "push=refused reason=gauntlet {g} hint=fix the failing step, commit, push again"
+            ),
+            PushRefused::Push => f.write_str(
+                "push=refused reason=push hint=git push failed; run it in the worktree to see why",
+            ),
         }
     }
 }
@@ -390,12 +401,25 @@ pub enum PublishRefused {
 impl std::fmt::Display for PublishRefused {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PublishRefused::Threads(n) => write!(f, "publish=refused reason=threads threads={n}"),
+            PublishRefused::Threads(n) => write!(
+                f,
+                "publish=refused reason=threads threads={n} \
+hint=resolve the open threads: ferrule guide feedback"
+            ),
             PublishRefused::Collide(ids) => {
-                write!(f, "publish=refused reason=collide ids={}", ids.join(","))
+                write!(
+                    f,
+                    "publish=refused reason=collide ids={} \
+hint=renumber the colliding IDs on the branch, push, publish again",
+                    ids.join(",")
+                )
             }
             PublishRefused::StageRef(t) => {
-                write!(f, "publish=refused reason=stage-ref stage-ref={t}")
+                write!(
+                    f,
+                    "publish=refused reason=stage-ref stage-ref={t} \
+hint=reword the text naming it, then publish again"
+                )
             }
         }
     }
@@ -695,7 +719,11 @@ impl std::fmt::Display for Sync {
         match self {
             Sync::Pushed => f.write_str("pr-body=pushed"),
             Sync::Unchanged => f.write_str("pr-body=unchanged"),
-            Sync::Refused(t) => write!(f, "pr-body=refused stage-ref={t}"),
+            Sync::Refused(t) => write!(
+                f,
+                "pr-body=refused stage-ref={t} \
+hint=reword the text naming it; the PR keeps its previous body"
+            ),
         }
     }
 }

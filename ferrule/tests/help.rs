@@ -17,7 +17,7 @@ const SOURCES: &[(&str, &[&str])] = &[
     ("ferrule-core/src/install/mod.rs", &["install"]),
     (
         "ferrule-core/src/pr/publish.rs",
-        &["pr open", "pr push", "pr publish"],
+        &["pr open", "pr push", "pr publish", "pr feedback route"],
     ),
     ("ferrule-core/src/prompt/render.rs", &["prompt render"]),
     ("ferrule-core/src/run/archive.rs", &["run metrics"]),
@@ -45,7 +45,15 @@ const SOURCES: &[(&str, &[&str])] = &[
     ("ferrule/src/commands/install.rs", &["install"]),
     (
         "ferrule/src/commands/issue.rs",
-        &["issue body", "issue file", "pr body", "pr open"],
+        &[
+            "issue body",
+            "issue file",
+            "pr body",
+            "pr open",
+            "pr push",
+            "pr publish",
+            "pr feedback route",
+        ],
     ),
     (
         "ferrule/src/commands/pr/feedback.rs",
@@ -348,7 +356,6 @@ fn help_spec_guide_install() {
 }
 
 #[test]
-#[ignore = "filled by its group's task"]
 fn help_issue_pr() {
     check_group(&["issue", "pr"]);
 }

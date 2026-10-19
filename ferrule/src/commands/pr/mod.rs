@@ -25,9 +25,129 @@ pub enum BodyForm {
     Full,
 }
 
+const PR_VIEW_AFTER_LONG_HELP: &str = "\
+Output (stdout; compact text, styled on a terminal):
+  #<n> <title> [<STATE>]         Line 1: the head (`KEY-1 <summary> [<status>]`
+                                 for Jira), then the URL when the host has
+                                 one and `by <author>`
+  <body>                         The description
+  --- <n> comment(s) ---         Then each comment as `[<author> @ <time>]`
+                                 and its text
+Errors (stderr, exit 1): `pr view: <the host's error>` for an unknown PR, a
+missing credential or a failing `gh`/`curl`.
+Exit codes: 0 ok, 1 refused.
+Backend: reads from the configured CI host (`backend` in ferrule.toml).";
+
+const PR_BODY_AFTER_LONG_HELP: &str = "\
+Output (stdout): the body, line 1 `# <title>`, ending `Closes #<issue>`; posts
+nothing. `draft` is the progress form, `full` the gate 4 form from pr.md.
+Refusals:
+  body=refused stage-ref=<token> hint=reword the source text so it names no stage or agent
+      The visible text names a stage (`s<n>`) or an agent (`fe-author`, ...);
+      only backticked spans holding `.` or `/` are exempt. Exit 3. Fix: have
+      the agent that wrote the source file reword it; never edit the body.
+  (no line; stderr `body: missing <path>`)
+      A run file the body needs is absent. Exit 1. Fix: run the step that
+      writes it.
+  (no line; stderr `body: no slice <n> in slices.md`)
+      `--slice` names a slice slices.md does not have. Exit 1.
+  (no line, nothing printed)
+      The body would be empty. Exit 1.
+Exit codes: 0 ok, 1 refused, 3 content (stage-ref).
+See: ferrule guide gate4";
+
+const PR_OPEN_AFTER_LONG_HELP: &str = "\
+Output:
+  pr=<n> state=draft
+      The run's draft PR <n>; opened now, or the one the card already names.
+      Opening records `pr:` on the card and logs `pr=draft`.
+Refusals (stdout, exit 1):
+  post=refused reason=card hint=no card for this slug: check it or ferrule run init <slug>
+      No card for the slug. Fix: check the slug, or `ferrule run init <slug>`.
+  post=refused reason=no-branch hint=approve gate2 first: ferrule run approve <slug> gate2
+      The card has no branch yet. Fix: `ferrule run approve <slug> gate2`.
+  body=refused stage-ref=<token> hint=reword the source text so it names no stage or agent
+      The draft body names a stage or an agent. Exit 3. Fix: see `pr body`.
+Errors (stderr, exit 1): `body: missing <path>`; the CI host's error.
+Exit codes: 0 ok, 1 refused, 3 content.
+Backend: opens the PR on the configured CI host.
+See: ferrule guide stages";
+
+const PR_PUSH_AFTER_LONG_HELP: &str = "\
+Output:
+  push=done sha=<sha> gauntlet=pass [cached] pr-body=pushed
+      Pushed the branch. `cached` when the commit is the reviewed tree. The
+      pass is logged as `gauntlet=pass` with cov= and sha= on the card.
+      The PR's draft body was updated. `pr-body=unchanged` when it already
+      matched.
+  push=done sha=<sha> gauntlet=pass pr-body=refused stage-ref=<token> hint=reword the text naming it; the PR keeps its previous body
+      Pushed (exit 0), but the draft body names a stage or an agent: the
+      token sits in a card's `spec-delta` why or a `decisions.md` line.
+      Fix: have the agent that wrote it reword it, then push again.
+  push=done sha=<sha> gauntlet=pass [cached] pr-body=opened pr=<n>
+      The first push: it also opened draft PR <n> and recorded it.
+  push=done branch=<branch>
+      `--no-run`: `git push -u origin <branch>`; no gauntlet, no PR.
+Refusals (stdout, exit 1):
+  push=refused reason=main hint=push from a branch other than main
+      The branch is the main branch. Fix: push from another branch.
+  push=refused reason=branch hint=approve gate2 first: ferrule run approve <slug> gate2
+      The card has no branch. Fix: `ferrule run approve <slug> gate2`.
+  push=refused reason=no-branch hint=check out a branch first
+      `--no-run` on a detached head. Fix: check out a branch.
+  push=refused reason=sha mismatch=<why> hint=push a stage's last commit= on the run's branch: ferrule run sha-check
+      The worktree head is not a stage's last verified `commit=`. <why> is
+      card, missing, off-branch or card-commit (see `ferrule run sha-check`).
+  push=refused reason=gauntlet <gauntlet line> hint=fix the failing step, commit, push again
+      The gauntlet failed on the head; the line is `run gauntlet`'s. Fix: fix
+      the step, commit, push again.
+  push=refused reason=push hint=git push failed; run it in the worktree to see why
+      `git push` failed. Fix: run it in the worktree to see why.
+  push=refused reason=card hint=no card for this slug: check it or ferrule run init <slug>
+      No card for the slug. Fix: check the slug, or `ferrule run init <slug>`.
+Errors (stderr, exit 1): `missing <path>`; the CI host's error.
+Exit codes: 0 ok, 1 refused.
+Backend: pushes to origin; updates the PR on the configured CI host.
+See: ferrule guide stages";
+
+const PR_PUBLISH_AFTER_LONG_HELP: &str = "\
+Output:
+  publish=done pr=<n> follow-ups=<list>
+      The PR carries the full title and body and is ready for review (logs
+      `pr=ready`). <list> is the filed follow-up issues, `#12,#13`, or
+      `none`; they are logged as `follow-ups=[...]`.
+Refusals (stdout, exit 1 unless noted):
+  publish=refused reason=threads threads=<n> hint=resolve the open threads: ferrule guide feedback
+      <n> review threads are unresolved. Fix: `ferrule guide feedback`.
+  publish=refused reason=collide ids=<ids> hint=renumber the colliding IDs on the branch, push, publish again
+      Another run landed the same fixed IDs on main. Fix: renumber them on
+      the branch, push, publish again.
+  publish=refused reason=stage-ref stage-ref=<token> hint=reword the text naming it, then publish again
+      The full body names a stage or an agent. Exit 3. Fix: reword the text.
+  publish=refused reason=card hint=no card for this slug: check it or ferrule run init <slug>
+      No card for the slug. Fix: check the slug, or `ferrule run init <slug>`.
+  body=refused stage-ref=<token> hint=reword the source text so it names no stage or agent
+      As in `pr body full`. Exit 3.
+Errors (stderr, exit 1): `body: missing <path>` (pr.md); the host's error.
+Exit codes: 0 ok, 1 refused, 3 content.
+Backend: edits and readies the PR on the configured CI host; files the
+follow-ups on the tracker.
+See: ferrule guide gate4";
+
+const PR_FAILED_AFTER_LONG_HELP: &str = "\
+Output (stdout): the error lines of the failed job's log, one per line, each
+followed by `--context` lines; nothing when the log has none. Exit 0.
+Errors (stderr, exit 1): `pr failed: <error>` when there is no failed run, no
+failing job matching `--job`, or the host call fails.
+Exit codes: 0 ok, 1 refused.
+Backend: reads the run's logs from the configured CI host (`gh run view` on
+GitHub, pipelines on Bitbucket).
+See: ferrule guide gate4";
+
 #[derive(Debug, Subcommand)]
 pub enum PrCommand {
     /// Print a PR's title, body and comments as compact text.
+    #[command(after_long_help = PR_VIEW_AFTER_LONG_HELP)]
     View {
         /// The PR number or URL.
         pr: String,
@@ -36,6 +156,7 @@ pub enum PrCommand {
     ///
     /// Ends `Closes #<issue>`. Exits 3 when the body names a stage or an
     /// agent.
+    #[command(after_long_help = PR_BODY_AFTER_LONG_HELP)]
     Body {
         /// The run's slug.
         slug: String,
@@ -43,6 +164,7 @@ pub enum PrCommand {
         form: BodyForm,
     },
     /// Open the run's draft PR and record its number.
+    #[command(after_long_help = PR_OPEN_AFTER_LONG_HELP)]
     Open {
         /// The run's slug.
         slug: String,
@@ -51,6 +173,7 @@ pub enum PrCommand {
     ///
     /// The branch head must be a stage's verified commit and pass the
     /// gauntlet; the pass is logged.
+    #[command(after_long_help = PR_PUSH_AFTER_LONG_HELP)]
     Push {
         /// The run's slug; omitted with `--no-run`.
         #[arg(required_unless_present = "no_run", conflicts_with = "no_run")]
@@ -63,6 +186,7 @@ pub enum PrCommand {
     ///
     /// Refuses open threads and colliding IDs; writes the full body, marks
     /// the PR ready and files the kept follow-ups.
+    #[command(after_long_help = PR_PUBLISH_AFTER_LONG_HELP)]
     Publish {
         /// The run's slug.
         slug: String,
@@ -78,6 +202,7 @@ pub enum PrCommand {
     /// The branch's latest failed run and its first failing job unless
     /// `--run` and `--job` name others. `run ci` prints the same lines when
     /// it waits for a run's checks.
+    #[command(after_long_help = PR_FAILED_AFTER_LONG_HELP)]
     Failed {
         /// The branch [default: the current branch].
         #[arg(conflicts_with = "run")]
@@ -181,7 +306,10 @@ fn failed(
 fn open(config: &Config, slug: &str, out: &mut impl Write) -> io::Result<u8> {
     let layout = Layout::new(project::main_checkout());
     let Some(mut s) = store(false)? else {
-        writeln!(out, "post=refused reason=card")?;
+        writeln!(
+            out,
+            "post=refused reason=card hint=no card for this slug: check it or ferrule run init <slug>"
+        )?;
         return Ok(exit::REFUSED);
     };
     let now = board::now();
@@ -244,7 +372,10 @@ fn push(config: &Config, slug: &str, out: &mut impl Write) -> io::Result<u8> {
     };
     match pushed {
         None | Some(Err(publish::Error::Card)) => {
-            writeln!(out, "push=refused reason=card")?;
+            writeln!(
+                out,
+                "push=refused reason=card hint=no card for this slug: check it or ferrule run init <slug>"
+            )?;
             Ok(exit::REFUSED)
         }
         Some(Ok(Ok(p))) => {
@@ -269,7 +400,10 @@ fn publish_pr(
         keep.map(|k| k.split(',').filter_map(|x| x.trim().parse().ok()).collect());
     match with_run(config, slug, |r| r.publish(keep.as_deref()))? {
         None | Some(Err(publish::Error::Card)) => {
-            writeln!(out, "publish=refused reason=card")?;
+            writeln!(
+                out,
+                "publish=refused reason=card hint=no card for this slug: check it or ferrule run init <slug>"
+            )?;
             Ok(exit::REFUSED)
         }
         Some(Ok(Ok((pr, filed)))) => {
@@ -299,15 +433,24 @@ fn push_branch(config: &Config, out: &mut impl Write) -> io::Result<u8> {
     let here = std::env::current_dir()?;
     let Some(branch) = ferrule_core::git::out(&here, &["symbolic-ref", "--short", "-q", "HEAD"])
     else {
-        writeln!(out, "push=refused reason=no-branch")?;
+        writeln!(
+            out,
+            "push=refused reason=no-branch hint=check out a branch first"
+        )?;
         return Ok(exit::REFUSED);
     };
     if branch == config.main_branch {
-        writeln!(out, "push=refused reason=main")?;
+        writeln!(
+            out,
+            "push=refused reason=main hint=push from a branch other than main"
+        )?;
         return Ok(exit::REFUSED);
     }
     if !ferrule_core::git::ok(&here, &["push", "-q", "-u", "origin", &branch]) {
-        writeln!(out, "push=refused reason=push")?;
+        writeln!(
+            out,
+            "push=refused reason=push hint=git push failed; run it in the worktree to see why"
+        )?;
         return Ok(exit::REFUSED);
     }
     writeln!(out, "push=done branch={branch}")?;
