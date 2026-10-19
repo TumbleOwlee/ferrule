@@ -106,6 +106,10 @@ const IGNORED: &[(&str, &str)] = &[
         "matched in the card log, not printed",
     ),
     (
+        "ferrule/src/cli.rs:key=value",
+        "the root help's own description of status lines",
+    ),
+    (
         "ferrule-core/src/remote.rs",
         "query strings of the issue host's API calls",
     ),
