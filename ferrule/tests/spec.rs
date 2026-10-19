@@ -136,6 +136,37 @@ fn it_collisions_reports_ids_both_branches_took() {
 }
 
 #[test]
+fn it_collisions_defaults_to_the_configured_main_branch() {
+    let repo = tempfile::tempdir().unwrap();
+    let wt = repo.path();
+    let spec = wt.join("docs/specs/r.md");
+    git(wt, &["init", "-q", "-b", "trunk"]);
+    std::fs::create_dir_all(wt.join(".ferrule")).unwrap();
+    std::fs::write(
+        wt.join(".ferrule/ferrule.toml"),
+        "main_branch = \"trunk\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(spec.parent().unwrap()).unwrap();
+    append(&spec, "**MB-R-001** — The client connects.\n");
+    git(wt, &["add", "."]);
+    git(wt, &["commit", "-q", "-m", "base"]);
+    git(wt, &["checkout", "-q", "-b", "feat/x"]);
+    append(&spec, "**MB-R-002** — The client polls.\n");
+    git(wt, &["commit", "-q", "-am", "x"]);
+    git(wt, &["checkout", "-q", "trunk"]);
+    append(&spec, "**MB-R-002** — The server answers.\n");
+    git(wt, &["commit", "-q", "-am", "y"]);
+    git(wt, &["update-ref", "refs/remotes/origin/trunk", "trunk"]);
+    git(wt, &["checkout", "-q", "feat/x"]);
+
+    let out = Run::new(["spec", "collisions", &wt.display().to_string()])
+        .cwd(wt)
+        .text();
+    assert_eq!(out, "ids=collide MB-R-002\nexit=1");
+}
+
+#[test]
 fn it_collisions_without_merge_base_is_an_error() {
     let repo = tempfile::tempdir().unwrap();
     git(repo.path(), &["init", "-q", "-b", "main"]);

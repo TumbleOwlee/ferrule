@@ -32,11 +32,12 @@ pub enum HookCommand {
     Reviewer,
     /// Name the runs an interrupted session left (`SessionStart`).
     SessionStart,
-    /// Run a git hook.
+    /// Run a git hook (`pre-commit`, `commit-msg`, `pre-push`).
     ///
     /// `pre-commit` and `pre-push` refuse the main branch; `commit-msg`
     /// strips attribution trailers from the message file.
     Git {
+        /// The hook git is running.
         hook: GitHook,
         /// The arguments git passes the hook.
         args: Vec<String>,

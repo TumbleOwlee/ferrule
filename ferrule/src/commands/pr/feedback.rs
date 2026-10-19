@@ -8,6 +8,7 @@ use ferrule_core::pr::feedback::{self, Kind};
 use ferrule_core::pr::publish;
 use ferrule_core::project::{self, Layout};
 
+use crate::cli::stage_name;
 use crate::commands::card::store;
 use crate::commands::exit;
 use crate::commands::issue::post_failed;
@@ -38,9 +39,11 @@ pub enum FeedbackCommand {
         pr: String,
         /// The feedback file.
         file: PathBuf,
-        /// The stage that fixed the threads, `s<n>`.
+        /// The stage that fixed the threads, `s<n>`; needed for a `fixed`
+        /// reply.
+        #[arg(value_parser = stage_name, requires = "sha")]
         stage: Option<String>,
-        /// The pushed commit holding the fixes.
+        /// The pushed commit holding the fixes; given with the stage.
         sha: Option<String>,
     },
 }

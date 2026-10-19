@@ -15,9 +15,13 @@ use super::exit;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum CardState {
+    /// Not started.
     Open,
+    /// Being worked on.
     Inprogress,
+    /// Waiting for review or approval.
     Inreview,
+    /// Finished.
     Done,
 }
 
@@ -31,6 +35,9 @@ pub enum CardCommand {
         card: String,
     },
     /// Print one value of a card; nothing when absent.
+    #[command(
+        after_help = "Examples:\n  ferrule card field <slug> lane\n  ferrule card field <slug>.s1 log:commit\n  ferrule card field <slug>.s1 pass-sha"
+    )]
     Field {
         /// Card id: `<slug>` or `<slug>.s<n>`.
         card: String,
@@ -42,33 +49,46 @@ pub enum CardCommand {
     New {
         /// Card id: `<slug>` or `<slug>.s<n>`.
         card: String,
+        /// The state the card starts in.
         #[arg(long, value_enum, default_value_t = CardState::Open)]
         state: CardState,
         /// Frontmatter fields, `key=value` each.
+        #[arg(value_name = "KEY=VALUE")]
         fields: Vec<String>,
     },
     /// Set frontmatter fields; an empty value removes one.
     Set {
         /// Card id: `<slug>` or `<slug>.s<n>`.
         card: String,
-        /// `key=value` each.
-        #[arg(required = true)]
+        /// Frontmatter fields, `key=value` each; `key=` removes one.
+        #[arg(required = true, value_name = "KEY=VALUE")]
         fields: Vec<String>,
     },
     /// Move a card to another state, if the board allows it.
     Move {
         /// Card id: `<slug>` or `<slug>.s<n>`.
         card: String,
+        /// The state to move to.
         state: CardState,
     },
     /// Append an event to a card's log.
+    ///
+    /// Refuses an event, key or value the vocabulary does not accept, naming
+    /// what it expects.
+    #[command(
+        after_help = "Examples:\n  ferrule card log <slug>.s1 test-red R2 -- parses_empty: panicked\n  ferrule card log <slug>.s1 read path=src/lib.rs -- what the plan left out\n  ferrule card vocab               every event and its arguments"
+    )]
     Log {
         /// Card id: `<slug>` or `<slug>.s<n>`.
         card: String,
         /// `<name>` or `<name>=<value>`; `card vocab` lists them.
         event: String,
-        /// `[positional…] [key=value…] [-- free text]`.
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        /// The event's arguments: `[positional…] [key=value…] [-- free text]`.
+        #[arg(
+            trailing_var_arg = true,
+            allow_hyphen_values = true,
+            value_name = "ARG"
+        )]
         args: Vec<String>,
     },
     /// List the events `card log` accepts.
@@ -81,7 +101,7 @@ pub enum CardCommand {
         /// The stage card, `<slug>.s<n>`; omitted with `--no-run`.
         #[arg(required_unless_present = "no_run", conflicts_with = "no_run")]
         card: Option<String>,
-        /// The message; several make paragraphs.
+        /// The commit message; repeat for more paragraphs.
         #[arg(short, long = "message", required = true)]
         message: Vec<String>,
         /// Commit outside a run: only the branch and trailer rules apply.

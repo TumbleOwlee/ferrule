@@ -12,7 +12,7 @@ Under construction. Implemented so far:
 | `ferrule spec section [--prefix] <heading>… <file>` | Print sections by heading text (`Status`, any case; `## Status` pins the level) |
 | `ferrule spec id [--dir <dir>] <ID>…` | Find spec entries by fixed ID as `file:line:text` |
 | `ferrule spec related <keyword>…` | Spec entries mentioning a keyword |
-| `ferrule spec collisions <worktree> [<ref>]` | Fixed IDs both this branch and the target ref define |
+| `ferrule spec collisions <worktree> [<ref>]` | Fixed IDs both this branch and the target ref (default `origin/<main_branch>`) define |
 | `ferrule spec render <spec-diff> <part> [--only <ids>] [--with-unnumbered] [--issue-ids]` | Render scenarios, requirements, entries, changes or deferred points of a spec diff |
 | `ferrule card field <card> <field>` | A frontmatter field, `log:<key>`, `pass-sha` or `state` |
 | `ferrule card log <card> <event> [pos…] [k=v…] [-- text]` | Append one event the vocabulary accepts |

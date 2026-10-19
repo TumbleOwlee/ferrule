@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use clap::{Args, Subcommand, ValueEnum};
 use ferrule_core::card::board;
+use ferrule_core::config::Config;
 use ferrule_core::markdown::{self, Match};
 use ferrule_core::spec::diff::{Part, SpecDiff};
 use ferrule_core::term::{self, Style};
@@ -18,15 +19,21 @@ pub enum SpecCommand {
     /// A section runs from its heading to the next heading of equal or
     /// shallower depth. Ask for every heading of one file in one call.
     Section(SectionArgs),
-    /// List a markdown file's headings.
+    /// List markdown files' headings, fenced code skipped.
     Sections(SectionsArgs),
     /// Print spec entries by fixed ID, as `file:line:text`.
     Id(IdArgs),
     /// Print spec entries that mention a keyword.
     Related(RelatedArgs),
     /// List fixed IDs the branch adds that the target ref now has too.
+    ///
+    /// Prints `ids=clean` (exit 0), `ids=collide <id>,…` (exit 1), or
+    /// `ids=error` when the two share no merge base (exit 2).
     Collisions(CollisionsArgs),
     /// Render one part of a run's spec-diff.md.
+    #[command(
+        after_help = "Example:\n  ferrule spec render .ferrule/runs/<slug>/spec-diff.md entries --only 'R1 R3'"
+    )]
     Render(RenderArgs),
 }
 
@@ -37,16 +44,16 @@ pub struct SectionArgs {
     pub prefix: bool,
     /// Heading texts, e.g. `Status`, ignoring case; a leading `## ` also
     /// pins the level.
-    #[arg(required = true, num_args = 1..)]
+    #[arg(required = true, num_args = 1.., value_name = "HEADING")]
     pub headings: Vec<String>,
-    /// The markdown file.
+    /// The markdown file, after the headings.
     pub file: PathBuf,
 }
 
 #[derive(Debug, Args)]
 pub struct SectionsArgs {
     /// Markdown files.
-    #[arg(required = true)]
+    #[arg(required = true, value_name = "FILE")]
     pub files: Vec<PathBuf>,
 }
 
@@ -56,14 +63,14 @@ pub struct IdArgs {
     #[arg(long)]
     pub dir: Option<PathBuf>,
     /// Fixed IDs, requirements and edge cases mixed.
-    #[arg(required = true)]
+    #[arg(required = true, value_name = "ID")]
     pub ids: Vec<String>,
 }
 
 #[derive(Debug, Args)]
 pub struct RelatedArgs {
     /// Keywords, matched as case-insensitive substrings.
-    #[arg(required = true)]
+    #[arg(required = true, value_name = "KEYWORD")]
     pub keywords: Vec<String>,
 }
 
@@ -71,9 +78,10 @@ pub struct RelatedArgs {
 pub struct CollisionsArgs {
     /// The run's worktree, already fetched.
     pub worktree: PathBuf,
-    /// The branch the run merges into.
-    #[arg(default_value = "origin/main")]
-    pub reference: String,
+    /// The branch the run merges into [default: `origin/<main_branch>` of
+    /// `ferrule.toml`].
+    #[arg(value_name = "REF")]
+    pub reference: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -93,6 +101,7 @@ pub enum RenderPart {
 #[derive(Debug, Args)]
 pub struct RenderArgs {
     /// The run's spec-diff.md.
+    #[arg(value_name = "SPEC_DIFF_MD")]
     pub spec_diff: PathBuf,
     /// The part to render.
     pub part: RenderPart,
@@ -258,7 +267,13 @@ fn related(args: &RelatedArgs, out: &mut impl Write) -> io::Result<u8> {
 }
 
 fn collisions(args: &CollisionsArgs, out: &mut impl Write) -> io::Result<u8> {
-    match spec::collisions(&args.worktree, &args.reference) {
+    let reference = if let Some(r) = &args.reference {
+        r.clone()
+    } else {
+        let config = Config::load(&project::main_checkout()).map_err(super::card::sql)?;
+        format!("origin/{}", config.main_branch)
+    };
+    match spec::collisions(&args.worktree, &reference) {
         None => {
             writeln!(out, "ids=error reason=no-merge-base")?;
             Ok(exit::USAGE)

@@ -10,10 +10,11 @@ use ferrule_core::term::{self, Style};
 
 use super::card::{sql, store};
 use super::exit;
+use crate::cli::stage_name;
 
 #[derive(Debug, Args)]
 pub struct GuideArgs {
-    /// The topic; `--list` names them all.
+    /// The topic, e.g. `gate2` or `implementer`; `--list` names them all.
     #[arg(required_unless_present_any = ["list", "check"])]
     pub topic: Option<String>,
     /// Print only this section, by heading text ignoring case; repeatable.
@@ -24,7 +25,7 @@ pub struct GuideArgs {
     #[arg(long)]
     pub slug: Option<String>,
     /// The stage the topic is read for, `s<n>`.
-    #[arg(long)]
+    #[arg(long, value_parser = stage_name)]
     pub stage: Option<String>,
     /// Cut to this lane instead of the run's.
     #[arg(long, value_parser = ["fast", "full"])]

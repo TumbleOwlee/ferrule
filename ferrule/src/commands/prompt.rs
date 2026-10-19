@@ -25,7 +25,7 @@ pub enum PromptCommand {
     /// Ends with `Confirm:` over the decisions made since the last approval.
     Lines {
         /// The approval files.
-        #[arg(required = true)]
+        #[arg(required = true, value_name = "FILE")]
         files: Vec<PathBuf>,
         /// decisions.md's line count at the last approval.
         #[arg(long, default_value_t = 0)]
@@ -36,7 +36,7 @@ pub enum PromptCommand {
     /// Uses the `[viewer]` command of `ferrule.toml`, else prints to stdout.
     Show {
         /// The files to show.
-        #[arg(required = true)]
+        #[arg(required = true, value_name = "FILE")]
         files: Vec<PathBuf>,
         /// Print only which files were shown, not their quoted lines.
         #[arg(long)]
@@ -82,6 +82,7 @@ pub enum PromptKind {
 pub struct PromptRenderArgs {
     /// The run's slug.
     pub slug: String,
+    /// The stop to render; each flag below names the kinds it applies to.
     pub kind: PromptKind,
     /// stage, auto, blocked, delta: the stage, `s<n>`.
     #[arg(long, value_parser = stage_id, value_name = "STAGE")]

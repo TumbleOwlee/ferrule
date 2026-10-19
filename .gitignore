@@ -28,3 +28,5 @@ rustc-ice-*.txt
 
 /target
 /.ferrule/
+
+.workflow/

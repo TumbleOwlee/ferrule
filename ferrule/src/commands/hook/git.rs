@@ -9,8 +9,11 @@ use crate::commands::exit;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum GitHook {
+    /// Refuses a commit on the main branch.
     PreCommit,
+    /// Strips attribution trailers from the message file.
     CommitMsg,
+    /// Refuses a push of the main branch.
     PrePush,
 }
 

@@ -19,6 +19,19 @@ use super::card::{sql, store};
 use super::exit;
 use crate::cli::stage_id;
 
+/// Shown after `ferrule run next --help`.
+const NEXT_AFTER_LONG_HELP: &str = "\
+Statuses each position takes:
+  gate2    ready, findings, clean, question, arch-gap, split, behavior-change,
+           new, reuse (with issue=<n>)
+  replan   ready, findings, clean, question, arch-gap, split, behavior-change
+  gate3    findings (with count=<n>), clean
+  gate4    ready, question
+  ci       ci=<exit code of gh pr checks>
+
+Example:
+  ferrule run next <slug> gate2 status=ready file=plan.md";
+
 #[derive(Debug, Subcommand)]
 pub enum RunCommand {
     /// Start a run: its parent card and directory.
@@ -41,14 +54,26 @@ pub enum RunCommand {
     ///
     /// Prints `next=`, then `run:` and `do:` lines and a `guide:` line
     /// naming the topic to read next.
+    ///
+    /// Reads `status=`, `count=`, `issue=` and `ci=` from the status line and
+    /// ignores the rest. Prints `run-next=unknown` (exit 2) for a status the
+    /// position does not take.
+    #[command(
+        after_help = "Example:\n  ferrule run next <slug> gate2 status=ready file=plan.md",
+        after_long_help = NEXT_AFTER_LONG_HELP
+    )]
     Next {
         /// The run's slug.
         slug: String,
-        /// Where the run is.
+        /// Where the run is: the step whose agent wrote the status line.
         #[arg(value_enum)]
-        at: NextAt,
+        position: NextAt,
         /// The agent's status line, as one argument or several.
-        #[arg(required = true, allow_hyphen_values = true)]
+        #[arg(
+            required = true,
+            allow_hyphen_values = true,
+            value_name = "STATUS_LINE"
+        )]
         status: Vec<String>,
     },
     /// Run the gauntlet in the run's worktree.
@@ -92,6 +117,7 @@ pub enum RunCommand {
     Replan {
         /// The run's slug.
         slug: String,
+        /// Which half of the re-plan.
         step: ReplanStep,
         /// With `approve`: stages that stop for approval beyond the plan's,
         /// e.g. `s1,s3`.
@@ -106,6 +132,8 @@ pub enum RunCommand {
         slug: String,
     },
     /// Reconcile a run's cards with git and the host before resuming.
+    ///
+    /// Prints one row per check; run it before an interrupted run goes on.
     Reconcile {
         /// The run's slug.
         slug: String,
@@ -117,9 +145,9 @@ pub enum RunCommand {
     ///
     /// Also adds the worktree back.
     Rebuild {
-        /// The tracking issue.
+        /// The tracking issue: a GitHub number or URL, or a Jira key.
         issue: String,
-        /// The run's draft PR.
+        /// The run's draft PR: a number or URL.
         pr: String,
     },
     /// Clean up a finished run.
@@ -132,6 +160,8 @@ pub enum RunCommand {
         slug: String,
     },
     /// Record and print a run's metrics line.
+    ///
+    /// Needs the run's CI green. Without a slug, prints every line recorded.
     Metrics {
         /// The run's slug; without one, every line recorded.
         slug: Option<String>,
@@ -175,8 +205,9 @@ pub enum GateName {
 pub struct ApproveArgs {
     /// The run's slug.
     pub slug: String,
+    /// The gate the user approved.
     pub gate: GateName,
-    /// The lane the user settled on.
+    /// The lane the user settled on, recorded on the card.
     #[arg(long, value_parser = ["fast", "full"])]
     pub lane: Option<String>,
     /// gate1: the run is an epic.
@@ -228,7 +259,11 @@ pub fn run(command: &RunCommand, out: &mut impl Write) -> io::Result<u8> {
         RunCommand::Replan { slug, step, stops } => replan(slug, *step, stops.as_deref(), out),
         RunCommand::Ci { slug } => ci(slug, out),
         RunCommand::Gauntlet { slug, force } => gauntlet(slug, *force, out),
-        RunCommand::Next { slug, at, status } => next_step(slug, *at, status, out),
+        RunCommand::Next {
+            slug,
+            position,
+            status,
+        } => next_step(slug, *position, status, out),
         RunCommand::Metrics { slug } => metrics(slug.as_deref(), out),
         RunCommand::Cleanup { slug } => cleanup(slug, out),
         RunCommand::Rebuild { issue, pr } => rebuild(issue, pr, out),

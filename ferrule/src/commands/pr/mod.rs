@@ -39,6 +39,7 @@ pub enum PrCommand {
     Body {
         /// The run's slug.
         slug: String,
+        /// Which body to assemble.
         form: BodyForm,
     },
     /// Open the run's draft PR and record its number.
