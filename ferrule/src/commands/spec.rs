@@ -61,8 +61,8 @@ Output:
                                  the heading part is left out when the entry
                                  has none, the text is cut at 100 characters
                                  with `…`.
-Refusals:
-  related=none hint=try other keywords
+No match:
+  related=none
                                  No entry mentions any keyword (stdout, exit
                                  1). Nothing to cite; try other nouns, or
                                  go on when none fits.
@@ -351,7 +351,7 @@ fn related(args: &RelatedArgs, out: &mut impl Write) -> io::Result<u8> {
     if found {
         return Ok(exit::OK);
     }
-    writeln!(out, "related=none hint=try other keywords")?;
+    writeln!(out, "related=none")?;
     Ok(exit::REFUSED)
 }
 
