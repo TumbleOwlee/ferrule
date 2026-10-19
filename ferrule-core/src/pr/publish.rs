@@ -359,7 +359,7 @@ hint=push a stage's last commit= on the run's branch: ferrule run sha-check"
                 "push=refused reason=gauntlet {g} hint=fix the failing step, commit, push again"
             ),
             PushRefused::Push => f.write_str(
-                "push=refused reason=push hint=git push failed; run it in the worktree to see why",
+                "push=refused reason=push hint=git push to origin failed (network, auth or a rejected update); retry once, then ask the user",
             ),
         }
     }

@@ -62,8 +62,8 @@ Output:
       The run's draft PR <n>; opened now, or the one the card already names.
       Opening records `pr:` on the card and logs `pr=draft`.
 Refusals (stdout, exit 1):
-  post=refused reason=card hint=no card for this slug: check it or ferrule run init <slug>
-      No card for the slug. Fix: check the slug, or `ferrule run init <slug>`.
+  post=refused reason=card hint=no card for this slug; check it with `ferrule card board`
+      No card for the slug. Fix: check the slug with `ferrule card board`.
   post=refused reason=no-branch hint=approve gate2 first: ferrule run approve <slug> gate2
       The card has no branch yet. Fix: `ferrule run approve <slug> gate2`.
   body=refused stage-ref=<token> hint=reword the source text so it names no stage or agent
@@ -101,10 +101,11 @@ Refusals (stdout, exit 1):
   push=refused reason=gauntlet <gauntlet line> hint=fix the failing step, commit, push again
       The gauntlet failed on the head; the line is `run gauntlet`'s. Fix: fix
       the step, commit, push again.
-  push=refused reason=push hint=git push failed; run it in the worktree to see why
-      `git push` failed. Fix: run it in the worktree to see why.
-  push=refused reason=card hint=no card for this slug: check it or ferrule run init <slug>
-      No card for the slug. Fix: check the slug, or `ferrule run init <slug>`.
+  push=refused reason=push hint=git push to origin failed (network, auth or a rejected update); retry once, then ask the user
+      `git push` failed; ferrule does not show git's error, and the shell
+      guard refuses a raw `git push`. Fix: retry once, then ask the user.
+  push=refused reason=card hint=no card for this slug; check it with `ferrule card board`
+      No card for the slug. Fix: check the slug with `ferrule card board`.
 Errors (stderr, exit 1): `missing <path>`; the CI host's error.
 Exit codes: 0 ok, 1 refused.
 Backend: pushes to origin; updates the PR on the configured CI host.
@@ -124,8 +125,8 @@ Refusals (stdout, exit 1 unless noted):
       the branch, push, publish again.
   publish=refused reason=stage-ref stage-ref=<token> hint=reword the text naming it, then publish again
       The full body names a stage or an agent. Exit 3. Fix: reword the text.
-  publish=refused reason=card hint=no card for this slug: check it or ferrule run init <slug>
-      No card for the slug. Fix: check the slug, or `ferrule run init <slug>`.
+  publish=refused reason=card hint=no card for this slug; check it with `ferrule card board`
+      No card for the slug. Fix: check the slug with `ferrule card board`.
   body=refused stage-ref=<token> hint=reword the source text so it names no stage or agent
       As in `pr body full`. Exit 3.
 Errors (stderr, exit 1): `body: missing <path>` (pr.md); the host's error.
@@ -308,7 +309,7 @@ fn open(config: &Config, slug: &str, out: &mut impl Write) -> io::Result<u8> {
     let Some(mut s) = store(false)? else {
         writeln!(
             out,
-            "post=refused reason=card hint=no card for this slug: check it or ferrule run init <slug>"
+            "post=refused reason=card hint=no card for this slug; check it with `ferrule card board`"
         )?;
         return Ok(exit::REFUSED);
     };
@@ -374,7 +375,7 @@ fn push(config: &Config, slug: &str, out: &mut impl Write) -> io::Result<u8> {
         None | Some(Err(publish::Error::Card)) => {
             writeln!(
                 out,
-                "push=refused reason=card hint=no card for this slug: check it or ferrule run init <slug>"
+                "push=refused reason=card hint=no card for this slug; check it with `ferrule card board`"
             )?;
             Ok(exit::REFUSED)
         }
@@ -402,7 +403,7 @@ fn publish_pr(
         None | Some(Err(publish::Error::Card)) => {
             writeln!(
                 out,
-                "publish=refused reason=card hint=no card for this slug: check it or ferrule run init <slug>"
+                "publish=refused reason=card hint=no card for this slug; check it with `ferrule card board`"
             )?;
             Ok(exit::REFUSED)
         }
@@ -449,7 +450,7 @@ fn push_branch(config: &Config, out: &mut impl Write) -> io::Result<u8> {
     if !ferrule_core::git::ok(&here, &["push", "-q", "-u", "origin", &branch]) {
         writeln!(
             out,
-            "push=refused reason=push hint=git push failed; run it in the worktree to see why"
+            "push=refused reason=push hint=git push to origin failed (network, auth or a rejected update); retry once, then ask the user"
         )?;
         return Ok(exit::REFUSED);
     }

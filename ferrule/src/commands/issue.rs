@@ -66,8 +66,8 @@ Output:
         commented  `--comment` posted issue-comment.md
         recorded   The card already names the issue; nothing was posted
 Refusals (stdout, exit 1):
-  post=refused reason=card hint=no card for this slug: check it or ferrule run init <slug>
-      No card for the slug. Fix: check the slug, or `ferrule run init <slug>`.
+  post=refused reason=card hint=no card for this slug; check it with `ferrule card board`
+      No card for the slug. Fix: check the slug with `ferrule card board`.
   post=refused reason=no-issue hint=file the tracking issue first: ferrule issue file <slug>
       `--split`, `--follow-up` or `--comment` before the card has an issue.
       Fix: `ferrule issue file <slug>` first.
@@ -338,7 +338,7 @@ pub fn post_failed(e: publish::Error, out: &mut impl Write) -> io::Result<u8> {
         publish::Error::Card => {
             writeln!(
                 out,
-                "post=refused reason=card hint=no card for this slug: check it or ferrule run init <slug>"
+                "post=refused reason=card hint=no card for this slug; check it with `ferrule card board`"
             )?;
             Ok(exit::REFUSED)
         }
@@ -363,7 +363,7 @@ fn file(slug: &str, t: FileTarget, reuse: Option<u64>, out: &mut impl Write) -> 
     let Some(mut s) = store(false)? else {
         writeln!(
             out,
-            "post=refused reason=card hint=no card for this slug: check it or ferrule run init <slug>"
+            "post=refused reason=card hint=no card for this slug; check it with `ferrule card board`"
         )?;
         return Ok(exit::REFUSED);
     };
