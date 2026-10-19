@@ -74,6 +74,7 @@ const SOURCES: &[(&str, &[&str])] = &[
             "run ci",
             "run cleanup",
             "run export",
+            "run gauntlet",
             "run init",
             "run metrics",
             "run next",
@@ -345,7 +346,6 @@ fn help_card() {
 }
 
 #[test]
-#[ignore = "filled by its group's task"]
 fn help_run() {
     check_group(&["run"]);
 }

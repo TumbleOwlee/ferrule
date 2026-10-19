@@ -1,2 +1,2 @@
-rebuild=refused reason=no-stages
+rebuild=refused reason=no-stages hint=the draft PR body needs a `## Stages` list of `- [ ] <title> <!-- s1 -->` lines
 exit=1

@@ -1,2 +1,2 @@
-rebuild=refused reason=sha sha=deadbee
+rebuild=refused reason=sha sha=deadbee hint=fetch the branch so the ticked stage's commit exists
 exit=1

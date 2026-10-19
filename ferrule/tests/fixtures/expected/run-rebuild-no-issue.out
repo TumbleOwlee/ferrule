@@ -1,2 +1,2 @@
-rebuild=refused reason=no-issue
+rebuild=refused reason=no-issue hint=check the tracking issue number
 exit=1

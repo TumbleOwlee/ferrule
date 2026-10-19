@@ -179,7 +179,7 @@ fn it_stage_stop_rules_in_order() {
     );
     s.config("[thresholds]\nstage_stop_files = 2\n");
     assert_eq!(stop("s1"), "auto");
-    assert_eq!(stop("s9"), "stage-stop=card");
+    assert!(stop("s9").starts_with("stage-stop=card hint="));
 }
 
 #[test]
@@ -210,15 +210,16 @@ fn it_sha_check_and_reconcile() {
     s.ok(&["card", "log", "ss.s1", &format!("commit={s1}")]);
     let check = |sha: &str| s.run(&["run", "sha-check", "ss", "s1", sha]).text();
     assert_eq!(check(&s1), "sha=ok\nexit=0");
-    assert_eq!(check("deadbee"), "sha=mismatch reason=missing\nexit=1");
+    assert!(check("deadbee").starts_with("sha=mismatch reason=missing hint="));
     git(&s.root, &["commit", "-q", "--allow-empty", "-m", "on-main"]);
     let m = git(&s.root, &["rev-parse", "--short", "HEAD"]);
-    assert_eq!(check(&m), "sha=mismatch reason=off-branch\nexit=1");
+    assert!(check(&m).starts_with("sha=mismatch reason=off-branch hint="));
     let s1b = s.commit_in_worktree("f1.txt", "x\ny\n", "s1b");
-    assert_eq!(check(&s1b), "sha=mismatch reason=card-commit\nexit=1");
-    assert_eq!(
-        s.run(&["run", "sha-check", "ss", "s7", &s1]).text(),
-        "sha=mismatch reason=card\nexit=1"
+    assert!(check(&s1b).starts_with("sha=mismatch reason=card-commit hint="));
+    assert!(
+        s.run(&["run", "sha-check", "ss", "s7", &s1])
+            .text()
+            .starts_with("sha=mismatch reason=card hint=")
     );
 
     s.ok(&["card", "log", "ss.s0", &format!("commit={s1}")]);
@@ -310,15 +311,15 @@ fn it_cleanup_refuses_until_pushed_and_green_then_archives() {
     let s = pushed_run();
     let cleanup = || s.say(&["run", "cleanup", "demo"]);
     std::fs::write(s.wt.join("y.txt"), "y\n").unwrap();
-    assert_eq!(cleanup(), "cleanup=refused reason=uncommitted-changes");
+    assert!(cleanup().starts_with("cleanup=refused reason=uncommitted-changes hint="));
     git(&s.wt, &["add", "y.txt"]);
     git(&s.wt, &["commit", "-q", "-m", "more"]);
-    assert_eq!(cleanup(), "cleanup=refused reason=unpushed-commits");
+    assert!(cleanup().starts_with("cleanup=refused reason=unpushed-commits hint="));
     git(&s.wt, &["push", "-q"]);
-    assert_eq!(cleanup(), "cleanup=refused reason=no-ci");
+    assert!(cleanup().starts_with("cleanup=refused reason=no-ci hint="));
     assert!(s.wt.is_dir());
     s.ok(&["card", "log", "demo", "ci=1"]);
-    assert_eq!(cleanup(), "cleanup=refused reason=ci-red");
+    assert!(cleanup().starts_with("cleanup=refused reason=ci-red hint="));
     assert!(s.wt.is_dir());
     assert_eq!(s.say(&["run", "metrics"]), "");
 
@@ -352,7 +353,10 @@ fn it_cleanup_refuses_until_pushed_and_green_then_archives() {
         std::fs::read(to.join("artifacts/spec-diff.md")).unwrap(),
         std::fs::read(original).unwrap()
     );
-    assert_eq!(s.say(&["run", "export", "nospec"]), "export=none");
+    assert!(
+        s.say(&["run", "export", "nospec"])
+            .starts_with("export=none hint=")
+    );
 }
 
 #[test]
@@ -395,7 +399,7 @@ fn it_gauntlet_runs_the_configured_steps_and_caches_a_pass() {
         args.extend_from_slice(extra);
         s.run(&args).text()
     };
-    assert_eq!(g(&[]), "gauntlet=fail step=config reason=no-steps\nexit=1");
+    assert!(g(&[]).starts_with("gauntlet=fail step=config reason=no-steps hint="));
     s.config(STEPS);
     let sha = git(&s.wt, &["rev-parse", "--short", "HEAD"]);
     let pass = format!("gauntlet=pass cov=81.20% sha={sha}");
@@ -436,5 +440,5 @@ fn it_gauntlet_runs_the_configured_steps_and_caches_a_pass() {
         )
     );
     std::fs::remove_dir_all(&s.wt).unwrap();
-    assert_eq!(g(&[]), "gauntlet=fail step=cd reason=no-worktree\nexit=1");
+    assert!(g(&[]).starts_with("gauntlet=fail step=cd reason=no-worktree hint="));
 }

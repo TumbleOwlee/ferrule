@@ -39,11 +39,22 @@ impl std::fmt::Display for Refused {
             Refused::Sha(_) => "sha",
             Refused::Worktree => "worktree",
         };
+        let hint = match self {
+            Refused::NoPr => "check the PR number and your host access",
+            Refused::NoStages => {
+                "the draft PR body needs a `## Stages` list of `- [ ] <title> <!-- s1 -->` lines"
+            }
+            Refused::NoBranch => "push the PR's branch to origin, then retry",
+            Refused::BoardExists => "resume it with `ferrule run reconcile <slug>` instead",
+            Refused::NoIssue => "check the tracking issue number",
+            Refused::Sha(_) => "fetch the branch so the ticked stage's commit exists",
+            Refused::Worktree => "git could not add the worktree; check `git worktree list`",
+        };
         write!(f, "rebuild=refused reason={reason}")?;
         if let Refused::Sha(sha) = self {
             write!(f, " sha={sha}")?;
         }
-        Ok(())
+        write!(f, " hint={hint}")
     }
 }
 

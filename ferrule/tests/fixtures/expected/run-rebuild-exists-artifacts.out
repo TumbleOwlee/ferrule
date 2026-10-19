@@ -1,2 +1,2 @@
-rebuild=refused reason=board-exists
+rebuild=refused reason=board-exists hint=resume it with `ferrule run reconcile <slug>` instead
 exit=1

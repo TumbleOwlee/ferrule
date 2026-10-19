@@ -488,7 +488,11 @@ fn it_metrics_count_the_runs_events_and_need_green_ci() {
     assert_eq!(first.lines().count(), 2, "{first}");
 
     log_at(p, "2026-10-04T11:55", &["demo", "ci=1"]);
-    assert_eq!(metrics(p, "demo"), "metrics=refused reason=ci-red\nexit=1");
+    let red = metrics(p, "demo");
+    assert!(
+        red.starts_with("metrics=refused reason=ci-red hint=") && red.ends_with("\nexit=1"),
+        "{red}"
+    );
     assert_eq!(all(), first, "a refused run records nothing");
     log_at(
         p,
@@ -498,6 +502,10 @@ fn it_metrics_count_the_runs_events_and_need_green_ci() {
     assert!(metrics(p, "demo").ends_with(" ci=waived\nexit=0"));
     assert_eq!(all().lines().count(), 2, "a rerun replaces its line");
     assert!(metrics(p, "lb").ends_with(" lane=epic ci=-\nexit=0"));
-    assert_eq!(metrics(p, "mrc"), "metrics=refused reason=no-ci\nexit=1");
+    let none = metrics(p, "mrc");
+    assert!(
+        none.starts_with("metrics=refused reason=no-ci hint=") && none.ends_with("\nexit=1"),
+        "{none}"
+    );
     check("metrics-no-card", &metrics(p, "nosuch"));
 }

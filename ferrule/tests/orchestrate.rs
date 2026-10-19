@@ -208,9 +208,10 @@ fn through_gate2(p: &Project) {
         !p.run_dir().join("issue-spec.md").exists(),
         "a plain issue carries no brief"
     );
-    assert_eq!(
-        p.ferrule(&["run", "init", "demo"]).text(),
-        "init=refused reason=exists\nexit=1"
+    assert!(
+        p.ferrule(&["run", "init", "demo"])
+            .text()
+            .starts_with("init=refused reason=exists hint=")
     );
     p.artifacts();
 

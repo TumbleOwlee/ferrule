@@ -34,6 +34,9 @@ pub enum Outcome {
     NoSteps,
 }
 
+const NO_WORKTREE_HINT: &str = "create it with: ferrule run approve <slug> gate2";
+const NO_STEPS_HINT: &str = "add [[gauntlet.step]] tables to ferrule.toml";
+
 impl std::fmt::Display for Outcome {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -56,8 +59,14 @@ impl std::fmt::Display for Outcome {
                 }
                 write!(f, " log={}", log.display())
             }
-            Outcome::NoWorktree => write!(f, "gauntlet=fail step=cd reason=no-worktree"),
-            Outcome::NoSteps => write!(f, "gauntlet=fail step=config reason=no-steps"),
+            Outcome::NoWorktree => write!(
+                f,
+                "gauntlet=fail step=cd reason=no-worktree hint={NO_WORKTREE_HINT}"
+            ),
+            Outcome::NoSteps => write!(
+                f,
+                "gauntlet=fail step=config reason=no-steps hint={NO_STEPS_HINT}"
+            ),
         }
     }
 }
