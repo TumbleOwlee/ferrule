@@ -244,7 +244,7 @@ impl fmt::Display for Reject {
                         "check the value, positional words and `-- text` against `ferrule card vocab`"
                     }
                     Reason::Length => "shorten the line to 160 characters with its timestamp",
-                    _ => "this card's read budget is spent; log `note -- <text>` instead",
+                    _ => "the read budget is spent: stop with status=blocked, the plan is too thin",
                 };
                 write!(
                     f,

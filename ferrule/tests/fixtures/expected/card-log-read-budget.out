@@ -1,2 +1,2 @@
-card-log=reject event=read reason=budget hint=this card's read budget is spent; log `note -- <text>` instead
+card-log=reject event=read reason=budget hint=the read budget is spent: stop with status=blocked, the plan is too thin
 exit=2
