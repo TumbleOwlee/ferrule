@@ -14,7 +14,84 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::exit;
-use git::GitHook;
+use git::{GIT_AFTER_LONG_HELP, GitHook};
+
+/// Shown after `ferrule hook shell --help`.
+const SHELL_AFTER_LONG_HELP: &str = "\
+Called by Claude Code's settings (a `PreToolUse` hook on Bash), not by hand.
+Reads the hook payload as JSON on stdin: tool_name, tool_input.command, cwd.
+Output:
+  (nothing)            exit 0; the call is allowed (also any tool but Bash)
+  one JSON line        exit 0; permissionDecision \"deny\" with a reason that
+                       names the ferrule command to run instead
+Refuses:
+  a write to a file only ferrule writes (state.db, ferrule.lock, ...)
+  a flood: whole-file cat of a .md or large file, unfiltered git diff/show,
+                       unfiltered find -type, a raw CI log
+  a git or gh call a ferrule command replaces; the reason names it
+                       (`[guard] allow` in ferrule.toml lets one through)
+  every call but `ferrule install` while the binary and the project's pin
+                       or lock disagree: `ferrule=refused reason=version ...`
+Errors (stderr):
+  ferrule hook: unreadable PreToolUse payload (...); refusing the call
+                       exit 2, which blocks the call; fix the hook command
+Exit codes: 0 ok, 2 blocked or unreadable payload.";
+
+/// Shown after `ferrule hook attribution --help`.
+const ATTRIBUTION_AFTER_LONG_HELP: &str = "\
+Called by Claude Code's settings (a `PreToolUse` hook on Bash), not by hand.
+Reads the hook payload as JSON on stdin: tool_name, tool_input.command, cwd.
+Output:
+  (nothing)            exit 0; the command carries no attribution trailer
+  one JSON line        exit 0; updatedInput is the command with the
+                       Co-Authored-By / \"Generated with\" lines dropped
+                       (every other tool_input field kept)
+Refuses:
+  a command that commits or posts from a file carrying such a trailer:
+                       deny with the file's path; remove those lines from
+                       the file and retry
+Errors (stderr):
+  ferrule hook: unreadable PreToolUse payload (...); refusing the call
+                       exit 2, which blocks the call
+Exit codes: 0 ok, 2 blocked or unreadable payload.";
+
+/// Shown after `ferrule hook reviewer --help`.
+const REVIEWER_AFTER_LONG_HELP: &str = "\
+Called by Claude Code's settings (a `PreToolUse` hook on Bash for the
+fe-reviewer agent), not by hand.
+Reads the hook payload as JSON on stdin: tool_name, tool_input.command, cwd.
+Output:
+  (nothing)            exit 0; the call is read-only, or only appends to
+                       review.md or rewrites review.verdict.md
+  one JSON line        exit 0; permissionDecision \"deny\" with the reason
+Refuses:
+  any command that would alter the repo, the working tree or the
+                       filesystem, and the `[hook.readonly] mutating`
+                       prefixes of ferrule.toml; record what you needed to
+                       probe as a finding for the implementer instead
+  every call but `ferrule install` while the binary and the project's pin
+                       or lock disagree: `ferrule=refused reason=version ...`
+  deny when ferrule.toml cannot be read: ferrule hook reviewer: <error>
+Errors (stderr):
+  ferrule hook: unreadable PreToolUse payload (...); refusing the call
+                       exit 2, which blocks the call
+Exit codes: 0 ok, 2 blocked or unreadable payload.";
+
+/// Shown after `ferrule hook session-start --help`.
+const SESSION_START_AFTER_LONG_HELP: &str = "\
+Called by Claude Code's settings (a `SessionStart` hook), not by hand. Reads
+no input.
+Output (stdout, added to the session's context):
+  [ferrule] <version message>
+                       the binary and the project's pin or lock disagree;
+                       follow the message
+  [ferrule] unfinished cards — a run was interrupted:
+  <card> <state>       one line per card in inprogress or inreview
+  Ask to resume: reconcile every card against git before acting on it
+  (ferrule guide resume).
+Prints nothing when there is no board or no unfinished card.
+Exit codes: 0 always.
+See: ferrule guide resume";
 
 #[derive(Debug, Subcommand)]
 pub enum HookCommand {
@@ -22,20 +99,25 @@ pub enum HookCommand {
     ///
     /// Refuses writes to files only ferrule writes, output floods, and the
     /// git and gh calls a ferrule command replaces, naming that command.
+    #[command(after_long_help = SHELL_AFTER_LONG_HELP)]
     Shell,
     /// Strip attribution trailers from a Bash call (`PreToolUse`).
+    #[command(after_long_help = ATTRIBUTION_AFTER_LONG_HELP)]
     Attribution,
     /// Keep the reviewer read-only (`PreToolUse`).
     ///
     /// Refuses every write except the run's review.md and
     /// review.verdict.md.
+    #[command(after_long_help = REVIEWER_AFTER_LONG_HELP)]
     Reviewer,
     /// Name the runs an interrupted session left (`SessionStart`).
+    #[command(after_long_help = SESSION_START_AFTER_LONG_HELP)]
     SessionStart,
     /// Run a git hook (`pre-commit`, `commit-msg`, `pre-push`).
     ///
     /// `pre-commit` and `pre-push` refuse the main branch; `commit-msg`
     /// strips attribution trailers from the message file.
+    #[command(after_long_help = GIT_AFTER_LONG_HELP)]
     Git {
         /// The hook git is running.
         hook: GitHook,

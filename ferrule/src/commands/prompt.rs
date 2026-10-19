@@ -13,16 +13,107 @@ use super::card::{sql, store};
 use super::exit;
 use crate::cli::stage_id;
 
+/// Shown after `ferrule prompt render --help`.
+const RENDER_AFTER_LONG_HELP: &str = "\
+Output:
+  The whole message, line by line, to relay verbatim; compose nothing. By
+  kind:
+  gate1 arch epic gate2 stage replan gate3 gate4
+                       `<title> · <slug> · <files with rev>` header; a
+                       `Viewer:` note when the files did not open; the quoted
+                       lines (Goal:, Entries:, Plan:, Confirm: ...);
+                       `Approving will:`; `Options:`; `Answer: ...`
+  question             `Question · <slug> · <where> · <agent> · <n> decisions`,
+                       question.md verbatim, `Answer: <1: a · 2: b · ...>`
+  blocked              a one-decision question: a) answer, b) re-plan, c) stop
+  delta                a question with one decision per `Needs user` item of
+                       review.verdict.md
+  auto                 `Landed <stage> · ... · next: <s<n>|gate 4>`; no log
+  gate2-notice, replan-notice
+                       one header line, then the Confirm: block; no log
+  approved             approved [spec-rev=<n>] [arch-rev=<n>]
+                       [decisions-seen=<n>]
+Files the stop shows are opened in the viewer and recorded as the approval
+marker (see `ferrule prompt show`).
+
+Flags each kind needs:
+  auto                 --stage
+  replan-notice        --from
+  The others read their flags when given; a missing required flag is a
+  usage error.
+
+Logged on the card:
+  stop kind=approval gate=<gate>   <gate> is gate1, arch, epic, gate2, replan
+                                   or gate3 for that kind
+  stop kind=approval gate=gate4    kind gate4
+  stop kind=approval gate=delta    kind delta
+  stop kind=stage                  stage
+  stop kind=question               question
+  stop kind=blocked                blocked
+  spec-rev=<n>, arch-rev=<n>, decisions-seen=<n>
+                                   approved: the revisions the user saw
+
+Refusals:
+  prompt render: no card for <slug>
+                       exit 2; the run has no card; ferrule run init <slug>
+                       or fix the slug
+  prompt render: a flag this kind needs is missing; see --help
+                       exit 2; add --stage (auto) or --from (replan-notice)
+  prompt show: ...     the viewer step refused; see `ferrule prompt show`
+Exit codes: 0 ok, 1 refused (a shown file is not readable), 2 usage,
+3 content (a shown summary is over its cap).
+See: ferrule guide approval";
+
+/// Shown after `ferrule prompt lines --help`.
+const LINES_AFTER_LONG_HELP: &str = "\
+Output:
+  <line>               a quoted line of each file, in file order, never the
+                       rest of the file: Goal:, Scenarios:, Entries:, Plan:,
+                       Issue:, PR:, Review:, Needs user: ... by file kind
+  Confirm:             then `- <decision or slice>` lines: slices no slice or
+                       two slices claim, and the decisions made since --seen
+  Confirm: nothing flagged
+                       when the files confirm and nothing is flagged
+Errors (stderr):
+  prompt lines: not readable: <file>
+                       exit 1; the other files still print; fix the path
+Exit codes: 0 ok, 1 refused (a file not readable), 2 usage.
+See: ferrule guide approval";
+
+/// Shown after `ferrule prompt show --help`.
+const SHOW_AFTER_LONG_HELP: &str = "\
+Output, one block per file:
+  prompt show: opened with <viewer>: <path> [(approval marker: <slug>)]
+                       the viewer opened it; then the file's quoted lines
+                       unless --no-lines
+  prompt show: stdout: <path> [(approval marker: <slug>)]
+                       no viewer is configured; the whole file follows
+  prompt show: viewer failed: <path> [(approval marker: <slug>)]
+                       the viewer exited non-zero; exit 1; open it by hand
+The files of a run replace that run's approval marker, so the approval that
+follows records exactly these revisions.
+Errors (stderr):
+  prompt show: not readable: <file>
+                       exit 1; nothing is shown; fix the path
+  prompt show: refused: <file> is <n> lines / <b> bytes, cap is ...
+                       exit 3; only *.summary.md and *.verdict.md are capped
+                       (`[thresholds]`); have the agent that wrote it trim
+                       it, never show the full file instead
+Exit codes: 0 ok, 1 refused, 2 usage, 3 content (summary over its cap).
+See: ferrule guide approval";
+
 #[derive(Debug, Subcommand)]
 pub enum PromptCommand {
     /// Print a stop's whole message and log the stop.
     ///
     /// Built from the run's files and cards; opens the files the user
     /// reviews in the viewer.
+    #[command(after_long_help = RENDER_AFTER_LONG_HELP)]
     Render(PromptRenderArgs),
     /// Print the lines of approval files the user is shown.
     ///
     /// Ends with `Confirm:` over the decisions made since the last approval.
+    #[command(after_long_help = LINES_AFTER_LONG_HELP)]
     Lines {
         /// The approval files.
         #[arg(required = true, value_name = "FILE")]
@@ -34,6 +125,7 @@ pub enum PromptCommand {
     /// Open files in the viewer and record them as shown.
     ///
     /// Uses the `[viewer]` command of `ferrule.toml`, else prints to stdout.
+    #[command(after_long_help = SHOW_AFTER_LONG_HELP)]
     Show {
         /// The files to show.
         #[arg(required = true, value_name = "FILE")]

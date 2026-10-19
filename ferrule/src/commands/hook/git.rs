@@ -7,6 +7,27 @@ use ferrule_core::{git, project};
 
 use crate::commands::exit;
 
+/// Shown after `ferrule hook git --help`.
+pub const GIT_AFTER_LONG_HELP: &str = "\
+Called by the git hooks `ferrule install` writes, not by hand. The main
+branch is `main_branch` of ferrule.toml (default main).
+Per hook (git passes its arguments and stdin):
+  pre-commit           no input; refuses a commit while HEAD is the main
+                       branch: `ferrule: commit on '<main>' refused: branch
+                       off it, never commit to it.` (stderr, exit 1); create
+                       a branch and commit there
+  commit-msg <file>    the message file git passes; drops attribution
+                       trailers in place and says so on stderr: `ferrule:
+                       dropped a tool-attribution trailer from the commit
+                       message.` (exit 0). Without <file>: `ferrule hook git
+                       commit-msg: the message file is missing` (exit 2)
+  pre-push             reads git's `<ref> <sha> <remote ref> <sha>` lines on
+                       stdin; refuses a push to the main branch: `ferrule:
+                       push to '<main>' refused: merge to it by pull request
+                       only.` (stderr, exit 1)
+Nothing is printed on stdout.
+Exit codes: 0 ok, 1 refused (git aborts the operation), 2 usage.";
+
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum GitHook {
     /// Refuses a commit on the main branch.

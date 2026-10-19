@@ -77,6 +77,14 @@ const SOURCES: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "ferrule/src/commands/hook/mod.rs",
+        &["hook shell", "hook reviewer", "hook session-start"],
+    ),
+    (
+        "ferrule/src/commands/prompt.rs",
+        &["prompt render", "prompt lines", "prompt show"],
+    ),
+    (
         "ferrule/src/commands/spec.rs",
         &["spec collisions", "spec related"],
     ),
@@ -348,7 +356,6 @@ fn help_issue_pr() {
 }
 
 #[test]
-#[ignore = "filled by its group's task"]
 fn help_prompt_hook() {
     check_group(&["prompt", "hook"]);
 }
