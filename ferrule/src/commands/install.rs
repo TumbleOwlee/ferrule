@@ -29,7 +29,7 @@ Refusals (stdout):
   install=refused reason=foreign path=<file> hint=--force overwrites it
       A generated path holds a file ferrule never wrote; nothing was
       written. Move it away or rerun with --force.
-  install=refused reason=<error> hint=repair or delete the file the reason names, then rerun
+  install=refused reason=<error> hint=fix the file the reason names, then rerun
       The lock or .claude/settings.json is unreadable or not valid.
 With --check, nothing is written:
   install-check=ok version=<v>
@@ -39,7 +39,7 @@ With --check, nothing is written:
       missing, stale (unedited, older), reason=edited (changed by hand, or
       settings.json deny rules differ) or version (then pinned=<v> or
       locked=<v>, and binary=<v>).
-  install-check=refused reason=<error> hint=repair or delete the file the reason names, then rerun
+  install-check=refused reason=<error> hint=fix the file the reason names, then rerun
       The lock or settings file is unreadable.
 Version mismatch (stderr of every other command):
   ferrule=refused reason=version pinned=<v> binary=<v>: <fix>
@@ -111,7 +111,7 @@ pub fn install(args: &InstallArgs, out: &mut impl Write) -> io::Result<u8> {
             Err(e) => {
                 writeln!(
                     out,
-                    "install-check=refused reason={e} hint=repair or delete the file the reason names, then rerun"
+                    "install-check=refused reason={e} hint=fix the file the reason names, then rerun"
                 )?;
                 Ok(exit::REFUSED)
             }
@@ -133,7 +133,7 @@ pub fn install(args: &InstallArgs, out: &mut impl Write) -> io::Result<u8> {
         Err(e) => {
             writeln!(
                 out,
-                "install=refused reason={e} hint=repair or delete the file the reason names, then rerun"
+                "install=refused reason={e} hint=fix the file the reason names, then rerun"
             )?;
             return Ok(exit::REFUSED);
         }

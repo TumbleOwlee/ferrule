@@ -15,7 +15,7 @@ Output:
   kept=<path> reason=edited      A generated file someone edited stays;
                                  delete it by hand if unwanted.
 Refusals (stdout, exit 1):
-  uninstall=refused reason=<error> hint=repair or delete the file the reason names, then rerun
+  uninstall=refused reason=<error> hint=fix the file the reason names, then rerun
                                  The lock or .claude/settings.json is
                                  unreadable or not valid.
 Exit codes: 0 ok, 1 refused, 2 usage.";
@@ -37,7 +37,7 @@ pub fn run(purge: bool, out: &mut impl Write) -> io::Result<u8> {
         Err(e) => {
             writeln!(
                 out,
-                "uninstall=refused reason={e} hint=repair or delete the file the reason names, then rerun"
+                "uninstall=refused reason={e} hint=fix the file the reason names, then rerun"
             )?;
             Ok(exit::REFUSED)
         }
