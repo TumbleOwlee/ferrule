@@ -548,6 +548,48 @@ fn it_replan_swaps_the_uncommitted_stages() {
 }
 
 #[test]
+fn it_replan_approve_is_refused_twice() {
+    let p = Project::new();
+    p.ok(&["run", "init", "demo"]);
+    p.artifacts();
+    p.gh.serve(
+        &[
+            "issue",
+            "list",
+            "--state",
+            "open",
+            "--search",
+            "Reconnect dropped Modbus clients in:title",
+            "--json",
+            "number,title",
+        ],
+        r#"[{"number":12,"title":"Reconnect dropped Modbus clients"}]"#,
+    );
+    p.ok(&["gate", "approve", "demo", "gate2"]);
+    let sha0 = p.land("s0", "docs/specs/modbus/requirements.md");
+    p.ok(&[
+        "board",
+        "log",
+        "demo",
+        "gauntlet=pass",
+        "cov=80%",
+        &format!("sha={sha0}"),
+    ]);
+    p.ok(&["board", "move", "demo.s0", "done"]);
+    p.ok(&["stage", "replan", "demo", "start"]);
+    p.ok(&["stage", "replan", "demo", "approve"]);
+    let sha = p.land("s1", "src/client.rs");
+    let refused = p.ferrule(&["stage", "replan", "demo", "approve"]).text();
+    assert!(
+        refused.starts_with("replan=refused reason=no-replan hint="),
+        "{refused}"
+    );
+    assert_eq!(p.field("demo.s1", "state"), "inreview");
+    let s1 = p.ok(&["board", "show", "demo.s1"]);
+    assert!(s1.contains(&format!("commit={sha}")), "{s1}");
+}
+
+#[test]
 fn it_init_a_slice_stores_its_epic() {
     let p = Project::new();
     p.gh.serve(

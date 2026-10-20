@@ -497,8 +497,14 @@ pub fn replan_approve(
     stops: &[u32],
     now: &str,
 ) -> Result<(u32, usize), Error> {
-    let from: u32 = board::last_token(conn, slug, "from")?
-        .and_then(|f| f.strip_prefix('s')?.parse().ok())
+    // Only a start logged after the last approval is pending; approving
+    // again would recreate stages that have since progressed.
+    let from: u32 = board::events(conn, slug)?
+        .iter()
+        .rev()
+        .map(|(_, body)| body.as_str())
+        .take_while(|body| *body != "replan=approved")
+        .find_map(|body| body.strip_prefix("replan from=s")?.parse().ok())
         .ok_or(Error::Refused("no-replan"))?;
     let dir = layout.run_dir(slug);
     let plan =

@@ -97,7 +97,7 @@ Refusals:
   replan=refused reason=card       No such run; check the slug with
                                    `ferrule board list`
   replan=refused reason=move       start: the parent cannot move to inprogress
-  replan=refused reason=no-replan  approve before start
+  replan=refused reason=no-replan  approve without a start after the last approval
   replan=refused reason=no-plan    approve: plan.md is missing
   replan=refused reason=no-stages  approve: the plan has no stage from s<n> on
 Refusals end in ` hint=<fix>`.

@@ -419,7 +419,9 @@ fn hint(reason: &str, slug: &str) -> String {
         "move" => {
             format!("the parent card cannot move to inprogress; see `ferrule board show {slug}`")
         }
-        "no-replan" => format!("start it first: ferrule stage replan {slug} start"),
+        "no-replan" => {
+            format!("no replan is pending; start one: ferrule stage replan {slug} start")
+        }
         "detached-head" => "check the run's branch out in its worktree".to_owned(),
         "uncommitted-changes" => {
             "commit them with `ferrule stage commit`, or ask the user, then push".to_owned()
