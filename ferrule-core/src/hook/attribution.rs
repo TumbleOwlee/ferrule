@@ -132,7 +132,8 @@ pub enum Rewrite {
 pub fn rewrite(command: &str, cwd: &Path) -> Rewrite {
     let chars: Vec<char> = command.chars().collect();
     let mut edits: Vec<(std::ops::Range<usize>, String)> = Vec::new();
-    for c in shell::parse(command).iter().filter(|c| carries_message(c)) {
+    let commands = shell::parse(command);
+    for c in commands.iter().filter(|c| carries_message(c)) {
         if c.spans.len() != c.words.len() {
             continue;
         }
@@ -171,9 +172,20 @@ pub fn rewrite(command: &str, cwd: &Path) -> Rewrite {
             }
             i += 1;
         }
-        for r in &c.redirects {
-            if let (Some(body), Some(span)) = (&r.body, &r.body_span)
-                && let Some(clean) = strip(body)
+        // `--body "$(cat <<'EOF' … EOF)"`: the heredoc of a `cat` inside
+        // one of the command's words is the message.
+        let nested = commands.iter().filter(|n| {
+            n.substituted
+                && shell::program(&n.words).is_some_and(|(name, _)| name == "cat")
+                && n.redirects.iter().any(|r| {
+                    r.body_span.as_ref().is_some_and(|b| {
+                        c.spans.iter().any(|s| s.start <= b.start && b.end <= s.end)
+                    })
+                })
+        });
+        for r in c.redirects.iter().chain(nested.flat_map(|n| &n.redirects)) {
+            if let Some(span) = &r.body_span
+                && let Some(clean) = strip(&chars[span.clone()].iter().collect::<String>())
             {
                 edits.push((span.clone(), clean));
             }
@@ -248,6 +260,22 @@ mod tests {
             stripped("git commit -F - <<'EOF'\nfix: it's x\n\n🤖 Generated with a tool\nEOF\n"),
             "git commit -F - <<'EOF'\nfix: it's x\nEOF\n"
         );
+    }
+
+    #[test]
+    fn ut_rewrite_cat_heredoc_in_a_message_word() {
+        for (cmd, want) in [
+            (
+                "gh pr create --title x --body \"$(cat <<'EOF'\nSummary it's\n\n  indented\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\nEOF\n)\"",
+                "gh pr create --title x --body \"$(cat <<'EOF'\nSummary it's\n\n  indented\nEOF\n)\"",
+            ),
+            (
+                "git tag -a v1 -m \"$(cat <<-EOF\n\tv1\n\tCo-Authored-By: C <a@b>\n\tEOF\n)\"",
+                "git tag -a v1 -m \"$(cat <<-EOF\n\tv1\n\tEOF\n)\"",
+            ),
+        ] {
+            assert_eq!(stripped(cmd), want);
+        }
     }
 
     #[test]

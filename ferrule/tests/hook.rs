@@ -364,6 +364,43 @@ fn it_attribution_is_stripped_not_refused() {
 }
 
 #[test]
+fn it_attribution_in_a_cat_heredoc_message_is_stripped() {
+    let p = tempfile::tempdir().unwrap();
+    let (co, gw) = (co(), gen_with());
+    let heads = [
+        ("gh pr create --title x --body", "'EOF'"),
+        ("gh pr review 3 --approve --body", "EOF"),
+        ("gh release create v1 --notes", "'EOF'"),
+        ("git tag -a v1 -m", "'EOF'"),
+    ];
+    let make = |head: &str, delim: &str, footer: &str| {
+        format!(
+            "{head} \"$(cat <<{delim}\n## Summary\n\n  - it's  x \\n $y\n{footer}EOF\n)\" && echo done"
+        )
+    };
+    for (head, delim) in heads {
+        for footer in [
+            format!("\n🤖 {gw} [Claude Code](https://claude.com/claude-code)\n"),
+            format!("\n{co}: Claude <noreply@anthropic.com>\n"),
+        ] {
+            assert_eq!(
+                hook("attribution", p.path(), &make(head, delim, &footer)),
+                Got::Rewrite(make(head, delim, "")),
+                "{head}"
+            );
+        }
+    }
+    check(
+        "attribution",
+        p.path(),
+        &[(
+            "gh pr create --title x --body \"$(cat <<'EOF'\nSummary\nEOF\n)\"",
+            "allow",
+        )],
+    );
+}
+
+#[test]
 fn it_attribution_in_a_message_file_is_refused() {
     let p = tempfile::tempdir().unwrap();
     std::fs::write(

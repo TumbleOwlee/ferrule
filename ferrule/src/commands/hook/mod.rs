@@ -45,7 +45,8 @@ Output:
   (nothing)            exit 0; the command carries no attribution trailer
   one JSON line        exit 0; updatedInput is the command with the
                        Co-Authored-By / \"Generated with\" lines dropped
-                       (every other tool_input field kept)
+                       (every other tool_input field kept); a `$(cat <<EOF …)`
+                       message body counts, as do gh release and git tag
 Refuses:
   a command that commits or posts from a file carrying such a trailer:
                        deny with the file's path; remove those lines from
