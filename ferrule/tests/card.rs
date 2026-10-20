@@ -253,7 +253,7 @@ fn it_move_follows_the_board_rules() {
             "blocked-by" => "move the cards in its blocked-by to done first",
             "commit" => "commit the stage with `ferrule stage commit <card> -m <msg>` first",
             "unverified" => {
-                "run `ferrule ci gauntlet <slug>` so a gauntlet=pass covers the commit sha"
+                "run `ferrule ci gauntlet <slug>`, then `ferrule pr push <slug>`, which logs the gauntlet=pass that covers the commit sha"
             }
             _ => "approve gate 2 first: `ferrule gate approve <slug> gate2`",
         };
@@ -333,6 +333,11 @@ fn it_new_and_set_validate_fields() {
         run(&["board", "set", "r", "gate2=2026-10-03", "pr=7"]),
         "exit=0"
     );
+    assert_eq!(
+        run(&["board", "set", "r", "issue=9", "color=red"]),
+        "card-set=reject key=color hint=a parent card takes only kind, epic, slices, issue, pr, branch, lane, gate1, with-arch, with-plan, skipped, arch, no-arch, gate2, split, upstream, artifacts, worktree\nexit=2"
+    );
+    assert_eq!(run(&["board", "field", "r", "issue"]), "exit=0");
     assert_eq!(run(&["board", "set", "r", "lane="]), "exit=0");
     assert_eq!(run(&["board", "field", "r", "gate2"]), "2026-10-03\nexit=0");
     assert_eq!(run(&["board", "field", "r", "lane"]), "exit=0");
@@ -370,6 +375,31 @@ fn it_import_is_all_or_nothing() {
     .text();
     assert!(got.contains("unknown frontmatter key color"), "{got}");
     assert_eq!(ferrule(fresh.path(), &["board", "list"]).text(), "exit=0");
+
+    let p = project();
+    let out = tempfile::tempdir().unwrap();
+    let show = ferrule(p.path(), &["board", "show", "demo.s2"]).text();
+    let show = show.trim_end_matches("exit=0");
+    std::fs::create_dir(out.path().join("open")).unwrap();
+    std::fs::write(out.path().join("open/demo.s2.md"), show).unwrap();
+    let fresh = tempfile::tempdir().unwrap();
+    let got = ferrule(
+        fresh.path(),
+        &["board", "import", out.path().to_str().unwrap()],
+    )
+    .text();
+    assert_eq!(got, "import=ok cards=1\nexit=0");
+    std::fs::write(
+        out.path().join("open/demo.s2.md"),
+        show.replace("state: open", "state: done"),
+    )
+    .unwrap();
+    let got = ferrule(
+        tempfile::tempdir().unwrap().path(),
+        &["board", "import", out.path().to_str().unwrap()],
+    )
+    .text();
+    assert!(got.contains("differs from the open directory"), "{got}");
 }
 
 #[test]
@@ -407,6 +437,17 @@ fn it_board_list_filters_by_state_and_run() {
         "{ids:?}"
     );
     assert!(ids.len() >= 4, "{ids:?}");
+
+    let dotted = tempfile::tempdir().unwrap();
+    let d = dotted.path();
+    for id in ["my", "my.slug", "my.slug.s1", "my.s1"] {
+        new(d, &[id]);
+    }
+    let list = ferrule(d, &["board", "list", "--run", "my"]).text();
+    assert_eq!(list.lines().count(), 3, "{list}");
+    assert!(!list.contains("my.slug"), "{list}");
+    let list = ferrule(d, &["board", "list", "--run", "my.slug"]).text();
+    assert_eq!(list.lines().count(), 3, "{list}");
 }
 
 #[test]

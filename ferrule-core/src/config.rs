@@ -109,12 +109,12 @@ fn default_timeout() -> Duration {
 
 /// `<n>s`, `<n>m` or `<n>h`.
 fn parse_duration(s: &str) -> Option<Duration> {
-    let (n, unit) = s.split_at(s.len().checked_sub(1)?);
-    let n: u64 = n.parse().ok()?;
+    let unit = s.chars().next_back()?;
+    let n: u64 = s[..s.len() - unit.len_utf8()].parse().ok()?;
     let secs = match unit {
-        "s" => n,
-        "m" => n * 60,
-        "h" => n * 3600,
+        's' => n,
+        'm' => n.checked_mul(60)?,
+        'h' => n.checked_mul(3600)?,
         _ => return None,
     };
     Some(Duration::from_secs(secs))
@@ -284,6 +284,9 @@ summary_max_bytes = 2048
         assert_eq!(parse_duration("2h"), Some(Duration::from_hours(2)));
         assert_eq!(parse_duration("15"), None);
         assert_eq!(parse_duration(""), None);
+        assert_eq!(parse_duration("5é"), None);
+        assert_eq!(parse_duration("é"), None);
+        assert_eq!(parse_duration("18446744073709551615h"), None);
     }
 
     #[test]

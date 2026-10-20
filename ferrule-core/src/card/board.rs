@@ -53,11 +53,13 @@ pub struct CardId<'a> {
 }
 
 impl<'a> CardId<'a> {
-    /// `<slug>.s<n…>` is a stage card, anything else a parent card.
+    /// `<slug>.s<n>` is a stage card, anything else a parent card; a
+    /// stage that is not a plain number is no stage.
     #[must_use]
     pub fn parse(id: &'a str) -> Self {
         if let Some((run, stage)) = id.rsplit_once(".s")
-            && stage.starts_with(|c: char| c.is_ascii_digit())
+            && stage.bytes().all(|b| b.is_ascii_digit())
+            && stage.parse::<u32>().is_ok()
         {
             return CardId {
                 id,
@@ -457,26 +459,39 @@ fn insert(
 
 /// Sets one frontmatter field; an empty value removes it.
 pub fn set(conn: &mut Connection, id: &str, key: &str, value: &str) -> Result<(), CardError> {
+    set_all(conn, id, &[(key.to_owned(), value.to_owned())])
+}
+
+/// Sets frontmatter fields in one transaction: every key is checked first,
+/// and nothing is written when one is refused. An empty value removes a
+/// field.
+pub fn set_all(
+    conn: &mut Connection,
+    id: &str,
+    fields: &[(String, String)],
+) -> Result<(), CardError> {
     let card = CardId::parse(id);
-    if !allowed(&card, key) {
-        return Err(CardError::Field(key.to_owned()));
+    if let Some((k, _)) = fields.iter().find(|(k, _)| !allowed(&card, k)) {
+        return Err(CardError::Field(k.clone()));
     }
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     if state(&tx, id)?.is_none() {
         return Err(CardError::Card);
     }
-    if value.is_empty() {
-        tx.execute(
-            "DELETE FROM card_fields WHERE card = ?1 AND key = ?2",
-            [id, key],
-        )?;
-    } else {
-        tx.execute(
-            "INSERT INTO card_fields (card, pos, key, value)
-             VALUES (?1, (SELECT coalesce(max(pos), -1) + 1 FROM card_fields WHERE card = ?1), ?2, ?3)
-             ON CONFLICT (card, key) DO UPDATE SET value = excluded.value",
-            [id, key, value],
-        )?;
+    for (key, value) in fields {
+        if value.is_empty() {
+            tx.execute(
+                "DELETE FROM card_fields WHERE card = ?1 AND key = ?2",
+                [id, key],
+            )?;
+        } else {
+            tx.execute(
+                "INSERT INTO card_fields (card, pos, key, value)
+                 VALUES (?1, (SELECT coalesce(max(pos), -1) + 1 FROM card_fields WHERE card = ?1), ?2, ?3)
+                 ON CONFLICT (card, key) DO UPDATE SET value = excluded.value",
+                [id, key, value],
+            )?;
+        }
     }
     tx.commit()?;
     Ok(())
@@ -610,7 +625,7 @@ impl Refusal {
                 "commit the stage with `ferrule stage commit <card> -m <msg>` first".to_owned()
             }
             Refusal::Unverified => {
-                "run `ferrule ci gauntlet <slug>` so a gauntlet=pass covers the commit sha"
+                "run `ferrule ci gauntlet <slug>`, then `ferrule pr push <slug>`, which logs the gauntlet=pass that covers the commit sha"
                     .to_owned()
             }
             Refusal::Gate2 => {
@@ -623,7 +638,12 @@ impl Refusal {
 #[derive(Debug)]
 pub enum MoveError {
     Card,
-    Refused { from: State, reason: Refusal },
+    /// The `moved=` line was refused (it is over the line length).
+    Log(Reject),
+    Refused {
+        from: State,
+        reason: Refusal,
+    },
     Sql(rusqlite::Error),
 }
 
@@ -661,7 +681,8 @@ pub fn move_card(conn: &mut Connection, id: &str, to: State, now: &str) -> Resul
     ) {
         Ok(()) => {}
         Err(LogError::Sql(e)) => return Err(MoveError::Sql(e)),
-        Err(LogError::Card | LogError::Reject(_)) => return Err(MoveError::Card),
+        Err(LogError::Card) => return Err(MoveError::Card),
+        Err(LogError::Reject(r)) => return Err(MoveError::Log(r)),
     }
     tx.commit()?;
     Ok(())
@@ -820,7 +841,13 @@ pub fn import(conn: &mut Connection, board: &Path, now: &str) -> Result<usize, I
                 "parent" if cid.stage.is_none() || v != cid.run => {
                     return Err(bad(format!("parent: {v} differs from the card id")));
                 }
-                "id" | "parent" => {}
+                "state" if State::parse(&v).is_none() => {
+                    return Err(bad(format!("state: {v} is not a card state")));
+                }
+                "state" if State::parse(&v) != Some(*st) => {
+                    return Err(bad(format!("state: {v} differs from the {st} directory")));
+                }
+                "id" | "parent" | "state" => {}
                 _ => fields.push((k, v)),
             }
         }
@@ -873,6 +900,12 @@ mod tests {
         assert_eq!(CardId::parse("demo").stage, None);
         assert_eq!(CardId::parse("my.slug").stage, None);
         assert_eq!(CardId::parse("a.stuff").stage, None);
+        assert_eq!(CardId::parse("my.slug.s1").run, "my.slug");
+        assert_eq!(CardId::parse("my.slug.s1").stage, Some("1"));
+        assert_eq!(CardId::parse("r.s1x").stage, None);
+        assert_eq!(CardId::parse("r.s1x").run, "r.s1x");
+        assert_eq!(CardId::parse("r.s+1").stage, None);
+        assert_eq!(CardId::parse("r.s99999999999").stage, None);
     }
 
     #[test]

@@ -178,7 +178,8 @@ See: ferrule guide show board";
 
 const SET_AFTER_LONG_HELP: &str = "\
 Output:
-  (nothing)                      The fields were written; exit 0.
+  (nothing)                      The fields were written, all in one
+                                 transaction; exit 0.
 Refusals:
   card-set=card                  No such card; check the id with
                                  `ferrule board list`
@@ -187,8 +188,8 @@ Refusals:
                                  Fields in `ferrule board new --help` (do not
                                  hand-set the ones the workflow commands
                                  write: gate1, arch, gate2, lane, branch,
-                                 issue, pr, slices, split); fields before it
-                                 in the call are already written
+                                 issue, pr, slices, split); every key is
+                                 checked first, so nothing is written
   card-set=reject arg=<a>        A field argument without `=`; write key=value;
                                  nothing is written
 Every refusal ends in `hint=<fix>`.
@@ -210,6 +211,9 @@ Refusals:
                                  `ferrule board list`
   card-move=refused from=<s> to=<s> reason=<r> hint=<fix>
                                  The board forbids the move; nothing changes.
+  card-log=reject event=moved reason=length
+                                 The `moved=` line would be over the log line
+                                 length; nothing changes (exit 2).
 Reasons:
   transition                     Not an allowed move for this kind of card; the
                                  hint names the moves allowed from its state:
@@ -226,10 +230,12 @@ Reasons:
   commit                         A stage moved to done with no `commit=` in its
                                  log; commit it with `ferrule stage commit`
   unverified                     A stage moved to done whose `commit=` sha no
-                                 run `gauntlet=pass` covers; run the gauntlet
+                                 run `gauntlet=pass` covers; `ferrule ci gauntlet`
+                                 then `ferrule pr push` logs one
   gate2                          The parent moved to inprogress before its
                                  `gate2` field is set; `ferrule gate approve`
-Exit codes: 0 ok, 1 refused (no such card), 2 refused (reason).
+Exit codes: 0 ok, 1 refused (no such card), 2 refused (reason) or rejected
+line.
 See: ferrule guide show board";
 
 const LOG_AFTER_LONG_HELP: &str = "\
@@ -307,8 +313,9 @@ Refusals:
   import=refused reason=<text>   Nothing was loaded. <text> is free text to the
                                  end of the line: `<path>: <problem>` for a
                                  card file whose `id:` or `parent:` disagrees
-                                 with its name or that has a key its kind does
-                                 not carry, `card <id> is already on the
+                                 with its name, whose `state:` is not the
+                                 state directory it sits in, or that has a key
+                                 its kind does not carry, `card <id> is already on the
                                  board`, an I/O error or `state database: ...`.
                                  Fix the file or the board and run it again.
 Exit codes: 0 ok, 2 refused.
@@ -611,6 +618,10 @@ fn move_card(card: &str, to: State, out: &mut impl Write) -> io::Result<u8> {
             writeln!(out, "card-move=card hint={HINT_CARD}")?;
             Ok(exit::REFUSED)
         }
+        Err(MoveError::Log(r)) => {
+            writeln!(out, "{r}")?;
+            Ok(exit::USAGE)
+        }
         Err(MoveError::Refused { from, reason }) => {
             writeln!(
                 out,
@@ -712,9 +723,7 @@ fn list(
         .into_iter()
         .filter(|(id, st)| {
             (states.is_empty() || states.contains(st))
-                && run.is_none_or(|r| {
-                    id == r || id.strip_prefix(r).is_some_and(|t| t.starts_with('.'))
-                })
+                && run.is_none_or(|r| board::CardId::parse(id).run == r)
         });
     for (id, st) in cards {
         let state = match style {
@@ -771,22 +780,19 @@ fn set(card: &str, fields: &[String], out: &mut impl Write) -> io::Result<u8> {
         writeln!(out, "card-set=card hint={HINT_CARD}")?;
         return Ok(exit::REFUSED);
     };
-    for (k, v) in &fields {
-        match board::set(&mut s.conn, card, k, v) {
-            Ok(()) => {}
-            Err(CardError::Card) => {
-                writeln!(out, "card-set=card hint={HINT_CARD}")?;
-                return Ok(exit::REFUSED);
-            }
-            Err(CardError::Field(k)) => {
-                writeln!(out, "card-set=reject key={k} hint={}", hint_field(card))?;
-                return Ok(exit::USAGE);
-            }
-            Err(CardError::Exists) => unreachable!("set never creates a card"),
-            Err(CardError::Sql(e)) => return Err(sql(e)),
+    match board::set_all(&mut s.conn, card, &fields) {
+        Ok(()) => Ok(exit::OK),
+        Err(CardError::Card) => {
+            writeln!(out, "card-set=card hint={HINT_CARD}")?;
+            Ok(exit::REFUSED)
         }
+        Err(CardError::Field(k)) => {
+            writeln!(out, "card-set=reject key={k} hint={}", hint_field(card))?;
+            Ok(exit::USAGE)
+        }
+        Err(CardError::Exists) => unreachable!("set never creates a card"),
+        Err(CardError::Sql(e)) => Err(sql(e)),
     }
-    Ok(exit::OK)
 }
 
 fn import(board_dir: &Path, out: &mut impl Write) -> io::Result<u8> {
@@ -873,7 +879,7 @@ pub(super) fn commit(
                 return Ok(exit::REFUSED);
             }
         }
-        let run = id.split_once('.').map_or(id, |(r, _)| r);
+        let run = board::CardId::parse(id).run;
         let want = board::field(&s.conn, run, "branch")
             .map_err(sql)?
             .filter(|b| !b.is_empty());
