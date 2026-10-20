@@ -28,7 +28,7 @@ Refusals:
                                    `ferrule issue post` does (a host error goes
                                    to stderr, exit 1)
 The approve=refused lines end in ` hint=<fix>`.
-Exit codes: 0 done, 1 refused, 2 usage.
+Exit codes: 0 done, 1 refused, 2 usage, 4 internal error.
 See: ferrule guide show approval";
 
 /// Shown after `ferrule gate next --help`.
@@ -87,7 +87,7 @@ Errors:
                                    The status line lacks status= (ci=<code>
                                    at ci)
 The run-next lines end in ` hint=<fix>`.
-Exit codes: 0 ok, 1 refused, 2 usage.
+Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
 
 Example:
   ferrule gate next <slug> gate2 status=ready file=plan.md";

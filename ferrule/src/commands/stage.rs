@@ -34,7 +34,7 @@ Refusals (checked in this order; each line ends in `hint=<fix>`):
                                  refused); git's message is on stderr
 With --no-run only the main-branch check applies and no card is touched.
 Attribution trailers are stripped from the message first.
-Exit codes: 0 ok, 1 refused.
+Exit codes: 0 ok, 1 refused, 4 internal error.
 See: ferrule guide show implementer";
 
 /// Shown after `ferrule stage verify --help`.
@@ -51,7 +51,7 @@ Refusals:
   sha=mismatch reason=card-commit  The stage card's last commit= is another
                                    commit; commit with `ferrule stage commit`
 Refusals end in ` hint=<fix>`.
-Exit codes: 0 ok, 1 mismatch, 2 usage.
+Exit codes: 0 ok, 1 mismatch, 2 usage, 4 internal error.
 See: ferrule guide show stages";
 
 /// Shown after `ferrule stage stop --help`.
@@ -75,7 +75,7 @@ Refusals:
   stage-stop=card                  No such stage card; check the slug and
                                    stage with `ferrule board list`
 The refusal ends in ` hint=<fix>`.
-Exit codes: 0 auto or stop, 1 refused, 2 usage.
+Exit codes: 0 auto or stop, 1 refused, 2 usage, 4 internal error.
 See: ferrule guide show stage-review";
 
 /// Shown after `ferrule stage replan --help`.
@@ -101,7 +101,7 @@ Refusals:
   replan=refused reason=no-plan    approve: plan.md is missing
   replan=refused reason=no-stages  approve: the plan has no stage from s<n> on
 Refusals end in ` hint=<fix>`.
-Exit codes: 0 ok, 1 refused, 2 usage.
+Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
 See: ferrule guide show replan";
 
 #[derive(Debug, Subcommand)]

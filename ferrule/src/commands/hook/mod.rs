@@ -49,7 +49,7 @@ Refuses:
 Errors (stderr):
   ferrule hook: unreadable PreToolUse payload (...); refusing the call
                        exit 2, which blocks the call; fix the hook command
-Exit codes: 0 ok, 2 blocked or unreadable payload.";
+Exit codes: 0 ok, 2 blocked or unreadable payload, 4 internal error.";
 
 /// Shown after `ferrule hook attribution --help`.
 const ATTRIBUTION_AFTER_LONG_HELP: &str = "\
@@ -68,7 +68,7 @@ Refuses:
 Errors (stderr):
   ferrule hook: unreadable PreToolUse payload (...); refusing the call
                        exit 2, which blocks the call
-Exit codes: 0 ok, 2 blocked or unreadable payload.";
+Exit codes: 0 ok, 2 blocked or unreadable payload, 4 internal error.";
 
 /// Shown after `ferrule hook reviewer --help`.
 const REVIEWER_AFTER_LONG_HELP: &str = "\
@@ -102,7 +102,7 @@ Refuses:
 Errors (stderr):
   ferrule hook: unreadable PreToolUse payload (...); refusing the call
                        exit 2, which blocks the call
-Exit codes: 0 ok, 2 blocked or unreadable payload.";
+Exit codes: 0 ok, 2 blocked or unreadable payload, 4 internal error.";
 
 /// Shown after `ferrule hook session-start --help`.
 const SESSION_START_AFTER_LONG_HELP: &str = "\
@@ -117,7 +117,7 @@ Output (stdout, added to the session's context):
   Ask to resume: reconcile every card against git before acting on it
   (ferrule guide show resume).
 Prints nothing when there is no board or no unfinished card.
-Exit codes: 0 always.
+Exit codes: 0 ok, 4 internal error.
 See: ferrule guide show resume";
 
 #[derive(Debug, Subcommand)]

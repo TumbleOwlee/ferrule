@@ -206,6 +206,15 @@ impl std::fmt::Display for Error {
     }
 }
 
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Error::Io(e) => Some(e),
+            Error::Foreign(_) | Error::Settings(_) | Error::Lock(_) => None,
+        }
+    }
+}
+
 /// What install did, in the order it did it.
 #[derive(Debug, Default)]
 pub struct Report {

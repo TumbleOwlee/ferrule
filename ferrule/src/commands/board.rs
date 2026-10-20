@@ -11,7 +11,7 @@ use ferrule_core::project;
 use ferrule_core::store::{OpenError, Store};
 use ferrule_core::term::{self, Style};
 
-use super::exit;
+use super::{exit, internal};
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum CardKind {
@@ -73,7 +73,7 @@ Filters: --event <name> keeps that event's lines (`follow-up`, `spec-delta`,
 Refusals:
   events=card hint=check the id with `ferrule board list`
                              No such run (exit 1).
-Exit codes: 0 ok, 1 refused.
+Exit codes: 0 ok, 1 refused, 4 internal error.
 Examples:
   ferrule board events <slug> --event follow-up
   ferrule board events <slug> --event spec-delta --last 5
@@ -87,7 +87,7 @@ Output:
 Filters: --state keeps the cards in that state (repeat for several);
 --run <slug> keeps that run's parent and its stages. Both together keep the
 cards that match both.
-Exit codes: 0 always.
+Exit codes: 0 ok, 4 internal error.
 Examples:
   ferrule board list --state inprogress --state inreview
   ferrule board list --run <slug>
@@ -109,7 +109,7 @@ Examples:
 Refusals:
   card-show=card             No such card; check the id with
                              `ferrule board list` (hint= says so)
-Exit codes: 0 ok, 1 refused.
+Exit codes: 0 ok, 1 refused, 4 internal error.
 See: ferrule guide show board";
 
 const FIELD_AFTER_LONG_HELP: &str = "\
@@ -129,7 +129,7 @@ Examples:
   ferrule board field <slug> lane
   ferrule board field <slug>.s1 log:commit
   ferrule board field <slug>.s1 pass-sha
-Exit codes: 0 always.
+Exit codes: 0 ok, 4 internal error.
 See: ferrule guide show board";
 
 const NEW_AFTER_LONG_HELP: &str = "\
@@ -158,7 +158,7 @@ Fields (`ferrule board set` takes the same):
                                  issue, slices and split (`ferrule issue
                                  file`; gate2 files the issue too), pr
                                  (`ferrule pr open`, or the first `pr push`).
-Exit codes: 0 ok, 1 refused (exists), 2 rejected input.
+Exit codes: 0 ok, 1 refused (exists), 2 rejected input, 4 internal error.
 See: ferrule guide show board";
 
 const SET_AFTER_LONG_HELP: &str = "\
@@ -178,7 +178,7 @@ Refusals:
   card-set=reject arg=<a>        A field argument without `=`; write key=value;
                                  nothing is written
 Every refusal ends in `hint=<fix>`.
-Exit codes: 0 ok, 1 refused (card), 2 rejected input.
+Exit codes: 0 ok, 1 refused (card), 2 rejected input, 4 internal error.
 See: ferrule guide show board";
 
 const MOVE_AFTER_LONG_HELP: &str = "\
@@ -220,7 +220,7 @@ Reasons:
   gate2                          The parent moved to inprogress before its
                                  `gate2` field is set; `ferrule gate approve`
 Exit codes: 0 ok, 1 refused (no such card), 2 refused (reason) or rejected
-line.
+line, 4 internal error.
 See: ferrule guide show board";
 
 const LOG_AFTER_LONG_HELP: &str = "\
@@ -266,7 +266,7 @@ Reasons:
   `[ids]` in a hint or in `board vocab` is an optional list of fixed spec IDs
   like MB-R-001, comma-separated without spaces if several (MB-R-001,MB-R-002).
   The hint of a value refusal names what that event takes.
-Exit codes: 0 ok, 1 refused (no such card), 2 rejected line.
+Exit codes: 0 ok, 1 refused (no such card), 2 rejected line, 4 internal error.
 See: ferrule guide show board
 
 Examples:
@@ -294,7 +294,7 @@ either).
 Refusals:
   vocab=none hint=no such event for this card kind; ferrule board vocab lists them all
               No event matches the filters; exit 1.
-Exit codes: 0 ok, 1 nothing matched.
+Exit codes: 0 ok, 1 nothing matched, 4 internal error.
 See: ferrule guide show board";
 
 const IMPORT_AFTER_LONG_HELP: &str = "\
@@ -311,7 +311,7 @@ Refusals:
                                  `card <id> is already on the
                                  board`, an I/O error or `state database: ...`.
                                  Fix the file or the board and run it again.
-Exit codes: 0 ok, 2 refused.
+Exit codes: 0 ok, 2 refused, 4 internal error.
 See: ferrule guide show board";
 
 const HINT_CARD: &str = "check the id with `ferrule board list`";
@@ -441,24 +441,20 @@ pub enum BoardCommand {
     },
 }
 
-pub(crate) fn sql(e: impl std::fmt::Display) -> io::Error {
-    io::Error::other(e.to_string())
-}
-
 /// The board's database; `None` when there is none yet, which reads as an
 /// empty board.
 pub(crate) fn store(create: bool) -> io::Result<Option<Store>> {
     match Store::open(&project::main_checkout(), create) {
         Ok(s) => Ok(Some(s)),
         Err(OpenError::Missing(_)) => Ok(None),
-        Err(e) => Err(sql(e)),
+        Err(e) => Err(internal(e)),
     }
 }
 
 /// The board's database when `id` names a card on it; `None` otherwise.
 pub(crate) fn card_store(id: &str) -> io::Result<Option<Store>> {
     match store(false)? {
-        Some(s) if board::state(&s.conn, id).map_err(sql)?.is_some() => Ok(Some(s)),
+        Some(s) if board::state(&s.conn, id).map_err(internal)?.is_some() => Ok(Some(s)),
         _ => Ok(None),
     }
 }
@@ -556,12 +552,12 @@ fn field(card: &str, field: &str, out: &mut impl Write) -> io::Result<u8> {
     };
     let value = match field {
         "state" => board::state(&s.conn, card)
-            .map_err(sql)?
+            .map_err(internal)?
             .map(|st| st.as_str().to_owned()),
-        "pass-sha" => board::pass_shas(&s.conn, card).map_err(sql)?.pop(),
+        "pass-sha" => board::pass_shas(&s.conn, card).map_err(internal)?.pop(),
         f => match f.strip_prefix("log:") {
-            Some(key) => board::last_logged(&s.conn, card, key).map_err(sql)?,
-            None => board::field(&s.conn, card, f).map_err(sql)?,
+            Some(key) => board::last_logged(&s.conn, card, key).map_err(internal)?,
+            None => board::field(&s.conn, card, f).map_err(internal)?,
         },
     };
     if let Some(v) = value {
@@ -575,7 +571,7 @@ fn log(card: &str, event: &str, args: &[String], out: &mut impl Write) -> io::Re
         writeln!(out, "card-log=card hint={HINT_CARD}")?;
         return Ok(exit::REFUSED);
     };
-    let config = Config::load(&project::main_checkout()).map_err(sql)?;
+    let config = Config::load(&project::main_checkout()).map_err(internal)?;
     match board::log_with_budget(
         &mut s.conn,
         card,
@@ -594,7 +590,7 @@ fn log(card: &str, event: &str, args: &[String], out: &mut impl Write) -> io::Re
             writeln!(out, "{r}")?;
             Ok(exit::USAGE)
         }
-        Err(LogError::Sql(e)) => Err(sql(e)),
+        Err(LogError::Sql(e)) => Err(internal(e)),
     }
 }
 
@@ -625,16 +621,16 @@ fn move_card(card: &str, to: State, out: &mut impl Write) -> io::Result<u8> {
             )?;
             Ok(exit::USAGE)
         }
-        Err(MoveError::Sql(e)) => Err(sql(e)),
+        Err(MoveError::Sql(e)) => Err(internal(e)),
     }
 }
 
 fn show(card: &str, part: &ShowPart, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
     let shown = match store(false)? {
-        Some(s) => match board::show(&s.conn, card).map_err(sql)? {
+        Some(s) => match board::show(&s.conn, card).map_err(internal)? {
             Some(text) => Some((
                 text,
-                board::log_lines(&s.conn, card, part.event).map_err(sql)?,
+                board::log_lines(&s.conn, card, part.event).map_err(internal)?,
             )),
             None => None,
         },
@@ -691,7 +687,7 @@ fn events(
         return Ok(exit::REFUSED);
     };
     let mut lines: Vec<String> = board::run_log_lines(&s.conn, slug, event)
-        .map_err(sql)?
+        .map_err(internal)?
         .into_iter()
         .map(|(card, at, body)| format!("{card} {at} {body}"))
         .collect();
@@ -714,7 +710,7 @@ fn list(
         return Ok(exit::OK);
     };
     let cards = board::all(&s.conn)
-        .map_err(sql)?
+        .map_err(internal)?
         .into_iter()
         .filter(|(id, st)| {
             (states.is_empty() || states.contains(st))
@@ -729,7 +725,7 @@ fn list(
             ),
             None => format!("{:<10}", st.as_str()),
         };
-        match board::field(&s.conn, &id, "title").map_err(sql)? {
+        match board::field(&s.conn, &id, "title").map_err(internal)? {
             Some(t) => writeln!(out, "{state} {id}  {t}")?,
             None => writeln!(out, "{state} {id}")?,
         }
@@ -759,7 +755,7 @@ fn new(card: &str, st: State, fields: &[String], out: &mut impl Write) -> io::Re
             Ok(exit::USAGE)
         }
         Err(CardError::Card) => unreachable!("create never looks a card up"),
-        Err(CardError::Sql(e)) => Err(sql(e)),
+        Err(CardError::Sql(e)) => Err(internal(e)),
     }
 }
 
@@ -786,7 +782,7 @@ fn set(card: &str, fields: &[String], out: &mut impl Write) -> io::Result<u8> {
             Ok(exit::USAGE)
         }
         Err(CardError::Exists) => unreachable!("set never creates a card"),
-        Err(CardError::Sql(e)) => Err(sql(e)),
+        Err(CardError::Sql(e)) => Err(internal(e)),
     }
 }
 
@@ -810,7 +806,7 @@ fn import(board_dir: &Path, out: &mut impl Write) -> io::Result<u8> {
 /// run has a PR. A failure to reach the host does not undo the move.
 pub(crate) fn sync_draft(s: &mut Store, card: &str, out: &mut impl Write) -> io::Result<()> {
     let layout = ferrule_core::project::Layout::new(project::main_checkout());
-    let config = Config::load(&layout.root).map_err(sql)?;
+    let config = Config::load(&layout.root).map_err(internal)?;
     let now = board::now();
     let mut run = publish::Run {
         conn: &mut s.conn,
@@ -824,7 +820,7 @@ pub(crate) fn sync_draft(s: &mut Store, card: &str, out: &mut impl Write) -> io:
         Ok(Some(sync)) => writeln!(out, "{sync}"),
         Ok(None) => Ok(()),
         Err(e) => {
-            eprintln!("pr body: {e:?}");
+            eprintln!("pr body: {e}");
             writeln!(out, "pr-body=failed")
         }
     }
@@ -837,7 +833,7 @@ pub(super) fn commit(
     out: &mut impl Write,
 ) -> io::Result<u8> {
     let here = std::env::current_dir()?;
-    let config = ferrule_core::config::Config::load(&project::main_checkout()).map_err(sql)?;
+    let config = ferrule_core::config::Config::load(&project::main_checkout()).map_err(internal)?;
     let branch = ferrule_core::git::out(&here, &["symbolic-ref", "--short", "-q", "HEAD"]);
     if branch.as_deref() == Some(config.main_branch.as_str()) {
         let hint = format!(
@@ -857,7 +853,7 @@ pub(super) fn commit(
             writeln!(out, "commit=refused reason=card hint={HINT_CARD}")?;
             return Ok(exit::REFUSED);
         };
-        match board::state(&s.conn, id).map_err(sql)? {
+        match board::state(&s.conn, id).map_err(internal)? {
             None => {
                 writeln!(out, "commit=refused reason=card hint={HINT_CARD}")?;
                 return Ok(exit::REFUSED);
@@ -876,7 +872,7 @@ pub(super) fn commit(
         }
         let run = board::CardId::parse(id).run;
         let want = board::field(&s.conn, run, "branch")
-            .map_err(sql)?
+            .map_err(internal)?
             .filter(|b| !b.is_empty());
         if let Some(want) = want
             && branch.as_deref() != Some(want.as_str())
@@ -914,7 +910,7 @@ pub(super) fn commit(
             &board::now(),
         ) {
             writeln!(out, " card-log=failed")?;
-            eprintln!("stage commit: committed {sha} but could not log it on {id}: {e:?}");
+            eprintln!("stage commit: committed {sha} but could not log it on {id}: {e}");
             return Ok(exit::REFUSED);
         }
         write!(out, " card={id}")?;

@@ -12,8 +12,9 @@ use ferrule_core::project::{self, Layout};
 use ferrule_core::term::Style;
 use ferrule_core::{git, remote};
 
-use super::board::{sql, store};
+use super::board::store;
 use super::exit;
+use super::internal;
 use super::issue::{post_failed, print_body};
 use feedback::FeedbackCommand;
 
@@ -45,7 +46,7 @@ Examples:
   ferrule pr view <n> --body
 Errors (stderr, exit 1): `pr view: <the host's error>` for an unknown PR, a
 missing credential or a failing `gh`/`curl`.
-Exit codes: 0 ok, 1 refused.
+Exit codes: 0 ok, 1 refused, 4 internal error.
 Backend: reads from the configured CI host (`backend` in ferrule.toml).";
 
 const PR_BODY_AFTER_LONG_HELP: &str = "\
@@ -61,7 +62,7 @@ Refusals:
       writes it.
   (no line, nothing printed)
       The body would be empty. Exit 1.
-Exit codes: 0 ok, 1 refused, 3 content (stage-ref).
+Exit codes: 0 ok, 1 refused, 3 content (stage-ref), 4 internal error.
 See: ferrule guide show gate4";
 
 const PR_OPEN_AFTER_LONG_HELP: &str = "\
@@ -77,7 +78,7 @@ Refusals (stdout, exit 1):
   body=refused stage-ref=<token> hint=reword the source text so it names no stage or agent
       The draft body names a stage or an agent. Exit 3. Fix: see `pr body`.
 Errors (stderr, exit 1): `body: missing <path>`; the CI host's error.
-Exit codes: 0 ok, 1 refused, 3 content.
+Exit codes: 0 ok, 1 refused, 3 content, 4 internal error.
 Backend: opens the PR on the configured CI host.
 See: ferrule guide show stages";
 
@@ -118,7 +119,7 @@ Refusals (stdout, exit 1):
   push=refused reason=card hint=no card for this slug; check it with `ferrule board list`
       No card for the slug. Fix: check the slug with `ferrule board list`.
 Errors (stderr, exit 1): `missing <path>`; the CI host's error.
-Exit codes: 0 ok, 1 refused.
+Exit codes: 0 ok, 1 refused, 4 internal error.
 Backend: pushes to origin; updates the PR on the configured CI host.
 See: ferrule guide show stages";
 
@@ -145,7 +146,7 @@ Refusals (stdout, exit 1 unless noted):
   body=refused stage-ref=<token> hint=reword the source text so it names no stage or agent
       As in `pr body full`. Exit 3.
 Errors (stderr, exit 1): `body: missing <path>` (pr.md); the host's error.
-Exit codes: 0 ok, 1 refused, 3 content.
+Exit codes: 0 ok, 1 refused, 3 content, 4 internal error.
 Backend: edits and readies the PR on the configured CI host; files the
 follow-ups on the tracker.
 See: ferrule guide show gate4";
@@ -208,7 +209,7 @@ pub enum PrCommand {
 }
 
 pub fn run(command: &PrCommand, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
-    let config = Config::load(&project::main_checkout()).map_err(sql)?;
+    let config = Config::load(&project::main_checkout()).map_err(internal)?;
     match command {
         PrCommand::View { pr, view } => match remote::pr(config.backend.ci, pr, &project::root()) {
             Ok(item) => {
@@ -224,7 +225,7 @@ pub fn run(command: &PrCommand, style: Option<Style>, out: &mut impl Write) -> i
             let layout = Layout::new(project::main_checkout());
             let s = match store(false)? {
                 Some(s) => s,
-                None => ferrule_core::store::Store::memory().map_err(sql)?,
+                None => ferrule_core::store::Store::memory().map_err(internal)?,
             };
             let form = match form {
                 BodyForm::Draft => Form::Draft,

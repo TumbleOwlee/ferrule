@@ -137,7 +137,15 @@ impl std::fmt::Display for OpenError {
     }
 }
 
-impl std::error::Error for OpenError {}
+impl std::error::Error for OpenError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            OpenError::Sql(e) => Some(e),
+            OpenError::Io(e) => Some(e),
+            OpenError::Missing(_) | OpenError::Newer { .. } => None,
+        }
+    }
+}
 
 impl From<Error> for OpenError {
     fn from(e: Error) -> Self {

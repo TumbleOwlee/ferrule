@@ -16,6 +16,7 @@ pub mod markdown;
 pub mod pr;
 pub mod project;
 pub mod prompt;
+pub mod refusal;
 pub mod remote;
 pub mod run;
 pub mod spec;

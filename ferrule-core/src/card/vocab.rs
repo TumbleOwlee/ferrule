@@ -375,6 +375,8 @@ impl fmt::Display for Reject {
     }
 }
 
+impl std::error::Error for Reject {}
+
 /// What a line is checked against beyond its own words.
 #[derive(Debug, Clone, Copy)]
 pub struct Context {

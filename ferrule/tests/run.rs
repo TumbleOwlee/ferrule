@@ -703,3 +703,23 @@ fn it_run_status_summarises_cards_and_worktree() {
         "status=refused reason=card hint=check the slug with `ferrule board list`\nexit=1"
     );
 }
+
+/// An unreadable ferrule.toml or state database is an internal error:
+/// exit 4 with `ferrule: <error>` on stderr, never a refusal.
+#[test]
+fn internal_errors_exit_4() {
+    let s = Scratch::new(1);
+    s.config("main_branch = [");
+    let out = s.run(&["run", "status", "ss"]).output();
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(4), "{err}");
+    assert!(err.starts_with("ferrule: ferrule.toml: "), "{err}");
+    assert!(out.stdout.is_empty());
+
+    std::fs::remove_file(s.root.join(".ferrule/ferrule.toml")).unwrap();
+    std::fs::write(s.root.join(".ferrule/state.db"), "not a database").unwrap();
+    let out = s.run(&["board", "list"]).output();
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(4), "{err}");
+    assert!(err.starts_with("ferrule: state database: "), "{err}");
+}

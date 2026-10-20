@@ -207,7 +207,7 @@ pub fn run(
     steps: &[Step],
     force: bool,
     now: &str,
-) -> Result<Outcome, Box<dyn std::error::Error>> {
+) -> Result<Outcome, Box<dyn std::error::Error + Send + Sync>> {
     if !wt.is_dir() {
         return Ok(Outcome::NoWorktree);
     }

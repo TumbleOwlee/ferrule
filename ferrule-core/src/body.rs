@@ -33,6 +33,27 @@ pub enum Error {
     Sql(rusqlite::Error),
 }
 
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::Missing(p) => write!(f, "{} is missing", p.display()),
+            Error::NoSlice(n) => write!(f, "slices.md has no slice {n}"),
+            Error::StageRef(t) => write!(f, "the text names a stage or an agent: {t}"),
+            Error::Empty => f.write_str("nothing to print"),
+            Error::Sql(e) => write!(f, "state database: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Error::Sql(e) => Some(e),
+            Error::Missing(_) | Error::NoSlice(_) | Error::StageRef(_) | Error::Empty => None,
+        }
+    }
+}
+
 impl From<rusqlite::Error> for Error {
     fn from(e: rusqlite::Error) -> Self {
         Error::Sql(e)

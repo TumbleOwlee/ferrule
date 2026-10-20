@@ -47,7 +47,7 @@ Version mismatch (stderr of every other command):
       install and commit, or cargo install the pinned tag. install and
       uninstall still run.
 Exit codes: 0 ok, 1 refused or drift, 2 usage (2 also blocks a git hook on a
-version mismatch).";
+version mismatch), 4 internal error.";
 
 /// Shown after `ferrule setup check --help`.
 const CHECK_AFTER_LONG_HELP: &str = "\
@@ -61,7 +61,7 @@ Output (nothing is written):
       locked=<v>, and binary=<v>).
   install-check=refused reason=<error> hint=fix the file the reason names, then rerun
       The lock or settings file is unreadable.
-Exit codes: 0 ok, 1 refused or drift, 2 usage.";
+Exit codes: 0 ok, 1 refused or drift, 2 usage, 4 internal error.";
 
 #[derive(Debug, Subcommand)]
 pub enum SetupCommand {

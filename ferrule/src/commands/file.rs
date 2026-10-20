@@ -16,7 +16,7 @@ Output:
 Refusals (stderr, exit 1):
   cannot read <file>: <error>    The file is missing or unreadable; the other
                                  files still list.
-Exit codes: 0 ok, 1 a file could not be read, 2 usage.";
+Exit codes: 0 ok, 1 a file could not be read, 2 usage, 4 internal error.";
 
 /// Shown after `ferrule file section --help`.
 const SECTION_AFTER_LONG_HELP: &str = "\
@@ -29,7 +29,7 @@ Refusals (stderr, exit 1):
                                  the file's headings with `ferrule file
                                  headings FILE`, or add --prefix.
   cannot read <file>: <error>    The file is missing or unreadable.
-Exit codes: 0 every heading matched, 1 refused, 2 usage.
+Exit codes: 0 every heading matched, 1 refused, 2 usage, 4 internal error.
 Examples:
   ferrule file section Status Scope docs/specs/mb/requirements.md
   ferrule file section Status 'Open questions' docs/specs/x.md

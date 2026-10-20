@@ -157,6 +157,10 @@ const IGNORED: &[(&str, &str)] = &[
         "matched in the card log, not printed",
     ),
     (
+        "ferrule-core/src/refusal.rs",
+        "the refusal renderer's own format; each verb documents its refusals",
+    ),
+    (
         "ferrule/src/cli.rs",
         "the root help's own description of status lines and refusals",
     ),

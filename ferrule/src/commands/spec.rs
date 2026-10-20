@@ -26,7 +26,7 @@ Refusals (stderr, exit 1):
                                  Matched IDs still print. Check the ID's
                                  spelling, e.g. MB-R-012; `ferrule spec
                                  related` finds IDs by keyword.
-Exit codes: 0 every ID found, 1 refused, 2 usage.";
+Exit codes: 0 every ID found, 1 refused, 2 usage, 4 internal error.";
 
 /// Shown after `ferrule spec related --help`.
 const RELATED_AFTER_LONG_HELP: &str = "\
@@ -50,7 +50,7 @@ Too many matches:
                                  match; none is printed. Every keyword must
                                  match, so add one or make one narrower
                                  (exit 1).
-Exit codes: 0 ok, 1 refused, 2 usage.
+Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
 See: ferrule guide show author";
 
 /// Shown after `ferrule spec collisions --help`.
@@ -68,7 +68,7 @@ Refusals:
                                  descends from
                                  The branch and REF share no history (exit
                                  2). Fetch REF, or name the right one.
-Exit codes: 0 clean, 1 collide, 2 error or usage.
+Exit codes: 0 clean, 1 collide, 2 error or usage, 4 internal error.
 See: ferrule guide show gate4";
 
 /// Shown after `ferrule spec next --help`.
@@ -88,7 +88,7 @@ Refusals (exit 1):
   next=refused reason=grep hint=git grep failed on REF; report it to the user
   next=refused reason=card hint=check the slug with `ferrule board list`
   next=refused reason=range hint=lower --count; the numbers would pass 4294967295
-Exit codes: 0 ok, 1 refused, 2 usage.
+Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
 Examples:
   ferrule spec next MB --count 3
   ferrule spec next MB --edge --run <slug>
@@ -113,7 +113,7 @@ Refusals:
                                  A word is not a fixed ID (exit 2).
   refs=refused reason=ref hint=fetch REF or pass another --ref
   refs=refused reason=grep hint=git grep failed; check each --path, else report it to the user
-Exit codes: 0 ok, 1 none or refused, 2 usage.
+Exit codes: 0 ok, 1 none or refused, 2 usage, 4 internal error.
 Examples:
   ferrule spec refs MB-R-288 --path src --path tests
   ferrule spec refs MB-R-301 --ref main --path docs/specs
@@ -126,7 +126,7 @@ Output:
   spec-diff does not have. No status line.
 Refusals (stderr, exit 1):
   cannot read <file>: <error>    The spec-diff.md is missing or unreadable.
-Exit codes: 0 ok, 1 refused, 2 usage.
+Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
 Example:
   ferrule spec render .ferrule/runs/<slug>/spec-diff.md entries --only 'R1 R3'";
 
@@ -295,7 +295,7 @@ fn next(args: &NextArgs, out: &mut impl Write) -> io::Result<u8> {
     }
     let series = if args.edge { 'E' } else { 'R' };
     let root = project::main_checkout();
-    let config = Config::load(&root).map_err(super::board::sql)?;
+    let config = Config::load(&root).map_err(super::internal)?;
     let reference = args.r#ref.clone().unwrap_or(config.main_branch);
     if git::commit(&root, &reference).is_none() {
         writeln!(out, "next=refused reason=ref hint=fetch REF or pass --ref")?;
@@ -353,7 +353,7 @@ fn run_texts(slug: &str) -> io::Result<Option<Vec<String>>> {
         return Ok(None);
     };
     let mut texts = Vec::new();
-    let wt = run::worktree(&s.conn, &layout, slug, slug).map_err(super::board::sql)?;
+    let wt = run::worktree(&s.conn, &layout, slug, slug).map_err(super::internal)?;
     let specs = wt.join("docs/specs");
     if specs.is_dir() {
         for path in spec::markdown_files(&specs)? {
@@ -363,7 +363,7 @@ fn run_texts(slug: &str) -> io::Result<Option<Vec<String>>> {
     if let Ok(diff) = std::fs::read_to_string(layout.run_dir(slug).join("spec-diff.md")) {
         texts.push(diff);
     }
-    for e in board::run_events(&s.conn, slug, &[Name::SpecDelta]).map_err(super::board::sql)? {
+    for e in board::run_events(&s.conn, slug, &[Name::SpecDelta]).map_err(super::internal)? {
         if let Typed::SpecDelta {
             id,
             change: Some(Change::Added),
@@ -423,7 +423,7 @@ fn refs(args: &RefsArgs, out: &mut impl Write) -> io::Result<u8> {
         })
         .collect();
     let max = Config::load(&project::main_checkout())
-        .map_err(super::board::sql)?
+        .map_err(super::internal)?
         .thresholds
         .search_max;
     if lines.len() > max {
@@ -574,7 +574,7 @@ fn related(args: &RelatedArgs, out: &mut impl Write) -> io::Result<u8> {
         }
     }
     let max = Config::load(&project::main_checkout())
-        .map_err(super::board::sql)?
+        .map_err(super::internal)?
         .thresholds
         .search_max;
     if hits.len() > max {
@@ -599,7 +599,7 @@ fn collisions(args: &CollisionsArgs, out: &mut impl Write) -> io::Result<u8> {
     let reference = if let Some(r) = &args.reference {
         r.clone()
     } else {
-        let config = Config::load(&project::main_checkout()).map_err(super::board::sql)?;
+        let config = Config::load(&project::main_checkout()).map_err(super::internal)?;
         format!("origin/{}", config.main_branch)
     };
     match spec::collisions(&args.worktree, &reference) {
@@ -644,7 +644,7 @@ fn render(args: &RenderArgs, style: Option<Style>, out: &mut impl Write) -> io::
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default();
         Some(match super::board::store(false)? {
-            Some(s) => board::reworded_ids(&s.conn, &slug).map_err(super::board::sql)?,
+            Some(s) => board::reworded_ids(&s.conn, &slug).map_err(super::internal)?,
             None => HashSet::new(),
         })
     } else {

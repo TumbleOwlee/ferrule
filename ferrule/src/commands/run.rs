@@ -5,8 +5,10 @@ use clap::{Args, Subcommand, ValueEnum};
 use ferrule_core::card::board;
 use ferrule_core::card::typed::Name;
 use ferrule_core::config::Config;
+use ferrule_core::git::GitError;
 use ferrule_core::pr::publish;
 use ferrule_core::project::{self, Layout};
+use ferrule_core::refusal::Refusal;
 use ferrule_core::remote::{self, Item};
 use ferrule_core::run::archive::{self, Error as ArchiveError};
 use ferrule_core::run::gate::{self, Gate};
@@ -16,8 +18,9 @@ use ferrule_core::run::rebuild;
 use ferrule_core::run::{self as core_run, Error};
 use ferrule_core::store::DIR;
 
-use super::board::{card_store, sql, store};
+use super::board::{card_store, store};
 use super::exit;
+use super::{internal, refuse};
 
 /// Shown after `ferrule run init --help`.
 const INIT_AFTER_LONG_HELP: &str = "\
@@ -34,7 +37,7 @@ Refusals:
 Errors (stderr):
   init: <host error>               The issue could not be read (exit 1)
 Refusals end in ` hint=<fix>`.
-Exit codes: 0 done, 1 refused, 2 usage.
+Exit codes: 0 done, 1 refused, 2 usage, 4 internal error.
 See: ferrule guide show gate1";
 
 /// Shown after `ferrule run reconcile --help`.
@@ -60,7 +63,7 @@ then a summary:
 Errors (stderr):
   reconcile: no card for <slug>    Exit 2; check the slug with
                                    `ferrule board list`
-Exit codes: 0 clean, 1 differ, 2 usage.
+Exit codes: 0 clean, 1 differ, 2 usage, 4 internal error.
 See: ferrule guide show resume";
 
 /// Shown after `ferrule run rebuild --help`.
@@ -85,7 +88,7 @@ Refusals (nothing is written):
                                        repository
   rebuild=refused reason=worktree      `git worktree add` failed
 Refusals end in ` hint=<fix>`.
-Exit codes: 0 done, 1 refused, 2 usage.
+Exit codes: 0 done, 1 refused, 2 usage, 4 internal error.
 See: ferrule guide show resume";
 
 /// Shown after `ferrule run cleanup --help`.
@@ -113,7 +116,7 @@ Refusals (nothing is removed):
   cleanup=refused reason=branch-delete-failed The local branch could not be
                                               deleted; `git branch -D` it
 Refusals end in ` hint=<fix>`.
-Exit codes: 0 done, 1 refused.
+Exit codes: 0 done, 1 refused, 4 internal error.
 See: ferrule guide show cleanup";
 
 /// Shown after `ferrule run metrics --help`.
@@ -139,7 +142,7 @@ Refusals:
                                    Exit 1; check the slug with
                                    `ferrule board list`
 The reason lines end in ` hint=<fix>`.
-Exit codes: 0 ok, 1 refused.
+Exit codes: 0 ok, 1 refused, 4 internal error.
 See: ferrule guide show cleanup";
 
 /// Shown after `ferrule run status --help`.
@@ -162,7 +165,7 @@ Output, local only (no host call):
                                  the run has logged nothing.
 Refusals (exit 1):
   status=refused reason=card hint=check the slug with `ferrule board list`
-Exit codes: 0 ok, 1 refused.
+Exit codes: 0 ok, 1 refused, 4 internal error.
 See: ferrule guide show resume";
 
 /// Shown after `ferrule run diff --help`.
@@ -178,7 +181,7 @@ Refusals (exit 1, nothing else printed):
   diff=refused reason=card hint=check the slug with `ferrule board list`
   diff=refused reason=no-worktree hint=`ferrule gate approve <slug> gate2` adds it
   diff=refused reason=base hint=fetch it, or pass a --base the branch has
-Exit codes: 0 ok, 1 refused.
+Exit codes: 0 ok, 1 refused, 4 internal error.
 Examples:
   ferrule run diff <slug> --specs
   ferrule run diff <slug> --base <sha> --stat
@@ -191,7 +194,7 @@ newest first; with --stat each commit's files too. base is main_branch of
 ferrule.toml unless --base names another commit.
 Refusals (exit 1): the `log=refused reason=card|no-worktree|base hint=…` lines
 of `ferrule run diff --help`.
-Exit codes: 0 ok, 1 refused.
+Exit codes: 0 ok, 1 refused, 4 internal error.
 See: ferrule guide show reviewer";
 
 /// Shown after `ferrule run plan-diff --help`.
@@ -203,7 +206,7 @@ both in the run's directory.
 Refusals (exit 1):
   plan-diff=refused reason=no-plan hint=the planner has not written plan.md yet
   plan-diff=refused reason=no-prev hint=no plan review has snapshotted plan.md; read it whole
-Exit codes: 0 ok, 1 refused.
+Exit codes: 0 ok, 1 refused, 4 internal error.
 See: ferrule guide show reviewer-plan";
 
 /// Shown after `ferrule run export --help`.
@@ -215,7 +218,7 @@ Refusals:
   export=none                      The run has no archive (or not <id>);
                                    `ferrule run cleanup` creates one and
                                    prints its id. Ends in ` hint=<fix>`.
-Exit codes: 0 done, 1 refused.
+Exit codes: 0 done, 1 refused, 4 internal error.
 See: ferrule guide show cleanup";
 
 #[derive(Debug, Subcommand)]
@@ -473,39 +476,40 @@ struct Pick<'a> {
     base: Option<&'a str>,
 }
 
-/// The run's worktree, or the `reason=… hint=…` of why there is none.
-fn run_worktree(slug: &str) -> io::Result<Result<PathBuf, String>> {
+/// The run's worktree, or the `<verb>` refusal of why there is none.
+fn run_worktree(verb: &'static str, slug: &str) -> io::Result<Result<PathBuf, Refusal>> {
     let Some(s) = card_store(slug)? else {
-        return Ok(Err(
-            "reason=card hint=check the slug with `ferrule board list`".to_owned(),
-        ));
+        return Ok(Err(Refusal::new(verb, "card").hint(CARD_HINT)));
     };
-    let wt = core_run::worktree(&s.conn, &layout(), slug, slug).map_err(sql)?;
+    let wt = core_run::worktree(&s.conn, &layout(), slug, slug).map_err(internal)?;
     if !wt.is_dir() {
-        return Ok(Err(format!(
-            "reason=no-worktree hint=`ferrule gate approve {slug} gate2` adds it"
-        )));
+        return Ok(Err(Refusal::new(verb, "no-worktree")
+            .hint(format!("`ferrule gate approve {slug} gate2` adds it"))));
     }
     Ok(Ok(wt))
 }
 
-/// The commit `base` names in `wt` (main by default), or the
-/// `reason=… hint=…` of why it names none.
-fn base_in(wt: &Path, base: Option<&str>) -> io::Result<Result<String, String>> {
+/// The commit `base` names in `wt` (main by default), or the `<verb>`
+/// refusal of why it names none.
+fn base_in(
+    verb: &'static str,
+    wt: &Path,
+    base: Option<&str>,
+) -> io::Result<Result<String, Refusal>> {
     let base = match base {
         Some(b) => b.to_owned(),
-        None => Config::load(&layout().root).map_err(sql)?.main_branch,
+        None => Config::load(&layout().root).map_err(internal)?.main_branch,
     };
     if ferrule_core::git::commit(wt, &base).is_none() {
         return Ok(Err(
-            "reason=base hint=fetch it, or pass a --base the branch has".to_owned(),
+            Refusal::new(verb, "base").hint("fetch it, or pass a --base the branch has")
         ));
     }
     Ok(Ok(base))
 }
 
-/// Writes what `git <args>` prints in `dir`; a failing git is an error,
-/// except exit 1 when `differ_ok` (`diff --no-index`: the files differ).
+/// Writes what `git <args>` prints in `dir`; a failing git is an internal
+/// error, except exit 1 when `differ_ok` (`diff --no-index`: the files differ).
 fn git_to(dir: &Path, args: &[&str], differ_ok: bool, out: &mut impl Write) -> io::Result<()> {
     let o = std::process::Command::new("git")
         .arg("-C")
@@ -514,25 +518,24 @@ fn git_to(dir: &Path, args: &[&str], differ_ok: bool, out: &mut impl Write) -> i
         .stdin(std::process::Stdio::null())
         .output()?;
     if !(o.status.success() || differ_ok && o.status.code() == Some(1)) {
-        return Err(io::Error::other(
-            String::from_utf8_lossy(&o.stderr).trim().to_owned(),
-        ));
+        return Err(internal(GitError {
+            args: args.iter().map(|&a| a.to_owned()).collect(),
+            code: o.status.code(),
+            stderr: String::from_utf8_lossy(&o.stderr).into_owned(),
+        }));
     }
     out.write_all(&o.stdout)
 }
 
 fn diff(slug: &str, pick: &Pick, uncommitted: bool, out: &mut impl Write) -> io::Result<u8> {
-    let found = match run_worktree(slug)? {
+    let found = match run_worktree("diff", slug)? {
         Ok(wt) if uncommitted => Ok((wt, None)),
-        Ok(wt) => base_in(&wt, pick.base)?.map(|b| (wt, Some(format!("{b}...HEAD")))),
-        Err(why) => Err(why),
+        Ok(wt) => base_in("diff", &wt, pick.base)?.map(|b| (wt, Some(format!("{b}...HEAD")))),
+        Err(r) => Err(r),
     };
     let (wt, range) = match found {
         Ok(found) => found,
-        Err(why) => {
-            writeln!(out, "diff=refused {why}")?;
-            return Ok(exit::REFUSED);
-        }
+        Err(r) => return refuse(out, &r),
     };
     let mut args = vec!["diff", "--no-color", "--no-ext-diff"];
     if pick.stat {
@@ -551,16 +554,13 @@ fn diff(slug: &str, pick: &Pick, uncommitted: bool, out: &mut impl Write) -> io:
 }
 
 fn log(slug: &str, pick: &Pick, out: &mut impl Write) -> io::Result<u8> {
-    let found = match run_worktree(slug)? {
-        Ok(wt) => base_in(&wt, pick.base)?.map(|b| (wt, b)),
-        Err(why) => Err(why),
+    let found = match run_worktree("log", slug)? {
+        Ok(wt) => base_in("log", &wt, pick.base)?.map(|b| (wt, b)),
+        Err(r) => Err(r),
     };
     let (wt, base) = match found {
         Ok(found) => found,
-        Err(why) => {
-            writeln!(out, "log=refused {why}")?;
-            return Ok(exit::REFUSED);
-        }
+        Err(r) => return refuse(out, &r),
     };
     let range = format!("{base}..HEAD");
     let mut args = vec!["log", "--no-color", "--oneline"];
@@ -574,31 +574,27 @@ fn log(slug: &str, pick: &Pick, out: &mut impl Write) -> io::Result<u8> {
 
 fn status(slug: &str, out: &mut impl Write) -> io::Result<u8> {
     let layout = layout();
-    let config = Config::load(&layout.root).map_err(sql)?;
+    let config = Config::load(&layout.root).map_err(internal)?;
     let Some(s) = card_store(slug)? else {
-        writeln!(
-            out,
-            "status=refused reason=card hint=check the slug with `ferrule board list`"
-        )?;
-        return Ok(exit::REFUSED);
+        return refuse(out, &Refusal::new("status", "card").hint(CARD_HINT));
     };
     let c = &s.conn;
     let last_value = |name: Name| -> io::Result<String> {
         Ok(board::last_value(c, slug, name)
-            .map_err(sql)?
+            .map_err(internal)?
             .unwrap_or_else(|| "-".to_owned()))
     };
     let field = |card: &str, key: &str| -> io::Result<String> {
         Ok(board::field(c, card, key)
-            .map_err(sql)?
+            .map_err(internal)?
             .unwrap_or_else(|| "-".to_owned()))
     };
     let state = board::state(c, slug)
-        .map_err(sql)?
+        .map_err(internal)?
         .map_or("-", |st| st.as_str());
     let mut gates = Vec::new();
     for g in ["gate1", "arch", "no-arch", "gate2"] {
-        if board::field(c, slug, g).map_err(sql)?.is_some() {
+        if board::field(c, slug, g).map_err(internal)?.is_some() {
             gates.push(g);
         }
     }
@@ -616,8 +612,8 @@ fn status(slug: &str, out: &mut impl Write) -> io::Result<u8> {
             gates.join(",")
         }
     )?;
-    for (n, id, st) in &board::stages(c, slug).map_err(sql)? {
-        let commit = board::last_value(c, id, Name::Commit).map_err(sql)?;
+    for (n, id, st) in &board::stages(c, slug).map_err(internal)? {
+        let commit = board::last_value(c, id, Name::Commit).map_err(internal)?;
         writeln!(
             out,
             "stage=s{n} state={} commit={} title={}",
@@ -626,7 +622,7 @@ fn status(slug: &str, out: &mut impl Write) -> io::Result<u8> {
             field(id, "title")?
         )?;
     }
-    let wt = core_run::worktree(c, &layout, slug, slug).map_err(sql)?;
+    let wt = core_run::worktree(c, &layout, slug, slug).map_err(internal)?;
     let shown = wt
         .strip_prefix(&layout.root)
         .unwrap_or(&wt)
@@ -647,13 +643,13 @@ fn status(slug: &str, out: &mut impl Write) -> io::Result<u8> {
     } else {
         writeln!(out, "worktree=missing path={shown}")?;
     }
-    let gauntlet = board::log_lines(c, slug, Some("gauntlet=")).map_err(sql)?;
+    let gauntlet = board::log_lines(c, slug, Some("gauntlet=")).map_err(internal)?;
     let gauntlet = gauntlet
         .last()
         .and_then(|(_, body)| body.strip_prefix("gauntlet="));
     writeln!(out, "gauntlet={}", gauntlet.unwrap_or("-"))?;
     writeln!(out, "ci={}", last_value(Name::Ci)?)?;
-    if let Some((card, at, body)) = board::run_log_lines(c, slug, None).map_err(sql)?.pop() {
+    if let Some((card, at, body)) = board::run_log_lines(c, slug, None).map_err(internal)?.pop() {
         writeln!(out, "last={card} {at} {body}")?;
     }
     Ok(exit::OK)
@@ -740,9 +736,8 @@ pub fn run(command: &RunCommand, out: &mut impl Write) -> io::Result<u8> {
 
 pub(super) fn sha_check(slug: &str, stage: u32, sha: &str, out: &mut impl Write) -> io::Result<u8> {
     let verdict = match store(false)? {
-        Some(s) => {
-            core_run::sha_check(&s.conn, &layout(), slug, &format!("s{stage}"), sha).map_err(sql)?
-        }
+        Some(s) => core_run::sha_check(&s.conn, &layout(), slug, &format!("s{stage}"), sha)
+            .map_err(internal)?,
         None => Err(core_run::Mismatch::Card),
     };
     match verdict {
@@ -771,10 +766,10 @@ fn reconcile(slug: &str, local: bool, out: &mut impl Write) -> io::Result<u8> {
             eprintln!("reconcile: no card for {slug}");
             return Ok(exit::USAGE);
         }
-        Err(Error::Sql(e)) => return Err(sql(e)),
+        Err(Error::Sql(e)) => return Err(internal(e)),
     };
     if !local && let Some(s) = store.as_mut() {
-        let config = Config::load(&layout.root).map_err(sql)?;
+        let config = Config::load(&layout.root).map_err(internal)?;
         let now = board::now();
         let run = publish::Run {
             conn: &mut s.conn,
@@ -786,7 +781,7 @@ fn reconcile(slug: &str, local: bool, out: &mut impl Write) -> io::Result<u8> {
         };
         match run.reconcile_remote() {
             Ok(rows) => r.differ.extend(rows),
-            Err(e) => r.differ.push(format!("host unreadable: {e:?}")),
+            Err(e) => r.differ.push(format!("host unreadable: {e}")),
         }
     }
     for d in &r.differ {
@@ -809,7 +804,7 @@ pub(super) fn stage_stop(
     out: &mut impl Write,
 ) -> io::Result<u8> {
     let layout = layout();
-    let config = Config::load(&layout.root).map_err(sql)?;
+    let config = Config::load(&layout.root).map_err(internal)?;
     let Some(mut s) = store(false)? else {
         writeln!(out, "stage-stop=card hint={CARD_HINT}")?;
         return Ok(exit::REFUSED);
@@ -829,7 +824,7 @@ pub(super) fn stage_stop(
             writeln!(out, "stage-stop=card hint={CARD_HINT}")?;
             return Ok(exit::REFUSED);
         }
-        Err(Error::Sql(e)) => return Err(sql(e)),
+        Err(Error::Sql(e)) => return Err(internal(e)),
     }
     Ok(exit::OK)
 }
@@ -843,7 +838,7 @@ fn metrics(slug: Option<&str>, last: Option<usize>, out: &mut impl Write) -> io:
         return Ok(exit::OK);
     };
     let Some(slug) = slug else {
-        let mut lines = archive::metrics_log(&s.conn).map_err(sql)?;
+        let mut lines = archive::metrics_log(&s.conn).map_err(internal)?;
         if let Some(n) = last {
             lines.drain(..lines.len().saturating_sub(n));
         }
@@ -870,7 +865,7 @@ fn metrics(slug: Option<&str>, last: Option<usize>, out: &mut impl Write) -> io:
             )?;
             Ok(exit::REFUSED)
         }
-        Err(e) => Err(sql(format!("{e:?}"))),
+        Err(e) => Err(internal(e)),
     }
 }
 
@@ -892,7 +887,7 @@ fn cleanup(slug: &str, out: &mut impl Write) -> io::Result<u8> {
         Err(ArchiveError::Ci(r)) => r.as_str(),
         Err(ArchiveError::Card) => "card",
         Err(ArchiveError::Io(e)) => return Err(e),
-        Err(ArchiveError::Sql(e)) => return Err(sql(e)),
+        Err(ArchiveError::Sql(e)) => return Err(internal(e)),
     };
     writeln!(out, "cleanup=refused reason={reason}{}", hint(reason, slug))?;
     Ok(exit::REFUSED)
@@ -912,7 +907,7 @@ fn export(
     let id = match id {
         Some(id) => Some(id),
         None => archive::archives(&s.conn, slug)
-            .map_err(sql)?
+            .map_err(internal)?
             .last()
             .map(|(id, _)| *id),
     };
@@ -940,17 +935,17 @@ fn export(
             Ok(exit::REFUSED)
         }
         Err(ArchiveError::Io(e)) => Err(e),
-        Err(e) => Err(sql(format!("{e:?}"))),
+        Err(e) => Err(internal(e)),
     }
 }
 
 pub(super) fn gauntlet(slug: &str, force: bool, out: &mut impl Write) -> io::Result<u8> {
     let layout = layout();
-    let config = Config::load(&layout.root).map_err(sql)?;
+    let config = Config::load(&layout.root).map_err(internal)?;
     let Some(s) = store(true)? else {
         unreachable!("store(true) creates the database");
     };
-    let wt = core_run::worktree(&s.conn, &layout, slug, slug).map_err(sql)?;
+    let wt = core_run::worktree(&s.conn, &layout, slug, slug).map_err(internal)?;
     let log = layout.run_dir(slug).join("gauntlet.log");
     let outcome = gauntlet::run(
         &s.conn,
@@ -961,7 +956,7 @@ pub(super) fn gauntlet(slug: &str, force: bool, out: &mut impl Write) -> io::Res
         force,
         &board::now(),
     )
-    .map_err(sql)?;
+    .map_err(internal)?;
     writeln!(out, "{outcome}")?;
     Ok(if matches!(outcome, Outcome::Pass { .. }) {
         exit::OK
@@ -1014,7 +1009,7 @@ pub(super) fn next_step(
             )?;
             Ok(exit::USAGE)
         }
-        Err(next::Error::Sql(e)) => Err(sql(e)),
+        Err(next::Error::Sql(e)) => Err(internal(e)),
     }
 }
 
@@ -1042,7 +1037,7 @@ impl rebuild::Source for Remote {
 
 fn rebuild(issue: &str, pr: &str, out: &mut impl Write) -> io::Result<u8> {
     let layout = Layout::new(project::main_checkout());
-    let config = Config::load(&layout.root).map_err(sql)?;
+    let config = Config::load(&layout.root).map_err(internal)?;
     let main = config.main_branch.clone();
     let source = Remote {
         config,
@@ -1070,12 +1065,9 @@ fn rebuild(issue: &str, pr: &str, out: &mut impl Write) -> io::Result<u8> {
             )?;
             Ok(exit::OK)
         }
-        Err(rebuild::Error::Refused(r)) => {
-            writeln!(out, "{r}")?;
-            Ok(exit::REFUSED)
-        }
-        Err(rebuild::Error::Sql(e)) => Err(sql(e)),
-        Err(rebuild::Error::Board(e)) => Err(sql(format!("{e:?}"))),
+        Err(rebuild::Error::Refused(r)) => refuse(out, &r.refusal()),
+        Err(rebuild::Error::Sql(e)) => Err(internal(e)),
+        Err(rebuild::Error::Board(e)) => Err(internal(e)),
         Err(rebuild::Error::Io(e)) => Err(e),
     }
 }
@@ -1091,15 +1083,15 @@ fn gate_failed(e: gate::Error, verb: &str, slug: &str, out: &mut impl Write) -> 
             eprintln!("{verb}: {e}");
             Ok(exit::REFUSED)
         }
-        gate::Error::Board(e) => Err(sql(format!("{e:?}"))),
+        gate::Error::Board(e) => Err(internal(e)),
         gate::Error::Io(e) => Err(e),
-        gate::Error::Sql(e) => Err(sql(e)),
+        gate::Error::Sql(e) => Err(internal(e)),
     }
 }
 
 fn init(slug: &str, issue: Option<&str>, out: &mut impl Write) -> io::Result<u8> {
     let layout = layout();
-    let config = Config::load(&layout.root).map_err(sql)?;
+    let config = Config::load(&layout.root).map_err(internal)?;
     let Some(mut s) = store(true)? else {
         return Ok(exit::REFUSED);
     };
@@ -1143,7 +1135,7 @@ pub(super) fn approve(args: &ApproveArgs, out: &mut impl Write) -> io::Result<u8
         pairs.push(("kind".to_owned(), "epic".to_owned()));
     }
     let layout = layout();
-    let config = Config::load(&layout.root).map_err(sql)?;
+    let config = Config::load(&layout.root).map_err(internal)?;
     let Some(mut s) = store(false)? else {
         writeln!(out, "approve=refused reason=card{}", hint("card", slug))?;
         return Ok(exit::REFUSED);
@@ -1217,7 +1209,7 @@ pub(super) fn replan(
 
 pub(super) fn ci(slug: &str, out: &mut impl Write) -> io::Result<u8> {
     let layout = layout();
-    let config = Config::load(&layout.root).map_err(sql)?;
+    let config = Config::load(&layout.root).map_err(internal)?;
     let Some(mut s) = store(false)? else {
         writeln!(out, "ci=refused reason=card{}", hint("card", slug))?;
         return Ok(exit::REFUSED);
@@ -1251,7 +1243,7 @@ pub(super) fn ci(slug: &str, out: &mut impl Write) -> io::Result<u8> {
     writeln!(out)?;
     if code != 0 {
         let branch = board::field(&s.conn, slug, "branch")
-            .map_err(sql)?
+            .map_err(internal)?
             .unwrap_or_default();
         if let Ok(lines) = ferrule_core::remote::failed(
             config.backend.ci,
@@ -1272,6 +1264,6 @@ pub(super) fn ci(slug: &str, out: &mut impl Write) -> io::Result<u8> {
             }
             Ok(exit::OK)
         }
-        Err(e) => Err(sql(format!("{e:?}"))),
+        Err(e) => Err(internal(e)),
     }
 }

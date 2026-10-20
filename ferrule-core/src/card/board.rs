@@ -510,6 +510,26 @@ pub enum CardError {
     Sql(rusqlite::Error),
 }
 
+impl fmt::Display for CardError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CardError::Card => f.write_str("no such card"),
+            CardError::Field(k) => write!(f, "the card's kind does not carry {k}"),
+            CardError::Exists => f.write_str("the card exists already"),
+            CardError::Sql(e) => write!(f, "state database: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for CardError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            CardError::Sql(e) => Some(e),
+            CardError::Card | CardError::Field(_) | CardError::Exists => None,
+        }
+    }
+}
+
 impl From<rusqlite::Error> for CardError {
     fn from(e: rusqlite::Error) -> Self {
         CardError::Sql(e)
@@ -544,6 +564,25 @@ pub struct NewCard {
 pub enum BatchError {
     Card(String, CardError),
     Log(String, LogError),
+}
+
+impl fmt::Display for BatchError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BatchError::Card(id, e) if id.is_empty() => write!(f, "{e}"),
+            BatchError::Card(id, e) => write!(f, "card {id}: {e}"),
+            BatchError::Log(id, e) => write!(f, "card {id}: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for BatchError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            BatchError::Card(_, e) => Some(e),
+            BatchError::Log(_, e) => Some(e),
+        }
+    }
 }
 
 /// Creates every card and logs its lines, all or nothing.
@@ -668,6 +707,26 @@ pub enum LogError {
     Card,
     Reject(Reject),
     Sql(rusqlite::Error),
+}
+
+impl fmt::Display for LogError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LogError::Card => f.write_str("no such card"),
+            LogError::Reject(r) => write!(f, "{r}"),
+            LogError::Sql(e) => write!(f, "state database: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for LogError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            LogError::Reject(r) => Some(r),
+            LogError::Sql(e) => Some(e),
+            LogError::Card => None,
+        }
+    }
 }
 
 impl From<rusqlite::Error> for LogError {
@@ -877,6 +936,29 @@ pub enum MoveError {
     Sql(rusqlite::Error),
 }
 
+impl fmt::Display for MoveError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MoveError::Card => f.write_str("no such card"),
+            MoveError::Log(r) => write!(f, "{r}"),
+            MoveError::Refused { from, reason } => {
+                write!(f, "move from {from} refused: {}", reason.as_str())
+            }
+            MoveError::Sql(e) => write!(f, "state database: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for MoveError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            MoveError::Log(r) => Some(r),
+            MoveError::Sql(e) => Some(e),
+            MoveError::Card | MoveError::Refused { .. } => None,
+        }
+    }
+}
+
 impl From<rusqlite::Error> for MoveError {
     fn from(e: rusqlite::Error) -> Self {
         MoveError::Sql(e)
@@ -1016,6 +1098,16 @@ impl fmt::Display for ImportError {
             ImportError::Exists(id) => write!(f, "card {id} is already on the board"),
             ImportError::Io(e) => write!(f, "{e}"),
             ImportError::Sql(e) => write!(f, "state database: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for ImportError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            ImportError::Io(e) => Some(e),
+            ImportError::Sql(e) => Some(e),
+            ImportError::Card { .. } | ImportError::Exists(_) => None,
         }
     }
 }

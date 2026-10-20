@@ -30,7 +30,7 @@ Refusals (stdout, exit 1):
       No card for the slug, or the card has no PR. Fix: check the slug, or
       `ferrule pr open <slug>`.
 Errors (stderr, exit 1): the CI host's error.
-Exit codes: 0 ok, 1 refused.
+Exit codes: 0 ok, 1 refused, 4 internal error.
 Backend: reads threads from the configured CI host.
 See: ferrule guide show feedback";
 
@@ -42,7 +42,7 @@ Output:
       body line quoted with `> `) and an empty `reply:` line. <state> is
       lowercase (`open`).
 Errors (stderr, exit 1): `pr feedback: <the host's error>`.
-Exit codes: 0 ok, 1 refused.
+Exit codes: 0 ok, 1 refused, 4 internal error.
 Backend: reads the threads from the configured CI host.
 See: ferrule guide show feedback";
 
@@ -58,7 +58,7 @@ Errors (stderr):
   pr feedback: thread <id>: <the host's error>      exit 1
   pr feedback: a 'reply: fixed' thread needs <stage> <sha> (the pushed head)
       exit 2. Fix: give the stage and the pushed commit.
-Exit codes: 0 ok, 1 refused, 2 usage.
+Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
 Backend: posts to the configured CI host.
 See: ferrule guide show feedback";
 

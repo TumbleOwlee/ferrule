@@ -15,6 +15,7 @@ pub mod uninstall;
 
 use std::io::{self, Write};
 
+use ferrule_core::refusal::Refusal;
 use ferrule_core::term::{self, Style};
 
 /// Prints a markdown document: as stored, or styled for the terminal.
@@ -25,14 +26,34 @@ pub fn doc(out: &mut impl Write, style: Option<Style>, md: &str) -> io::Result<(
     }
 }
 
-/// Exit codes every subcommand shares.
+/// Prints a refusal and answers its exit code.
+pub fn refuse(out: &mut impl Write, refusal: &Refusal) -> io::Result<u8> {
+    writeln!(out, "{refusal}")?;
+    Ok(refusal.code())
+}
+
+/// An internal failure (the state database, git, the filesystem,
+/// ferrule.toml), not a refusal. A command returns it as `Err`; `main`
+/// prints `ferrule: <error>` and exits [`exit::INTERNAL`]. A refusal is an
+/// answer: the command prints it and returns `Ok` with its exit code.
+pub fn internal(e: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> io::Error {
+    io::Error::other(e)
+}
+
+/// Exit codes every subcommand shares. A refusal's codes come from
+/// [`ferrule_core::refusal::Exit`].
 pub mod exit {
+    use ferrule_core::refusal::Exit;
+
     /// Done, or a negative answer that is not an error.
     pub const OK: u8 = 0;
     /// Refused or not found.
-    pub const REFUSED: u8 = 1;
+    pub const REFUSED: u8 = Exit::Refused.code();
     /// Usage, or input the rules reject.
-    pub const USAGE: u8 = 2;
+    pub const USAGE: u8 = Exit::Usage.code();
     /// Content the rules refuse: the agent that wrote it fixes it.
-    pub const CONTENT: u8 = 3;
+    pub const CONTENT: u8 = Exit::Content.code();
+    /// An internal failure: the state database, git, the filesystem or
+    /// ferrule.toml.
+    pub const INTERNAL: u8 = 4;
 }

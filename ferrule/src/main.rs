@@ -61,9 +61,10 @@ fn main() -> ExitCode {
         Ok(code) => ExitCode::from(code),
         // A reader that stopped early (`| head`) is not a failure.
         Err(e) if e.kind() == io::ErrorKind::BrokenPipe => ExitCode::SUCCESS,
+        // Refusals return `Ok`; an `Err` is an internal failure.
         Err(e) => {
             eprintln!("ferrule: {e}");
-            ExitCode::from(commands::exit::REFUSED)
+            ExitCode::from(commands::exit::INTERNAL)
         }
     }
 }

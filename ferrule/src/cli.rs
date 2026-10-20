@@ -36,6 +36,8 @@ Exit codes:
   1  refused or not found
   2  usage, or input the rules reject
   3  content the rules refuse: the agent that wrote it fixes it
+  4  internal error: the state database, git, the filesystem or
+     ferrule.toml failed (stderr: `ferrule: <error>`); not a refusal
 
 Environment:
   NO_COLOR      Styled output without colours

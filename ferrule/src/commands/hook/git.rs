@@ -26,7 +26,8 @@ Per hook (git passes its arguments and stdin):
                        push to '<main>' refused: merge to it by pull request
                        only.` (stderr, exit 1)
 Nothing is printed on stdout.
-Exit codes: 0 ok, 1 refused (git aborts the operation), 2 usage.";
+Exit codes: 0 ok, 1 refused (git aborts the operation), 2 usage,
+4 internal error.";
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum GitHook {

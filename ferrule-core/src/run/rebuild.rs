@@ -14,6 +14,7 @@ use rusqlite::Connection;
 use crate::card::board::{self, NewCard, State};
 use crate::git;
 use crate::project::Layout;
+use crate::refusal::Refusal;
 use crate::remote::Item;
 
 /// Why nothing was written.
@@ -29,8 +30,10 @@ pub enum Refused {
     Worktree,
 }
 
-impl std::fmt::Display for Refused {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Refused {
+    /// The `rebuild=refused` line.
+    #[must_use]
+    pub fn refusal(&self) -> Refusal {
         let reason = match self {
             Refused::NoPr => "no-pr",
             Refused::NoStages => "no-stages",
@@ -51,11 +54,17 @@ impl std::fmt::Display for Refused {
             Refused::Sha(_) => "fetch the branch so the ticked stage's commit exists",
             Refused::Worktree => "git could not add the worktree; check `git worktree list`",
         };
-        write!(f, "rebuild=refused reason={reason}")?;
+        let mut r = Refusal::new("rebuild", reason);
         if let Refused::Sha(sha) = self {
-            write!(f, " sha={sha}")?;
+            r = r.field("sha", sha);
         }
-        write!(f, " hint={hint}")
+        r.hint(hint)
+    }
+}
+
+impl std::fmt::Display for Refused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.refusal())
     }
 }
 
@@ -65,6 +74,28 @@ pub enum Error {
     Sql(rusqlite::Error),
     Board(board::BatchError),
     Io(std::io::Error),
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::Refused(r) => write!(f, "{r}"),
+            Error::Sql(e) => write!(f, "state database: {e}"),
+            Error::Board(e) => write!(f, "{e}"),
+            Error::Io(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Error::Refused(_) => None,
+            Error::Sql(e) => Some(e),
+            Error::Board(e) => Some(e),
+            Error::Io(e) => Some(e),
+        }
+    }
 }
 
 impl From<Refused> for Error {

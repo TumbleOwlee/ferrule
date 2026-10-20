@@ -88,6 +88,26 @@ pub enum Error {
     Sql(rusqlite::Error),
 }
 
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::Usage => f.write_str("the arguments lack what this prompt needs"),
+            Error::Card => f.write_str("the run has no card"),
+            Error::Show(code) => write!(f, "the viewer step refused (exit {code})"),
+            Error::Sql(e) => write!(f, "state database: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Error::Sql(e) => Some(e),
+            Error::Usage | Error::Card | Error::Show(_) => None,
+        }
+    }
+}
+
 impl From<rusqlite::Error> for Error {
     fn from(e: rusqlite::Error) -> Self {
         Error::Sql(e)

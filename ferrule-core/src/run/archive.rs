@@ -43,6 +43,28 @@ pub enum Error {
     Sql(rusqlite::Error),
 }
 
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::Card => f.write_str("the run has no card"),
+            Error::Ci(r) => write!(f, "CI refused: {}", r.as_str()),
+            Error::Refused(r) => write!(f, "refused: {r}"),
+            Error::Io(e) => write!(f, "{e}"),
+            Error::Sql(e) => write!(f, "state database: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Error::Io(e) => Some(e),
+            Error::Sql(e) => Some(e),
+            Error::Card | Error::Ci(_) | Error::Refused(_) => None,
+        }
+    }
+}
+
 impl From<rusqlite::Error> for Error {
     fn from(e: rusqlite::Error) -> Self {
         Error::Sql(e)

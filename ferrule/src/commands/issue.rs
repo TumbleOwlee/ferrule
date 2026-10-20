@@ -10,8 +10,9 @@ use ferrule_core::project::{self, Layout};
 use ferrule_core::remote;
 use ferrule_core::term::{self, Style};
 
-use super::board::{sql, store};
+use super::board::store;
 use super::exit;
+use super::internal;
 
 const ISSUE_SEARCH_AFTER_LONG_HELP: &str = "\
 Output:
@@ -29,7 +30,7 @@ Refusals:
                                  printed (exit 1). No count=: only max+1 are
                                  fetched.
 Errors (stderr, exit 1): `issue search: <the host's error>`; GitHub only yet.
-Exit codes: 0 ok, 1 none or refused.
+Exit codes: 0 ok, 1 none or refused, 4 internal error.
 Example:
   ferrule issue search --state open modbus timeout
 See: ferrule guide show issue";
@@ -58,7 +59,7 @@ Refusals (stdout, exit 1):
                                  serves PRs as issues); view it with pr view.
 Errors (stderr, exit 1): `issue view: <the host's error>` for an unknown issue, a
 missing credential or a failing `gh`/`curl`.
-Exit codes: 0 ok, 1 refused.
+Exit codes: 0 ok, 1 refused, 4 internal error.
 Backend: reads from the configured tracker (`backend` in ferrule.toml).";
 
 const ISSUE_REQUEST_AFTER_LONG_HELP: &str = "\
@@ -67,7 +68,7 @@ no such part. With `--comments`, the comments in the form `issue view` prints
 them (`[<author> @ <time>]` then the text).
 Errors (stderr, exit 1): `issue request: <the tracker's error>` for an unknown
 issue, a missing credential or a failing `gh`/`curl`.
-Exit codes: 0 ok, 1 refused.
+Exit codes: 0 ok, 1 refused, 4 internal error.
 Backend: reads from the configured tracker.
 See: ferrule guide show epic";
 
@@ -86,7 +87,7 @@ Refusals:
       `--slice` names a slice slices.md does not have. Exit 1.
   (no line, nothing printed)
       The body would be empty. Exit 1.
-Exit codes: 0 ok, 1 refused, 3 content (stage-ref).
+Exit codes: 0 ok, 1 refused, 3 content (stage-ref), 4 internal error.
 See: ferrule guide show issue";
 
 const ISSUE_POST_AFTER_LONG_HELP: &str = "\
@@ -111,7 +112,7 @@ Refusals (stdout, exit 1):
       reword the source file (see `issue body`).
 Errors (stderr, exit 1): `missing <path>` for an absent run file; the tracker's
 error when the host call fails.
-Exit codes: 0 ok, 1 refused, 3 content.
+Exit codes: 0 ok, 1 refused, 3 content, 4 internal error.
 Backend: writes are GitHub-only (`gh`); with another tracker configured the
 command refuses.
 See: ferrule guide show issue";
@@ -301,7 +302,7 @@ fn search(keywords: &[String], state: SearchState, out: &mut impl Write) -> io::
 }
 
 fn config() -> io::Result<Config> {
-    Config::load(&project::main_checkout()).map_err(sql)
+    Config::load(&project::main_checkout()).map_err(internal)
 }
 
 /// Prints an issue or PR: compact text, or styled with its body and
@@ -434,7 +435,7 @@ pub fn print_body(
             Ok(exit::REFUSED)
         }
         Err(body::Error::Empty) => Ok(exit::REFUSED),
-        Err(body::Error::Sql(e)) => Err(sql(e)),
+        Err(body::Error::Sql(e)) => Err(internal(e)),
     }
 }
 
@@ -447,7 +448,7 @@ fn body(
     let layout = Layout::new(project::main_checkout());
     let s = match store(false)? {
         Some(s) => s,
-        None => ferrule_core::store::Store::memory().map_err(sql)?,
+        None => ferrule_core::store::Store::memory().map_err(internal)?,
     };
     print_body(body::issue(&s.conn, &layout, slug, slice), style, out)
 }
@@ -494,7 +495,7 @@ pub fn post_failed(e: publish::Error, out: &mut impl Write) -> io::Result<u8> {
             eprintln!("{e}");
             Ok(exit::REFUSED)
         }
-        publish::Error::Sql(e) => Err(sql(e)),
+        publish::Error::Sql(e) => Err(internal(e)),
     }
 }
 

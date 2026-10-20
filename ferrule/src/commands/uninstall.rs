@@ -20,7 +20,7 @@ Refusals (stdout, exit 1):
   uninstall=refused reason=<error> hint=fix the file the reason names, then rerun
                                  The lock or .claude/settings.json is
                                  unreadable or not valid.
-Exit codes: 0 ok, 1 refused, 2 usage.";
+Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.";
 
 pub fn run(purge: bool, out: &mut impl Write) -> io::Result<u8> {
     match install::uninstall(&project::toplevel(), purge) {

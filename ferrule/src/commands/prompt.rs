@@ -9,8 +9,9 @@ use ferrule_core::project::{self, Layout};
 use ferrule_core::prompt::render::{Kind, Viewed};
 use ferrule_core::prompt::{self, approval};
 
-use super::board::{sql, store};
+use super::board::store;
 use super::exit;
+use super::internal;
 use crate::cli::stage_id;
 
 /// Shown after `ferrule prompt render --help`.
@@ -61,7 +62,7 @@ Refusals:
                        exit 2; add --stage (auto) or --from (replan-notice)
   prompt show: ...     the viewer step refused; see `ferrule prompt show`
 Exit codes: 0 ok, 1 refused (a shown file is not readable), 2 usage,
-3 content (a shown summary is over its cap).
+3 content (a shown summary is over its cap), 4 internal error.
 See: ferrule guide show approval";
 
 /// Shown after `ferrule prompt lines --help`.
@@ -77,7 +78,7 @@ Output:
 Errors (stderr):
   prompt lines: not readable: <file>
                        exit 1; the other files still print; fix the path
-Exit codes: 0 ok, 1 refused (a file not readable), 2 usage.
+Exit codes: 0 ok, 1 refused (a file not readable), 2 usage, 4 internal error.
 See: ferrule guide show approval";
 
 /// Shown after `ferrule prompt show --help`.
@@ -99,7 +100,8 @@ Errors (stderr):
                        exit 3; only *.summary.md and *.verdict.md are capped
                        (`[thresholds]`); have the agent that wrote it trim
                        it, never show the full file instead
-Exit codes: 0 ok, 1 refused, 2 usage, 3 content (summary over its cap).
+Exit codes: 0 ok, 1 refused, 2 usage, 3 content (summary over its cap),
+4 internal error.
 See: ferrule guide show approval";
 
 #[derive(Debug, Subcommand)]
@@ -267,7 +269,7 @@ pub type ShownFile = (PathBuf, Shown, Option<String>);
 /// its cap (exit 3).
 pub fn open(files: &[PathBuf], err: &mut impl Write) -> io::Result<Result<Vec<ShownFile>, u8>> {
     let layout = Layout::new(project::main_checkout());
-    let config = Config::load(&layout.root).map_err(sql)?;
+    let config = Config::load(&layout.root).map_err(internal)?;
     let mut abs = Vec::new();
     for f in files {
         let Ok(text) = std::fs::read_to_string(f) else {
@@ -287,7 +289,9 @@ pub fn open(files: &[PathBuf], err: &mut impl Write) -> io::Result<Result<Vec<Sh
         abs.push(f.canonicalize()?);
     }
     let runs = match store(true)? {
-        Some(mut s) => approval::record(&mut s.conn, &layout, &abs, &board::now()).map_err(sql)?,
+        Some(mut s) => {
+            approval::record(&mut s.conn, &layout, &abs, &board::now()).map_err(internal)?
+        }
         None => vec![None; abs.len()],
     };
     let viewer = config.viewer.command.unwrap_or_default();
@@ -442,6 +446,6 @@ fn render(args: &PromptRenderArgs, out: &mut impl Write) -> io::Result<u8> {
             Ok(exit::USAGE)
         }
         Err(prompt::render::Error::Show(code)) => Ok(code),
-        Err(prompt::render::Error::Sql(e)) => Err(sql(e)),
+        Err(prompt::render::Error::Sql(e)) => Err(internal(e)),
     }
 }

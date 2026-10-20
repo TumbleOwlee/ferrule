@@ -8,8 +8,9 @@ use ferrule_core::guide::{self, Context, Lane};
 use ferrule_core::project::{self, Layout};
 use ferrule_core::term::{self, Style};
 
-use super::board::{sql, store};
+use super::board::store;
 use super::exit;
+use super::internal;
 use crate::cli::stage_name;
 
 /// Shown after `ferrule guide show --help`.
@@ -26,7 +27,7 @@ Refusals (stdout, exit 1):
                                  (one line per miss). Followed by one
                                  section=<heading> line for each heading the
                                  topic has; pick from those.
-Exit codes: 0 ok, 1 refused, 2 usage.
+Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
 Example:
   ferrule guide show gate4 --section 'Gate 4 — pull request' --slug my-run";
 
@@ -35,7 +36,7 @@ const LIST_AFTER_LONG_HELP: &str = "\
 Output:
   The topics in `Orchestrator:`, `Agents:` and `Project:` groups, one
   `  <topic>  <summary>` line each.
-Exit codes: 0 ok.";
+Exit codes: 0 ok, 4 internal error.";
 
 /// Shown after `ferrule guide check --help`.
 const CHECK_AFTER_LONG_HELP: &str = "\
@@ -56,7 +57,7 @@ Refusals (stdout, exit 1), one line per problem:
                                  A project topic must start with
                                  `# <name> — <summary>`. Last key hint=start
                                  the file with # <name> — <summary>.
-Exit codes: 0 ok, 1 refused.";
+Exit codes: 0 ok, 1 refused, 4 internal error.";
 
 #[derive(Debug, Subcommand)]
 pub enum GuideCommand {
@@ -181,7 +182,7 @@ fn abs(p: &Path) -> String {
 }
 
 fn context(layout: &Layout, args: &ShowArgs) -> io::Result<Context> {
-    let config = Config::load(&layout.root).map_err(sql)?;
+    let config = Config::load(&layout.root).map_err(internal)?;
     let mut ctx = Context::default();
     ctx.vars.push(("main", config.main_branch));
     if let Some(stage) = &args.stage {
@@ -197,9 +198,9 @@ fn context(layout: &Layout, args: &ShowArgs) -> io::Result<Context> {
         };
         ctx.vars.push(("card", card));
         if let Some(s) = store(false)?
-            && board::state(&s.conn, &slug).map_err(sql)?.is_some()
+            && board::state(&s.conn, &slug).map_err(internal)?.is_some()
         {
-            for (k, v) in board::fields(&s.conn, &slug).map_err(sql)? {
+            for (k, v) in board::fields(&s.conn, &slug).map_err(internal)? {
                 match k.as_str() {
                     "lane" => ctx.lane = Lane::parse(&v),
                     "branch" => ctx.vars.push(("branch", v.clone())),
@@ -209,7 +210,7 @@ fn context(layout: &Layout, args: &ShowArgs) -> io::Result<Context> {
                 }
                 ctx.done.push(format!("{k}={v}"));
             }
-            for e in board::events(&s.conn, &slug, &[]).map_err(sql)? {
+            for e in board::events(&s.conn, &slug, &[]).map_err(internal)? {
                 if let Some(v) = &e.value {
                     ctx.done.push(format!("{}{v}", e.name));
                 }

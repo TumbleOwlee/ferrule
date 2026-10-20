@@ -6,7 +6,7 @@ use clap::Subcommand;
 use ferrule_core::config::Config;
 use ferrule_core::{project, remote};
 
-use super::board::sql;
+use super::internal;
 use super::run;
 
 /// Shown after `ferrule ci gauntlet --help`.
@@ -30,7 +30,7 @@ Failures:
   gauntlet=fail step=config reason=no-steps
       ferrule.toml has no [[gauntlet.step]]; add the project's checks.
 The no-worktree and no-steps lines end in ` hint=<fix>`.
-Exit codes: 0 pass, 1 fail.
+Exit codes: 0 pass, 1 fail, 4 internal error.
 See: ferrule guide show verify";
 
 /// Shown after `ferrule ci wait --help`.
@@ -49,7 +49,7 @@ Refusals:
                                    `ferrule pr open <slug>`
   (stderr: the host's error)       The checks could not be read (exit 1)
 The ci=refused lines end in ` hint=<fix>`.
-Exit codes: 0 ok, 1 refused.
+Exit codes: 0 ok, 1 refused, 4 internal error.
 See: ferrule guide show gate4";
 
 const FAILED_AFTER_LONG_HELP: &str = "\
@@ -57,7 +57,7 @@ Output (stdout): the error lines of the failed job's log, one per line, each
 followed by `--context` lines; nothing when the log has none. Exit 0.
 Errors (stderr, exit 1): `ci failed: <error>` when there is no failed run, no
 failing job matching `--job`, or the host call fails.
-Exit codes: 0 ok, 1 refused.
+Exit codes: 0 ok, 1 refused, 4 internal error.
 Backend: reads the run's logs from the configured CI host (`gh run view` on
 GitHub, pipelines on Bitbucket).
 See: ferrule guide show gate4";
@@ -116,7 +116,7 @@ pub fn run(command: &CiCommand, out: &mut impl Write) -> io::Result<u8> {
             job,
             context,
         } => {
-            let config = Config::load(&project::main_checkout()).map_err(sql)?;
+            let config = Config::load(&project::main_checkout()).map_err(internal)?;
             let query = remote::Query {
                 run: run.as_deref(),
                 job: job.as_deref(),

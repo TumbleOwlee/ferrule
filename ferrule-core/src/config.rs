@@ -209,7 +209,14 @@ impl std::fmt::Display for Error {
     }
 }
 
-impl std::error::Error for Error {}
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Error::Io(e) => Some(e),
+            Error::Parse(e) => Some(e),
+        }
+    }
+}
 
 impl Config {
     /// `<root>/.ferrule/ferrule.toml`, or the defaults when it is absent.
