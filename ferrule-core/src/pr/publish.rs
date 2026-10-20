@@ -401,6 +401,8 @@ pub enum PublishRefused {
     Threads(usize),
     /// Fixed IDs another run landed on main meanwhile.
     Collide(Vec<String>),
+    /// Main could not be fetched, or the branch shares no history with it.
+    CollisionsUnknown,
     /// The full body names a stage or an agent.
     StageRef(String),
 }
@@ -421,6 +423,11 @@ hint=renumber the colliding IDs on the branch, push, publish again",
                     ids.join(",")
                 )
             }
+            PublishRefused::CollisionsUnknown => write!(
+                f,
+                "publish=refused reason=collisions-unknown \
+hint=main could not be fetched or shares no history with the branch; ask the user to fix the remote, then publish again"
+            ),
             PublishRefused::StageRef(t) => {
                 write!(
                     f,
@@ -534,8 +541,11 @@ impl Run<'_> {
         }
         let wt = self.worktree()?;
         let main = self.config.main_branch.clone();
-        let _ = git::ok(&wt, &["fetch", "-q", "origin", &main]);
-        let hits = spec::collisions(&wt, &format!("origin/{main}")).unwrap_or_default();
+        let fetched = git::ok(&wt, &["fetch", "-q", "origin", &main]);
+        let hits = match spec::collisions(&wt, &format!("origin/{main}")) {
+            Some(hits) if fetched => hits,
+            _ => return Ok(Err(PublishRefused::CollisionsUnknown)),
+        };
         if !hits.is_empty() {
             return Ok(Err(PublishRefused::Collide(hits)));
         }

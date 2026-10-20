@@ -213,10 +213,10 @@ pub fn find_id(dir: &Path, id: &str) -> io::Result<Vec<IdHit>> {
     Ok(out)
 }
 
-/// The fixed ID a line defines, `**<ID>**` at its very start.
+/// The fixed ID a line defines, in any form `entries` accepts.
 #[must_use]
 pub fn defined_id(line: &str) -> Option<&str> {
-    bold_id(line).map(|(id, _)| id)
+    entry_on_line(line).map(|(id, _)| id)
 }
 
 /// The fixed IDs the worktree's branch adds under `docs/specs/` that
@@ -225,19 +225,19 @@ pub fn defined_id(line: &str) -> Option<&str> {
 #[must_use]
 pub fn collisions(worktree: &Path, reference: &str) -> Option<Vec<String>> {
     let base = crate::git::out(worktree, &["merge-base", "HEAD", reference])?;
-    let diff =
-        crate::git::out(worktree, &["diff", &base, "HEAD", "--", "docs/specs"]).unwrap_or_default();
+    let diff = crate::git::out(worktree, &["diff", &base, "HEAD", "--", "docs/specs"])?;
     let added: std::collections::BTreeSet<&str> = diff
         .lines()
         .filter_map(|l| l.strip_prefix('+'))
         .filter_map(defined_id)
         .collect();
     let defined_in = |id: &str, tree: &str| {
-        let pattern = format!("^\\*\\*{id}\\*\\*");
-        crate::git::ok(
+        let pattern = format!("^(- |\\| )?\\*\\*{id}\\*\\*");
+        crate::git::out(
             worktree,
-            &["grep", "-q", &pattern, tree, "--", "docs/specs"],
+            &["grep", "-h", "-E", &pattern, tree, "--", "docs/specs"],
         )
+        .is_some_and(|hits| hits.lines().any(|l| defined_id(l) == Some(id)))
     };
     Some(
         added
@@ -304,8 +304,10 @@ mod tests {
     }
 
     #[test]
-    fn ut_defined_id_only_at_line_start() {
+    fn ut_defined_id_in_every_entry_form() {
         assert_eq!(defined_id("**MB-R-002** — x"), Some("MB-R-002"));
-        assert_eq!(defined_id("- **MB-R-002** — x"), None);
+        assert_eq!(defined_id("- **MB-R-002** — x"), Some("MB-R-002"));
+        assert_eq!(defined_id("| **MB-E-002** | a |"), Some("MB-E-002"));
+        assert_eq!(defined_id("see **MB-R-002** — x"), None);
     }
 }

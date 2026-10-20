@@ -134,6 +134,10 @@ Refusals (stdout, exit 1 unless noted):
   publish=refused reason=collide ids=<ids> hint=renumber the colliding IDs on the branch, push, publish again
       Another run landed the same fixed IDs on main. Fix: renumber them on
       the branch, push, publish again.
+  publish=refused reason=collisions-unknown hint=main could not be fetched or shares no history with the branch; ask the user to fix the remote, then publish again
+      The ID check could not run: `git fetch origin <main>` failed or the
+      branch has no merge base with it. Publishing refuses rather than skip
+      the check. Fix: ask the user.
   publish=refused reason=stage-ref stage-ref=<token> hint=reword the text naming it, then publish again
       The full body names a stage or an agent. Exit 3. Fix: reword the text.
   publish=refused reason=card hint=no card for this slug; check it with `ferrule board list`

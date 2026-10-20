@@ -176,6 +176,31 @@ fn it_collisions_reports_ids_both_branches_took() {
 }
 
 #[test]
+fn it_collisions_sees_list_and_table_definitions() {
+    let repo = tempfile::tempdir().unwrap();
+    let wt = repo.path();
+    let spec = wt.join("docs/specs/r.md");
+    git(wt, &["init", "-q", "-b", "main"]);
+    std::fs::create_dir_all(spec.parent().unwrap()).unwrap();
+    append(&spec, "**MB-R-001** — The client connects.\n");
+    git(wt, &["add", "."]);
+    git(wt, &["commit", "-q", "-m", "base"]);
+    git(wt, &["checkout", "-q", "-b", "feat/x"]);
+    let added = "- **MB-R-002** — The client polls.\n**MB-R-003** — The client retries.\n\
+                 | **MB-E-002** | a | b |\n";
+    append(&spec, added);
+    git(wt, &["commit", "-q", "-am", "x"]);
+    git(wt, &["checkout", "-q", "main"]);
+    append(&spec, added);
+    git(wt, &["commit", "-q", "-am", "y"]);
+    git(wt, &["checkout", "-q", "feat/x"]);
+    assert_eq!(
+        Run::new(["spec", "collisions", &wt.display().to_string(), "main"]).text(),
+        "ids=collide MB-E-002,MB-R-002,MB-R-003 hint=renumber these IDs on the branch\nexit=1"
+    );
+}
+
+#[test]
 fn it_collisions_defaults_to_the_configured_main_branch() {
     let repo = tempfile::tempdir().unwrap();
     let wt = repo.path();

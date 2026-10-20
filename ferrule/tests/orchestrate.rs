@@ -429,6 +429,24 @@ fn it_publish_refuses_threads_and_stage_refs() {
          hint=resolve the open threads: ferrule guide show feedback\nexit=1"
     );
     serve(&p.gh, &graphql("34"), NO_THREADS);
+    assert_eq!(
+        p.ferrule(&["pr", "publish", "demo"]).text(),
+        "publish=refused reason=collisions-unknown hint=main could not be fetched \
+         or shares no history with the branch; ask the user to fix the remote, \
+         then publish again\nexit=1"
+    );
+    git(
+        &p.root,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "feat/demo",
+            p.worktree().to_str().unwrap(),
+        ],
+    );
+    serve(&p.gh, &graphql("34"), NO_THREADS);
     let pr = p.run_dir().join("pr.md");
     let text = std::fs::read_to_string(&pr)
         .unwrap()
