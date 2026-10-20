@@ -5,7 +5,7 @@
 Every run, `/spec-request` included.
 
 - Replaces any generic workflow skill (`/workflow`); `docs/specs/` is already the PRD and design record.
-- Branch off `{main}`, never commit to `{main}`. `<type>/{slug}`, type ∈ {`feat`, `fix`, `docs`}. **Enforced:** `ferrule hook pre-tool-use` denies `git commit` on `{main}` and `git push` targeting it.
+- Branch off `{main}`, never commit to `{main}`. `<type>/{slug}`, type ∈ {`feat`, `fix`, `docs`}. **Enforced:** `ferrule hook git pre-commit` refuses a commit on `{main}` and `ferrule hook git pre-push` a push targeting it.
 - **Orchestrator never changes spec or code and never reads spec, code, or any agent-written file.** It spawns agents, relays one question at a time between agent and user, and runs ferrule for every mechanical step: `ferrule run init|approve|replan|ci|cleanup`, `ferrule issue post`, `ferrule pr push|publish`, `ferrule board move`, `ferrule ci gauntlet`. Every other output is an agent's file (`ferrule guide show handoff`).
 - **Gate 1 is a best-effort grilling, drafted by `fe-author`.** Existing spec + the request's user stories, nothing about current code. It settles scope, scenarios and the edge cases the user cares about; every other point is deferred to the agent that settles it, never anticipated.
 - **Issue and PR are the orchestrator's alone**, assembled by ferrule from the run's files (`ferrule issue post`, `ferrule pr push`, `ferrule pr publish`), never retyped. Issue = goal, requirements, scenarios; PR = everything about how; neither names a stage or an agent. No agent but `fe-author` learns an issue or PR number exists — spawn briefs never carry one.

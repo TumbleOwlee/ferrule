@@ -45,10 +45,10 @@ The output of the wait is saved in .ferrule/runs/<slug>/ci.log.
 Refusals:
   ci=refused reason=card           No such run; check the slug with
                                    `ferrule board list`
-  post=refused reason=card         The run has no PR recorded; open it with
+  ci=refused reason=no-pr          The run has no PR recorded; open it with
                                    `ferrule pr open <slug>`
   (stderr: the host's error)       The checks could not be read (exit 1)
-The ci=refused line ends in ` hint=<fix>`.
+The ci=refused lines end in ` hint=<fix>`.
 Exit codes: 0 ok, 1 refused.
 See: ferrule guide show gate4";
 

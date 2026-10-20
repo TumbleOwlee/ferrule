@@ -59,8 +59,6 @@ Refusals:
   (no line; stderr `body: missing <path>`)
       A run file the body needs is absent. Exit 1. Fix: run the step that
       writes it.
-  (no line; stderr `body: no slice <n> in slices.md`)
-      `--slice` names a slice slices.md does not have. Exit 1.
   (no line, nothing printed)
       The body would be empty. Exit 1.
 Exit codes: 0 ok, 1 refused, 3 content (stage-ref).

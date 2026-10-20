@@ -26,8 +26,8 @@ Output:
 Refusals (stderr, exit 1):
   no section matched:            Followed by the unmatched HEADING texts, one
                                  per line; matched sections still print. List
-                                 the file's headings with `ferrule spec
-                                 sections FILE`, or add --prefix.
+                                 the file's headings with `ferrule file
+                                 headings FILE`, or add --prefix.
   cannot read <file>: <error>    The file is missing or unreadable.
 Exit codes: 0 every heading matched, 1 refused, 2 usage.
 Examples:

@@ -112,7 +112,8 @@ Refusals (stdout, exit 1):
 Errors (stderr, exit 1): `missing <path>` for an absent run file; the tracker's
 error when the host call fails.
 Exit codes: 0 ok, 1 refused, 3 content.
-Backend: writes to the configured tracker (`gh`, Jira or Bitbucket).
+Backend: writes are GitHub-only (`gh`); with another tracker configured the
+command refuses.
 See: ferrule guide show issue";
 
 /// What `issue view` and `pr view` print; without a flag, everything.
@@ -472,6 +473,13 @@ pub fn post_failed(e: publish::Error, out: &mut impl Write) -> io::Result<u8> {
                 out,
                 "post=refused reason=no-branch \
                  hint=approve gate2 first: ferrule gate approve <slug> gate2"
+            )?;
+            Ok(exit::REFUSED)
+        }
+        publish::Error::NoPr => {
+            writeln!(
+                out,
+                "post=refused reason=card hint=no PR is recorded for this run; open it with `ferrule pr open <slug>`"
             )?;
             Ok(exit::REFUSED)
         }

@@ -30,6 +30,8 @@ pub enum Error {
     NoBranch,
     /// No card for the run.
     Card,
+    /// The run has no PR recorded.
+    NoPr,
     Remote(remote::Error),
     Sql(rusqlite::Error),
 }
@@ -563,10 +565,13 @@ impl Run<'_> {
     /// Waits for the PR's checks; the exit code, the failed checks and the
     /// output, also written to the run's ci.log.
     pub fn wait_ci(&self) -> Result<(i32, Vec<String>), Error> {
+        if board::state(self.conn, self.slug)?.is_none() {
+            return Err(Error::Card);
+        }
         let pr = numbers(self.field("pr")?.as_deref())
             .first()
             .copied()
-            .ok_or(Error::Card)?;
+            .ok_or(Error::NoPr)?;
         let (code, output) = remote::pr_checks_watch(self.config.backend.ci, pr, self.root)?;
         std::fs::write(self.layout.run_dir(self.slug).join("ci.log"), &output)
             .map_err(|e| Error::Remote(remote::Error::Command(e.to_string())))?;

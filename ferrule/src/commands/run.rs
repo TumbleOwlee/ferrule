@@ -1232,6 +1232,14 @@ pub(super) fn ci(slug: &str, out: &mut impl Write) -> io::Result<u8> {
     .wait_ci();
     let (code, failed) = match waited {
         Ok(r) => r,
+        Err(publish::Error::NoPr) => {
+            writeln!(
+                out,
+                "ci=refused reason=no-pr hint=no PR is recorded for this run; \
+                 open it with `ferrule pr open {slug}`"
+            )?;
+            return Ok(exit::REFUSED);
+        }
         Err(e) => return super::issue::post_failed(e, out),
     };
     write!(out, "ci={code}")?;
