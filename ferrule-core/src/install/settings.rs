@@ -60,21 +60,25 @@ fn save(root: &Path, m: &Map<String, Value>) -> Result<(), Error> {
     Ok(())
 }
 
-/// `m[key]` as an object, created when absent.
-fn object<'a>(m: &'a mut Map<String, Value>, key: &str) -> &'a mut Map<String, Value> {
-    let v = m.entry(key).or_insert_with(|| Value::Object(Map::new()));
-    if !v.is_object() {
-        *v = Value::Object(Map::new());
+/// `m[key]` as an object, created when absent; refused when it is something
+/// else, so that nothing of the user's is overwritten.
+fn object<'a>(
+    m: &'a mut Map<String, Value>,
+    key: &str,
+) -> Result<&'a mut Map<String, Value>, Error> {
+    match m.entry(key).or_insert_with(|| Value::Object(Map::new())) {
+        Value::Object(o) => Ok(o),
+        _ => Err(Error::Settings(format!("{key} is not an object"))),
     }
-    v.as_object_mut().expect("just made an object")
 }
 
-fn array<'a>(m: &'a mut Map<String, Value>, key: &str) -> &'a mut Vec<Value> {
-    let v = m.entry(key).or_insert_with(|| Value::Array(Vec::new()));
-    if !v.is_array() {
-        *v = Value::Array(Vec::new());
+/// `m[key]` as an array, created when absent; refused when it is something
+/// else.
+fn array<'a>(m: &'a mut Map<String, Value>, key: &str) -> Result<&'a mut Vec<Value>, Error> {
+    match m.entry(key).or_insert_with(|| Value::Array(Vec::new())) {
+        Value::Array(a) => Ok(a),
+        _ => Err(Error::Settings(format!("{key} is not an array"))),
     }
-    v.as_array_mut().expect("just made an array")
 }
 
 /// Drops ferrule's hook entries and the `old` deny rules; empty
@@ -108,21 +112,24 @@ fn strip(m: &mut Map<String, Value>, old: &[String]) {
 }
 
 /// Merges ferrule's entries in; `locked` holds the deny rules ferrule added
-/// before and is updated to `deny`. Whether the file changed.
+/// before and becomes the ones it adds now: a rule the file already holds
+/// (the user's own) is left alone and not recorded. Whether the file changed.
 pub fn apply(root: &Path, deny: &[String], locked: &mut Vec<String>) -> Result<bool, Error> {
     let before = load(root)?;
     let mut m = before.clone();
-    let mut old = locked.clone();
-    old.extend(deny.iter().cloned());
-    strip(&mut m, &old);
+    strip(&mut m, locked);
     for (event, entry) in hooks() {
-        array(object(&mut m, "hooks"), event).push(entry);
+        array(object(&mut m, "hooks")?, event)?.push(entry);
     }
-    let rules = array(object(&mut m, "permissions"), "deny");
+    let rules = array(object(&mut m, "permissions")?, "deny")?;
+    let mut added = Vec::new();
     for r in deny {
-        rules.push(Value::String(r.clone()));
+        if !rules.iter().any(|v| v.as_str() == Some(r)) {
+            rules.push(Value::String(r.clone()));
+            added.push(r.clone());
+        }
     }
-    *locked = deny.to_vec();
+    *locked = added;
     let changed = m != before;
     if changed {
         save(root, &m)?;
@@ -130,8 +137,8 @@ pub fn apply(root: &Path, deny: &[String], locked: &mut Vec<String>) -> Result<b
     Ok(changed)
 }
 
-/// Every ferrule hook present once, and ferrule's deny rules (`deny`, plus
-/// the `locked` ones it added before) exactly `deny`.
+/// Every ferrule hook present once, every rule of `deny` present, and none
+/// of the `locked` rules ferrule added before that `deny` has dropped.
 pub fn in_step(root: &Path, deny: &[String], locked: &[String]) -> Result<bool, Error> {
     let m = load(root)?;
     let hooks_ok = hooks().iter().all(|(event, entry)| {
@@ -146,12 +153,11 @@ pub fn in_step(root: &Path, deny: &[String], locked: &[String]) -> Result<bool, 
         .and_then(Value::as_array)
         .map(|a| a.iter().filter_map(Value::as_str).collect())
         .unwrap_or_default();
-    let ours: std::collections::BTreeSet<&str> = have
-        .into_iter()
-        .filter(|r| deny.iter().chain(locked).any(|d| d == r))
-        .collect();
-    let want: std::collections::BTreeSet<&str> = deny.iter().map(String::as_str).collect();
-    Ok(hooks_ok && ours == want)
+    let all = deny.iter().all(|d| have.contains(&d.as_str()));
+    let stale = locked
+        .iter()
+        .any(|l| !deny.contains(l) && have.contains(&l.as_str()));
+    Ok(hooks_ok && all && !stale)
 }
 
 /// Takes ferrule's entries out; whether the file changed.

@@ -12,6 +12,8 @@ Output:
                                  left. Removed: unedited generated files,
                                  ferrule's marked blocks, its settings
                                  entries and git hooks, the CLAUDE.md line.
+                                 Deny rules you already had stay: only the
+                                 ones install added are taken out.
   kept=<path> reason=edited      A generated file someone edited stays;
                                  delete it by hand if unwanted.
 Refusals (stdout, exit 1):

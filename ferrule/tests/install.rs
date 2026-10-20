@@ -406,3 +406,40 @@ fn it_install_writes_into_the_worktree_it_runs_in() {
         "the main checkout stays untouched"
     );
 }
+
+#[test]
+fn it_uninstall_keeps_deny_rules_the_user_had() {
+    let dir = repo();
+    let root = dir.path();
+    std::fs::create_dir_all(root.join(".claude")).unwrap();
+    std::fs::write(
+        root.join(".claude/settings.json"),
+        r#"{"permissions": {"deny": ["Bash(git push:*)", "Edit(**/.ferrule/state.db)"]}}"#,
+    )
+    .unwrap();
+    ferrule(root, &["install"]);
+    assert!(!read(root, ".ferrule/ferrule.lock").contains("git push"));
+    assert!(ferrule(root, &["setup", "check"]).starts_with("install-check=ok"));
+    ferrule(root, &["install"]);
+    ferrule(root, &["uninstall"]);
+    let s: serde_json::Value = serde_json::from_str(&read(root, ".claude/settings.json")).unwrap();
+    assert_eq!(
+        s["permissions"]["deny"],
+        serde_json::json!(["Bash(git push:*)", "Edit(**/.ferrule/state.db)"])
+    );
+}
+
+#[test]
+fn it_install_refuses_a_settings_value_of_the_wrong_type() {
+    let dir = repo();
+    let root = dir.path();
+    std::fs::create_dir_all(root.join(".claude")).unwrap();
+    let text = r#"{"hooks": "mine"}"#;
+    std::fs::write(root.join(".claude/settings.json"), text).unwrap();
+    let out = ferrule(root, &["install"]);
+    assert!(
+        out.contains("install=refused reason=.claude/settings.json: hooks is not an object"),
+        "{out}"
+    );
+    assert_eq!(read(root, ".claude/settings.json"), text);
+}

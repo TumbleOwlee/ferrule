@@ -35,7 +35,10 @@ Refusals (stdout):
       A generated path holds a file ferrule never wrote; nothing was
       written. Move it away or rerun with --force.
   install=refused reason=<error> hint=fix the file the reason names, then rerun
-      The lock or .claude/settings.json is unreadable or not valid.
+      The lock or .claude/settings.json is unreadable or not valid, or its
+      `hooks` or `permissions` hold a value of the wrong type (reason=
+      .claude/settings.json: hooks is not an object). Nothing is replaced;
+      the file is left as it was.
 Version mismatch (stderr of every other command):
   ferrule=refused reason=version pinned=<v> binary=<v>: <fix>
   ferrule=refused reason=version locked=<v> binary=<v>: <fix>
