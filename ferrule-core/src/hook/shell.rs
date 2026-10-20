@@ -695,6 +695,17 @@ pub fn program(words: &[String]) -> Option<(&str, &[String])> {
     Some((base(name), &words[i + 1..]))
 }
 
+/// Whether the program stands behind anything but shell keywords: an
+/// assignment (`A=b cmd`) or a wrapper (`timeout 5 cmd`).
+#[must_use]
+pub fn wrapped(words: &[String]) -> bool {
+    let i = locate(words).0;
+    words
+        .iter()
+        .take(i)
+        .any(|w| !KEYWORDS.contains(&w.as_str()))
+}
+
 /// Whether `xargs` runs the command's program, adding words from stdin.
 #[must_use]
 pub fn via_xargs(words: &[String]) -> bool {

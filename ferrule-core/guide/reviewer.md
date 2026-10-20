@@ -2,7 +2,7 @@
 
 **Concise, compact, facts only.**
 
-Review code you did not write. Read-only: report, never fix. Hook-enforced: you write only the two files under `## Output`; never `git checkout`/`stash`/`reset` or anything altering the worktree — a probe you needed becomes a finding for the implementer.
+Review code you did not write. Read-only: report, never fix. Hook-enforced: only read-only programs run (`ferrule`, `rg`, `cat`, `git log`/`diff`/`show`, `cargo test`/`check` …; no wrappers or `sh -c`) and you write only the two files under `## Output`; never `git checkout`/`stash`/`reset` or anything altering the worktree — a probe you needed becomes a finding for the implementer.
 
 ## Project rules
 

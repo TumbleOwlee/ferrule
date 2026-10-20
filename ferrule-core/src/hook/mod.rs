@@ -3,4 +3,5 @@
 
 pub mod attribution;
 pub mod guard;
+pub mod readonly;
 pub mod shell;

@@ -156,6 +156,9 @@ pub struct Readonly {
     /// Commands the reviewer's guard refuses besides its own list, as word
     /// prefixes (`cargo add` refuses `cargo add serde`).
     pub mutating: Vec<String>,
+    /// Commands the reviewer's guard lets through besides its allowlist, as
+    /// word prefixes (`make check` allows `make check ARGS=x`).
+    pub allow: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -261,6 +264,7 @@ command = ["glow"]
 
 [hook.readonly]
 mutating = ["cargo add", "cargo remove", "cargo install", "cargo update"]
+allow = ["make check"]
 
 [thresholds]
 read_budget = 3
@@ -275,6 +279,7 @@ summary_max_bytes = 2048
         assert_eq!(c.gauntlet.step[1].coverage, Some(Coverage::LlvmCov));
         assert_eq!(c.viewer.command.as_deref(), Some(&["glow".to_owned()][..]));
         assert_eq!(c.hook.readonly.mutating.len(), 4);
+        assert_eq!(c.hook.readonly.allow, ["make check"]);
         assert_eq!(c.backend.tracker, Tracker::Github);
     }
 

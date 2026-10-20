@@ -119,6 +119,7 @@ command = ["glow"]           # prompt show appends the file path; unset: stdout
 
 [hook.readonly]
 mutating = ["cargo add"]     # word prefixes the reviewer's guard also refuses
+allow = ["make check"]       # word prefixes it lets through; it runs only its read-only list otherwise
 
 [thresholds]
 read_budget = 3              # read events one stage card may carry

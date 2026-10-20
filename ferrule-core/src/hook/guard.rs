@@ -320,12 +320,12 @@ fn is_markdown(path: &str) -> bool {
 }
 
 /// `…/.ferrule/runs/<slug>/<file>`.
-fn is_artifact(path: &str, file: &str) -> bool {
+pub(super) fn is_artifact(path: &str, file: &str) -> bool {
     let c = components(path);
     matches!(c.as_slice(), [.., ".ferrule", "runs", _, f] if *f == file)
 }
 
-fn resolve(cwd: &Path, path: &str) -> PathBuf {
+pub(super) fn resolve(cwd: &Path, path: &str) -> PathBuf {
     match path.strip_prefix("~/") {
         Some(rest) => std::env::home_dir().unwrap_or_default().join(rest),
         None => cwd.join(path),
@@ -333,7 +333,7 @@ fn resolve(cwd: &Path, path: &str) -> PathBuf {
 }
 
 /// Words after `tee`'s options, and whether `-a`/`--append` was given.
-fn tee_targets(args: &[String]) -> (bool, Vec<&str>) {
+pub(super) fn tee_targets(args: &[String]) -> (bool, Vec<&str>) {
     let mut append = false;
     let mut targets = Vec::new();
     let mut options = true;
@@ -359,7 +359,7 @@ fn cd_word(args: &[String]) -> Option<&String> {
 
 /// The directory `cd <args>` moves to, if it exists; a `.ferrule` the
 /// guard cannot see (`cd "$(…)/.ferrule"`) is taken as moved to.
-fn cd_target(cwd: &Path, args: &[String]) -> Option<PathBuf> {
+pub(super) fn cd_target(cwd: &Path, args: &[String]) -> Option<PathBuf> {
     let target = cd_word(args)?;
     let dir = resolve(cwd, target);
     (dir.is_dir() || is_ferrule_dir(target)).then_some(dir)
@@ -387,7 +387,7 @@ const HIDDEN_REASON: &str = "The guard cannot see what this runs: a variable, a 
 
 const ALIAS_REASON: &str = "A git or gh alias that runs a shell command (!…), comes from the environment, or expands to a call ferrule replaces hides that call from the guard. Run the command itself; commits and pushes go through ferrule stage commit and ferrule pr push.";
 
-fn opaque_reason(o: Opaque) -> &'static str {
+pub(super) fn opaque_reason(o: Opaque) -> &'static str {
     match o {
         Opaque::AnsiC => {
             "ANSI-C quoting ($'…') is more than the guard follows. Use plain '…' or \"…\" quotes (printf for escapes) and retry."
@@ -1052,7 +1052,7 @@ const GH_WRITES: &[&str] = &[
 ];
 
 /// Whether `args` holds any of `flags`, alone or as a `--flag=value`.
-fn has(args: &[String], flags: &[&str]) -> bool {
+pub(super) fn has(args: &[String], flags: &[&str]) -> bool {
     args.iter().any(|a| {
         flags.iter().any(|f| {
             a == f || (f.starts_with("--") && a.strip_prefix(f).is_some_and(|r| r.starts_with('=')))
@@ -1106,7 +1106,7 @@ fn readonly_program(name: &str, args: &[String]) -> bool {
     }
 }
 
-fn readonly_git(sub: &str, args: &[String]) -> bool {
+pub(super) fn readonly_git(sub: &str, args: &[String]) -> bool {
     let positional: Vec<&str> = args
         .iter()
         .map(String::as_str)
@@ -1190,45 +1190,8 @@ fn readonly_gh(args: &[String]) -> bool {
     }
 }
 
-/// The reviewer's guard: nothing that alters the repository, the working
-/// tree or the filesystem, except appending to the run's `review.md` and
-/// rewriting its `review.verdict.md`. `mutating` adds word prefixes to
-/// refuse (`cargo add`).
-#[must_use]
-pub fn readonly(command: &str, cwd: &Path, mutating: &[String]) -> Option<String> {
-    let mut cwd = cwd.to_path_buf();
-    for c in shell::parse(command) {
-        let program = shell::program(&c.words);
-        if let Some(("cd", args)) = program {
-            if let Some(dir) = cd_target(&cwd, args) {
-                cwd = dir;
-            }
-            continue;
-        }
-        let program_ok = program.is_none_or(|(name, args)| match name {
-            "tee" => {
-                let (append, targets) = tee_targets(args);
-                targets.iter().all(|t| writable(&cwd, t, append))
-            }
-            _ => readonly_program(name, args) && !has_prefix(name, args, mutating),
-        });
-        let redirects_ok = c.redirects.iter().all(|r| match r.kind {
-            RedirectKind::Append => writable(&cwd, &r.target, true),
-            RedirectKind::Write => writable(&cwd, &r.target, false),
-            _ => true,
-        });
-        if !program_ok || !redirects_ok {
-            return Some(format!(
-                "fe-reviewer is read-only (hook-enforced): '{}' would alter the repo, the working tree, or the filesystem. The only sanctioned writes are an append ('>>' or 'tee -a') onto .ferrule/runs/<slug>/review.md and a rewrite ('>' or 'tee') of .ferrule/runs/<slug>/review.verdict.md. Never run git checkout/stash/reset or anything that touches the worktree; record what you needed to probe as a finding for the implementer instead.",
-                c.words.join(" ")
-            ));
-        }
-    }
-    None
-}
-
 /// Whether the command's words start with one of `prefixes`' words.
-fn has_prefix(name: &str, args: &[String], prefixes: &[String]) -> bool {
+pub(super) fn has_prefix(name: &str, args: &[String], prefixes: &[String]) -> bool {
     let words: Vec<&str> = std::iter::once(name)
         .chain(args.iter().map(String::as_str))
         .collect();
@@ -1236,15 +1199,6 @@ fn has_prefix(name: &str, args: &[String], prefixes: &[String]) -> bool {
         let p: Vec<&str> = p.split_whitespace().collect();
         !p.is_empty() && words.starts_with(&p)
     })
-}
-
-fn writable(cwd: &Path, target: &str, append: bool) -> bool {
-    if target == "/dev/null" {
-        return true;
-    }
-    let path = resolve(cwd, target);
-    let path = path.to_string_lossy();
-    is_artifact(&path, "review.verdict.md") || (append && is_artifact(&path, "review.md"))
 }
 
 #[cfg(test)]

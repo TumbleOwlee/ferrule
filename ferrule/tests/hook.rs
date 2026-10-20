@@ -299,7 +299,7 @@ fn it_reviewer_guard_allows_reads_and_the_review_files_only() {
             ("rm -rf target", "deny"),
             ("cargo test 2>&1 | tail -5", "allow"),
             ("cargo fmt", "deny"),
-            ("cargo fmt --check", "allow"),
+            ("cargo fmt --check", "deny"),
             ("grep -rn '=>' src > /dev/null", "allow"),
             ("echo $(rm -f x)", "deny"),
             ("for f in a b; do rm $f; done", "deny"),
@@ -308,12 +308,15 @@ fn it_reviewer_guard_allows_reads_and_the_review_files_only() {
             ("sed -n '1,5p' f", "allow"),
             ("sed -i s/a/b/ f", "deny"),
             ("gh pr comment 3 --body x", "deny"),
-            ("gh pr diff 3", "allow"),
-            ("gh api repos/o/r/pulls", "allow"),
+            ("gh pr diff 3", "deny"),
+            ("timeout 5 rm -rf x", "deny"),
+            ("git diff --output=src/main.rs", "deny"),
+            ("ferrule run diff s --specs", "allow"),
             ("gh api -X POST repos/o/r/issues", "deny"),
-            ("git stash list", "allow"),
+            ("git stash list", "deny"),
             ("git stash", "deny"),
             ("git branch -D x", "deny"),
+            ("make", "deny"),
             ("git branch", "allow"),
             ("python3 -c 'print(1)'", "deny"),
             ("bash -c 'ls'", "deny"),
@@ -498,8 +501,29 @@ fn it_reviewer_refuses_the_configured_mutating_commands() {
         p.path(),
         &[
             ("npm install left-pad", "deny"),
-            ("npm ls", "allow"),
+            ("npm ls", "deny"),
+            ("ls", "allow"),
             ("env CI=1 npm install", "deny"),
+        ],
+    );
+}
+
+#[test]
+fn it_reviewer_allows_the_configured_commands() {
+    let p = tempfile::tempdir().unwrap();
+    std::fs::create_dir(p.path().join(".ferrule")).unwrap();
+    std::fs::write(
+        p.path().join(".ferrule/ferrule.toml"),
+        "[hook.readonly]\nallow = [\"make check\"]\n",
+    )
+    .unwrap();
+    check(
+        "reviewer",
+        p.path(),
+        &[
+            ("make check", "allow"),
+            ("make check | tail", "allow"),
+            ("make install", "deny"),
         ],
     );
 }

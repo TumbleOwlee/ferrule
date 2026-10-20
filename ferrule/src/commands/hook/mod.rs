@@ -8,6 +8,7 @@ use ferrule_core::card::board::{self, State};
 use ferrule_core::config::Config;
 use ferrule_core::hook::attribution::{self, Rewrite};
 use ferrule_core::hook::guard;
+use ferrule_core::hook::readonly;
 use ferrule_core::install;
 use ferrule_core::project;
 use serde::Deserialize;
@@ -79,10 +80,22 @@ Output:
                        review.md or rewrites review.verdict.md
   one JSON line        exit 0; permissionDecision \"deny\" with the reason
 Refuses:
-  any command that would alter the repo, the working tree or the
-                       filesystem, and the `[hook.readonly] mutating`
-                       prefixes of ferrule.toml; record what you needed to
-                       probe as a finding for the implementer instead
+  any command off the read-only allowlist: ls cat head tail wc grep rg find
+                       (no -exec/-delete/-fprint) sed -n (no w/e commands)
+                       awk (no redirection, system, pipes) diff cmp file stat
+                       tree pwd echo printf sort uniq cut tr nl basename
+                       dirname realpath jq; git log|show|diff (no --output,
+                       --ext-diff)|status|blame|grep|rev-parse|ls-files|
+                       ls-tree|cat-file|merge-base|describe|shortlog, branch
+                       and tag only to list; cargo test|check|clippy|tree|
+                       metadata; ferrule. Wrappers (env, timeout, A=b cmd),
+                       sh -c, eval and $'...' are refused. Output goes to
+                       /dev/null, appends to review.md or rewrites
+                       review.verdict.md only
+  the `[hook.readonly] allow` prefixes of ferrule.toml extend the allowlist
+                       (`make check`); `mutating` prefixes are refused even
+                       then; record what you needed to probe as a finding for
+                       the implementer instead
   every call but `ferrule setup install` while the binary and the project's pin
                        or lock disagree: `ferrule=refused reason=version ...`
   deny when ferrule.toml cannot be read: ferrule hook reviewer: <error>
@@ -218,7 +231,13 @@ enum Verdict {
 /// config it cannot read refuses the call rather than guess.
 fn reviewer(cmd: &str, cwd: &Path) -> Option<Verdict> {
     match Config::load(&project::main_checkout()) {
-        Ok(config) => guard::readonly(cmd, cwd, &config.hook.readonly.mutating).map(Verdict::Deny),
+        Ok(config) => readonly::readonly(
+            cmd,
+            cwd,
+            &config.hook.readonly.mutating,
+            &config.hook.readonly.allow,
+        )
+        .map(Verdict::Deny),
         Err(e) => Some(Verdict::Deny(format!("ferrule hook reviewer: {e}"))),
     }
 }
