@@ -132,13 +132,13 @@ fn it_feedback_fetches_threads_and_replies() {
     let text = std::fs::read_to_string(&file).unwrap();
     assert_eq!(
         text,
-        "# PR feedback — fetched 2026-10-05T09:00\n## thread T1\ncomment: 11\npath: src/a.rs:42\n[al @ 2026-10-05T08:00:00Z]\nrename it\nreply:\n\n## thread T3\ncomment: 13\npath: src/c.rs:?\n[unknown @ 2026-10-05T08:02:00Z]\nwhy?\nreply:\n\n"
+        "# PR feedback — fetched 2026-10-05T09:00\n## thread T1\ncomment: 11\npath: src/a.rs:42\n[al @ 2026-10-05T08:00:00Z]\n> rename it\nreply:\n\n## thread T3\ncomment: 13\npath: src/c.rs:?\n[unknown @ 2026-10-05T08:02:00Z]\n> why?\nreply:\n\n"
     );
     let filled = text
         .replacen("reply:\n", "reply: fixed\n  - renamed to `b`\n", 1)
         .replacen(
-            "why?\nreply:\n",
-            "why?\nreply: declined\n  - the spec asks for it\n",
+            "> why?\nreply:\n",
+            "> why?\nreply: declined\n  - the spec asks for it\n",
             1,
         );
     std::fs::write(&file, filled).unwrap();

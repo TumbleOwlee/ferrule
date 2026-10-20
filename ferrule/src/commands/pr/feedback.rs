@@ -38,8 +38,9 @@ const FB_FETCH_AFTER_LONG_HELP: &str = "\
 Output:
   pr=<pr> state=<state> draft=<bool> threads=<k> file=<file>
       Wrote the PR's <k> unresolved inline threads to <file>: per thread a
-      `## thread <id>` block with `comment:`, `path:`, the comments and an
-      empty `reply:` line. <state> is lowercase (`open`).
+      `## thread <id>` block with `comment:`, `path:`, the comments (each
+      body line quoted with `> `) and an empty `reply:` line. <state> is
+      lowercase (`open`).
 Errors (stderr, exit 1): `pr feedback: <the host's error>`.
 Exit codes: 0 ok, 1 refused.
 Backend: reads the threads from the configured CI host.
