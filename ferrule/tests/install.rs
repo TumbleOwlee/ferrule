@@ -102,7 +102,7 @@ fn it_install_writes_the_adapters_and_is_idempotent() {
         "\"$CLAUDE_PROJECT_DIR\"/.ferrule/ferrule hook shell"
     );
     let deny = settings["permissions"]["deny"].as_array().unwrap();
-    assert!(deny.iter().any(|r| r == "Bash(git push:*)"));
+    assert!(deny.iter().any(|r| r == "Bash(git push :*)"));
     assert!(deny.iter().any(|r| r == "Edit(**/.ferrule/state.db)"));
 
     assert_eq!(
@@ -414,18 +414,18 @@ fn it_uninstall_keeps_deny_rules_the_user_had() {
     std::fs::create_dir_all(root.join(".claude")).unwrap();
     std::fs::write(
         root.join(".claude/settings.json"),
-        r#"{"permissions": {"deny": ["Bash(git push:*)", "Edit(**/.ferrule/state.db)"]}}"#,
+        r#"{"permissions": {"deny": ["Bash(git push :*)", "Edit(**/.ferrule/state.db)"]}}"#,
     )
     .unwrap();
     ferrule(root, &["install"]);
-    assert!(!read(root, ".ferrule/ferrule.lock").contains("git push"));
+    assert!(!read(root, ".ferrule/ferrule.lock").contains("Bash(git push :*)"));
     assert!(ferrule(root, &["setup", "check"]).starts_with("install-check=ok"));
     ferrule(root, &["install"]);
     ferrule(root, &["uninstall"]);
     let s: serde_json::Value = serde_json::from_str(&read(root, ".claude/settings.json")).unwrap();
     assert_eq!(
         s["permissions"]["deny"],
-        serde_json::json!(["Bash(git push:*)", "Edit(**/.ferrule/state.db)"])
+        serde_json::json!(["Bash(git push :*)", "Edit(**/.ferrule/state.db)"])
     );
 }
 

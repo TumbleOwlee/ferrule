@@ -729,13 +729,15 @@ fn apply(root: &Path, item: &Item, lock: &mut Lock, report: &mut Report) -> std:
 }
 
 /// The `permissions.deny` backstop: every replaced command the project
-/// did not re-open, and the files only ferrule writes.
+/// did not re-open, and the files only ferrule writes. A command gets an
+/// exact rule and one for it followed by arguments: `git merge:*` alone
+/// would also match `git merge-base`.
 #[must_use]
 pub fn deny_rules(allow: &[String]) -> Vec<String> {
     let mut out: Vec<String> = guard::REPLACED
         .iter()
         .filter(|r| !allow.iter().any(|a| r.raw.starts_with(a.as_str())))
-        .map(|r| format!("Bash({}:*)", r.raw))
+        .flat_map(|r| [format!("Bash({})", r.raw), format!("Bash({} :*)", r.raw)])
         .collect();
     for path in [
         "**/.ferrule/state.db",
@@ -1011,12 +1013,14 @@ mod tests {
     #[test]
     fn ut_deny_rules_skip_reopened_commands() {
         let all = deny_rules(&[]);
-        assert!(all.contains(&"Bash(git commit:*)".to_owned()));
+        assert!(all.contains(&"Bash(git commit)".to_owned()));
+        assert!(all.contains(&"Bash(git commit :*)".to_owned()));
+        assert!(!all.iter().any(|r| r.starts_with("Bash(git merge:")));
         assert!(all.contains(&"Edit(**/.ferrule/state.db)".to_owned()));
         assert!(!all.iter().any(|r| r.starts_with("Write(")));
         let some = deny_rules(&["gh issue".to_owned()]);
         assert!(!some.iter().any(|r| r.starts_with("Bash(gh issue")));
-        assert!(some.contains(&"Bash(gh pr create:*)".to_owned()));
+        assert!(some.contains(&"Bash(gh pr create :*)".to_owned()));
     }
 
     #[test]
