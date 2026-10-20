@@ -108,6 +108,9 @@ Refusals (stdout, exit 1):
   push=refused reason=sha mismatch=<why> hint=push a stage's last commit= on the run's branch: ferrule stage verify
       The worktree head is not a stage's last verified `commit=`. <why> is
       card, missing, off-branch or card-commit (see `ferrule stage verify`).
+  push=refused reason=dirty hint=commit the changes through `ferrule stage commit`, then push again
+      The worktree holds changes beyond HEAD (modified or untracked
+      files). Fix: commit them through `ferrule stage commit`, push again.
   push=refused reason=gauntlet <gauntlet line> hint=fix the failing step, commit, push again
       The gauntlet failed on the head; the line is `ci gauntlet`'s. Fix: fix
       the step, commit, push again.

@@ -462,6 +462,13 @@ fn it_push_refuses_an_unverified_head_and_main() {
             "feat/demo",
         ],
     );
+    std::fs::write(p.worktree().join("wip.txt"), "wip\n").unwrap();
+    assert_eq!(
+        p.ferrule(&["pr", "push", "demo"]).text(),
+        "push=refused reason=dirty hint=commit the changes through `ferrule stage commit`, \
+         then push again\nexit=1"
+    );
+    std::fs::remove_file(p.worktree().join("wip.txt")).unwrap();
     assert_eq!(
         p.ferrule(&["pr", "push", "demo"]).text(),
         "push=refused reason=sha mismatch=card-commit hint=push a stage's last commit= \

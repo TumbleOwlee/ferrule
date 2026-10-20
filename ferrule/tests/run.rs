@@ -412,8 +412,13 @@ fn it_gauntlet_runs_the_configured_steps_and_caches_a_pass() {
     std::fs::write(s.wt.join("b.txt"), "b\n").unwrap();
     assert_eq!(
         g(&[]),
-        format!("{pass}\nexit=0"),
-        "an untracked file misses the cache"
+        format!("{pass} dirty\nexit=0"),
+        "an untracked file is dirty"
+    );
+    assert_eq!(
+        g(&[]),
+        format!("{pass} dirty\nexit=0"),
+        "a dirty pass is never cached"
     );
     assert_eq!(git(&s.wt, &["status", "--porcelain"]), "?? b.txt");
 
@@ -438,6 +443,45 @@ fn it_gauntlet_runs_the_configured_steps_and_caches_a_pass() {
     );
     std::fs::remove_dir_all(&s.wt).unwrap();
     assert!(g(&[]).starts_with("gauntlet=fail step=cd reason=no-worktree hint="));
+}
+
+#[test]
+fn it_gauntlet_cache_follows_the_steps_and_forgets_on_failure() {
+    let s = Scratch::new(1);
+    let g = |extra: &[&str]| {
+        let mut args = vec!["ci", "gauntlet", "ss"];
+        args.extend_from_slice(extra);
+        s.run(&args).text()
+    };
+    let flag = s.root.join("fail.flag");
+    let steps = format!(
+        "{STEPS}\n[[gauntlet.step]]\nname = \"flag\"\ncmd = [\"sh\", \"-c\", \"test ! -f {}\"]\n",
+        flag.display()
+    );
+    s.config(&steps);
+    let sha = git(&s.wt, &["rev-parse", "--short", "HEAD"]);
+    let pass = format!("gauntlet=pass cov=81.20% sha={sha}");
+    assert_eq!(g(&[]), format!("{pass}\nexit=0"));
+    assert_eq!(g(&[]), format!("{pass} cached\nexit=0"));
+
+    s.config(&format!(
+        "{steps}\n[[gauntlet.step]]\nname = \"x\"\ncmd = [\"true\"]\n"
+    ));
+    assert_eq!(
+        g(&[]),
+        format!("{pass}\nexit=0"),
+        "new steps miss the cache"
+    );
+    assert_eq!(g(&[]), format!("{pass} cached\nexit=0"));
+
+    std::fs::write(&flag, "").unwrap();
+    assert!(g(&["--force"]).starts_with(&format!("gauntlet=fail step=flag sha={sha}")));
+    std::fs::remove_file(&flag).unwrap();
+    assert_eq!(
+        g(&[]),
+        format!("{pass}\nexit=0"),
+        "a failure forgets the cached pass"
+    );
 }
 
 #[test]

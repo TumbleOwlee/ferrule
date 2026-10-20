@@ -12,11 +12,14 @@ use super::run;
 /// Shown after `ferrule ci gauntlet --help`.
 const GAUNTLET_AFTER_LONG_HELP: &str = "\
 Output (the steps' own output goes to .ferrule/runs/<slug>/gauntlet.log):
-  gauntlet=pass cov=<pct> sha=<sha> [cached]
+  gauntlet=pass cov=<pct> sha=<sha> [cached] [dirty]
       Every step passed; `cov` is the line coverage of the step marked
       `coverage = \"llvm-cov\"`, `?` when none is. `cached`: this exact tree
-      passed before and nothing ran; --force runs it anyway. Not logged on
-      the card: `ferrule pr push` logs `gauntlet=pass`.
+      passed before with the same steps and nothing ran; --force runs it
+      anyway. A failing run forgets the cached pass. `dirty`: the worktree
+      holds changes beyond HEAD, so the pass is not of the commit; it is
+      never cached, and `ferrule pr push` refuses it. Not logged on the
+      card: `ferrule pr push` logs `gauntlet=pass`.
 Failures:
   gauntlet=fail step=<name> sha=<sha> log=<path>
       The step exited non-zero; read the log, fix, rerun.

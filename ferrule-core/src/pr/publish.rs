@@ -336,6 +336,8 @@ pub enum PushRefused {
     NoBranch,
     /// The worktree's head is no stage's verified commit: the mismatch.
     Sha(String),
+    /// The worktree holds changes no commit has.
+    Dirty,
     /// The gauntlet failed: its status line.
     Gauntlet(String),
     /// `git push` failed.
@@ -353,6 +355,9 @@ impl std::fmt::Display for PushRefused {
                 f,
                 "push=refused reason=sha mismatch={m} \
 hint=push a stage's last commit= on the run's branch: ferrule stage verify"
+            ),
+            PushRefused::Dirty => f.write_str(
+                "push=refused reason=dirty hint=commit the changes through `ferrule stage commit`, then push again",
             ),
             PushRefused::Gauntlet(g) => write!(
                 f,
@@ -447,6 +452,9 @@ impl Run<'_> {
             return Ok(Err(PushRefused::Main));
         }
         let wt = self.worktree()?;
+        if gauntlet::dirty(&wt) {
+            return Ok(Err(PushRefused::Dirty));
+        }
         let Some(head) = git::out(&wt, &["rev-parse", "HEAD"]) else {
             return Ok(Err(PushRefused::Sha("missing".to_owned())));
         };
@@ -481,7 +489,10 @@ impl Run<'_> {
             self.now,
         )
         .map_err(|e| Error::Remote(remote::Error::Command(e.to_string())))?;
-        let Outcome::Pass { cov, sha, cached } = outcome else {
+        let Outcome::Pass {
+            cov, sha, cached, ..
+        } = outcome
+        else {
             return Ok(Err(PushRefused::Gauntlet(outcome.to_string())));
         };
         if !git::ok(&wt, &["push", "-q", "-u", "origin", &branch]) {
