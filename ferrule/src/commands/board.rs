@@ -78,6 +78,23 @@ pub enum CardState {
     Done,
 }
 
+const EVENTS_AFTER_LONG_HELP: &str = "\
+Output:
+  <card> <at> <event> ...    One log line per match across the run's parent
+                             card and all its stage cards, by time (the
+                             parent first within a minute). Nothing when
+                             no line matches.
+Filters: --event <name> keeps that event's lines (`follow-up`, `spec-delta`,
+`commit`, ...); --last <n> the latest n of them.
+Refusals:
+  events=card hint=check the id with `ferrule board list`
+                             No such run (exit 1).
+Exit codes: 0 ok, 1 refused.
+Examples:
+  ferrule board events <slug> --event follow-up
+  ferrule board events <slug> --event spec-delta --last 5
+See: ferrule guide show board";
+
 const BOARD_AFTER_LONG_HELP: &str = "\
 Output:
   <state> <id>  <title>      One line per card, parents before their stages;
@@ -319,6 +336,18 @@ pub enum BoardCommand {
         #[arg(long, value_name = "SLUG")]
         run: Option<String>,
     },
+    /// Print the log lines of a run's parent and stage cards.
+    #[command(after_long_help = EVENTS_AFTER_LONG_HELP)]
+    Events {
+        /// The run's slug.
+        slug: String,
+        /// Only the lines of this event, e.g. `follow-up` or `spec-delta`.
+        #[arg(long, value_name = "NAME")]
+        event: Option<String>,
+        /// Only the latest n lines.
+        #[arg(long, value_name = "N")]
+        last: Option<usize>,
+    },
     /// Print a card: frontmatter and log.
     #[command(after_long_help = SHOW_AFTER_LONG_HELP)]
     Show {
@@ -483,6 +512,7 @@ pub fn run(command: &BoardCommand, style: Option<Style>, out: &mut impl Write) -
             };
             show(card, &part, style, out)
         }
+        BoardCommand::Events { slug, event, last } => events(slug, event.as_deref(), *last, out),
         BoardCommand::List { state: states, run } => {
             let states: Vec<State> = states.iter().map(|s| state(*s)).collect();
             list(&states, run.as_deref(), style, out)
@@ -629,6 +659,38 @@ fn styled_card(text: &str, s: Style) -> String {
         let _ = writeln!(out, "{}  {body}", term::faint(at, s));
     }
     out
+}
+
+fn events(
+    slug: &str,
+    event: Option<&str>,
+    last: Option<usize>,
+    out: &mut impl Write,
+) -> io::Result<u8> {
+    let s = match store(false)? {
+        Some(s) if board::state(&s.conn, slug).map_err(sql)?.is_some() => s,
+        _ => {
+            writeln!(out, "events=card hint={HINT_CARD}")?;
+            return Ok(exit::REFUSED);
+        }
+    };
+    let mut lines: Vec<String> = board::run_events(&s.conn, slug)
+        .map_err(sql)?
+        .into_iter()
+        .map(|(card, at, body)| format!("{card} {at} {body}"))
+        .filter(|l| {
+            event.is_none_or(|e| {
+                event_of(l.split_once(' ').map_or("", |(_, r)| r)) == e.trim_end_matches('=')
+            })
+        })
+        .collect();
+    if let Some(n) = last {
+        lines.drain(..lines.len().saturating_sub(n));
+    }
+    for line in lines {
+        writeln!(out, "{line}")?;
+    }
+    Ok(exit::OK)
 }
 
 fn list(

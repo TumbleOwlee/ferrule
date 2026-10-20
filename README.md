@@ -16,6 +16,8 @@ Under construction. Implemented so far:
 | `ferrule run rebuild <issue> <pr>` | Recreate a lost board from the issue, the draft PR and git; re-adds the worktree |
 | `ferrule run cleanup <slug>` | Remove worktree and branch, archive cards and artifacts |
 | `ferrule run metrics [<slug>]` | A run's metrics line (needs green CI), or every line recorded |
+| `ferrule run diff <slug> [--specs] [--stat] [--base <ref>]` / `run log <slug>` | The run branch's diff and commits against main, in its worktree; `--uncommitted` for the work not yet committed |
+| `ferrule run plan-diff <slug>` | What changed in `plan.md` since the last plan review |
 | `ferrule run export <slug> [--archive id] [--to dir]` | Write an archive back out as files |
 | `ferrule gate approve <slug> <gate> [--<flag>…]` | Record an approval; gate 2 files the issue, adds the worktree, creates the stage cards from `plan.md`'s `## Shared` table |
 | `ferrule gate next <slug> <gate2\|replan\|gate3\|gate4\|ci> <status…>` | The next step after an agent's status line |
@@ -30,10 +32,13 @@ Under construction. Implemented so far:
 | `ferrule board log <card> <event> [pos…] [k=v…] [-- text]` | Append one event the vocabulary accepts |
 | `ferrule board move <card> <state>` | Move a card, refusing what the board's rules forbid; re-renders the run's draft PR body |
 | `ferrule board show <card>` / `board list` / `board vocab` | A card as markdown, every card, the event vocabulary |
+| `ferrule board events <slug> [--event <name>]` | One event's log lines across a run's parent and stage cards |
 | `ferrule board new <card> [--state s] [k=v…]` / `board set <card> k=v…` | Create a card, set or clear its fields |
 | `ferrule board import <board-dir>` | Load a markdown board into `.ferrule/state.db`, all or nothing |
 | `ferrule spec id [--dir <dir>] <ID>…` | Find spec entries by fixed ID as `file:line:text` |
-| `ferrule spec related <keyword>…` | Spec entries mentioning every keyword; refused past `related_max` hits |
+| `ferrule spec related <keyword>…` | Spec entries mentioning every keyword; refused past `search_max` hits |
+| `ferrule spec next <PREFIX> [--edge] [--count <n>] [--run <slug>]` | The next free fixed ID(s), counted from main (and the run) |
+| `ferrule spec refs <ID>… [--path <p>] [--ref <ref>]` | Every tracked line citing the IDs; refused past `search_max` hits |
 | `ferrule spec collisions <worktree> [<ref>]` | Fixed IDs both this branch and the target ref (default `origin/<main_branch>`) define |
 | `ferrule spec render <spec-diff> <part> [--only <ids>] [--with-unnumbered] [--issue-ids]` | Render scenarios, requirements, entries, changes or deferred points of a spec diff |
 | `ferrule file headings <file>…` | List a markdown file's headings, fenced code skipped |
@@ -41,6 +46,7 @@ Under construction. Implemented so far:
 | `ferrule prompt lines [--seen n] <file>…` | The lines of approval files a prompt quotes, then `Confirm:` |
 | `ferrule prompt show [--no-lines] <file>…` | Open files in the `[viewer]` (else stdout) and record the run's approval marker; exit 3 for a summary over its cap |
 | `ferrule prompt render <slug> <kind> [--<flag>…]` | A stop's whole message (approval, question, notice) or the `approved` record; logs the stop |
+| `ferrule issue search [--state open\|closed\|all] <keyword>…` | Issues mentioning every keyword, as `#n [STATE] title`; refused past `search_max` hits |
 | `ferrule issue view <n\|url\|KEY>` | An issue's title, body and comments as compact text |
 | `ferrule issue request <n> [--spec\|--epic\|--slice-line\|--comments]` | A reused issue's original request, or the part named |
 | `ferrule issue body <slug> [--slice <n>]` | The tracking issue's body from the run's artifacts; exit 3 when it names a stage or an agent |
@@ -120,7 +126,7 @@ stage_stop_files = 8         # or touching more files than this
 stage_stop_checkpoint = 3    # stages auto-continued in a row before one stops anyway
 summary_max_lines = 25       # caps on *.summary.md and *.verdict.md
 summary_max_bytes = 2048
-related_max = 40             # spec related refuses more hits than this
+search_max = 40              # spec related/refs and issue search refuse more hits
 ```
 
 ## Install

@@ -4,7 +4,7 @@
 
 Drafted inside gate 2 once the plan review is clean, approved at gate 2's stop (fast lane: pre-authorized at the architecture stop), filed on approval.
 
-Orchestrator searches existing issues (`gh issue list --state all --search …`) for the same goal and passes candidate numbers — plus the one the user named at gate 1 — to `fe-author`, which writes `{run_dir}/issue.md` (title + goal; shape: `ferrule guide show author`) and answers `status=reuse issue=<n> file=…` or `status=new file=…` in one turn. Reuse, never duplicate. On reuse the orchestrator stores the issue's original body once (unless gate 1 already did) with `ferrule issue request <n> > {run_dir}/request.md` — the body as filed, or, when that body is one this workflow assembled (it carries `## Scenarios`, `## Spec (rev` or an `Original request` block), the text inside its `<details>` block.
+Orchestrator searches existing issues (`ferrule issue search <keywords>`) for the same goal and passes candidate numbers — plus the one the user named at gate 1 — to `fe-author`, which writes `{run_dir}/issue.md` (title + goal; shape: `ferrule guide show author`) and answers `status=reuse issue=<n> file=…` or `status=new file=…` in one turn. Reuse, never duplicate. On reuse the orchestrator stores the issue's original body once (unless gate 1 already did) with `ferrule issue request <n> > {run_dir}/request.md` — the body as filed, or, when that body is one this workflow assembled (it carries `## Scenarios`, `## Spec (rev` or an `Original request` block), the text inside its `<details>` block.
 
 Filing — `ferrule gate approve {slug} gate2` does it; on its own:
 

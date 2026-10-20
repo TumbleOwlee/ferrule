@@ -21,6 +21,9 @@ run reconcile
 run rebuild
 run cleanup
 run metrics
+run diff
+run log
+run plan-diff
 run export
 gate
 gate approve
@@ -36,6 +39,7 @@ ci wait
 ci failed
 board
 board list
+board events
 board show
 board field
 board new
@@ -49,6 +53,8 @@ spec id
 spec related
 spec collisions
 spec render
+spec next
+spec refs
 file
 file headings
 file section
@@ -57,6 +63,7 @@ prompt render
 prompt lines
 prompt show
 issue
+issue search
 issue view
 issue request
 issue body

@@ -439,3 +439,162 @@ fn it_gauntlet_runs_the_configured_steps_and_caches_a_pass() {
     std::fs::remove_dir_all(&s.wt).unwrap();
     assert!(g(&[]).starts_with("gauntlet=fail step=cd reason=no-worktree hint="));
 }
+
+#[test]
+fn it_run_diff_and_log_read_the_branch_against_main() {
+    let s = Scratch::new(1);
+    s.commit_in_worktree("f1.txt", "one\n", "add f1");
+    std::fs::create_dir_all(s.wt.join("docs/specs")).unwrap();
+    s.commit_in_worktree("docs/specs/a.md", "**MB-R-002** — Polls.\n", "spec");
+    let stat = s.say(&["run", "diff", "ss", "--stat"]);
+    assert!(
+        stat.contains("f1.txt") && stat.contains("docs/specs/a.md"),
+        "{stat}"
+    );
+    let specs = s.say(&["run", "diff", "ss", "--specs"]);
+    assert!(specs.contains("+**MB-R-002** — Polls."), "{specs}");
+    assert!(!specs.contains("f1.txt"), "{specs}");
+    let log = s.say(&["run", "log", "ss"]);
+    assert_eq!(log.lines().count(), 2, "{log}");
+    assert!(log.lines().next().unwrap().ends_with(" spec"), "{log}");
+    std::fs::write(s.wt.join("f1.txt"), "changed\n").unwrap();
+    let wip = s.say(&["run", "diff", "ss", "--uncommitted"]);
+    assert!(
+        wip.starts_with(" M f1.txt\n") && wip.contains("+changed"),
+        "{wip}"
+    );
+    assert_eq!(
+        s.run(&["run", "diff", "ss", "--base", "nosuch"]).text(),
+        "diff=refused reason=base hint=fetch it, or pass a --base the branch has\nexit=1"
+    );
+    assert_eq!(
+        s.run(&["run", "log", "zz"]).text(),
+        "log=refused reason=card hint=check the slug with `ferrule board list`\nexit=1"
+    );
+}
+
+#[test]
+fn it_plan_diff_compares_the_snapshot() {
+    let s = Scratch::new(1);
+    assert_eq!(
+        s.run(&["run", "plan-diff", "ss"]).text(),
+        "plan-diff=refused reason=no-plan hint=the planner has not written plan.md yet\nexit=1"
+    );
+    s.artifact("plan.md", "# Plan\n\nStep one.\n");
+    assert!(
+        s.say(&["run", "plan-diff", "ss"])
+            .starts_with("plan-diff=refused reason=no-prev")
+    );
+    s.artifact("plan.prev.md", "# Plan\n\nStep one.\n");
+    assert_eq!(
+        s.run(&["run", "plan-diff", "ss"]).text(),
+        "plan-diff=same\nexit=0"
+    );
+    s.artifact("plan.md", "# Plan\n\nStep two.\n");
+    let d = s.say(&["run", "plan-diff", "ss"]);
+    assert!(d.contains("-Step one.\n+Step two."), "{d}");
+}
+
+#[test]
+fn it_spec_next_counts_main_and_with_run_the_run() {
+    let s = Scratch::new(1);
+    std::fs::create_dir_all(s.root.join("docs/specs")).unwrap();
+    std::fs::write(
+        s.root.join("docs/specs/a.md"),
+        "**MB-R-007** — x.\nSee MB-R-009. **MB-E-002** — y. XMB-R-500\n",
+    )
+    .unwrap();
+    git(&s.root, &["add", "docs"]);
+    git(&s.root, &["commit", "-q", "-m", "specs"]);
+    assert_eq!(
+        s.say(&["spec", "next", "MB"]),
+        "next=MB-R-010 last=MB-R-009"
+    );
+    assert_eq!(
+        s.say(&["spec", "next", "MB", "--edge", "--count", "2"]),
+        "next=MB-E-003,MB-E-004 last=MB-E-002"
+    );
+    assert_eq!(s.say(&["spec", "next", "TR"]), "next=TR-R-001 last=-");
+    s.artifact("spec-diff.md", "## MB-R-012 — new\n");
+    s.ok(&[
+        "board",
+        "log",
+        "ss.s1",
+        "spec-delta",
+        "MB-R-015",
+        "added",
+        "origin=impl",
+    ]);
+    assert_eq!(
+        s.say(&["spec", "next", "MB"]),
+        "next=MB-R-010 last=MB-R-009"
+    );
+    assert_eq!(
+        s.say(&["spec", "next", "MB", "--run", "ss"]),
+        "next=MB-R-016 last=MB-R-015"
+    );
+    assert_eq!(
+        s.run(&["spec", "next", "mb"]).text(),
+        "next=refused reason=prefix hint=a prefix is two capital letters, e.g. MB\nexit=1"
+    );
+}
+
+#[test]
+fn it_spec_refs_finds_whole_ids() {
+    let s = Scratch::new(1);
+    std::fs::write(
+        s.wt.join("lib.rs"),
+        "// MB-R-001\n// MB-R-0010\nfn f() {} // MB-R-002\n",
+    )
+    .unwrap();
+    git(&s.wt, &["add", "lib.rs"]);
+    git(&s.wt, &["commit", "-q", "-m", "lib"]);
+    let got = Run::new(["spec", "refs", "MB-R-001", "MB-R-002"])
+        .env("CLAUDE_PROJECT_DIR", &s.wt)
+        .cwd(&s.wt)
+        .text();
+    assert_eq!(
+        got,
+        "lib.rs:1:// MB-R-001\nlib.rs:3:fn f() {} // MB-R-002\nexit=0"
+    );
+    assert_eq!(
+        s.run(&["spec", "refs", "MB-R-001"]).text(),
+        "refs=none\nexit=1"
+    );
+    let on_branch = s.say(&[
+        "spec", "refs", "MB-R-002", "--ref", "feat/ss", "--path", "lib.rs",
+    ]);
+    assert_eq!(on_branch, "lib.rs:3:fn f() {} // MB-R-002");
+    assert_eq!(
+        s.run(&["spec", "refs", "R1"]).text(),
+        "refs=refused reason=id id=R1 hint=a fixed ID looks like MB-R-001\nexit=2"
+    );
+}
+
+#[test]
+fn it_board_events_reads_the_whole_run() {
+    let s = Scratch::new(2);
+    s.ok(&["board", "log", "ss.s1", "follow-up", "--", "rename x"]);
+    s.ok(&["board", "log", "ss.s2", "follow-up", "--", "drop y"]);
+    let got = s.say(&["board", "events", "ss", "--event", "follow-up"]);
+    assert_eq!(
+        got,
+        format!("ss.s1 {NOW} follow-up rename x\nss.s2 {NOW} follow-up drop y")
+    );
+    assert_eq!(
+        s.say(&[
+            "board",
+            "events",
+            "ss",
+            "--event",
+            "follow-up",
+            "--last",
+            "1"
+        ]),
+        format!("ss.s2 {NOW} follow-up drop y")
+    );
+    assert_eq!(
+        s.run(&["board", "events", "zz"]).text(),
+        "events=card hint=check the id with `ferrule board list`\nexit=1"
+    );
+}

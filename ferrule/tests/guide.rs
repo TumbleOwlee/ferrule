@@ -78,7 +78,10 @@ fn it_guide_reads_the_slug_and_stage_of_a_worktree() {
     std::fs::create_dir_all(&wt).unwrap();
     let out = ferrule(root, &wt, &["guide", "implementer", "--stage", "s2"]);
     assert!(out.ends_with("exit=0"), "{out}");
-    assert!(out.contains("`ferrule board show demo`"), "{out}");
+    assert!(
+        out.contains("`ferrule spec next <PREFIX> --run demo`"),
+        "{out}"
+    );
     assert!(!out.contains("<slug>"), "{out}");
 }
 

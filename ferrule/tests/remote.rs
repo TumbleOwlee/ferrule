@@ -303,3 +303,55 @@ fn it_issue_view_refuses_a_pull_request() {
         String::from_utf8_lossy(&req.stderr)
     );
 }
+
+#[test]
+fn it_issue_search_lists_matches_and_caps_them() {
+    let gh = FakeGh::new();
+    let p = tempfile::tempdir().unwrap();
+    let args = |q: &str, state: &str| {
+        [
+            "issue",
+            "list",
+            "--state",
+            state,
+            "--search",
+            q,
+            "--limit",
+            "41",
+            "--json",
+            "number,title,state",
+        ]
+        .map(str::to_owned)
+    };
+    let serve = |q: &str, state: &str, text: &str| {
+        let a = args(q, state);
+        gh.serve(&a.iter().map(String::as_str).collect::<Vec<_>>(), text);
+    };
+    serve(
+        "modbus timeout in:title,body",
+        "open",
+        r#"[{"number":9,"title":"Modbus timeout","state":"OPEN"},{"number":4,"title":"Timeout on modbus read","state":"OPEN"}]"#,
+    );
+    serve("nothing in:title,body", "all", "[]");
+    let many: Vec<String> = (1..=41)
+        .map(|n| format!(r#"{{"number":{n},"title":"t","state":"CLOSED"}}"#))
+        .collect();
+    serve("t in:title,body", "all", &format!("[{}]", many.join(",")));
+    assert_eq!(
+        ferrule(
+            &gh,
+            p.path(),
+            &["issue", "search", "--state", "open", "modbus", "timeout"]
+        )
+        .text(),
+        "#9 [OPEN] Modbus timeout\n#4 [OPEN] Timeout on modbus read\nexit=0"
+    );
+    assert_eq!(
+        ferrule(&gh, p.path(), &["issue", "search", "nothing"]).text(),
+        "issue-search=none\nexit=1"
+    );
+    assert_eq!(
+        ferrule(&gh, p.path(), &["issue", "search", "t"]).text(),
+        "issue-search=too-many max=40 hint=rerun with more or more specific keywords\nexit=1"
+    );
+}

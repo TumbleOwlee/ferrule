@@ -35,6 +35,7 @@ const SOURCES: &[(&str, &[&str])] = &[
     (
         "ferrule/src/commands/board.rs",
         &[
+            "board events",
             "board import",
             "board list",
             "board log",
@@ -71,6 +72,7 @@ const SOURCES: &[(&str, &[&str])] = &[
         &[
             "issue body",
             "issue post",
+            "issue search",
             "issue view",
             "pr body",
             "pr open",
@@ -95,9 +97,12 @@ const SOURCES: &[(&str, &[&str])] = &[
         "ferrule/src/commands/run.rs",
         &[
             "run cleanup",
+            "run diff",
             "run export",
             "run init",
+            "run log",
             "run metrics",
+            "run plan-diff",
             "run rebuild",
             "run reconcile",
             "gate approve",
@@ -123,7 +128,7 @@ const SOURCES: &[(&str, &[&str])] = &[
     ),
     (
         "ferrule/src/commands/spec.rs",
-        &["spec collisions", "spec related"],
+        &["spec collisions", "spec next", "spec refs", "spec related"],
     ),
     ("ferrule/src/commands/uninstall.rs", &["setup uninstall"]),
 ];

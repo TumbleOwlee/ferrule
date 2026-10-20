@@ -10,7 +10,7 @@ Check `plan.md` against `spec-diff.md`, spec-fidelity axis only:
 - nothing contradicts an existing requirement
 - every ID has a stage and a test
 - `s0` lands every ID (no `s0` when `spec-diff.md` has no entries to land, or there is no `spec-diff.md`)
-- no local `R<n>`/`E<n>` left; every fixed ID new to the run is unused on `{main}` (`git grep -n <ID> {main} -- docs/specs`) and sequential within its prefix
+- no local `R<n>`/`E<n>` left; every fixed ID new to the run is unused on `{main}` (`ferrule spec refs <ID>… --ref {main} --path docs/specs` answers `refs=none`) and sequential within its prefix
 - every scenario `S<n>` is pinned by a test or a stage's Verification
 - the plan reaches `architecture.md`: every new or changed component has a stage, no stage builds one it doesn't name, and every signature in `## Interfaces` appears as written in the step that builds it
 - spec edits the planner made since the architecture stop are recorded (`Revisions:`, a `decisions.md` line each)
@@ -19,4 +19,4 @@ Check `plan.md` against `spec-diff.md`, spec-fidelity axis only:
 
 ## Re-plan checks
 
-`plan from s<n>` — a re-plan after code landed: `diff {run_dir}/plan.prev.md {run_dir}/plan.md` (no `plan.prev.md`, a rebuilt board: read `plan.md` whole and the committed stages' cards instead of a diff). Any change to a section before `s<n>`, to `spec-diff.md` or a fixed ID is a blocker. Every rewritten stage gets the checks above that concern stages; every ID and scenario a replaced stage pinned is pinned by a rewritten stage or a committed one; a step that changes the spec names the entry it changes.
+`plan from s<n>` — a re-plan after code landed: `ferrule run plan-diff {slug}` (`reason=no-prev`, a rebuilt board: read `plan.md` whole and the committed stages' cards instead of a diff). Any change to a section before `s<n>`, to `spec-diff.md` or a fixed ID is a blocker. Every rewritten stage gets the checks above that concern stages; every ID and scenario a replaced stage pinned is pinned by a rewritten stage or a committed one; a step that changes the spec names the entry it changes.

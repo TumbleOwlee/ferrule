@@ -102,7 +102,7 @@ fn it_related_refuses_more_hits_than_its_cap() {
     let project = spec_project();
     let dir = project.path().join(".ferrule");
     std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("ferrule.toml"), "[thresholds]\nrelated_max = 1\n").unwrap();
+    std::fs::write(dir.join("ferrule.toml"), "[thresholds]\nsearch_max = 1\n").unwrap();
     let got = Run::new(["spec", "related", "slow"])
         .env("CLAUDE_PROJECT_DIR", project.path())
         .text();

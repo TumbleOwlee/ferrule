@@ -13,6 +13,24 @@ use ferrule_core::term::{self, Style};
 use super::board::{sql, store};
 use super::exit;
 
+const ISSUE_SEARCH_AFTER_LONG_HELP: &str = "\
+Output:
+  #<n> [<STATE>] <title>         One line per issue whose title or body
+                                 mentions every keyword, newest first.
+No match:
+  issue-search=none              Nothing matches (exit 1); try fewer or
+                                 other keywords.
+Refusals:
+  issue-search=too-many max=<m> hint=rerun with more or more specific keywords
+                                 More than `search_max` issues ([thresholds]
+                                 of ferrule.toml, default 40) match; none is
+                                 printed (exit 1).
+Errors (stderr, exit 1): `issue search: <the host's error>`; GitHub only yet.
+Exit codes: 0 ok, 1 none or refused.
+Example:
+  ferrule issue search --state open modbus timeout
+See: ferrule guide show issue";
+
 const ISSUE_VIEW_AFTER_LONG_HELP: &str = "\
 Output (stdout; compact text, styled on a terminal):
   #<n> <title> [<STATE>]         Line 1: the head (`KEY-1 <summary> [<status>]`
@@ -123,8 +141,25 @@ impl ViewArgs {
     }
 }
 
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum SearchState {
+    Open,
+    Closed,
+    All,
+}
+
 #[derive(Debug, Subcommand)]
 pub enum IssueCommand {
+    /// List issues whose title or body mention every keyword.
+    #[command(after_long_help = ISSUE_SEARCH_AFTER_LONG_HELP)]
+    Search {
+        /// Keywords; an issue must mention every one.
+        #[arg(required = true, value_name = "KEYWORD")]
+        keywords: Vec<String>,
+        /// Which issues to search.
+        #[arg(long, value_enum, default_value_t = SearchState::All)]
+        state: SearchState,
+    },
     /// Print an issue's title, body and comments as compact text.
     #[command(after_long_help = ISSUE_VIEW_AFTER_LONG_HELP)]
     View {
@@ -210,6 +245,7 @@ pub struct RequestPart {
 
 pub fn run(command: &IssueCommand, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
     match command {
+        IssueCommand::Search { keywords, state } => search(keywords, *state, out),
         IssueCommand::View { issue, view: v } => view(issue, v, style, out),
         IssueCommand::Request { issue, part } => request(issue, *part, style, out),
         IssueCommand::Body { slug, slice } => body(slug, *slice, style, out),
@@ -218,6 +254,45 @@ pub fn run(command: &IssueCommand, style: Option<Style>, out: &mut impl Write) -
             target,
             reuse,
         } => file(slug, *target, *reuse, out),
+    }
+}
+
+fn search(keywords: &[String], state: SearchState, out: &mut impl Write) -> io::Result<u8> {
+    let config = config()?;
+    let max = config.thresholds.search_max;
+    let state = match state {
+        SearchState::Open => "open",
+        SearchState::Closed => "closed",
+        SearchState::All => "all",
+    };
+    match remote::issue_search(
+        config.backend.tracker,
+        keywords,
+        state,
+        max + 1,
+        &project::root(),
+    ) {
+        Ok(found) if found.len() > max => {
+            writeln!(
+                out,
+                "issue-search=too-many max={max} hint=rerun with more or more specific keywords"
+            )?;
+            Ok(exit::REFUSED)
+        }
+        Ok(found) if found.is_empty() => {
+            writeln!(out, "issue-search=none")?;
+            Ok(exit::REFUSED)
+        }
+        Ok(found) => {
+            for f in found {
+                writeln!(out, "#{} [{}] {}", f.number, f.state, f.title)?;
+            }
+            Ok(exit::OK)
+        }
+        Err(e) => {
+            eprintln!("issue search: {e}");
+            Ok(exit::REFUSED)
+        }
     }
 }
 

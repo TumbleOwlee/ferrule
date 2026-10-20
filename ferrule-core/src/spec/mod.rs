@@ -49,6 +49,36 @@ pub(crate) fn fixed_id_len(s: &[u8]) -> Option<usize> {
     shape.then(|| 5 + s[5..].iter().take_while(|c| c.is_ascii_digit()).count())
 }
 
+/// Whether `s` is a whole fixed ID, `MB-R-001`.
+#[must_use]
+pub fn is_fixed_id(s: &str) -> bool {
+    id_len(s) == Some(s.len())
+}
+
+/// The highest number of `<prefix>-<series>-<n>` in `text`, the series `R`
+/// or `E`, with the digit count it was written with.
+#[must_use]
+pub fn highest(prefix: &str, series: char, text: &str) -> Option<(u32, usize)> {
+    let needle = format!("{prefix}-{series}-");
+    let mut best: Option<(u32, usize)> = None;
+    for (at, _) in text.match_indices(&needle) {
+        let before = text[..at].chars().next_back();
+        if before.is_some_and(|c| c.is_ascii_alphanumeric()) {
+            continue;
+        }
+        let digits: String = text[at + needle.len()..]
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect();
+        if let Ok(n) = digits.parse::<u32>()
+            && best.is_none_or(|(b, _)| n > b)
+        {
+            best = Some((n, digits.len()));
+        }
+    }
+    best
+}
+
 fn id_len(s: &str) -> Option<usize> {
     fixed_id_len(s.as_bytes())
 }
@@ -216,6 +246,15 @@ pub fn collisions(worktree: &Path, reference: &str) -> Option<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ut_highest_needs_a_word_start() {
+        let text = "MB-R-007 and (MB-R-012), XMB-R-900, MB-E-050, MB-R-0013";
+        assert_eq!(highest("MB", 'R', text), Some((13, 4)));
+        assert_eq!(highest("MB", 'E', text), Some((50, 3)));
+        assert_eq!(highest("TR", 'R', text), None);
+        assert!(is_fixed_id("MB-R-001") && !is_fixed_id("MB-R-001x") && !is_fixed_id("R1"));
+    }
 
     #[test]
     fn ut_id_shape() {

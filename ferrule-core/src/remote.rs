@@ -587,6 +587,45 @@ pub fn issue_find_open(tracker: Tracker, title: &str, root: &Path) -> Result<Opt
         .map(|f| f.number))
 }
 
+/// One hit of [`issue_search`].
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Found {
+    pub number: u64,
+    pub title: String,
+    pub state: String,
+}
+
+/// Issues whose title or body mention every keyword, in `state` (`open`,
+/// `closed` or `all`); at most `limit` of them, newest first.
+pub fn issue_search(
+    tracker: Tracker,
+    keywords: &[String],
+    state: &str,
+    limit: usize,
+    root: &Path,
+) -> Result<Vec<Found>, Error> {
+    github_tracker(tracker, "issue search")?;
+    let query = format!("{} in:title,body", keywords.join(" "));
+    let out = run(
+        "gh",
+        &[
+            "issue",
+            "list",
+            "--state",
+            state,
+            "--search",
+            &query,
+            "--limit",
+            &limit.to_string(),
+            "--json",
+            "number,title,state",
+        ],
+        None,
+        root,
+    )?;
+    json(&out, "gh issue list")
+}
+
 /// Opens a draft pull request of `branch` into `base`; its number.
 pub fn pr_create_draft(
     ci: Ci,

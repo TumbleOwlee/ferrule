@@ -142,6 +142,43 @@ Exit codes: 0 ok, 1 refused.
 See: ferrule guide show cleanup";
 
 /// Shown after `ferrule run export --help`.
+const DIFF_AFTER_LONG_HELP: &str = "\
+Output: what `git diff <base>...HEAD` prints in the run's worktree (three
+dots: the branch's own changes since it left base), whole; with --stat the
+file list instead. --specs narrows to docs/specs, --path to any pathspec
+(repeat it). --uncommitted prints `git status --short`, then the diff of the
+uncommitted work against HEAD. base is main_branch of ferrule.toml unless
+--base names another commit.
+Refusals (exit 1, nothing else printed):
+  diff=refused reason=card hint=check the slug with `ferrule board list`
+  diff=refused reason=no-worktree hint=`ferrule gate approve <slug> gate2` adds it
+  diff=refused reason=base hint=fetch it, or pass a --base the branch has
+Exit codes: 0 ok, 1 refused.
+Examples:
+  ferrule run diff <slug> --specs
+  ferrule run diff <slug> --base <sha> --stat
+See: ferrule guide show reviewer";
+
+const LOG_AFTER_LONG_HELP: &str = "\
+Output: what `git log --oneline <base>..HEAD` prints in the run's worktree,
+newest first; with --stat each commit's files too. base is main_branch of
+ferrule.toml unless --base names another commit.
+Refusals (exit 1): the `log=refused reason=card|no-worktree|base hint=…` lines
+of `ferrule run diff --help`.
+Exit codes: 0 ok, 1 refused.
+See: ferrule guide show reviewer";
+
+const PLAN_DIFF_AFTER_LONG_HELP: &str = "\
+Output: a unified diff from plan.prev.md (plan.md as the last plan review
+saw it; gate 2's review round and `stage replan start` save it) to plan.md,
+both in the run's directory.
+  plan-diff=same                 plan.md has not changed since.
+Refusals (exit 1):
+  plan-diff=refused reason=no-plan hint=the planner has not written plan.md yet
+  plan-diff=refused reason=no-prev hint=no plan review has snapshotted plan.md; read it whole
+Exit codes: 0 ok, 1 refused.
+See: ferrule guide show reviewer-plan";
+
 const EXPORT_AFTER_LONG_HELP: &str = "\
 Output:
   export=done archive=<id> path=<dir>
@@ -208,6 +245,47 @@ pub enum RunCommand {
         /// Without a slug: only the latest n lines recorded.
         #[arg(long, value_name = "N", conflicts_with = "slug")]
         last: Option<usize>,
+    },
+    /// Print the run branch's diff against main, in the run's worktree.
+    #[command(after_long_help = DIFF_AFTER_LONG_HELP)]
+    Diff {
+        /// The run's slug.
+        slug: String,
+        /// Only docs/specs: the run's spec as it stands on the branch.
+        #[arg(long)]
+        specs: bool,
+        /// Only files under this pathspec; repeat for several.
+        #[arg(long, value_name = "PATH")]
+        path: Vec<String>,
+        /// Only the files changed and their line counts.
+        #[arg(long)]
+        stat: bool,
+        /// Diff against this commit instead of main, e.g. the previous
+        /// stage's commit.
+        #[arg(long, value_name = "REF")]
+        base: Option<String>,
+        /// The worktree's uncommitted changes instead: `git status --short`,
+        /// then the diff against HEAD.
+        #[arg(long, conflicts_with = "base")]
+        uncommitted: bool,
+    },
+    /// Print the run branch's commits since main, oldest last.
+    #[command(after_long_help = LOG_AFTER_LONG_HELP)]
+    Log {
+        /// The run's slug.
+        slug: String,
+        /// Also each commit's changed files.
+        #[arg(long)]
+        stat: bool,
+        /// Commits since this one instead of main.
+        #[arg(long, value_name = "REF")]
+        base: Option<String>,
+    },
+    /// Print what changed in plan.md since the last plan review.
+    #[command(after_long_help = PLAN_DIFF_AFTER_LONG_HELP)]
+    PlanDiff {
+        /// The run's slug.
+        slug: String,
     },
     /// Write an archived run back out as files.
     #[command(after_long_help = EXPORT_AFTER_LONG_HELP)]
@@ -352,6 +430,140 @@ fn layout() -> Layout {
     Layout::new(project::main_checkout())
 }
 
+/// What `run diff` and `run log` show.
+struct Pick<'a> {
+    paths: &'a [String],
+    stat: bool,
+    base: Option<&'a str>,
+}
+
+/// The run's worktree and the commit `base` names (main by default), or
+/// the `reason=… hint=…` of why there is none.
+fn branch(slug: &str, base: Option<&str>) -> io::Result<Result<(PathBuf, String), String>> {
+    let layout = layout();
+    let config = Config::load(&layout.root).map_err(sql)?;
+    let s = match store(false)? {
+        Some(s) if board::state(&s.conn, slug).map_err(sql)?.is_some() => s,
+        _ => {
+            return Ok(Err(
+                "reason=card hint=check the slug with `ferrule board list`".to_owned(),
+            ));
+        }
+    };
+    let wt = board::field(&s.conn, slug, "worktree")
+        .map_err(sql)?
+        .map_or_else(|| layout.worktree(slug), |w| layout.resolve(&w));
+    if !wt.is_dir() {
+        return Ok(Err(format!(
+            "reason=no-worktree hint=`ferrule gate approve {slug} gate2` adds it"
+        )));
+    }
+    let base = base.map_or(config.main_branch, str::to_owned);
+    if ferrule_core::git::commit(&wt, &base).is_none() {
+        return Ok(Err(
+            "reason=base hint=fetch it, or pass a --base the branch has".to_owned(),
+        ));
+    }
+    Ok(Ok((wt, base)))
+}
+
+/// Writes what `git <args>` prints in `dir`; a failing git is an error.
+fn git_to(dir: &std::path::Path, args: &[&str], out: &mut impl Write) -> io::Result<()> {
+    let o = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .output()?;
+    // `diff --no-index` exits 1 when the files differ
+    if !o.status.success() && o.status.code() != Some(1) {
+        return Err(io::Error::other(
+            String::from_utf8_lossy(&o.stderr).trim().to_owned(),
+        ));
+    }
+    out.write_all(&o.stdout)
+}
+
+fn diff(slug: &str, pick: &Pick, uncommitted: bool, out: &mut impl Write) -> io::Result<u8> {
+    let (wt, base) = match branch(slug, pick.base)? {
+        Ok(found) => found,
+        Err(why) => {
+            writeln!(out, "diff=refused {why}")?;
+            return Ok(exit::REFUSED);
+        }
+    };
+    let range = format!("{base}...HEAD");
+    let mut args = vec!["diff", "--no-color", "--no-ext-diff"];
+    if pick.stat {
+        args.push("--stat");
+    }
+    if uncommitted {
+        git_to(&wt, &["status", "--short"], out)?;
+        args.push("HEAD");
+    } else {
+        args.push(&range);
+    }
+    args.push("--");
+    args.extend(pick.paths.iter().map(String::as_str));
+    git_to(&wt, &args, out)?;
+    Ok(exit::OK)
+}
+
+fn log(slug: &str, pick: &Pick, out: &mut impl Write) -> io::Result<u8> {
+    let (wt, base) = match branch(slug, pick.base)? {
+        Ok(found) => found,
+        Err(why) => {
+            writeln!(out, "log=refused {why}")?;
+            return Ok(exit::REFUSED);
+        }
+    };
+    let range = format!("{base}..HEAD");
+    let mut args = vec!["log", "--no-color", "--oneline"];
+    if pick.stat {
+        args.push("--stat");
+    }
+    args.push(&range);
+    git_to(&wt, &args, out)?;
+    Ok(exit::OK)
+}
+
+fn plan_diff(slug: &str, out: &mut impl Write) -> io::Result<u8> {
+    let dir = layout().run_dir(slug);
+    if !dir.join("plan.md").is_file() {
+        writeln!(
+            out,
+            "plan-diff=refused reason=no-plan hint=the planner has not written plan.md yet"
+        )?;
+        return Ok(exit::REFUSED);
+    }
+    if !dir.join("plan.prev.md").is_file() {
+        writeln!(
+            out,
+            "plan-diff=refused reason=no-prev hint=no plan review has snapshotted plan.md; read it whole"
+        )?;
+        return Ok(exit::REFUSED);
+    }
+    let mut text = Vec::new();
+    git_to(
+        &dir,
+        &[
+            "diff",
+            "--no-index",
+            "--no-color",
+            "--",
+            "plan.prev.md",
+            "plan.md",
+        ],
+        &mut text,
+    )?;
+    if text.is_empty() {
+        writeln!(out, "plan-diff=same")?;
+    } else {
+        out.write_all(&text)?;
+    }
+    Ok(exit::OK)
+}
+
 pub fn run(command: &RunCommand, out: &mut impl Write) -> io::Result<u8> {
     match command {
         RunCommand::Init { slug, issue } => init(slug, issue.as_deref(), out),
@@ -360,6 +572,34 @@ pub fn run(command: &RunCommand, out: &mut impl Write) -> io::Result<u8> {
         RunCommand::Cleanup { slug } => cleanup(slug, out),
         RunCommand::Export { slug, archive, to } => export(slug, *archive, to.as_deref(), out),
         RunCommand::Metrics { slug, last } => metrics(slug.as_deref(), *last, out),
+        RunCommand::Diff {
+            slug,
+            specs,
+            path,
+            stat,
+            base,
+            uncommitted,
+        } => {
+            let mut paths = path.clone();
+            if *specs {
+                paths.push("docs/specs".to_owned());
+            }
+            let pick = Pick {
+                paths: &paths,
+                stat: *stat,
+                base: base.as_deref(),
+            };
+            diff(slug, &pick, *uncommitted, out)
+        }
+        RunCommand::Log { slug, stat, base } => {
+            let pick = Pick {
+                paths: &[],
+                stat: *stat,
+                base: base.as_deref(),
+            };
+            log(slug, &pick, out)
+        }
+        RunCommand::PlanDiff { slug } => plan_diff(slug, out),
     }
 }
 
