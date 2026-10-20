@@ -19,6 +19,7 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 tempfile = "3.27"
 pulldown-cmark = { version = "0.13", default-features = false }
 terminal_size = "0.4"
+unicode-width = "0.2"
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }

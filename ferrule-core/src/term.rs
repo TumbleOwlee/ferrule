@@ -7,6 +7,7 @@
 //! inline HTML, such as a `<slug>` placeholder, prints as written.
 
 use pulldown_cmark::{Alignment, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+use unicode_width::UnicodeWidthChar;
 
 /// How terminal text is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,7 +50,8 @@ fn heading_look(depth: usize) -> String {
     }
 }
 
-/// Visible columns of `s`, ANSI sequences skipped.
+/// Visible columns of `s`, ANSI sequences skipped and wide characters
+/// (CJK, emoji) counted as two.
 fn width(s: &str) -> usize {
     let mut n = 0;
     let mut esc = false;
@@ -59,10 +61,57 @@ fn width(s: &str) -> usize {
         } else if c == '\x1b' {
             esc = true;
         } else {
-            n += 1;
+            n += c.width().unwrap_or(0);
         }
     }
     n
+}
+
+/// `s` without control characters: C0 except newline and tab, DEL, C1 and
+/// escape sequences (CSI, OSC, and two-character ones). A carriage return
+/// becomes a newline, or nothing before one. Text from a host must not
+/// reach the terminal with sequences of its own.
+fn sanitize(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\x1b' => match chars.next() {
+                // CSI: parameters and intermediates, then a final byte.
+                Some('[') => {
+                    for d in chars.by_ref() {
+                        if ('\x40'..='\x7e').contains(&d) {
+                            break;
+                        }
+                    }
+                }
+                // OSC, DCS, SOS, PM, APC: a string up to BEL or ST.
+                Some(']' | 'P' | 'X' | '^' | '_') => {
+                    while let Some(d) = chars.next() {
+                        if d == '\x07' || d == '\u{9c}' {
+                            break;
+                        }
+                        if d == '\x1b' {
+                            if chars.peek() == Some(&'\\') {
+                                chars.next();
+                            }
+                            break;
+                        }
+                    }
+                }
+                _ => {}
+            },
+            '\r' => {
+                if chars.peek() != Some(&'\n') {
+                    out.push('\n');
+                }
+            }
+            '\n' | '\t' => out.push(c),
+            c if c.is_control() => {}
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 /// Splits `line` at spaces into pieces of at most `max` visible columns; a
@@ -493,7 +542,8 @@ impl Renderer {
 #[must_use]
 pub fn markdown(md: &str, style: Style) -> String {
     let opts = Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS | Options::ENABLE_STRIKETHROUGH;
-    let events: Vec<Event> = Parser::new_ext(md, opts).collect();
+    let md = sanitize(md);
+    let events: Vec<Event> = Parser::new_ext(&md, opts).collect();
     let min_level = events
         .iter()
         .filter_map(|e| match e {
@@ -652,6 +702,27 @@ mod tests {
             markdown(md, PLAIN),
             "Stage  Title\n─────  ───────\ns1     Backoff\ns10    UI\n\n  cargo test\n"
         );
+    }
+
+    #[test]
+    fn ut_wide_characters_align_in_tables() {
+        let md = "| Name | Note |\n|---|---|\n| 日本語 | ok |\n| ab | 🚀 go |\n";
+        assert_eq!(
+            markdown(md, PLAIN),
+            "Name    Note\n──────  ─────\n日本語  ok\nab      🚀 go\n"
+        );
+        assert_eq!(width("日本"), 4);
+    }
+
+    #[test]
+    fn ut_escape_sequences_in_input_are_removed() {
+        let color = Style {
+            color: true,
+            width: 80,
+        };
+        let md = "a\x1b[31mred\x1b[0m \x1b]0;title\x07b\x07\x7f\u{9b}c\r\nd\te\n";
+        assert_eq!(markdown(md, color), "ared bc\nd\te\n");
+        assert_eq!(markdown("x\x1b]8;;u\x1b\\y\n", color), "xy\n");
     }
 
     #[test]
