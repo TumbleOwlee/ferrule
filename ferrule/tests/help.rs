@@ -105,6 +105,7 @@ const SOURCES: &[(&str, &[&str])] = &[
             "run plan-diff",
             "run rebuild",
             "run reconcile",
+            "run status",
             "gate approve",
             "gate next",
             "stage verify",

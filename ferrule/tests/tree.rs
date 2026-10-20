@@ -21,6 +21,7 @@ run reconcile
 run rebuild
 run cleanup
 run metrics
+run status
 run diff
 run log
 run plan-diff

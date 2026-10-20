@@ -598,3 +598,29 @@ fn it_board_events_reads_the_whole_run() {
         "events=card hint=check the id with `ferrule board list`\nexit=1"
     );
 }
+
+#[test]
+fn it_run_status_summarises_cards_and_worktree() {
+    let s = Scratch::new(1);
+    let sha = s.commit_in_worktree("f1.txt", "one\n", "add f1");
+    std::fs::write(s.wt.join("f1.txt"), "two\n").unwrap();
+    s.ok(&["board", "log", "ss.s1", "note", "--", "started"]);
+    let got = s.say(&["run", "status", "ss"]);
+    let lines: Vec<&str> = got.lines().collect();
+    assert_eq!(
+        lines[0],
+        "run=ss state=inprogress lane=full branch=feat/ss issue=- pr=- pr-state=- gates=gate1,arch,gate2"
+    );
+    assert_eq!(lines[1], "stage=s0 state=done commit=- title=Stage 0");
+    assert_eq!(lines[2], "stage=s1 state=open commit=- title=Stage 1");
+    assert_eq!(
+        lines[3],
+        format!("worktree=.ferrule/worktrees/ss head={sha} ahead=1 uncommitted=1")
+    );
+    assert_eq!(lines[4..6], ["gauntlet=-", "ci=-"]);
+    assert_eq!(lines[6], format!("last=ss.s1 {NOW} note started"));
+    assert_eq!(
+        s.run(&["run", "status", "zz"]).text(),
+        "status=refused reason=card hint=check the slug with `ferrule board list`\nexit=1"
+    );
+}

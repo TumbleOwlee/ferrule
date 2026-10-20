@@ -16,6 +16,7 @@ Under construction. Implemented so far:
 | `ferrule run rebuild <issue> <pr>` | Recreate a lost board from the issue, the draft PR and git; re-adds the worktree |
 | `ferrule run cleanup <slug>` | Remove worktree and branch, archive cards and artifacts |
 | `ferrule run metrics [<slug>]` | A run's metrics line (needs green CI), or every line recorded |
+| `ferrule run status <slug>` | Where a run stands: parent and stage cards, worktree, gauntlet, CI, last event |
 | `ferrule run diff <slug> [--specs] [--stat] [--base <ref>]` / `run log <slug>` | The run branch's diff and commits against main, in its worktree; `--uncommitted` for the work not yet committed |
 | `ferrule run plan-diff <slug>` | What changed in `plan.md` since the last plan review |
 | `ferrule run export <slug> [--archive id] [--to dir]` | Write an archive back out as files |

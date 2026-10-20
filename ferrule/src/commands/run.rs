@@ -142,6 +142,27 @@ Exit codes: 0 ok, 1 refused.
 See: ferrule guide show cleanup";
 
 /// Shown after `ferrule run export --help`.
+const STATUS_AFTER_LONG_HELP: &str = "\
+Output, local only (no host call):
+  run=<slug> state=<s> lane=<l> branch=<b> issue=<n> pr=<n> pr-state=<draft|ready> gates=<g,…>
+                                 The parent card: `-` for a field not set;
+                                 gates lists the set ones of gate1, arch,
+                                 no-arch and gate2.
+  stage=s<n> state=<s> commit=<sha|-> title=<title>
+                                 One per stage card, in order; commit is its
+                                 last `commit=`.
+  worktree=<path> head=<sha> ahead=<n> uncommitted=<n>
+                                 Commits since main_branch and files with
+                                 uncommitted changes; `worktree=missing
+                                 path=<path>` when it is not there.
+  gauntlet=<pass|fail> ...       The parent's last gauntlet line, `-` if none.
+  ci=<code|->                    The parent's last `ci=`.
+  last=<card> <at> <event> ...   The run's latest log line.
+Refusals (exit 1):
+  status=refused reason=card hint=check the slug with `ferrule board list`
+Exit codes: 0 ok, 1 refused.
+See: ferrule guide show resume";
+
 const DIFF_AFTER_LONG_HELP: &str = "\
 Output: what `git diff <base>...HEAD` prints in the run's worktree (three
 dots: the branch's own changes since it left base), whole; with --stat the
@@ -245,6 +266,12 @@ pub enum RunCommand {
         /// Without a slug: only the latest n lines recorded.
         #[arg(long, value_name = "N", conflicts_with = "slug")]
         last: Option<usize>,
+    },
+    /// Print where a run stands: cards, worktree, gauntlet, CI, last event.
+    #[command(after_long_help = STATUS_AFTER_LONG_HELP)]
+    Status {
+        /// The run's slug.
+        slug: String,
     },
     /// Print the run branch's diff against main, in the run's worktree.
     #[command(after_long_help = DIFF_AFTER_LONG_HELP)]
@@ -527,6 +554,101 @@ fn log(slug: &str, pick: &Pick, out: &mut impl Write) -> io::Result<u8> {
     Ok(exit::OK)
 }
 
+fn status(slug: &str, out: &mut impl Write) -> io::Result<u8> {
+    let layout = layout();
+    let config = Config::load(&layout.root).map_err(sql)?;
+    let s = match store(false)? {
+        Some(s) if board::state(&s.conn, slug).map_err(sql)?.is_some() => s,
+        _ => {
+            writeln!(
+                out,
+                "status=refused reason=card hint=check the slug with `ferrule board list`"
+            )?;
+            return Ok(exit::REFUSED);
+        }
+    };
+    let c = &s.conn;
+    let field = |card: &str, key: &str| -> io::Result<String> {
+        Ok(board::field(c, card, key)
+            .map_err(sql)?
+            .unwrap_or_else(|| "-".to_owned()))
+    };
+    let state = board::state(c, slug)
+        .map_err(sql)?
+        .map_or("-", |st| st.as_str());
+    let mut gates = Vec::new();
+    for g in ["gate1", "arch", "no-arch", "gate2"] {
+        if board::field(c, slug, g).map_err(sql)?.is_some() {
+            gates.push(g);
+        }
+    }
+    let pr_state = board::last_token(c, slug, "pr").map_err(sql)?;
+    writeln!(
+        out,
+        "run={slug} state={state} lane={} branch={} issue={} pr={} pr-state={} gates={}",
+        field(slug, "lane")?,
+        field(slug, "branch")?,
+        field(slug, "issue")?,
+        field(slug, "pr")?,
+        pr_state.as_deref().unwrap_or("-"),
+        if gates.is_empty() {
+            "-".to_owned()
+        } else {
+            gates.join(",")
+        }
+    )?;
+    let mut stages = board::stages(c, slug).map_err(sql)?;
+    stages.sort_by_key(|(n, _, _)| *n);
+    for (n, id, st) in &stages {
+        let commit = board::last_token(c, id, "commit").map_err(sql)?;
+        writeln!(
+            out,
+            "stage=s{n} state={} commit={} title={}",
+            st.as_str(),
+            commit.as_deref().unwrap_or("-"),
+            field(id, "title")?
+        )?;
+    }
+    let wt = board::field(c, slug, "worktree")
+        .map_err(sql)?
+        .map_or_else(|| layout.worktree(slug), |w| layout.resolve(&w));
+    let shown = wt
+        .strip_prefix(&layout.root)
+        .unwrap_or(&wt)
+        .display()
+        .to_string();
+    if wt.is_dir() {
+        let git =
+            |args: &[&str]| ferrule_core::git::out(&wt, args).unwrap_or_else(|| "-".to_owned());
+        let range = format!("{}..HEAD", config.main_branch);
+        let dirty = ferrule_core::git::out(&wt, &["status", "--porcelain"])
+            .map_or(0, |o| o.lines().count());
+        writeln!(
+            out,
+            "worktree={shown} head={} ahead={} uncommitted={dirty}",
+            git(&["rev-parse", "--short", "HEAD"]),
+            git(&["rev-list", "--count", &range]),
+        )?;
+    } else {
+        writeln!(out, "worktree=missing path={shown}")?;
+    }
+    let events = board::events(c, slug).map_err(sql)?;
+    let gauntlet = events
+        .iter()
+        .rev()
+        .find_map(|(_, body)| body.strip_prefix("gauntlet="));
+    match gauntlet {
+        Some(rest) => writeln!(out, "gauntlet={rest}")?,
+        None => writeln!(out, "gauntlet=-")?,
+    }
+    let ci = board::last_token(c, slug, "ci").map_err(sql)?;
+    writeln!(out, "ci={}", ci.as_deref().unwrap_or("-"))?;
+    if let Some((card, at, body)) = board::run_events(c, slug).map_err(sql)?.pop() {
+        writeln!(out, "last={card} {at} {body}")?;
+    }
+    Ok(exit::OK)
+}
+
 fn plan_diff(slug: &str, out: &mut impl Write) -> io::Result<u8> {
     let dir = layout().run_dir(slug);
     if !dir.join("plan.md").is_file() {
@@ -600,6 +722,7 @@ pub fn run(command: &RunCommand, out: &mut impl Write) -> io::Result<u8> {
             log(slug, &pick, out)
         }
         RunCommand::PlanDiff { slug } => plan_diff(slug, out),
+        RunCommand::Status { slug } => status(slug, out),
     }
 }
 
