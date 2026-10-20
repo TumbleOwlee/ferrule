@@ -63,9 +63,30 @@ fn it_id_missing_fails() {
 #[test]
 fn it_related_finds_keywords_in_all_three_entry_forms() {
     let project = spec_project();
-    Run::new(["spec", "related", "polls", "slow"])
+    Run::new(["spec", "related", "slow"])
         .env("CLAUDE_PROJECT_DIR", project.path())
         .golden("related-ids");
+}
+
+#[test]
+fn it_related_needs_every_keyword_without_or() {
+    let project = spec_project();
+    let run = |args: &[&str]| {
+        Run::new(["spec", "related"].iter().chain(args))
+            .env("CLAUDE_PROJECT_DIR", project.path())
+            .text()
+    };
+    assert_eq!(
+        run(&["slow", "retried"]),
+        "MB-E-003 — modbus/edge-cases.md — A slow write is retried once.\nexit=0"
+    );
+    assert_eq!(run(&["polls", "slow"]), "related=none\nexit=1");
+    assert_eq!(
+        run(&["polls"]),
+        "MB-R-002 — modbus/requirements.md `## Client` — The client polls.\nexit=0"
+    );
+    let or = run(&["--or", "slow"]);
+    assert!(or.ends_with("exit=2"), "{or}");
 }
 
 #[test]
@@ -82,12 +103,12 @@ fn it_related_refuses_more_hits_than_its_cap() {
     let dir = project.path().join(".ferrule");
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("ferrule.toml"), "[thresholds]\nrelated_max = 1\n").unwrap();
-    let got = Run::new(["spec", "related", "polls", "slow"])
+    let got = Run::new(["spec", "related", "slow"])
         .env("CLAUDE_PROJECT_DIR", project.path())
         .text();
     assert!(
         got.starts_with("related=too-many count=")
-            && got.ends_with(" max=1 hint=rerun with fewer, more specific keywords\nexit=1"),
+            && got.ends_with(" max=1 hint=rerun with more or more specific keywords\nexit=1"),
         "{got}"
     );
 }

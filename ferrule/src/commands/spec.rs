@@ -32,21 +32,24 @@ const RELATED_AFTER_LONG_HELP: &str = "\
 Output:
   <id> — <area>/<file> `## <heading>` — <text>
                                  One line per requirement or edge case under
-                                 docs/specs whose text contains a keyword;
+                                 docs/specs whose text contains every
+                                 keyword (for any of them, run once per
+                                 keyword);
                                  the heading part is left out when the entry
                                  has none, the text is cut at 100 characters
                                  with `…`.
 No match:
   related=none
-                                 No entry mentions any keyword (stdout, exit
-                                 1). Nothing to cite; try other nouns, or
-                                 go on when none fits.
+                                 No entry matches (stdout, exit 1). Nothing
+                                 to cite; try fewer or other nouns, or go on
+                                 when none fits.
 Too many matches:
-  related=too-many count=<n> max=<m> hint=rerun with fewer, more specific keywords
+  related=too-many count=<n> max=<m> hint=rerun with more or more specific keywords
                                  More than `related_max` entries (in
                                  [thresholds] of ferrule.toml, default 20)
-                                 match; none is printed. Keywords combine
-                                 with OR, so drop the broad ones (exit 1).
+                                 match; none is printed. Every keyword must
+                                 match, so add one or make one narrower
+                                 (exit 1).
 Exit codes: 0 ok, 1 refused, 2 usage.
 See: ferrule guide show author";
 
@@ -84,7 +87,7 @@ pub enum SpecCommand {
     /// Print spec entries by fixed ID, as `file:line:text`.
     #[command(after_long_help = ID_AFTER_LONG_HELP)]
     Id(IdArgs),
-    /// Print spec entries that mention any of the keywords.
+    /// Print spec entries that mention every keyword.
     #[command(after_long_help = RELATED_AFTER_LONG_HELP)]
     Related(RelatedArgs),
     /// List fixed IDs the branch adds that the target ref now has too.
@@ -133,8 +136,8 @@ pub struct IdArgs {
 
 #[derive(Debug, Args)]
 pub struct RelatedArgs {
-    /// Keywords, matched as case-insensitive substrings; an entry that
-    /// contains any one of them is listed (OR).
+    /// Keywords, matched as case-insensitive substrings; an entry is
+    /// listed when it contains every one of them.
     #[arg(required = true, value_name = "KEYWORD")]
     pub keywords: Vec<String>,
 }
@@ -311,7 +314,7 @@ fn related(args: &RelatedArgs, out: &mut impl Write) -> io::Result<u8> {
         let text = std::fs::read_to_string(&path)?;
         for entry in spec::entries(&text) {
             let low = entry.text.to_lowercase();
-            if !keywords.iter().any(|k| low.contains(k.as_str())) {
+            if !keywords.iter().all(|k| low.contains(k.as_str())) {
                 continue;
             }
             let heading = entry
@@ -338,7 +341,7 @@ fn related(args: &RelatedArgs, out: &mut impl Write) -> io::Result<u8> {
     if hits.len() > max {
         writeln!(
             out,
-            "related=too-many count={} max={max} hint=rerun with fewer, more specific keywords",
+            "related=too-many count={} max={max} hint=rerun with more or more specific keywords",
             hits.len()
         )?;
         return Ok(exit::REFUSED);

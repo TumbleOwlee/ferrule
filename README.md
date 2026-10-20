@@ -33,7 +33,7 @@ Under construction. Implemented so far:
 | `ferrule board new <card> [--state s] [k=v…]` / `board set <card> k=v…` | Create a card, set or clear its fields |
 | `ferrule board import <board-dir>` | Load a markdown board into `.ferrule/state.db`, all or nothing |
 | `ferrule spec id [--dir <dir>] <ID>…` | Find spec entries by fixed ID as `file:line:text` |
-| `ferrule spec related <keyword>…` | Spec entries mentioning a keyword |
+| `ferrule spec related <keyword>…` | Spec entries mentioning every keyword; refused past `related_max` hits |
 | `ferrule spec collisions <worktree> [<ref>]` | Fixed IDs both this branch and the target ref (default `origin/<main_branch>`) define |
 | `ferrule spec render <spec-diff> <part> [--only <ids>] [--with-unnumbered] [--issue-ids]` | Render scenarios, requirements, entries, changes or deferred points of a spec diff |
 | `ferrule file headings <file>…` | List a markdown file's headings, fenced code skipped |
