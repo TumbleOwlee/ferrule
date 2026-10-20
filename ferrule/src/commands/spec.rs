@@ -34,10 +34,9 @@ Output:
                                  One line per requirement or edge case under
                                  docs/specs whose text contains every
                                  keyword (for any of them, run once per
-                                 keyword);
-                                 the heading part is left out when the entry
-                                 has none, the text is cut at 100 characters
-                                 with `…`.
+                                 keyword), with the entry's full text; the
+                                 heading part is left out when the entry
+                                 has none.
 No match:
   related=none
                                  No entry matches (stdout, exit 1). Nothing
@@ -188,9 +187,6 @@ pub struct RenderArgs {
     pub issue_ids: bool,
 }
 
-/// Longest entry text `spec related` prints before cutting it with `…`.
-const RELATED_TEXT_MAX: usize = 100;
-
 pub fn run(command: &SpecCommand, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
     match command {
         SpecCommand::Id(args) => id(args, out),
@@ -321,16 +317,11 @@ fn related(args: &RelatedArgs, out: &mut impl Write) -> io::Result<u8> {
                 .heading
                 .map(|h| format!(" `## {h}`"))
                 .unwrap_or_default();
-            let text = if entry.text.chars().count() > RELATED_TEXT_MAX {
-                let cut: String = entry.text.chars().take(RELATED_TEXT_MAX - 1).collect();
-                format!("{cut}…")
-            } else {
-                entry.text
-            };
             hits.push(format!(
-                "{} — {area}/{}{heading} — {text}",
+                "{} — {area}/{}{heading} — {}",
                 entry.id,
-                kind.file_name()
+                kind.file_name(),
+                entry.text
             ));
         }
     }

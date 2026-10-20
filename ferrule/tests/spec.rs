@@ -348,3 +348,23 @@ fn it_headings_depth_keeps_shallow_levels() {
         "exit=2"
     );
 }
+
+#[test]
+fn it_related_prints_long_entries_whole() {
+    let dir = tempfile::tempdir().unwrap();
+    let area = dir.path().join("docs/specs/modbus");
+    std::fs::create_dir_all(&area).unwrap();
+    let long = format!("The client reconnects{}.", " and retries".repeat(20));
+    std::fs::write(
+        area.join("requirements.md"),
+        format!("**MB-R-001** — {long}\n"),
+    )
+    .unwrap();
+    let got = Run::new(["spec", "related", "reconnects"])
+        .env("CLAUDE_PROJECT_DIR", dir.path())
+        .text();
+    assert_eq!(
+        got,
+        format!("MB-R-001 — modbus/requirements.md — {long}\nexit=0")
+    );
+}
