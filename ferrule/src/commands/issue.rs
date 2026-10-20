@@ -16,7 +16,9 @@ use super::exit;
 const ISSUE_SEARCH_AFTER_LONG_HELP: &str = "\
 Output:
   #<n> [<STATE>] <title>         One line per issue whose title or body
-                                 mentions every keyword, newest first.
+                                 mentions every keyword, newest first; quote
+                                 a keyword with spaces to match it as a
+                                 phrase.
 No match:
   issue-search=none              Nothing matches (exit 1); try fewer or
                                  other keywords.
@@ -24,7 +26,8 @@ Refusals:
   issue-search=too-many max=<m> hint=rerun with more or more specific keywords
                                  More than `search_max` issues ([thresholds]
                                  of ferrule.toml, default 40) match; none is
-                                 printed (exit 1).
+                                 printed (exit 1). No count=: only max+1 are
+                                 fetched.
 Errors (stderr, exit 1): `issue search: <the host's error>`; GitHub only yet.
 Exit codes: 0 ok, 1 none or refused.
 Example:

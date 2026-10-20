@@ -56,7 +56,7 @@ pub fn is_fixed_id(s: &str) -> bool {
 }
 
 /// The highest number of `<prefix>-<series>-<n>` in `text`, the series `R`
-/// or `E`, with the digit count it was written with.
+/// or `E`, with the digit count it was written with; only whole words count.
 #[must_use]
 pub fn highest(prefix: &str, series: char, text: &str) -> Option<(u32, usize)> {
     let needle = format!("{prefix}-{series}-");
@@ -66,10 +66,15 @@ pub fn highest(prefix: &str, series: char, text: &str) -> Option<(u32, usize)> {
         if before.is_some_and(|c| c.is_ascii_alphanumeric()) {
             continue;
         }
-        let digits: String = text[at + needle.len()..]
+        let tail = &text[at + needle.len()..];
+        let (digits, after) = tail.split_at(tail.bytes().take_while(u8::is_ascii_digit).count());
+        if after
             .chars()
-            .take_while(char::is_ascii_digit)
-            .collect();
+            .next()
+            .is_some_and(|c| c.is_ascii_alphanumeric())
+        {
+            continue;
+        }
         if let Ok(n) = digits.parse::<u32>()
             && best.is_none_or(|(b, _)| n > b)
         {
@@ -248,8 +253,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ut_highest_needs_a_word_start() {
-        let text = "MB-R-007 and (MB-R-012), XMB-R-900, MB-E-050, MB-R-0013";
+    fn ut_highest_needs_a_whole_word() {
+        let text = "MB-R-007 and (MB-R-012), XMB-R-900, MB-R-901x, MB-E-050, MB-R-0013";
         assert_eq!(highest("MB", 'R', text), Some((13, 4)));
         assert_eq!(highest("MB", 'E', text), Some((50, 3)));
         assert_eq!(highest("TR", 'R', text), None);

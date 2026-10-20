@@ -32,7 +32,7 @@ impl From<rusqlite::Error> for Error {
 }
 
 /// A stage's worktree: its card's `worktree:`, else the run's default.
-fn worktree(
+pub fn worktree(
     conn: &Connection,
     layout: &Layout,
     slug: &str,

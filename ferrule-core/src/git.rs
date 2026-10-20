@@ -18,6 +18,21 @@ pub fn out(dir: &Path, args: &[&str]) -> Option<String> {
         .then(|| String::from_utf8_lossy(&o.stdout).trim_end().to_owned())
 }
 
+/// Stdout, trailing newline trimmed, of `git grep <args>`: empty when
+/// nothing matches (exit 1), `None` when git failed.
+#[must_use]
+pub fn grep(dir: &Path, args: &[&str]) -> Option<String> {
+    let o = command(dir, &[&["grep"], args].concat())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    match o.status.code() {
+        Some(0) => Some(String::from_utf8_lossy(&o.stdout).trim_end().to_owned()),
+        Some(1) => Some(String::new()),
+        _ => None,
+    }
+}
+
 /// Whether a git command succeeded.
 #[must_use]
 pub fn ok(dir: &Path, args: &[&str]) -> bool {

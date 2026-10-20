@@ -455,6 +455,14 @@ pub(crate) fn store(create: bool) -> io::Result<Option<Store>> {
     }
 }
 
+/// The board's database when `id` names a card on it; `None` otherwise.
+pub(crate) fn card_store(id: &str) -> io::Result<Option<Store>> {
+    match store(false)? {
+        Some(s) if board::state(&s.conn, id).map_err(sql)?.is_some() => Ok(Some(s)),
+        _ => Ok(None),
+    }
+}
+
 fn state(s: CardState) -> State {
     match s {
         CardState::Open => State::Open,
@@ -667,12 +675,9 @@ fn events(
     last: Option<usize>,
     out: &mut impl Write,
 ) -> io::Result<u8> {
-    let s = match store(false)? {
-        Some(s) if board::state(&s.conn, slug).map_err(sql)?.is_some() => s,
-        _ => {
-            writeln!(out, "events=card hint={HINT_CARD}")?;
-            return Ok(exit::REFUSED);
-        }
+    let Some(s) = card_store(slug)? else {
+        writeln!(out, "events=card hint={HINT_CARD}")?;
+        return Ok(exit::REFUSED);
     };
     let mut lines: Vec<String> = board::run_events(&s.conn, slug)
         .map_err(sql)?

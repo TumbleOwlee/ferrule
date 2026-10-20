@@ -595,8 +595,9 @@ pub struct Found {
     pub state: String,
 }
 
-/// Issues whose title or body mention every keyword, in `state` (`open`,
-/// `closed` or `all`); at most `limit` of them, newest first.
+/// Issues whose title or body mention every keyword (one with a space as a
+/// phrase), in `state` (`open`, `closed` or `all`); at most `limit` of them,
+/// newest first.
 pub fn issue_search(
     tracker: Tracker,
     keywords: &[String],
@@ -605,7 +606,18 @@ pub fn issue_search(
     root: &Path,
 ) -> Result<Vec<Found>, Error> {
     github_tracker(tracker, "issue search")?;
-    let query = format!("{} in:title,body", keywords.join(" "));
+    let words: Vec<String> = keywords
+        .iter()
+        .map(|k| {
+            let k = k.replace('"', "");
+            if k.contains(char::is_whitespace) {
+                format!("\"{k}\"")
+            } else {
+                k
+            }
+        })
+        .collect();
+    let query = format!("{} in:title,body sort:created-desc", words.join(" "));
     let out = run(
         "gh",
         &[

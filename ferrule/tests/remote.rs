@@ -328,15 +328,23 @@ fn it_issue_search_lists_matches_and_caps_them() {
         gh.serve(&a.iter().map(String::as_str).collect::<Vec<_>>(), text);
     };
     serve(
-        "modbus timeout in:title,body",
+        "modbus timeout in:title,body sort:created-desc",
         "open",
         r#"[{"number":9,"title":"Modbus timeout","state":"OPEN"},{"number":4,"title":"Timeout on modbus read","state":"OPEN"}]"#,
     );
-    serve("nothing in:title,body", "all", "[]");
+    serve(
+        r#""no such" thing in:title,body sort:created-desc"#,
+        "all",
+        "[]",
+    );
     let many: Vec<String> = (1..=41)
         .map(|n| format!(r#"{{"number":{n},"title":"t","state":"CLOSED"}}"#))
         .collect();
-    serve("t in:title,body", "all", &format!("[{}]", many.join(",")));
+    serve(
+        "t in:title,body sort:created-desc",
+        "all",
+        &format!("[{}]", many.join(",")),
+    );
     assert_eq!(
         ferrule(
             &gh,
@@ -347,7 +355,7 @@ fn it_issue_search_lists_matches_and_caps_them() {
         "#9 [OPEN] Modbus timeout\n#4 [OPEN] Timeout on modbus read\nexit=0"
     );
     assert_eq!(
-        ferrule(&gh, p.path(), &["issue", "search", "nothing"]).text(),
+        ferrule(&gh, p.path(), &["issue", "search", "no such", "thing"]).text(),
         "issue-search=none\nexit=1"
     );
     assert_eq!(

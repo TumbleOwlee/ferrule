@@ -471,6 +471,14 @@ fn it_run_diff_and_log_read_the_branch_against_main() {
         s.run(&["run", "log", "zz"]).text(),
         "log=refused reason=card hint=check the slug with `ferrule board list`\nexit=1"
     );
+    // --uncommitted needs no base, so a main_branch the worktree lacks is fine
+    s.config("main_branch = \"trunk\"\n");
+    assert_eq!(
+        s.run(&["run", "diff", "ss"]).text(),
+        "diff=refused reason=base hint=fetch it, or pass a --base the branch has\nexit=1"
+    );
+    let wip = s.say(&["run", "diff", "ss", "--uncommitted"]);
+    assert!(wip.starts_with(" M f1.txt\n"), "{wip}");
 }
 
 #[test]
@@ -501,7 +509,7 @@ fn it_spec_next_counts_main_and_with_run_the_run() {
     std::fs::create_dir_all(s.root.join("docs/specs")).unwrap();
     std::fs::write(
         s.root.join("docs/specs/a.md"),
-        "**MB-R-007** — x.\nSee MB-R-009. **MB-E-002** — y. XMB-R-500\n",
+        "**MB-R-007** — x.\nSee MB-R-009. **MB-E-002** — y. XMB-R-500 MB-R-501x\n",
     )
     .unwrap();
     git(&s.root, &["add", "docs"]);
@@ -532,6 +540,11 @@ fn it_spec_next_counts_main_and_with_run_the_run() {
     assert_eq!(
         s.say(&["spec", "next", "MB", "--run", "ss"]),
         "next=MB-R-016 last=MB-R-015"
+    );
+    assert_eq!(
+        s.run(&["spec", "next", "MB", "--count", "4294967295"])
+            .text(),
+        "next=refused reason=range hint=lower --count; the numbers would pass 4294967295\nexit=1"
     );
     assert_eq!(
         s.run(&["spec", "next", "mb"]).text(),
@@ -565,6 +578,11 @@ fn it_spec_refs_finds_whole_ids() {
         "spec", "refs", "MB-R-002", "--ref", "feat/ss", "--path", "lib.rs",
     ]);
     assert_eq!(on_branch, "lib.rs:3:fn f() {} // MB-R-002");
+    assert_eq!(
+        s.run(&["spec", "refs", "MB-R-001", "--path", ":(nosuchmagic)x"])
+            .text(),
+        "refs=refused reason=grep hint=git grep failed; check each --path, else report it to the user\nexit=1"
+    );
     assert_eq!(
         s.run(&["spec", "refs", "R1"]).text(),
         "refs=refused reason=id id=R1 hint=a fixed ID looks like MB-R-001\nexit=2"
@@ -619,6 +637,23 @@ fn it_run_status_summarises_cards_and_worktree() {
     );
     assert_eq!(lines[4..6], ["gauntlet=-", "ci=-"]);
     assert_eq!(lines[6], format!("last=ss.s1 {NOW} note started"));
+    s.ok(&["board", "log", "ss", "pr=draft"]);
+    s.ok(&["board", "log", "ss", "gauntlet=pass", "cov=80%", "sha=abc"]);
+    s.ok(&["board", "log", "ss", "ci=0"]);
+    s.ok(&["board", "log", "ss", "note", "--", "see pr=7 and ci=1"]);
+    let got = s.say(&["run", "status", "ss"]);
+    let lines: Vec<&str> = got.lines().collect();
+    assert!(lines[0].contains(" pr-state=draft "), "{got}");
+    assert_eq!(lines[4..6], ["gauntlet=pass cov=80% sha=abc", "ci=0"]);
+    git(
+        &s.root,
+        &["worktree", "remove", "--force", s.wt.to_str().unwrap()],
+    );
+    let got = s.say(&["run", "status", "ss"]);
+    assert_eq!(
+        got.lines().nth(3),
+        Some("worktree=missing path=.ferrule/worktrees/ss")
+    );
     assert_eq!(
         s.run(&["run", "status", "zz"]).text(),
         "status=refused reason=card hint=check the slug with `ferrule board list`\nexit=1"

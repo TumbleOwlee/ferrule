@@ -8,7 +8,7 @@ use ferrule_core::config::Config;
 use ferrule_core::markdown::{self, Match};
 use ferrule_core::spec::diff::{Part, SpecDiff};
 use ferrule_core::term::{self, Style};
-use ferrule_core::{git, project, spec};
+use ferrule_core::{git, project, run, spec};
 
 use super::exit;
 
@@ -76,15 +76,17 @@ Output, one line:
   next=<ID>[,<ID>…] last=<ID|->  The next free fixed ID(s) of the prefix and
                                  series, one above the highest found; last
                                  is that highest, `-` when there is none.
-Where it looks: every `<PREFIX>-R-<n>` (or `-E-` with --edge) mentioned under
-docs/specs on REF (default: main_branch of ferrule.toml), never the working
+Where it looks: every `<PREFIX>-R-<n>` (or `-E-` with --edge) written as a
+whole word under docs/specs on REF (default: main_branch of ferrule.toml), never the working
 tree. With --run <slug>, also the run's worktree docs/specs, its
 spec-diff.md and every `spec-delta <ID> added` on its cards, so a number
 dropped earlier in the run is not reused.
 Refusals (exit 1):
   next=refused reason=prefix hint=a prefix is two capital letters, e.g. MB
   next=refused reason=ref hint=fetch REF or pass --ref
-  next=refused reason=card hint=check the slug with ferrule board list
+  next=refused reason=grep hint=git grep failed on REF; report it to the user
+  next=refused reason=card hint=check the slug with `ferrule board list`
+  next=refused reason=range hint=lower --count; the numbers would pass 4294967295
 Exit codes: 0 ok, 1 refused, 2 usage.
 Examples:
   ferrule spec next MB --count 3
@@ -109,6 +111,7 @@ Refusals:
   refs=refused reason=id id=<word> hint=a fixed ID looks like MB-R-001
                                  A word is not a fixed ID (exit 2).
   refs=refused reason=ref hint=fetch REF or pass another --ref
+  refs=refused reason=grep hint=git grep failed; check each --path, else report it to the user
 Exit codes: 0 ok, 1 none or refused, 2 usage.
 Examples:
   ferrule spec refs MB-R-288 --path src --path tests
@@ -297,20 +300,24 @@ fn next(args: &NextArgs, out: &mut impl Write) -> io::Result<u8> {
         writeln!(out, "next=refused reason=ref hint=fetch REF or pass --ref")?;
         return Ok(exit::REFUSED);
     }
-    // the leading class keeps `XMB-R-1` out, which `-o` would cut to `MB-R-1`
-    let pattern = format!("(^|[^A-Za-z0-9]){prefix}-{series}-[0-9]+");
-    let mut texts = vec![
-        git::out(
-            &root,
-            &["grep", "-hoE", &pattern, &reference, "--", "docs/specs"],
-        )
-        .unwrap_or_default(),
-    ];
+    // whole lines: `highest` checks the word boundaries
+    let needle = format!("{prefix}-{series}-");
+    let Some(on_ref) = git::grep(
+        &root,
+        &["-hF", "-e", &needle, &reference, "--", "docs/specs"],
+    ) else {
+        writeln!(
+            out,
+            "next=refused reason=grep hint=git grep failed on REF; report it to the user"
+        )?;
+        return Ok(exit::REFUSED);
+    };
+    let mut texts = vec![on_ref];
     if let Some(slug) = &args.run {
         let Some(found) = run_texts(slug)? else {
             writeln!(
                 out,
-                "next=refused reason=card hint=check the slug with ferrule board list"
+                "next=refused reason=card hint=check the slug with `ferrule board list`"
             )?;
             return Ok(exit::REFUSED);
         };
@@ -322,8 +329,16 @@ fn next(args: &NextArgs, out: &mut impl Write) -> io::Result<u8> {
         .max_by_key(|(n, _)| *n);
     let width = best.map_or(3, |(_, w)| w.max(3));
     let id = |n: u32| format!("{prefix}-{series}-{n:0width$}");
-    let first = best.map_or(1, |(n, _)| n + 1);
-    let ids: Vec<String> = (first..first + args.count).map(id).collect();
+    let first = best.map_or(Some(1), |(n, _)| n.checked_add(1));
+    let Some((first, end)) = first.and_then(|f| Some((f, f.checked_add(args.count)?))) else {
+        writeln!(
+            out,
+            "next=refused reason=range hint=lower --count; the numbers would pass {}",
+            u32::MAX
+        )?;
+        return Ok(exit::REFUSED);
+    };
+    let ids: Vec<String> = (first..end).map(id).collect();
     let last = best.map_or_else(|| "-".to_owned(), |(n, _)| id(n));
     writeln!(out, "next={} last={last}", ids.join(","))?;
     Ok(exit::OK)
@@ -333,19 +348,11 @@ fn next(args: &NextArgs, out: &mut impl Write) -> io::Result<u8> {
 /// `None` when the run has no card.
 fn run_texts(slug: &str) -> io::Result<Option<Vec<String>>> {
     let layout = project::Layout::new(project::main_checkout());
-    let Some(s) = super::board::store(false)? else {
+    let Some(s) = super::board::card_store(slug)? else {
         return Ok(None);
     };
-    if board::state(&s.conn, slug)
-        .map_err(super::board::sql)?
-        .is_none()
-    {
-        return Ok(None);
-    }
     let mut texts = Vec::new();
-    let wt = board::field(&s.conn, slug, "worktree")
-        .map_err(super::board::sql)?
-        .map_or_else(|| layout.worktree(slug), |w| layout.resolve(&w));
+    let wt = run::worktree(&s.conn, &layout, slug, slug).map_err(super::board::sql)?;
     let specs = wt.join("docs/specs");
     if specs.is_dir() {
         for path in spec::markdown_files(&specs)? {
@@ -386,14 +393,20 @@ fn refs(args: &RefsArgs, out: &mut impl Write) -> io::Result<u8> {
         )?;
         return Ok(exit::REFUSED);
     }
-    let mut cmd: Vec<&str> = vec!["grep", "-n", "-w", "-F", "--no-color"];
+    let mut cmd: Vec<&str> = vec!["-n", "-w", "-F", "--no-color"];
     for id in &args.ids {
         cmd.extend(["-e", id]);
     }
     cmd.extend(args.r#ref.as_deref());
     cmd.push("--");
     cmd.extend(args.path.iter().map(String::as_str));
-    let text = git::out(&dir, &cmd).unwrap_or_default();
+    let Some(text) = git::grep(&dir, &cmd) else {
+        writeln!(
+            out,
+            "refs=refused reason=grep hint=git grep failed; check each --path, else report it to the user"
+        )?;
+        return Ok(exit::REFUSED);
+    };
     let strip = args.r#ref.as_ref().map(|r| format!("{r}:"));
     let lines: Vec<&str> = text
         .lines()

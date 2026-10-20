@@ -1,5 +1,5 @@
 use std::io::{self, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::{Args, Subcommand, ValueEnum};
 use ferrule_core::card::board;
@@ -15,7 +15,7 @@ use ferrule_core::run::rebuild;
 use ferrule_core::run::{self as core_run, Error};
 use ferrule_core::store::DIR;
 
-use super::board::{sql, store};
+use super::board::{card_store, sql, store};
 use super::exit;
 
 /// Shown after `ferrule run init --help`.
@@ -141,7 +141,7 @@ The reason lines end in ` hint=<fix>`.
 Exit codes: 0 ok, 1 refused.
 See: ferrule guide show cleanup";
 
-/// Shown after `ferrule run export --help`.
+/// Shown after `ferrule run status --help`.
 const STATUS_AFTER_LONG_HELP: &str = "\
 Output, local only (no host call):
   run=<slug> state=<s> lane=<l> branch=<b> issue=<n> pr=<n> pr-state=<draft|ready> gates=<g,…>
@@ -157,18 +157,21 @@ Output, local only (no host call):
                                  path=<path>` when it is not there.
   gauntlet=<pass|fail> ...       The parent's last gauntlet line, `-` if none.
   ci=<code|->                    The parent's last `ci=`.
-  last=<card> <at> <event> ...   The run's latest log line.
+  last=<card> <at> <event> ...   The run's latest log line; left out when
+                                 the run has logged nothing.
 Refusals (exit 1):
   status=refused reason=card hint=check the slug with `ferrule board list`
 Exit codes: 0 ok, 1 refused.
 See: ferrule guide show resume";
 
+/// Shown after `ferrule run diff --help`.
 const DIFF_AFTER_LONG_HELP: &str = "\
 Output: what `git diff <base>...HEAD` prints in the run's worktree (three
 dots: the branch's own changes since it left base), whole; with --stat the
 file list instead. --specs narrows to docs/specs, --path to any pathspec
 (repeat it). --uncommitted prints `git status --short`, then the diff of the
-uncommitted work against HEAD. base is main_branch of ferrule.toml unless
+tracked files' uncommitted changes against HEAD: untracked files are listed,
+not diffed, and no base is needed. base is main_branch of ferrule.toml unless
 --base names another commit.
 Refusals (exit 1, nothing else printed):
   diff=refused reason=card hint=check the slug with `ferrule board list`
@@ -180,6 +183,7 @@ Examples:
   ferrule run diff <slug> --base <sha> --stat
 See: ferrule guide show reviewer";
 
+/// Shown after `ferrule run log --help`.
 const LOG_AFTER_LONG_HELP: &str = "\
 Output: what `git log --oneline <base>..HEAD` prints in the run's worktree,
 newest first; with --stat each commit's files too. base is main_branch of
@@ -189,6 +193,7 @@ of `ferrule run diff --help`.
 Exit codes: 0 ok, 1 refused.
 See: ferrule guide show reviewer";
 
+/// Shown after `ferrule run plan-diff --help`.
 const PLAN_DIFF_AFTER_LONG_HELP: &str = "\
 Output: a unified diff from plan.prev.md (plan.md as the last plan review
 saw it; gate 2's review round and `stage replan start` save it) to plan.md,
@@ -200,6 +205,7 @@ Refusals (exit 1):
 Exit codes: 0 ok, 1 refused.
 See: ferrule guide show reviewer-plan";
 
+/// Shown after `ferrule run export --help`.
 const EXPORT_AFTER_LONG_HELP: &str = "\
 Output:
   export=done archive=<id> path=<dir>
@@ -464,46 +470,47 @@ struct Pick<'a> {
     base: Option<&'a str>,
 }
 
-/// The run's worktree and the commit `base` names (main by default), or
-/// the `reason=… hint=…` of why there is none.
-fn branch(slug: &str, base: Option<&str>) -> io::Result<Result<(PathBuf, String), String>> {
-    let layout = layout();
-    let config = Config::load(&layout.root).map_err(sql)?;
-    let s = match store(false)? {
-        Some(s) if board::state(&s.conn, slug).map_err(sql)?.is_some() => s,
-        _ => {
-            return Ok(Err(
-                "reason=card hint=check the slug with `ferrule board list`".to_owned(),
-            ));
-        }
+/// The run's worktree, or the `reason=… hint=…` of why there is none.
+fn run_worktree(slug: &str) -> io::Result<Result<PathBuf, String>> {
+    let Some(s) = card_store(slug)? else {
+        return Ok(Err(
+            "reason=card hint=check the slug with `ferrule board list`".to_owned(),
+        ));
     };
-    let wt = board::field(&s.conn, slug, "worktree")
-        .map_err(sql)?
-        .map_or_else(|| layout.worktree(slug), |w| layout.resolve(&w));
+    let wt = core_run::worktree(&s.conn, &layout(), slug, slug).map_err(sql)?;
     if !wt.is_dir() {
         return Ok(Err(format!(
             "reason=no-worktree hint=`ferrule gate approve {slug} gate2` adds it"
         )));
     }
-    let base = base.map_or(config.main_branch, str::to_owned);
-    if ferrule_core::git::commit(&wt, &base).is_none() {
+    Ok(Ok(wt))
+}
+
+/// The commit `base` names in `wt` (main by default), or the
+/// `reason=… hint=…` of why it names none.
+fn base_in(wt: &Path, base: Option<&str>) -> io::Result<Result<String, String>> {
+    let base = match base {
+        Some(b) => b.to_owned(),
+        None => Config::load(&layout().root).map_err(sql)?.main_branch,
+    };
+    if ferrule_core::git::commit(wt, &base).is_none() {
         return Ok(Err(
             "reason=base hint=fetch it, or pass a --base the branch has".to_owned(),
         ));
     }
-    Ok(Ok((wt, base)))
+    Ok(Ok(base))
 }
 
-/// Writes what `git <args>` prints in `dir`; a failing git is an error.
-fn git_to(dir: &std::path::Path, args: &[&str], out: &mut impl Write) -> io::Result<()> {
+/// Writes what `git <args>` prints in `dir`; a failing git is an error,
+/// except exit 1 when `differ_ok` (`diff --no-index`: the files differ).
+fn git_to(dir: &Path, args: &[&str], differ_ok: bool, out: &mut impl Write) -> io::Result<()> {
     let o = std::process::Command::new("git")
         .arg("-C")
         .arg(dir)
         .args(args)
         .stdin(std::process::Stdio::null())
         .output()?;
-    // `diff --no-index` exits 1 when the files differ
-    if !o.status.success() && o.status.code() != Some(1) {
+    if !(o.status.success() || differ_ok && o.status.code() == Some(1)) {
         return Err(io::Error::other(
             String::from_utf8_lossy(&o.stderr).trim().to_owned(),
         ));
@@ -512,32 +519,40 @@ fn git_to(dir: &std::path::Path, args: &[&str], out: &mut impl Write) -> io::Res
 }
 
 fn diff(slug: &str, pick: &Pick, uncommitted: bool, out: &mut impl Write) -> io::Result<u8> {
-    let (wt, base) = match branch(slug, pick.base)? {
+    let found = match run_worktree(slug)? {
+        Ok(wt) if uncommitted => Ok((wt, None)),
+        Ok(wt) => base_in(&wt, pick.base)?.map(|b| (wt, Some(format!("{b}...HEAD")))),
+        Err(why) => Err(why),
+    };
+    let (wt, range) = match found {
         Ok(found) => found,
         Err(why) => {
             writeln!(out, "diff=refused {why}")?;
             return Ok(exit::REFUSED);
         }
     };
-    let range = format!("{base}...HEAD");
     let mut args = vec!["diff", "--no-color", "--no-ext-diff"];
     if pick.stat {
         args.push("--stat");
     }
-    if uncommitted {
-        git_to(&wt, &["status", "--short"], out)?;
-        args.push("HEAD");
+    if let Some(range) = &range {
+        args.push(range);
     } else {
-        args.push(&range);
+        git_to(&wt, &["status", "--short"], false, out)?;
+        args.push("HEAD");
     }
     args.push("--");
     args.extend(pick.paths.iter().map(String::as_str));
-    git_to(&wt, &args, out)?;
+    git_to(&wt, &args, false, out)?;
     Ok(exit::OK)
 }
 
 fn log(slug: &str, pick: &Pick, out: &mut impl Write) -> io::Result<u8> {
-    let (wt, base) = match branch(slug, pick.base)? {
+    let found = match run_worktree(slug)? {
+        Ok(wt) => base_in(&wt, pick.base)?.map(|b| (wt, b)),
+        Err(why) => Err(why),
+    };
+    let (wt, base) = match found {
         Ok(found) => found,
         Err(why) => {
             writeln!(out, "log=refused {why}")?;
@@ -550,24 +565,29 @@ fn log(slug: &str, pick: &Pick, out: &mut impl Write) -> io::Result<u8> {
         args.push("--stat");
     }
     args.push(&range);
-    git_to(&wt, &args, out)?;
+    git_to(&wt, &args, false, out)?;
     Ok(exit::OK)
 }
 
 fn status(slug: &str, out: &mut impl Write) -> io::Result<u8> {
     let layout = layout();
     let config = Config::load(&layout.root).map_err(sql)?;
-    let s = match store(false)? {
-        Some(s) if board::state(&s.conn, slug).map_err(sql)?.is_some() => s,
-        _ => {
-            writeln!(
-                out,
-                "status=refused reason=card hint=check the slug with `ferrule board list`"
-            )?;
-            return Ok(exit::REFUSED);
-        }
+    let Some(s) = card_store(slug)? else {
+        writeln!(
+            out,
+            "status=refused reason=card hint=check the slug with `ferrule board list`"
+        )?;
+        return Ok(exit::REFUSED);
     };
     let c = &s.conn;
+    let events = board::events(c, slug).map_err(sql)?;
+    // the event itself, not a token: a note's text may carry `pr=` too
+    let last_event = |prefix: &str| {
+        events
+            .iter()
+            .rev()
+            .find_map(|(_, body)| body.strip_prefix(prefix))
+    };
     let field = |card: &str, key: &str| -> io::Result<String> {
         Ok(board::field(c, card, key)
             .map_err(sql)?
@@ -582,7 +602,6 @@ fn status(slug: &str, out: &mut impl Write) -> io::Result<u8> {
             gates.push(g);
         }
     }
-    let pr_state = board::last_token(c, slug, "pr").map_err(sql)?;
     writeln!(
         out,
         "run={slug} state={state} lane={} branch={} issue={} pr={} pr-state={} gates={}",
@@ -590,16 +609,14 @@ fn status(slug: &str, out: &mut impl Write) -> io::Result<u8> {
         field(slug, "branch")?,
         field(slug, "issue")?,
         field(slug, "pr")?,
-        pr_state.as_deref().unwrap_or("-"),
+        last_event("pr=").unwrap_or("-"),
         if gates.is_empty() {
             "-".to_owned()
         } else {
             gates.join(",")
         }
     )?;
-    let mut stages = board::stages(c, slug).map_err(sql)?;
-    stages.sort_by_key(|(n, _, _)| *n);
-    for (n, id, st) in &stages {
+    for (n, id, st) in &board::stages(c, slug).map_err(sql)? {
         let commit = board::last_token(c, id, "commit").map_err(sql)?;
         writeln!(
             out,
@@ -609,9 +626,7 @@ fn status(slug: &str, out: &mut impl Write) -> io::Result<u8> {
             field(id, "title")?
         )?;
     }
-    let wt = board::field(c, slug, "worktree")
-        .map_err(sql)?
-        .map_or_else(|| layout.worktree(slug), |w| layout.resolve(&w));
+    let wt = core_run::worktree(c, &layout, slug, slug).map_err(sql)?;
     let shown = wt
         .strip_prefix(&layout.root)
         .unwrap_or(&wt)
@@ -632,17 +647,8 @@ fn status(slug: &str, out: &mut impl Write) -> io::Result<u8> {
     } else {
         writeln!(out, "worktree=missing path={shown}")?;
     }
-    let events = board::events(c, slug).map_err(sql)?;
-    let gauntlet = events
-        .iter()
-        .rev()
-        .find_map(|(_, body)| body.strip_prefix("gauntlet="));
-    match gauntlet {
-        Some(rest) => writeln!(out, "gauntlet={rest}")?,
-        None => writeln!(out, "gauntlet=-")?,
-    }
-    let ci = board::last_token(c, slug, "ci").map_err(sql)?;
-    writeln!(out, "ci={}", ci.as_deref().unwrap_or("-"))?;
+    writeln!(out, "gauntlet={}", last_event("gauntlet=").unwrap_or("-"))?;
+    writeln!(out, "ci={}", last_event("ci=").unwrap_or("-"))?;
     if let Some((card, at, body)) = board::run_events(c, slug).map_err(sql)?.pop() {
         writeln!(out, "last={card} {at} {body}")?;
     }
@@ -672,10 +678,12 @@ fn plan_diff(slug: &str, out: &mut impl Write) -> io::Result<u8> {
             "diff",
             "--no-index",
             "--no-color",
+            "--no-ext-diff",
             "--",
             "plan.prev.md",
             "plan.md",
         ],
+        true,
         &mut text,
     )?;
     if text.is_empty() {
@@ -938,9 +946,7 @@ pub(super) fn gauntlet(slug: &str, force: bool, out: &mut impl Write) -> io::Res
     let Some(s) = store(true)? else {
         unreachable!("store(true) creates the database");
     };
-    let wt = board::field(&s.conn, slug, "worktree")
-        .map_err(sql)?
-        .map_or_else(|| layout.worktree(slug), |w| layout.resolve(&w));
+    let wt = core_run::worktree(&s.conn, &layout, slug, slug).map_err(sql)?;
     let log = layout.run_dir(slug).join("gauntlet.log");
     let outcome = gauntlet::run(
         &s.conn,
