@@ -567,11 +567,63 @@ fn append(
             spec: vocab::lookup(line.name),
         }));
     }
-    conn.execute(
-        "INSERT INTO events (card, at, name, body) VALUES (?1, ?2, ?3, ?4)",
-        params![id, now, line.name, line.body],
-    )?;
+    insert_event(conn, id, now, line.name, &line.parts, &line.body)?;
     Ok(())
+}
+
+/// Appends one log line with its value, args and text.
+fn insert_event(
+    conn: &Connection,
+    id: &str,
+    at: &str,
+    name: &str,
+    parts: &vocab::Parts,
+    body: &str,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO events (card, at, name, body, value, text) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![id, at, name, body, parts.value, parts.text],
+    )?;
+    insert_args(conn, conn.last_insert_rowid(), &parts.args)
+}
+
+fn insert_args(conn: &Connection, event: i64, args: &[vocab::Arg]) -> rusqlite::Result<()> {
+    let mut st = conn.prepare_cached(
+        "INSERT INTO event_args (event, idx, key, value) VALUES (?1, ?2, ?3, ?4)",
+    )?;
+    for (idx, a) in args.iter().enumerate() {
+        st.execute(params![event, idx, a.key, a.value])?;
+    }
+    Ok(())
+}
+
+/// Fills the value, args and text of log lines stored before they were
+/// kept apart, by parsing each body back.
+pub(crate) fn backfill_args(conn: &Connection) -> rusqlite::Result<()> {
+    let rows: Vec<(i64, String)> = {
+        let mut st = conn.prepare("SELECT id, body FROM events ORDER BY id")?;
+        st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?
+    };
+    for (event, body) in rows {
+        let (_, parts) = vocab::parse(&body);
+        conn.execute(
+            "UPDATE events SET value = ?1, text = ?2 WHERE id = ?3",
+            params![parts.value, parts.text, event],
+        )?;
+        insert_args(conn, event, &parts.args)?;
+    }
+    Ok(())
+}
+
+/// A log line's args as `(key, value)` in order; a positional has no key.
+pub fn event_args(
+    conn: &Connection,
+    event: i64,
+) -> rusqlite::Result<Vec<(Option<String>, String)>> {
+    let mut st = conn.prepare("SELECT key, value FROM event_args WHERE event = ?1 ORDER BY idx")?;
+    st.query_map([event], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect()
 }
 
 /// Why a move was refused.
@@ -765,12 +817,6 @@ pub fn parse_card(text: &str) -> CardFile {
     CardFile { fields, events }
 }
 
-/// The event name of a log body: its first word, through `=` when valued.
-fn event_name(body: &str) -> &str {
-    let w = body.split(' ').next().unwrap_or("");
-    w.find('=').map_or(w, |i| &w[..=i])
-}
-
 #[derive(Debug)]
 pub enum ImportError {
     /// A card file's frontmatter disagrees with its name, or carries a key
@@ -861,10 +907,8 @@ pub fn import(conn: &mut Connection, board: &Path, now: &str) -> Result<usize, I
             Err(CardError::Card) => unreachable!("insert never looks a card up by id"),
         }
         for (at, body) in card.events {
-            tx.execute(
-                "INSERT INTO events (card, at, name, body) VALUES (?1, ?2, ?3, ?4)",
-                params![id, at, event_name(&body), body],
-            )?;
+            let (name, parts) = vocab::parse(&body);
+            insert_event(&tx, id, &at, name, &parts, &body)?;
         }
     }
     tx.commit()?;
@@ -972,6 +1016,48 @@ mod tests {
         ));
         assert_eq!(state(&s.conn, "r.s1").unwrap(), Some(State::InProgress));
         assert_eq!(events(&s.conn, "r.s1").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn ut_log_stores_args_and_text_apart() {
+        let mut s = store();
+        create(&mut s.conn, "r", State::Open, &[], "t").unwrap();
+        create(&mut s.conn, "r.s1", State::Open, &[], "t").unwrap();
+        let a = |s: &str| s.split(' ').map(str::to_owned).collect::<Vec<_>>();
+        log(
+            &mut s.conn,
+            "r",
+            "stop",
+            &a("gate=gate2 kind=approval"),
+            "t",
+        )
+        .unwrap();
+        let reason = vec!["user=dl".to_owned(), "reason=a b".to_owned()];
+        log(&mut s.conn, "r.s1", "files+=src/x.rs", &reason, "t").unwrap();
+        log(&mut s.conn, "r.s1", "note", &a("-- then commit=zzz"), "t").unwrap();
+        let rows: Vec<(i64, String, Option<String>, Option<String>)> = s
+            .conn
+            .prepare("SELECT id, body, value, text FROM events ORDER BY id")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        let kv = |k: &str, v: &str| (Some(k.to_owned()), v.to_owned());
+
+        assert_eq!(rows[0].1, "stop kind=approval gate=gate2");
+        assert_eq!(
+            event_args(&s.conn, rows[0].0).unwrap(),
+            [kv("kind", "approval"), kv("gate", "gate2")]
+        );
+        assert_eq!(rows[1].1, "files+=src/x.rs user=dl reason=\"a b\"");
+        assert_eq!(rows[1].2.as_deref(), Some("src/x.rs"));
+        assert_eq!(
+            event_args(&s.conn, rows[1].0).unwrap(),
+            [kv("user", "dl"), kv("reason", "a b")]
+        );
+        assert_eq!(rows[2].3.as_deref(), Some("then commit=zzz"));
+        assert!(event_args(&s.conn, rows[2].0).unwrap().is_empty());
     }
 
     #[test]

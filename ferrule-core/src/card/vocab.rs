@@ -339,10 +339,30 @@ pub struct Context {
     pub read_budget: usize,
 }
 
-/// A validated event: its name and the line body after the timestamp.
+/// One word after the event: a positional (no key) or a `key=value` pair,
+/// the value unquoted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Arg {
+    pub key: Option<&'static str>,
+    pub value: String,
+}
+
+/// An event's words as stored beside its body: the value after the
+/// event's `=`, the positionals then the `key=value` pairs, and the free
+/// text.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Parts {
+    pub value: Option<String>,
+    pub args: Vec<Arg>,
+    pub text: Option<String>,
+}
+
+/// A validated event: its name, its words, and the line body after the
+/// timestamp.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Line {
     pub name: &'static str,
+    pub parts: Parts,
     pub body: String,
 }
 
@@ -358,11 +378,44 @@ fn quoted(v: &str) -> String {
     }
 }
 
+/// Whether `a` may be positional word `n` of `spec`.
+fn positional_ok(spec: &Event, n: usize, a: &str) -> bool {
+    match spec.positional {
+        P::IdKind if n == 0 => is_fixed_id(a),
+        P::IdKind if n == 1 => matches!(a, "added" | "changed" | "dropped"),
+        P::OptionalIds if n == 0 => a.split(',').all(is_fixed_id),
+        _ => false,
+    }
+}
+
+/// The body of event `name` with `parts`: the value, positionals, pairs
+/// (spaced values quoted) and text, space-separated.
+fn render(name: &str, parts: &Parts) -> String {
+    let mut body = match &parts.value {
+        Some(v) => format!("{name}{}", quoted(v)),
+        None => name.to_owned(),
+    };
+    for a in &parts.args {
+        body.push(' ');
+        match a.key {
+            Some(k) => {
+                let _ = write!(body, "{k}={}", quoted(&a.value));
+            }
+            None => body.push_str(&a.value),
+        }
+    }
+    if let Some(t) = &parts.text {
+        body.push(' ');
+        body.push_str(t);
+    }
+    body
+}
+
 /// The words after the event, split into positionals, `key=value` pairs
 /// and the free text after `--`.
 struct Words<'a> {
     positional: Vec<&'a str>,
-    kvs: Vec<String>,
+    kvs: Vec<(&'static str, &'a str)>,
     text: Option<String>,
     /// `spec-delta` carried `origin=`.
     origin: bool,
@@ -372,7 +425,7 @@ struct Words<'a> {
 
 fn words<'a>(spec: &Event, args: &'a [String]) -> Result<Words<'a>, Reason> {
     let mut positional: Vec<&str> = Vec::new();
-    let mut kvs: Vec<String> = Vec::new();
+    let mut kvs: Vec<(&'static str, &str)> = Vec::new();
     let mut text: Option<String> = None;
     let mut origin = false;
     let mut kind = false;
@@ -387,9 +440,9 @@ fn words<'a>(spec: &Event, args: &'a [String]) -> Result<Words<'a>, Reason> {
         if a == "--" {
             text = Some(String::new());
         } else if let Some((k, v)) = a.split_once('=') {
-            if !spec.keys.contains(&k) {
+            let Some(k) = spec.keys.iter().copied().find(|key| *key == k) else {
                 return Err(Reason::Key);
-            }
+            };
             if v.is_empty() || v.contains('"') {
                 return Err(Reason::Value);
             }
@@ -408,21 +461,15 @@ fn words<'a>(spec: &Event, args: &'a [String]) -> Result<Words<'a>, Reason> {
                 }
                 _ => {}
             }
-            kvs.push(format!("{k}={}", quoted(v)));
+            kvs.push((k, v));
         } else {
-            let n = positional.len();
-            let ok = match spec.positional {
-                P::IdKind if n == 0 => is_fixed_id(a),
-                P::IdKind if n == 1 => matches!(a.as_str(), "added" | "changed" | "dropped"),
-                P::OptionalIds if n == 0 => a.split(',').all(is_fixed_id),
-                _ => false,
-            };
-            if !ok {
+            if !positional_ok(spec, positional.len(), a) {
                 return Err(Reason::Value);
             }
             positional.push(a);
         }
     }
+    kvs.sort_by_key(|(k, _)| spec.keys.iter().position(|key| key == k));
     Ok(Words {
         positional,
         kvs,
@@ -501,29 +548,109 @@ pub fn check(event: &str, args: &[String], ctx: Context) -> Result<Line, Reject>
         return Err(reject(Reason::Typed(use_)));
     }
 
-    let mut body = match value {
-        Some(v) => format!("{name}{}", quoted(v)),
-        None => name.clone(),
+    let parts = Parts {
+        value: value.map(str::to_owned),
+        args: positional
+            .into_iter()
+            .map(|p| Arg {
+                key: None,
+                value: p.to_owned(),
+            })
+            .chain(kvs.into_iter().map(|(k, v)| Arg {
+                key: Some(k),
+                value: v.to_owned(),
+            }))
+            .collect(),
+        text,
     };
-    for p in positional {
-        body.push(' ');
-        body.push_str(p);
-    }
-    for kv in kvs {
-        body.push(' ');
-        body.push_str(&kv);
-    }
-    if let Some(t) = text {
-        body.push(' ');
-        body.push_str(&t);
-    }
+    let body = render(spec.name, &parts);
     if body.contains('\n') {
         return Err(reject(Reason::Value));
     }
     Ok(Line {
         name: spec.name,
+        parts,
         body,
     })
+}
+
+/// A value at the start of `s`, `"…"`-quoted or up to the next space, and
+/// what follows its separating space; `None` for an empty value or an
+/// unclosed or run-on quote.
+fn take_value(s: &str) -> Option<(&str, &str)> {
+    let (v, after) = match s.strip_prefix('"') {
+        Some(q) => {
+            let (v, after) = q.split_once('"')?;
+            if !(after.is_empty() || after.starts_with(' ')) {
+                return None;
+            }
+            (v, after)
+        }
+        None => s.split_once(' ').map_or((s, ""), |(v, a)| (v, a)),
+    };
+    let after = after.strip_prefix(' ').unwrap_or(after);
+    (!v.is_empty()).then_some((v, after))
+}
+
+/// Splits a stored line body back into its event name (through `=` when
+/// valued) and its words: positionals and the event's own `key=value`
+/// pairs while they last, the rest as text. A body whose event is not in
+/// the vocabulary, or whose value does not parse, is all text after its
+/// first word.
+#[must_use]
+pub fn parse(body: &str) -> (&str, Parts) {
+    let (word, after) = body.split_once(' ').unwrap_or((body, ""));
+    let unparsed = |name| {
+        let text = (!after.is_empty()).then(|| after.to_owned());
+        (
+            name,
+            Parts {
+                text,
+                ..Parts::default()
+            },
+        )
+    };
+    let (name, value, mut rest) = match word.find('=') {
+        Some(i) => {
+            let name = &body[..=i];
+            match take_value(&body[i + 1..]) {
+                Some((v, rest)) => (name, Some(v.to_owned()), rest),
+                None => return unparsed(name),
+            }
+        }
+        None => (word, None, after),
+    };
+    let Some(spec) = lookup(name) else {
+        return unparsed(name);
+    };
+    let mut args = Vec::new();
+    let mut n = 0;
+    while !rest.is_empty() {
+        let (w, after) = rest.split_once(' ').unwrap_or((rest, ""));
+        if let Some((k, _)) = w.split_once('=')
+            && let Some(key) = spec.keys.iter().copied().find(|key| *key == k)
+        {
+            let Some((v, after)) = take_value(&rest[k.len() + 1..]) else {
+                break;
+            };
+            args.push(Arg {
+                key: Some(key),
+                value: v.to_owned(),
+            });
+            rest = after;
+        } else if positional_ok(spec, n, w) {
+            args.push(Arg {
+                key: None,
+                value: w.to_owned(),
+            });
+            n += 1;
+            rest = after;
+        } else {
+            break;
+        }
+    }
+    let text = (!rest.is_empty()).then(|| rest.to_owned());
+    (name, Parts { value, args, text })
 }
 
 /// The event a note's text should have been: its first word, `=…` and a
@@ -757,9 +884,90 @@ mod tests {
             "quote=a b".to_owned(),
             "origin=user".to_owned(),
         ];
+        let line = check("spec-delta", &a, STAGE).unwrap();
         assert_eq!(
-            check("spec-delta", &a, STAGE).unwrap().body,
-            "spec-delta MB-R-1 changed quote=\"a b\" origin=user"
+            line.body,
+            "spec-delta MB-R-1 changed origin=user quote=\"a b\""
         );
+        assert_eq!(line.parts.args[3], arg(Some("quote"), "a b"));
+        assert_eq!(parse(&line.body), ("spec-delta", line.parts));
+    }
+
+    fn arg(key: Option<&'static str>, value: &str) -> Arg {
+        Arg {
+            key,
+            value: value.to_owned(),
+        }
+    }
+
+    #[test]
+    fn ut_keys_render_in_vocabulary_order() {
+        let line = check("stop", &args("count=2 gate=gate2 kind=approval"), PARENT).unwrap();
+        assert_eq!(line.body, "stop kind=approval gate=gate2 count=2");
+        assert_eq!(
+            line.parts.args,
+            [
+                arg(Some("kind"), "approval"),
+                arg(Some("gate"), "gate2"),
+                arg(Some("count"), "2"),
+            ]
+        );
+        let line = check("gauntlet=pass", &args("sha=abc cov=80%"), PARENT).unwrap();
+        assert_eq!(line.body, "gauntlet=pass cov=80% sha=abc");
+        assert_eq!(line.parts.value.as_deref(), Some("pass"));
+    }
+
+    #[test]
+    fn ut_text_is_kept_apart_from_the_args() {
+        let line = check("note", &args("-- saw gauntlet=pass sha=x"), STAGE).unwrap();
+        assert_eq!(line.body, "note saw gauntlet=pass sha=x");
+        assert!(line.parts.args.is_empty());
+        assert_eq!(line.parts.text.as_deref(), Some("saw gauntlet=pass sha=x"));
+        let line = check(
+            "spec-delta",
+            &args("MB-R-1 added origin=impl -- new rule"),
+            STAGE,
+        )
+        .unwrap();
+        assert_eq!(
+            line.parts,
+            Parts {
+                value: None,
+                args: vec![
+                    arg(None, "MB-R-1"),
+                    arg(None, "added"),
+                    arg(Some("origin"), "impl"),
+                ],
+                text: Some("new rule".to_owned()),
+            }
+        );
+    }
+
+    #[test]
+    fn ut_parse_splits_stored_bodies() {
+        let (name, p) = parse("note saw gauntlet=pass sha=x");
+        assert_eq!(name, "note");
+        assert!(p.args.is_empty());
+        assert_eq!(p.text.as_deref(), Some("saw gauntlet=pass sha=x"));
+        let (name, p) = parse("files+=src/a.rs reason=\"a b\" user=dl");
+        assert_eq!(name, "files+=");
+        assert_eq!(p.value.as_deref(), Some("src/a.rs"));
+        assert_eq!(
+            p.args,
+            [arg(Some("reason"), "a b"), arg(Some("user"), "dl")]
+        );
+        assert_eq!(p.text, None);
+        let (name, p) = parse("minor=\"two words\" why");
+        assert_eq!(name, "minor=");
+        assert_eq!(p.value.as_deref(), Some("two words"));
+        assert_eq!(p.text.as_deref(), Some("why"));
+        let (name, p) = parse("bogus=x y z");
+        assert_eq!(name, "bogus=");
+        assert_eq!(p.value, None);
+        assert_eq!(p.text.as_deref(), Some("y z"));
+        let (_, p) = parse("files+=a reason=\"open");
+        assert_eq!(p.args, []);
+        assert_eq!(p.text.as_deref(), Some("reason=\"open"));
+        assert_eq!(parse("green"), ("green", Parts::default()));
     }
 }

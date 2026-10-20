@@ -12,10 +12,18 @@ pub use rusqlite::Error;
 pub const DIR: &str = ".ferrule";
 pub const FILE: &str = "state.db";
 
+/// One schema migration: SQL, or Rust for what SQL alone cannot do. Each
+/// runs inside the migrating transaction.
+enum Step {
+    Sql(&'static str),
+    Rust(fn(&Connection) -> Result<(), Error>),
+}
+
 /// Schema migrations, append-only; the database's `user_version` counts
 /// those applied.
-const MIGRATIONS: &[&str] = &[
-    r"
+const MIGRATIONS: &[Step] = &[
+    Step::Sql(
+        r"
 CREATE TABLE cards (
     id         TEXT PRIMARY KEY,
     run        TEXT NOT NULL,
@@ -40,7 +48,9 @@ CREATE TABLE events (
 );
 CREATE INDEX events_card ON events (card, id);
 ",
-    r"
+    ),
+    Step::Sql(
+        r"
 CREATE TABLE archives (
     id          INTEGER PRIMARY KEY,
     run         TEXT NOT NULL,
@@ -60,7 +70,9 @@ CREATE TABLE metrics (
     PRIMARY KEY (run, start)
 );
 ",
-    r"
+    ),
+    Step::Sql(
+        r"
 CREATE TABLE gauntlet_cache (
     run  TEXT PRIMARY KEY,
     tree TEXT NOT NULL,
@@ -68,7 +80,9 @@ CREATE TABLE gauntlet_cache (
     at   TEXT NOT NULL
 );
 ",
-    r"
+    ),
+    Step::Sql(
+        r"
 CREATE TABLE approvals (
     run      TEXT NOT NULL,
     pos      INTEGER NOT NULL,
@@ -78,6 +92,22 @@ CREATE TABLE approvals (
     PRIMARY KEY (run, pos)
 );
 ",
+    ),
+    Step::Sql(
+        r"
+ALTER TABLE events ADD COLUMN value TEXT;
+ALTER TABLE events ADD COLUMN text TEXT;
+CREATE TABLE event_args (
+    event INTEGER NOT NULL REFERENCES events (id) ON DELETE CASCADE,
+    idx   INTEGER NOT NULL,
+    key   TEXT,
+    value TEXT NOT NULL,
+    PRIMARY KEY (event, idx)
+);
+CREATE INDEX events_card_name ON events (card, name, id);
+",
+    ),
+    Step::Rust(crate::card::board::backfill_args),
 ];
 
 #[derive(Debug)]
@@ -149,7 +179,12 @@ impl Store {
 }
 
 fn migrate(conn: &mut Connection) -> Result<(), OpenError> {
-    let known = u32::try_from(MIGRATIONS.len()).unwrap_or(u32::MAX);
+    migrate_to(conn, MIGRATIONS.len())
+}
+
+/// Applies the first `upto` migrations not yet applied.
+fn migrate_to(conn: &mut Connection, upto: usize) -> Result<(), OpenError> {
+    let known = u32::try_from(upto).unwrap_or(u32::MAX);
     let found: u32 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
     if found > known {
         return Err(OpenError::Newer { found, known });
@@ -159,8 +194,11 @@ fn migrate(conn: &mut Connection) -> Result<(), OpenError> {
     }
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     let found: u32 = tx.pragma_query_value(None, "user_version", |r| r.get(0))?;
-    for (i, sql) in MIGRATIONS.iter().enumerate().skip(found as usize) {
-        tx.execute_batch(sql)?;
+    for (i, step) in MIGRATIONS[..upto].iter().enumerate().skip(found as usize) {
+        match step {
+            Step::Sql(sql) => tx.execute_batch(sql)?,
+            Step::Rust(f) => f(&tx)?,
+        }
         tx.pragma_update(None, "user_version", i + 1)?;
     }
     tx.commit()?;
@@ -186,6 +224,66 @@ mod tests {
         assert_eq!(v as usize, MIGRATIONS.len());
         drop(s);
         Store::open(dir.path(), false).unwrap();
+    }
+
+    #[test]
+    fn ut_event_args_are_backfilled_from_bodies() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+        migrate_to(&mut conn, 4).unwrap();
+        conn.execute(
+            "INSERT INTO cards (id, run, state, created_at) VALUES ('r', 'r', 'open', 't')",
+            [],
+        )
+        .unwrap();
+        let bodies = [
+            ("note", "note gauntlet=pass sha=x"),
+            ("files+=", "files+=src/a.rs reason=\"a b\""),
+            ("spec-delta", "spec-delta MB-R-1 added origin=impl"),
+            ("stop", "stop gate=gate2 kind=approval"),
+            ("gone", "gone with=words"),
+        ];
+        for (name, body) in bodies {
+            conn.execute(
+                "INSERT INTO events (card, at, name, body) VALUES ('r', 't', ?1, ?2)",
+                [name, body],
+            )
+            .unwrap();
+        }
+        migrate(&mut conn).unwrap();
+        let row = |id: i64| -> (Option<String>, Option<String>, String) {
+            conn.query_row(
+                "SELECT value, text, body FROM events WHERE id = ?1",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap()
+        };
+        let args = |id| crate::card::board::event_args(&conn, id).unwrap();
+        let kv = |k: Option<&str>, v: &str| (k.map(str::to_owned), v.to_owned());
+
+        assert_eq!(
+            row(1),
+            (None, Some("gauntlet=pass sha=x".into()), bodies[0].1.into())
+        );
+        assert!(args(1).is_empty());
+        assert_eq!(row(2).0.as_deref(), Some("src/a.rs"));
+        assert_eq!(args(2), [kv(Some("reason"), "a b")]);
+        assert_eq!(
+            args(3),
+            [
+                kv(None, "MB-R-1"),
+                kv(None, "added"),
+                kv(Some("origin"), "impl")
+            ]
+        );
+        assert_eq!(row(3).1, None);
+        assert_eq!(
+            args(4),
+            [kv(Some("gate"), "gate2"), kv(Some("kind"), "approval")]
+        );
+        assert_eq!(row(5).1.as_deref(), Some("with=words"));
+        assert!(args(5).is_empty());
     }
 
     #[test]
