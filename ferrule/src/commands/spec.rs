@@ -41,6 +41,12 @@ No match:
                                  No entry mentions any keyword (stdout, exit
                                  1). Nothing to cite; try other nouns, or
                                  go on when none fits.
+Too many matches:
+  related=too-many count=<n> max=<m> hint=rerun with fewer, more specific keywords
+                                 More than `related_max` entries (in
+                                 [thresholds] of ferrule.toml, default 20)
+                                 match; none is printed. Keywords combine
+                                 with OR, so drop the broad ones (exit 1).
 Exit codes: 0 ok, 1 refused, 2 usage.
 See: ferrule guide show author";
 
@@ -78,7 +84,7 @@ pub enum SpecCommand {
     /// Print spec entries by fixed ID, as `file:line:text`.
     #[command(after_long_help = ID_AFTER_LONG_HELP)]
     Id(IdArgs),
-    /// Print spec entries that mention a keyword.
+    /// Print spec entries that mention any of the keywords.
     #[command(after_long_help = RELATED_AFTER_LONG_HELP)]
     Related(RelatedArgs),
     /// List fixed IDs the branch adds that the target ref now has too.
@@ -110,6 +116,9 @@ pub struct SectionsArgs {
     /// Markdown files.
     #[arg(required = true, value_name = "FILE")]
     pub files: Vec<PathBuf>,
+    /// Only headings of this level or above: 2 keeps `#` and `##`.
+    #[arg(long, value_name = "N", value_parser = clap::value_parser!(u8).range(1..=6))]
+    pub depth: Option<u8>,
 }
 
 #[derive(Debug, Args)]
@@ -124,7 +133,8 @@ pub struct IdArgs {
 
 #[derive(Debug, Args)]
 pub struct RelatedArgs {
-    /// Keywords, matched as case-insensitive substrings.
+    /// Keywords, matched as case-insensitive substrings; an entry that
+    /// contains any one of them is listed (OR).
     #[arg(required = true, value_name = "KEYWORD")]
     pub keywords: Vec<String>,
 }
@@ -248,7 +258,10 @@ pub(super) fn sections(
             code = exit::REFUSED;
             continue;
         };
-        let headings = markdown::headings(&text);
+        let mut headings = markdown::headings(&text);
+        if let Some(d) = args.depth {
+            headings.retain(|h| h.level <= usize::from(d));
+        }
         if let Some(s) = style {
             let tree: Vec<(usize, &str)> = headings
                 .iter()
@@ -293,7 +306,7 @@ fn id(args: &IdArgs, out: &mut impl Write) -> io::Result<u8> {
 
 fn related(args: &RelatedArgs, out: &mut impl Write) -> io::Result<u8> {
     let keywords: Vec<String> = args.keywords.iter().map(|k| k.to_lowercase()).collect();
-    let mut found = false;
+    let mut hits = Vec::new();
     for (area, kind, path) in spec::entry_files(&project::specs_dir())? {
         let text = std::fs::read_to_string(&path)?;
         for entry in spec::entries(&text) {
@@ -301,7 +314,6 @@ fn related(args: &RelatedArgs, out: &mut impl Write) -> io::Result<u8> {
             if !keywords.iter().any(|k| low.contains(k.as_str())) {
                 continue;
             }
-            found = true;
             let heading = entry
                 .heading
                 .map(|h| format!(" `## {h}`"))
@@ -312,15 +324,29 @@ fn related(args: &RelatedArgs, out: &mut impl Write) -> io::Result<u8> {
             } else {
                 entry.text
             };
-            writeln!(
-                out,
+            hits.push(format!(
                 "{} — {area}/{}{heading} — {text}",
                 entry.id,
                 kind.file_name()
-            )?;
+            ));
         }
     }
-    if found {
+    let max = Config::load(&project::main_checkout())
+        .map_err(super::board::sql)?
+        .thresholds
+        .related_max;
+    if hits.len() > max {
+        writeln!(
+            out,
+            "related=too-many count={} max={max} hint=rerun with fewer, more specific keywords",
+            hits.len()
+        )?;
+        return Ok(exit::REFUSED);
+    }
+    for hit in &hits {
+        writeln!(out, "{hit}")?;
+    }
+    if !hits.is_empty() {
         return Ok(exit::OK);
     }
     writeln!(out, "related=none")?;

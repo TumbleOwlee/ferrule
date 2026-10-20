@@ -251,3 +251,55 @@ fn it_failed_takes_a_run_a_job_and_context() {
         "exit=1"
     );
 }
+
+const THREE_COMMENTS: &str = r#"{"number":5,"title":"Retry","state":"OPEN","url":"https://github.com/o/r/issues/5","author":{"login":"al"},"body":"The body.","comments":[
+{"author":{"login":"al"},"createdAt":"2026-10-01T08:00:00Z","body":"first"},
+{"author":{"login":"Bo"},"createdAt":"2026-10-02T08:00:00Z","body":"second"},
+{"author":{"login":"al"},"createdAt":"2026-10-03T08:00:00Z","body":"third"}]}"#;
+
+#[test]
+fn it_view_filters_body_and_comments() {
+    let gh = FakeGh::new();
+    let p = tempfile::tempdir().unwrap();
+    gh.serve(&["issue", "view", "5", "--json", GH_FIELDS], THREE_COMMENTS);
+    let view = |args: &[&str]| {
+        let mut all = vec!["issue", "view", "5"];
+        all.extend(args);
+        ferrule(&gh, p.path(), &all).text()
+    };
+    let head = "#5 Retry [OPEN]\nhttps://github.com/o/r/issues/5\nby al\n\n";
+    assert_eq!(view(&["--body"]), format!("{head}The body.\n\nexit=0"));
+    let comments = view(&["--comments", "--last", "2"]);
+    assert_eq!(
+        comments,
+        format!(
+            "{head}--- 2 of 3 comment(s) ---\n\n[Bo @ 2026-10-02T08:00:00Z]\nsecond\n\n[al @ 2026-10-03T08:00:00Z]\nthird\nexit=0"
+        )
+    );
+    let bo = view(&["--author", "bo"]);
+    assert!(bo.contains("The body."), "{bo}");
+    assert!(bo.contains("--- 1 of 3 comment(s) ---\n\n[Bo @"), "{bo}");
+    assert!(!bo.contains("first") && !bo.contains("third"), "{bo}");
+    assert!(view(&[]).contains("--- 3 comment(s) ---"));
+}
+
+#[test]
+fn it_issue_view_refuses_a_pull_request() {
+    let gh = FakeGh::new();
+    let p = tempfile::tempdir().unwrap();
+    gh.serve(
+        &["issue", "view", "22", "--json", GH_FIELDS],
+        &gh_json(&fixture("pr/ready.txt")),
+    );
+    assert_eq!(
+        ferrule(&gh, p.path(), &["issue", "view", "22"]).text(),
+        "issue=refused reason=pull-request hint=ferrule pr view 22\nexit=1"
+    );
+    let req = ferrule(&gh, p.path(), &["issue", "request", "22"]).output();
+    assert_eq!(req.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&req.stderr).contains("#22 is a pull request, not an issue"),
+        "{}",
+        String::from_utf8_lossy(&req.stderr)
+    );
+}

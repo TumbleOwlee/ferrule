@@ -14,6 +14,59 @@ use ferrule_core::term::{self, Style};
 use super::exit;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum CardKind {
+    /// A stage card, `<slug>.s<n>`.
+    Stage,
+    /// A run's parent card, `<slug>`.
+    Parent,
+}
+
+/// What `board show` prints of a card.
+struct ShowPart<'a> {
+    fields: bool,
+    log: bool,
+    last: Option<usize>,
+    event: Option<&'a str>,
+}
+
+impl ShowPart<'_> {
+    /// `text`, a card as `board::show` renders it, cut to this part.
+    fn cut(&self, text: &str) -> String {
+        let mut parts = text.splitn(3, "---\n");
+        let fields = parts.nth(1).unwrap_or("");
+        let mut log: Vec<&str> = parts
+            .next()
+            .unwrap_or("")
+            .lines()
+            .filter(|l| {
+                self.event
+                    .is_none_or(|e| event_of(l) == e.trim_end_matches('='))
+            })
+            .collect();
+        if let Some(n) = self.last {
+            log.drain(..log.len().saturating_sub(n));
+        }
+        let mut out = String::new();
+        if self.fields {
+            let _ = write!(out, "---\n{fields}---\n");
+        }
+        if self.log {
+            for line in log {
+                let _ = writeln!(out, "{line}");
+            }
+        }
+        out
+    }
+}
+
+/// The event of a log line, `<at> <event>[=<value>] …`, without its value.
+fn event_of(line: &str) -> &str {
+    let body = line.split_once(' ').map_or("", |(_, b)| b);
+    let word = body.split_whitespace().next().unwrap_or("");
+    word.split_once('=').map_or(word, |(name, _)| name)
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum CardState {
     /// Not started.
     Open,
@@ -30,7 +83,13 @@ Output:
   <state> <id>  <title>      One line per card, parents before their stages;
                              the title is the card's `title` field, if any.
                              Nothing when there is no board yet.
+Filters: --state keeps the cards in that state (repeat for several);
+--run <slug> keeps that run's parent and its stages. Both together keep the
+cards that match both.
 Exit codes: 0 always.
+Examples:
+  ferrule board list --state inprogress --state inreview
+  ferrule board list --run <slug>
 See: ferrule guide show board";
 
 const SHOW_AFTER_LONG_HELP: &str = "\
@@ -39,6 +98,13 @@ Output:
   id: <id>                   parent for a stage card, state, then the fields),
   state: <state>             then one `<UTC minute> <event> ...` line per log
   ---                        entry, oldest first.
+Filters: --fields prints only the frontmatter; --log only the log lines.
+--event <name> keeps the log lines of that event (`commit`, `gauntlet`,
+`test-red`, ...), --last <n> the latest n of them; either one still prints
+the frontmatter unless --log is given.
+Examples:
+  ferrule board show <slug>.s1 --log --last 5
+  ferrule board show <slug>.s1 --event commit
 Refusals:
   card-show=card             No such card; check the id with
                              `ferrule board list` (hint= says so)
@@ -208,7 +274,13 @@ Output:
               without spaces if several)
   keys        The `key=value` arguments the event accepts
   text        Whether `-- <free text>` is no, yes or required
-Exit codes: 0 always.
+Filters: --event <name> keeps that event (with or without its `=`); --kind
+stage|parent keeps the events that card kind takes (`both` events count for
+either).
+Refusals:
+  vocab=none hint=no such event for this card kind; ferrule board vocab lists them all
+              No event matches the filters; exit 1.
+Exit codes: 0 ok, 1 nothing matched.
 See: ferrule guide show board";
 
 const IMPORT_AFTER_LONG_HELP: &str = "\
@@ -239,12 +311,31 @@ const HINT_GIT: &str =
 pub enum BoardCommand {
     /// List every card with its state and title.
     #[command(after_long_help = BOARD_AFTER_LONG_HELP)]
-    List,
+    List {
+        /// Only cards in this state; repeat for several.
+        #[arg(long, value_enum)]
+        state: Vec<CardState>,
+        /// Only this run's cards: its parent and its stages.
+        #[arg(long, value_name = "SLUG")]
+        run: Option<String>,
+    },
     /// Print a card: frontmatter and log.
     #[command(after_long_help = SHOW_AFTER_LONG_HELP)]
     Show {
         /// Card id: `<slug>` or `<slug>.s<n>`.
         card: String,
+        /// Only the frontmatter fields.
+        #[arg(long, conflicts_with_all = ["log", "last", "event"])]
+        fields: bool,
+        /// Only the log.
+        #[arg(long)]
+        log: bool,
+        /// Only the latest n log lines.
+        #[arg(long, value_name = "N")]
+        last: Option<usize>,
+        /// Only the log lines of this event, e.g. `commit` or `gauntlet`.
+        #[arg(long, value_name = "NAME")]
+        event: Option<String>,
     },
     /// Print one value of a card; nothing when absent.
     #[command(after_long_help = FIELD_AFTER_LONG_HELP)]
@@ -304,7 +395,14 @@ pub enum BoardCommand {
     },
     /// List the events `board log` accepts.
     #[command(after_long_help = VOCAB_AFTER_LONG_HELP)]
-    Vocab,
+    Vocab {
+        /// Only this event, with or without its `=`.
+        #[arg(long, value_name = "NAME")]
+        event: Option<String>,
+        /// Only the events this kind of card takes.
+        #[arg(long, value_enum)]
+        kind: Option<CardKind>,
+    },
     /// Load a markdown board into the state database: all cards or none.
     #[command(after_long_help = IMPORT_AFTER_LONG_HELP)]
     Import {
@@ -370,12 +468,40 @@ pub fn run(command: &BoardCommand, style: Option<Style>, out: &mut impl Write) -
         BoardCommand::Field { card, field: f } => field(card, f, out),
         BoardCommand::Log { card, event, args } => log(card, event, &with_separator(args), out),
         BoardCommand::Move { card, state: to } => move_card(card, state(*to), out),
-        BoardCommand::Show { card } => show(card, style, out),
-        BoardCommand::List => list(style, out),
+        BoardCommand::Show {
+            card,
+            fields,
+            log,
+            last,
+            event,
+        } => {
+            let part = ShowPart {
+                fields: !*log,
+                log: !*fields,
+                last: *last,
+                event: event.as_deref(),
+            };
+            show(card, &part, style, out)
+        }
+        BoardCommand::List { state: states, run } => {
+            let states: Vec<State> = states.iter().map(|s| state(*s)).collect();
+            list(&states, run.as_deref(), style, out)
+        }
         BoardCommand::Import { board } => import(board, out),
-        BoardCommand::Vocab => {
-            write!(out, "{}", vocab::table())?;
-            Ok(exit::OK)
+        BoardCommand::Vocab { event, kind } => {
+            let scope = kind.map(|k| match k {
+                CardKind::Stage => vocab::Scope::Stage,
+                CardKind::Parent => vocab::Scope::Parent,
+            });
+            if let Some(table) = vocab::table_for(event.as_deref(), scope) {
+                write!(out, "{table}")?;
+                return Ok(exit::OK);
+            }
+            writeln!(
+                out,
+                "vocab=none hint=no such event for this card kind; ferrule board vocab lists them all"
+            )?;
+            Ok(exit::REFUSED)
         }
         BoardCommand::New {
             card,
@@ -460,14 +586,16 @@ fn move_card(card: &str, to: State, out: &mut impl Write) -> io::Result<u8> {
     }
 }
 
-fn show(card: &str, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
+fn show(card: &str, part: &ShowPart, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
     let shown = match store(false)? {
         Some(s) => board::show(&s.conn, card).map_err(sql)?,
         None => None,
     };
     if let Some(text) = shown {
+        let text = part.cut(&text);
         match style {
-            Some(s) => write!(out, "{}", styled_card(&text, s))?,
+            Some(s) if part.fields => write!(out, "{}", styled_card(&text, s))?,
+            Some(s) => write!(out, "{}", styled_card(&format!("---\n---\n{text}"), s))?,
             None => write!(out, "{text}")?,
         }
         Ok(exit::OK)
@@ -503,11 +631,25 @@ fn styled_card(text: &str, s: Style) -> String {
     out
 }
 
-fn list(style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
+fn list(
+    states: &[State],
+    run: Option<&str>,
+    style: Option<Style>,
+    out: &mut impl Write,
+) -> io::Result<u8> {
     let Some(s) = store(false)? else {
         return Ok(exit::OK);
     };
-    for (id, st) in board::all(&s.conn).map_err(sql)? {
+    let cards = board::all(&s.conn)
+        .map_err(sql)?
+        .into_iter()
+        .filter(|(id, st)| {
+            (states.is_empty() || states.contains(st))
+                && run.is_none_or(|r| {
+                    id == r || id.strip_prefix(r).is_some_and(|t| t.starts_with('.'))
+                })
+        });
+    for (id, st) in cards {
         let state = match style {
             Some(style) => format!(
                 "{}{}",

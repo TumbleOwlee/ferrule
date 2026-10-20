@@ -77,6 +77,22 @@ fn it_related_without_hit_says_none() {
 }
 
 #[test]
+fn it_related_refuses_more_hits_than_its_cap() {
+    let project = spec_project();
+    let dir = project.path().join(".ferrule");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("ferrule.toml"), "[thresholds]\nrelated_max = 1\n").unwrap();
+    let got = Run::new(["spec", "related", "polls", "slow"])
+        .env("CLAUDE_PROJECT_DIR", project.path())
+        .text();
+    assert!(
+        got.starts_with("related=too-many count=")
+            && got.ends_with(" max=1 hint=rerun with fewer, more specific keywords\nexit=1"),
+        "{got}"
+    );
+}
+
+#[test]
 fn it_related_keywords_are_literal() {
     let project = spec_project();
     Run::new(["spec", "related", "retr.ed"])
@@ -294,4 +310,20 @@ fn it_render_violated_requirements_lead_with_no_spec_change() {
 fn it_render_usage_and_missing_file() {
     Run::new(["spec", "render"]).golden("spec-render-usage");
     Run::new(["spec", "render", "nosuch.md", "scenarios"]).golden("spec-render-missing");
+}
+
+#[test]
+fn it_headings_depth_keeps_shallow_levels() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("a.md");
+    std::fs::write(&file, "# A\n## B\n### C\n## D\n").unwrap();
+    let f = file.display().to_string();
+    assert_eq!(
+        Run::new(["file", "headings", "--depth", "2", &f]).text(),
+        "# A\n## B\n## D\nexit=0"
+    );
+    assert_eq!(
+        Run::new(["file", "headings", "--depth", "0", &f]).text(),
+        "exit=2"
+    );
 }

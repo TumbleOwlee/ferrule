@@ -120,6 +120,7 @@ stage_stop_files = 8         # or touching more files than this
 stage_stop_checkpoint = 3    # stages auto-continued in a row before one stops anyway
 summary_max_lines = 25       # caps on *.summary.md and *.verdict.md
 summary_max_bytes = 2048
+related_max = 20             # spec related refuses more hits than this
 ```
 
 ## Install

@@ -1,6 +1,6 @@
 use std::io::{self, Write};
 
-use clap::Subcommand;
+use clap::{Args, Subcommand};
 use ferrule_core::body;
 use ferrule_core::card::board;
 use ferrule_core::config::Config;
@@ -21,6 +21,20 @@ Output (stdout; compact text, styled on a terminal):
   <body>                         The description
   --- <n> comment(s) ---         Then each comment as `[<author> @ <time>]`
                                  and its text
+Filters (the head line, URL and author always print):
+  --body                         Only the body
+  --comments                     Only the comments; with --body, both
+  --last <n>                     Only the latest n comments
+  --author <login>               Only the comments by that author, ignoring
+                                 case
+  A filtered count reads `--- <k> of <n> comment(s) ---`.
+Examples:
+  ferrule issue view <n> --comments --last 3
+  ferrule issue view <n> --body
+Refusals (stdout, exit 1):
+  issue=refused reason=pull-request hint=ferrule pr view <n>
+                                 The number names a pull request (GitHub
+                                 serves PRs as issues); view it with pr view.
 Errors (stderr, exit 1): `issue view: <the host's error>` for an unknown issue, a
 missing credential or a failing `gh`/`curl`.
 Exit codes: 0 ok, 1 refused.
@@ -80,6 +94,35 @@ Exit codes: 0 ok, 1 refused, 3 content.
 Backend: writes to the configured tracker (`gh`, Jira or Bitbucket).
 See: ferrule guide show issue";
 
+/// What `issue view` and `pr view` print; without a flag, everything.
+#[derive(Debug, Clone, Args)]
+pub struct ViewArgs {
+    /// Print the body; with `--comments` too, both. The head line, URL and
+    /// author always print.
+    #[arg(long)]
+    pub body: bool,
+    /// Print the comments.
+    #[arg(long)]
+    pub comments: bool,
+    /// Keep only the latest n comments.
+    #[arg(long, value_name = "N")]
+    pub last: Option<usize>,
+    /// Keep only the comments by this author, ignoring case.
+    #[arg(long, value_name = "LOGIN")]
+    pub author: Option<String>,
+}
+
+impl ViewArgs {
+    pub fn select(&self) -> remote::Select {
+        remote::Select {
+            body: self.body,
+            comments: self.comments,
+            last: self.last,
+            author: self.author.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Subcommand)]
 pub enum IssueCommand {
     /// Print an issue's title, body and comments as compact text.
@@ -87,6 +130,8 @@ pub enum IssueCommand {
     View {
         /// A GitHub number or URL, or a Jira key.
         issue: String,
+        #[command(flatten)]
+        view: ViewArgs,
     },
     /// Print part of a reused issue, for the run's request.md.
     ///
@@ -165,7 +210,7 @@ pub struct RequestPart {
 
 pub fn run(command: &IssueCommand, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
     match command {
-        IssueCommand::View { issue } => view(issue, style, out),
+        IssueCommand::View { issue, view: v } => view(issue, v, style, out),
         IssueCommand::Request { issue, part } => request(issue, *part, style, out),
         IssueCommand::Body { slug, slice } => body(slug, *slice, style, out),
         IssueCommand::Post {
@@ -184,11 +229,12 @@ fn config() -> io::Result<Config> {
 /// comments rendered.
 pub fn print_item(
     item: &remote::Item,
+    select: &remote::Select,
     style: Option<Style>,
     out: &mut impl Write,
 ) -> io::Result<()> {
     let Some(s) = style else {
-        return write!(out, "{}", item.text());
+        return write!(out, "{}", item.text_for(select));
     };
     writeln!(out, "{}", term::strong(&item.head, s))?;
     let by = match &item.url {
@@ -196,14 +242,18 @@ pub fn print_item(
         None => format!("by {}", item.by),
     };
     writeln!(out, "{}\n", term::faint(&by, s))?;
-    write!(out, "{}", term::markdown(&item.body, s))?;
-    let n = item.comments.len();
+    if select.shows_body() {
+        write!(out, "{}", term::markdown(&item.body, s))?;
+    }
+    if !select.shows_comments() {
+        return Ok(());
+    }
     writeln!(
         out,
         "\n{}",
-        term::faint(&format!("── {n} comment(s) ──"), s)
+        term::faint(&format!("── {} ──", select.count(item)), s)
     )?;
-    for c in &item.comments {
+    for c in select.comments(item) {
         writeln!(
             out,
             "\n{}",
@@ -214,11 +264,23 @@ pub fn print_item(
     Ok(())
 }
 
-fn view(issue: &str, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
+fn view(
+    issue: &str,
+    view: &ViewArgs,
+    style: Option<Style>,
+    out: &mut impl Write,
+) -> io::Result<u8> {
     match remote::issue(config()?.backend.tracker, issue, &project::root()) {
         Ok(item) => {
-            print_item(&item, style, out)?;
+            print_item(&item, &view.select(), style, out)?;
             Ok(exit::OK)
+        }
+        Err(remote::Error::PullRequest(n)) => {
+            writeln!(
+                out,
+                "issue=refused reason=pull-request hint=ferrule pr view {n}"
+            )?;
+            Ok(exit::REFUSED)
         }
         Err(e) => {
             eprintln!("issue view: {e}");

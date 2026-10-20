@@ -389,6 +389,82 @@ fn it_board_lists_every_card_in_run_order() {
 }
 
 #[test]
+fn it_board_list_filters_by_state_and_run() {
+    let p = project();
+    let got = ferrule(
+        p.path(),
+        &["board", "list", "--run", "demo", "--state", "open"],
+    )
+    .text();
+    assert_eq!(got, "open       demo.s2  Show status\nexit=0");
+    let ids: Vec<String> = ferrule(p.path(), &["board", "list", "--run", "demo"])
+        .text()
+        .lines()
+        .filter_map(|l| l.split_whitespace().nth(1).map(str::to_owned))
+        .collect();
+    assert!(
+        ids.iter().all(|id| id == "demo" || id.starts_with("demo.")),
+        "{ids:?}"
+    );
+    assert!(ids.len() >= 4, "{ids:?}");
+}
+
+#[test]
+fn it_board_show_filters_fields_and_log() {
+    let p = project();
+    let show = |args: &[&str]| {
+        let mut all = vec!["board", "show", "demo"];
+        all.extend(args);
+        ferrule(p.path(), &all).text()
+    };
+    let fields = show(&["--fields"]);
+    assert!(fields.starts_with("---\nid: demo\n"), "{fields}");
+    assert!(fields.ends_with("---\nexit=0"), "{fields}");
+    assert_eq!(
+        show(&["--log", "--event", "gauntlet"]),
+        "2026-10-03T10:00 gauntlet=pass cov=80.1% sha=aaa1111\n2026-10-03T11:00 gauntlet=pass cov=81.2% sha=bbb2222\nexit=0"
+    );
+    assert_eq!(
+        show(&["--log", "--event", "gauntlet", "--last", "1"]),
+        "2026-10-03T11:00 gauntlet=pass cov=81.2% sha=bbb2222\nexit=0"
+    );
+    let with_fields = show(&["--last", "1"]);
+    assert!(with_fields.starts_with("---\nid: demo\n"), "{with_fields}");
+    assert_eq!(
+        with_fields
+            .lines()
+            .filter(|l| l.starts_with("2026-"))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn it_board_vocab_filters_by_event_and_kind() {
+    let p = project();
+    let one = ferrule(p.path(), &["board", "vocab", "--event", "test-red"]).text();
+    assert_eq!(one.lines().count(), 3, "{one}");
+    assert!(
+        one.lines().nth(1).unwrap().starts_with("stage   test-red"),
+        "{one}"
+    );
+    let stage = ferrule(p.path(), &["board", "vocab", "--kind", "stage"]).text();
+    assert!(
+        !stage.lines().skip(1).any(|l| l.starts_with("parent")),
+        "{stage}"
+    );
+    assert!(stage.lines().any(|l| l.starts_with("both")), "{stage}");
+    assert_eq!(
+        ferrule(
+            p.path(),
+            &["board", "vocab", "--event", "ci-waived", "--kind", "stage"]
+        )
+        .text(),
+        "vocab=none hint=no such event for this card kind; ferrule board vocab lists them all\nexit=1"
+    );
+}
+
+#[test]
 fn it_worktree_reaches_the_main_checkouts_board() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("r");
@@ -527,4 +603,17 @@ fn it_metrics_count_the_runs_events_and_need_green_ci() {
         "{none}"
     );
     check("metrics-no-card", &metrics(p, "nosuch"));
+}
+
+#[test]
+fn it_metrics_last_takes_no_slug() {
+    let p = project();
+    assert_eq!(
+        ferrule(p.path(), &["run", "metrics", "--last", "2"]).text(),
+        "exit=0"
+    );
+    assert_eq!(
+        ferrule(p.path(), &["run", "metrics", "demo", "--last", "2"]).text(),
+        "exit=2"
+    );
 }

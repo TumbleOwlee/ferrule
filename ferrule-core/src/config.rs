@@ -172,6 +172,8 @@ pub struct Thresholds {
     /// A user-facing summary longer than this is refused.
     pub summary_max_lines: usize,
     pub summary_max_bytes: usize,
+    /// `spec related` lists at most this many entries; more is refused.
+    pub related_max: usize,
 }
 
 impl Default for Thresholds {
@@ -183,6 +185,7 @@ impl Default for Thresholds {
             stage_stop_checkpoint: 3,
             summary_max_lines: 25,
             summary_max_bytes: 2048,
+            related_max: 20,
         }
     }
 }

@@ -25,6 +25,8 @@ pub enum Error {
     NotFound(String),
     /// The configured host has no implementation of this write yet.
     Unsupported(&'static str),
+    /// The number names a pull request, not an issue (GitHub serves both).
+    PullRequest(String),
 }
 
 impl std::fmt::Display for Error {
@@ -34,6 +36,12 @@ impl std::fmt::Display for Error {
                 f.write_str(e)
             }
             Error::Unsupported(what) => write!(f, "{what} is only implemented for GitHub yet"),
+            Error::PullRequest(n) => {
+                write!(
+                    f,
+                    "#{n} is a pull request, not an issue: ferrule pr view {n}"
+                )
+            }
         }
     }
 }
@@ -97,18 +105,83 @@ pub struct Item {
     pub comments: Vec<Comment>,
 }
 
+/// The parts of an item `issue view` and `pr view` print.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Select {
+    /// The body; with neither `body` nor `comments`, both print.
+    pub body: bool,
+    pub comments: bool,
+    /// Only the latest n comments.
+    pub last: Option<usize>,
+    /// Only the comments by this author, ignoring case.
+    pub author: Option<String>,
+}
+
+impl Select {
+    #[must_use]
+    pub fn shows_body(&self) -> bool {
+        self.body || !self.comments
+    }
+
+    #[must_use]
+    pub fn shows_comments(&self) -> bool {
+        self.comments || !self.body
+    }
+
+    /// The comments of `item` this selection keeps, oldest first.
+    #[must_use]
+    pub fn comments<'a>(&self, item: &'a Item) -> Vec<&'a Comment> {
+        let mut kept: Vec<&Comment> = item
+            .comments
+            .iter()
+            .filter(|c| {
+                self.author
+                    .as_ref()
+                    .is_none_or(|a| c.author.eq_ignore_ascii_case(a))
+            })
+            .collect();
+        if let Some(n) = self.last {
+            kept.drain(..kept.len().saturating_sub(n));
+        }
+        kept
+    }
+
+    /// `<n> comment(s)`, or `<k> of <n> comment(s)` when some were left out.
+    #[must_use]
+    pub fn count(&self, item: &Item) -> String {
+        let (k, n) = (self.comments(item).len(), item.comments.len());
+        if k == n {
+            format!("{n} comment(s)")
+        } else {
+            format!("{k} of {n} comment(s)")
+        }
+    }
+}
+
 impl Item {
     /// Title, body and comments as compact plain text.
     #[must_use]
     pub fn text(&self) -> String {
+        self.text_for(&Select::default())
+    }
+
+    /// The parts `select` keeps, as compact plain text. The head, URL and
+    /// author always print.
+    #[must_use]
+    pub fn text_for(&self, select: &Select) -> String {
         let mut out = format!("{}\n", self.head);
         if let Some(url) = &self.url {
             let _ = writeln!(out, "{url}");
         }
-        let _ = writeln!(out, "by {}\n\n{}\n", self.by, self.body);
-        let _ = writeln!(out, "--- {} comment(s) ---", self.comments.len());
-        for c in &self.comments {
-            let _ = writeln!(out, "\n[{} @ {}]\n{}", c.author, c.at, c.body);
+        let _ = writeln!(out, "by {}\n", self.by);
+        if select.shows_body() {
+            let _ = writeln!(out, "{}\n", self.body);
+        }
+        if select.shows_comments() {
+            let _ = writeln!(out, "--- {} ---", select.count(self));
+            for c in select.comments(self) {
+                let _ = writeln!(out, "\n[{} @ {}]\n{}", c.author, c.at, c.body);
+            }
         }
         out
     }
@@ -351,7 +424,11 @@ pub fn issue(tracker: Tracker, id: &str, root: &Path) -> Result<Item, Error> {
                 None,
                 root,
             )?;
-            Ok(json::<GhItem>(&out, "gh issue view")?.into())
+            let item = json::<GhItem>(&out, "gh issue view")?;
+            if item.url.contains("/pull/") {
+                return Err(Error::PullRequest(item.number.to_string()));
+            }
+            Ok(item.into())
         }
         Tracker::Jira => Jira {
             c: creds(root, "jira.local.json")?,

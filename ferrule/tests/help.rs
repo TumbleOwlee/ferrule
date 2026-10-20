@@ -36,11 +36,13 @@ const SOURCES: &[(&str, &[&str])] = &[
         "ferrule/src/commands/board.rs",
         &[
             "board import",
+            "board list",
             "board log",
             "board move",
             "board new",
             "board set",
             "board show",
+            "board vocab",
             "stage commit",
         ],
     ),
@@ -69,6 +71,7 @@ const SOURCES: &[(&str, &[&str])] = &[
         &[
             "issue body",
             "issue post",
+            "issue view",
             "pr body",
             "pr open",
             "pr push",

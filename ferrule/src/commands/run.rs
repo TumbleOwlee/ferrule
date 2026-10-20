@@ -128,7 +128,8 @@ Output, one line (recorded; a rerun replaces the run's line):
                      `overturned` lines; reads counts `read path=` lines
     lane, ci         lane is `epic` for an epic; ci is 0, `waived`, or `-` for
                      an epic
-Without a slug: every recorded line, oldest run first (nothing if none).
+Without a slug: every recorded line, oldest run first (nothing if none);
+--last <n> keeps the latest n.
 Refusals:
   metrics=refused reason=no-ci     No ci= logged; run `ferrule ci wait <slug>`
   metrics=refused reason=ci-red    The last ci= is not 0 and no later
@@ -204,6 +205,9 @@ pub enum RunCommand {
     Metrics {
         /// The run's slug; without one, every line recorded.
         slug: Option<String>,
+        /// Without a slug: only the latest n lines recorded.
+        #[arg(long, value_name = "N", conflicts_with = "slug")]
+        last: Option<usize>,
     },
     /// Write an archived run back out as files.
     #[command(after_long_help = EXPORT_AFTER_LONG_HELP)]
@@ -355,7 +359,7 @@ pub fn run(command: &RunCommand, out: &mut impl Write) -> io::Result<u8> {
         RunCommand::Rebuild { issue, pr } => rebuild(issue, pr, out),
         RunCommand::Cleanup { slug } => cleanup(slug, out),
         RunCommand::Export { slug, archive, to } => export(slug, *archive, to.as_deref(), out),
-        RunCommand::Metrics { slug } => metrics(slug.as_deref(), out),
+        RunCommand::Metrics { slug, last } => metrics(slug.as_deref(), *last, out),
     }
 }
 
@@ -455,7 +459,7 @@ pub(super) fn stage_stop(
     Ok(exit::OK)
 }
 
-fn metrics(slug: Option<&str>, out: &mut impl Write) -> io::Result<u8> {
+fn metrics(slug: Option<&str>, last: Option<usize>, out: &mut impl Write) -> io::Result<u8> {
     let Some(s) = store(false)? else {
         if let Some(slug) = slug {
             eprintln!("metrics: no card for {slug}");
@@ -464,7 +468,11 @@ fn metrics(slug: Option<&str>, out: &mut impl Write) -> io::Result<u8> {
         return Ok(exit::OK);
     };
     let Some(slug) = slug else {
-        for line in archive::metrics_log(&s.conn).map_err(sql)? {
+        let mut lines = archive::metrics_log(&s.conn).map_err(sql)?;
+        if let Some(n) = last {
+            lines.drain(..lines.len().saturating_sub(n));
+        }
+        for line in lines {
             writeln!(out, "{line}")?;
         }
         return Ok(exit::OK);

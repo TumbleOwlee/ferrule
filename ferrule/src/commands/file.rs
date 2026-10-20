@@ -11,7 +11,8 @@ use super::spec::{self, SectionArgs, SectionsArgs};
 const HEADINGS_AFTER_LONG_HELP: &str = "\
 Output:
   Each heading line of the file, in file order, fenced code skipped. With
-  more than one FILE, each list follows a `== <file> ==` line.
+  more than one FILE, each list follows a `== <file> ==` line. --depth <n>
+  keeps the headings of level n and above (`--depth 2`: `#` and `##`).
 Refusals (stderr, exit 1):
   cannot read <file>: <error>    The file is missing or unreadable; the other
                                  files still list.

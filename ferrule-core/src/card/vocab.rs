@@ -543,10 +543,24 @@ fn typed_note(text: &str) -> Option<&'static str> {
 /// The vocabulary as a table, one event per line.
 #[must_use]
 pub fn table() -> String {
+    table_for(None, None).unwrap_or_default()
+}
+
+/// The vocabulary table cut to one event (its name with or without `=`)
+/// and to the events one card kind takes (`Both` counts for either); `None`
+/// when no event matches.
+#[must_use]
+pub fn table_for(event: Option<&str>, kind: Option<Scope>) -> Option<String> {
     let mut out = String::from(
         "scope   event            values                         positional  keys                   text\n",
     );
-    for e in VOCABULARY {
+    let wanted = VOCABULARY.iter().filter(|e| {
+        event.is_none_or(|n| e.name.trim_end_matches('=') == n.trim_end_matches('='))
+            && kind.is_none_or(|k| e.scope == k || e.scope == Both)
+    });
+    let mut any = false;
+    for e in wanted {
+        any = true;
         let scope = match e.scope {
             Stage => "stage",
             Parent => "parent",
@@ -578,7 +592,7 @@ pub fn table() -> String {
             e.name
         );
     }
-    out
+    any.then_some(out)
 }
 
 #[cfg(test)]

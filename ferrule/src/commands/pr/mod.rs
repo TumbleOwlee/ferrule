@@ -33,6 +33,16 @@ Output (stdout; compact text, styled on a terminal):
   <body>                         The description
   --- <n> comment(s) ---         Then each comment as `[<author> @ <time>]`
                                  and its text
+Filters (the head line, URL and author always print):
+  --body                         Only the body
+  --comments                     Only the comments; with --body, both
+  --last <n>                     Only the latest n comments
+  --author <login>               Only the comments by that author, ignoring
+                                 case
+  A filtered count reads `--- <k> of <n> comment(s) ---`.
+Examples:
+  ferrule pr view <n> --comments --last 3
+  ferrule pr view <n> --body
 Errors (stderr, exit 1): `pr view: <the host's error>` for an unknown PR, a
 missing credential or a failing `gh`/`curl`.
 Exit codes: 0 ok, 1 refused.
@@ -142,6 +152,8 @@ pub enum PrCommand {
     View {
         /// The PR number or URL.
         pr: String,
+        #[command(flatten)]
+        view: super::issue::ViewArgs,
     },
     /// Assemble the PR body from the run's files and cards.
     ///
@@ -193,9 +205,9 @@ pub enum PrCommand {
 pub fn run(command: &PrCommand, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
     let config = Config::load(&project::main_checkout()).map_err(sql)?;
     match command {
-        PrCommand::View { pr } => match remote::pr(config.backend.ci, pr, &project::root()) {
+        PrCommand::View { pr, view } => match remote::pr(config.backend.ci, pr, &project::root()) {
             Ok(item) => {
-                super::issue::print_item(&item, style, out)?;
+                super::issue::print_item(&item, &view.select(), style, out)?;
                 Ok(exit::OK)
             }
             Err(e) => {
