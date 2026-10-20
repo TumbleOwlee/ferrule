@@ -40,7 +40,9 @@ Exit codes:
 Environment:
   NO_COLOR      Styled output without colours
   COLUMNS       Width to wrap to when the terminal's is unknown [default: 100]
-  FERRULE_NOW   Timestamp written to card logs instead of the clock";
+  FERRULE_NOW   Timestamp written to card logs instead of the clock, as
+                YYYY-MM-DDTHH:MM; any other value refuses the command
+                (stderr: `ferrule=refused reason=now hint=<fix>`, exit 2)";
 
 /// One binary for a spec-driven agent workflow.
 ///
@@ -137,4 +139,13 @@ pub fn stage_id(s: &str) -> Result<u32, String> {
 /// A stage id, `s<n>`, kept as written.
 pub fn stage_name(s: &str) -> Result<String, String> {
     stage_id(s).map(|_| s.to_owned())
+}
+
+/// The stderr line refusing a command when `FERRULE_NOW` is set and not a
+/// `YYYY-MM-DDTHH:MM` stamp.
+pub fn now_refusal() -> Option<String> {
+    let problem = ferrule_core::card::board::now_problem()?;
+    Some(format!(
+        "ferrule=refused reason=now hint={problem}; fix or unset it"
+    ))
 }

@@ -35,6 +35,10 @@ fn main() -> ExitCode {
     if let Some(code) = commands::install::pinned(&cli.command) {
         return ExitCode::from(code);
     }
+    if let Some(refusal) = cli::now_refusal() {
+        eprintln!("{refusal}");
+        return ExitCode::from(commands::exit::USAGE);
+    }
     let result = match &cli.command {
         Command::Setup(command) => commands::install::run(command, &mut out),
         Command::Guide(command) => commands::guide::run(command, style, &mut out),

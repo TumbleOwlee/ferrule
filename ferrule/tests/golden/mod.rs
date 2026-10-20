@@ -61,6 +61,16 @@ impl Run {
     }
 }
 
+/// Logs `words` (`<event> [args…]`) on `card` of the project at `root` as a
+/// ferrule command would: `board log` refuses the events only ferrule
+/// writes, which a test needs on a card as if a command had logged them.
+pub fn seed_log(root: &Path, at: &str, card: &str, words: &[&str]) {
+    let mut store = ferrule_core::store::Store::open(root, false).unwrap();
+    let args: Vec<String> = words[1..].iter().map(|w| (*w).to_owned()).collect();
+    ferrule_core::card::board::log(&mut store.conn, card, words[0], &args, at)
+        .unwrap_or_else(|e| panic!("{words:?}: {e:?}"));
+}
+
 /// Compares `got` with `expected/<name>.out`, or rewrites it under
 /// `UPDATE=1`.
 pub fn check(name: &str, got: &str) {

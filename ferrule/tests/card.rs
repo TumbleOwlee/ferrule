@@ -2,7 +2,7 @@ mod golden;
 
 use std::path::Path;
 
-use golden::{Run, check, fixtures};
+use golden::{Run, check, fixtures, seed_log};
 
 const NOW: &str = "2026-10-05T09:00";
 
@@ -82,7 +82,14 @@ fn it_log_appends_validated_lines() {
         (
             "card-log-parent",
             "demo",
-            &["stop", "kind=approval", "gate=plan"],
+            &[
+                "overturned",
+                "scope=branch",
+                "count=1",
+                "--",
+                "wrong",
+                "finding",
+            ],
         ),
         (
             "card-log-test-red-noid",
@@ -142,14 +149,9 @@ fn it_log_rejects_and_leaves_the_card_unchanged() {
             "card-log-reject-length",
             &["demo.s1", "stopped", "--", &x160],
         ),
-        ("card-log-reject-stop-kind", &["demo", "stop", "gate=plan"]),
         (
-            "card-log-reject-stop-delta",
-            &["demo", "stop", "kind=delta"],
-        ),
-        (
-            "card-log-reject-stop-replan",
-            &["demo", "stop", "kind=replan"],
+            "card-log-reject-owner",
+            &["demo", "gauntlet=pass", "sha=abc1234"],
         ),
         ("card-log-reject-event-quote", &["demo.s1", "commit=a\"b"]),
         ("card-log-no-card", &["nosuch.s9", "green"]),
@@ -275,11 +277,7 @@ fn it_move_follows_the_board_rules() {
         mv("ss.s0", "done"),
         refused("inreview", "done", "unverified")
     );
-    ferrule(
-        p,
-        &["board", "log", "ss", "gauntlet=pass", "sha=abc1234def"],
-    )
-    .text();
+    seed_log(p, NOW, "ss", &["gauntlet=pass", "sha=abc1234def"]);
     assert_eq!(mv("ss.s0", "done"), "exit=0");
     assert_eq!(mv("ss.s0", "done"), "exit=0", "same state is a no-op");
     assert_eq!(mv("ss.s1", "inprogress"), "exit=0");
@@ -550,14 +548,7 @@ fn it_worktree_reaches_the_main_checkouts_board() {
 }
 
 fn log_at(p: &Path, at: &str, args: &[&str]) {
-    let mut all = vec!["board", "log"];
-    all.extend_from_slice(args);
-    let got = Run::new(&all)
-        .env("CLAUDE_PROJECT_DIR", p)
-        .env("FERRULE_NOW", at)
-        .cwd(p)
-        .text();
-    assert_eq!(got, "exit=0", "{args:?}");
+    seed_log(p, at, args[0], &args[1..]);
 }
 
 fn metrics(p: &Path, slug: &str) -> String {
@@ -657,4 +648,73 @@ fn it_metrics_last_takes_no_slug() {
         ferrule(p.path(), &["run", "metrics", "demo", "--last", "2"]).text(),
         "exit=2"
     );
+}
+
+#[test]
+fn it_log_refuses_events_only_ferrule_writes() {
+    let p = project();
+    assert_eq!(
+        log_tail(p.path(), "demo", &["gauntlet=pass", "sha=x"]),
+        "card-log=reject event=gauntlet reason=owner hint=only ferrule logs it, with `ferrule pr push <slug>`\nexit=2"
+    );
+    let refused = log_tail(p.path(), "demo", &["ci=0"]);
+    assert!(refused.contains("reason=owner"), "{refused}");
+    // The events the guides have agents log stay open to them.
+    for (card, args) in [
+        ("demo.s1", vec!["checks=pass", "crates=a"]),
+        ("demo.s1", vec!["commit=abc"]),
+        ("demo", vec!["spec-keep=MB-R-001"]),
+        ("demo", vec!["ci-waived", "--", "red on main too"]),
+    ] {
+        let got = log_tail(p.path(), card, &args);
+        assert!(got.ends_with("exit=0"), "{args:?}: {got}");
+    }
+    let vocab = ferrule(p.path(), &["board", "vocab", "--event", "gauntlet"]).text();
+    assert!(vocab.contains("owner"), "{vocab}");
+    assert!(vocab.contains("ferrule"), "{vocab}");
+}
+
+#[test]
+fn it_bad_now_is_refused() {
+    let p = project();
+    let got = Run::new(["board", "log", "demo", "note", "--", "x"])
+        .env("CLAUDE_PROJECT_DIR", p.path())
+        .env("FERRULE_NOW", "yesterday")
+        .cwd(p.path())
+        .text();
+    assert_eq!(got, "exit=2");
+    let out = Run::new(["board", "list"])
+        .env("CLAUDE_PROJECT_DIR", p.path())
+        .env("FERRULE_NOW", "2026-10-05")
+        .cwd(p.path())
+        .output();
+    assert_eq!(out.status.code(), Some(2));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("ferrule=refused reason=now hint=FERRULE_NOW=2026-10-05"),
+        "{err}"
+    );
+}
+
+#[test]
+fn it_import_refuses_a_bad_stamp() {
+    let dir = tempfile::tempdir().unwrap();
+    let board = tempfile::tempdir().unwrap();
+    std::fs::create_dir(board.path().join("open")).unwrap();
+    std::fs::write(
+        board.path().join("open/x.md"),
+        "---\nid: x\nstate: open\n---\nyesterday note -- hi\n",
+    )
+    .unwrap();
+    let got = ferrule(
+        dir.path(),
+        &["board", "import", board.path().to_str().unwrap()],
+    )
+    .text();
+    assert!(
+        got.contains("import=refused reason=")
+            && got.contains("log stamp yesterday is not a stamp"),
+        "{got}"
+    );
+    assert!(got.ends_with("exit=2"), "{got}");
 }

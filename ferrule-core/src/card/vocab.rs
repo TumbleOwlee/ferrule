@@ -38,6 +38,15 @@ pub enum Text {
     Required,
 }
 
+/// Who writes an event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Owner {
+    /// An agent, through `ferrule board log`.
+    Agent,
+    /// Only a ferrule command, which logs it itself; the command that does.
+    Ferrule(&'static str),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Event {
     pub scope: Scope,
@@ -47,6 +56,17 @@ pub struct Event {
     pub positional: Positional,
     pub keys: &'static [&'static str],
     pub text: Text,
+    pub owner: Owner,
+}
+
+impl Event {
+    /// The event, written only by the ferrule command `hint`.
+    const fn by(self, hint: &'static str) -> Event {
+        Event {
+            owner: Owner::Ferrule(hint),
+            ..self
+        }
+    }
 }
 
 const fn ev(
@@ -64,6 +84,7 @@ const fn ev(
         positional,
         keys,
         text,
+        owner: Owner::Agent,
     }
 }
 
@@ -106,7 +127,8 @@ pub const VOCABULARY: &[Event] = &[
     ev(Stage, "follow-up", V::None, P::None, &[], Text::Required),
     ev(Stage, "read", V::None, P::None, &["path"], Text::Required),
     ev(Both, "note", V::None, P::None, &[], Text::Required),
-    ev(Both, "moved=", V::OneOf(STATES), P::None, &[], Text::No),
+    ev(Both, "moved=", V::OneOf(STATES), P::None, &[], Text::No)
+        .by("ferrule board move <card> <state>"),
     ev(Stage, "minor=", V::Any, P::None, &[], Text::Yes),
     ev(Stage, "minor-moved=", V::Any, P::None, &[], Text::Yes),
     ev(
@@ -117,8 +139,8 @@ pub const VOCABULARY: &[Event] = &[
         &["user", "reason"],
         Text::No,
     ),
-    ev(Stage, "auto=", V::Any, P::None, &[], Text::No),
-    ev(Stage, "stop=", V::Any, P::None, &[], Text::No),
+    ev(Stage, "auto=", V::Any, P::None, &[], Text::No).by("ferrule stage stop <slug> <n>"),
+    ev(Stage, "stop=", V::Any, P::None, &[], Text::No).by("ferrule stage stop <slug> <n>"),
     ev(
         Parent,
         "stop",
@@ -126,10 +148,14 @@ pub const VOCABULARY: &[Event] = &[
         P::None,
         &["kind", "gate", "agent", "count"],
         Text::No,
-    ),
-    ev(Parent, "spec-rev=", V::Any, P::None, &[], Text::No),
-    ev(Parent, "arch-rev=", V::Any, P::None, &[], Text::No),
-    ev(Parent, "decisions-seen=", V::Any, P::None, &[], Text::No),
+    )
+    .by("ferrule prompt render <slug> <kind>"),
+    ev(Parent, "spec-rev=", V::Any, P::None, &[], Text::No)
+        .by("ferrule prompt render <slug> approved"),
+    ev(Parent, "arch-rev=", V::Any, P::None, &[], Text::No)
+        .by("ferrule prompt render <slug> approved"),
+    ev(Parent, "decisions-seen=", V::Any, P::None, &[], Text::No)
+        .by("ferrule prompt render <slug> approved"),
     ev(Parent, "spec-keep=", V::Any, P::None, &[], Text::No),
     ev(
         Parent,
@@ -138,7 +164,8 @@ pub const VOCABULARY: &[Event] = &[
         P::None,
         &[],
         Text::No,
-    ),
+    )
+    .by("ferrule pr push <slug>"),
     ev(
         Parent,
         "gauntlet=",
@@ -146,8 +173,10 @@ pub const VOCABULARY: &[Event] = &[
         P::None,
         &["cov", "sha", "step", "reason"],
         Text::No,
-    ),
-    ev(Parent, "replan", V::None, P::None, &["from"], Text::No),
+    )
+    .by("ferrule pr push <slug>"),
+    ev(Parent, "replan", V::None, P::None, &["from"], Text::No)
+        .by("ferrule stage replan <slug> start"),
     ev(
         Parent,
         "replan=",
@@ -155,7 +184,8 @@ pub const VOCABULARY: &[Event] = &[
         P::None,
         &[],
         Text::No,
-    ),
+    )
+    .by("ferrule stage replan <slug> approve"),
     ev(
         Parent,
         "plan-review=",
@@ -163,8 +193,10 @@ pub const VOCABULARY: &[Event] = &[
         P::None,
         &["count", "round"],
         Text::No,
-    ),
-    ev(Parent, "review=", V::Any, P::None, &["scope"], Text::No),
+    )
+    .by("ferrule gate next <slug> <gate> <status line>"),
+    ev(Parent, "review=", V::Any, P::None, &["scope"], Text::No)
+        .by("ferrule gate next <slug> <gate> <status line>"),
     ev(
         Parent,
         "overturned",
@@ -173,9 +205,10 @@ pub const VOCABULARY: &[Event] = &[
         &["scope", "count"],
         Text::Yes,
     ),
-    ev(Parent, "rebuild", V::None, P::None, &["reason"], Text::No),
-    ev(Parent, "follow-ups=", V::Any, P::None, &[], Text::No),
-    ev(Parent, "ci=", V::Any, P::None, &[], Text::No),
+    ev(Parent, "rebuild", V::None, P::None, &["reason"], Text::No)
+        .by("ferrule run rebuild <issue> <pr>"),
+    ev(Parent, "follow-ups=", V::Any, P::None, &[], Text::No).by("ferrule pr push <slug>"),
+    ev(Parent, "ci=", V::Any, P::None, &[], Text::No).by("ferrule ci wait <slug>"),
     ev(Parent, "ci-waived", V::None, P::None, &[], Text::Required),
 ];
 
@@ -199,6 +232,8 @@ pub enum Reason {
     Value,
     Length,
     Budget,
+    /// An event only a ferrule command writes, refused from `board log`.
+    Owner,
     /// A `note` whose text starts with an event's name: that event instead.
     Typed(&'static str),
     /// A stage's `commit=` while the card sits in `inprogress`.
@@ -262,6 +297,18 @@ impl fmt::Display for Reject {
                 "card-log=reject event={} reason=typed use={use_}",
                 self.event
             ),
+            Reason::Owner => {
+                let cmd = match self.spec.map(|s| s.owner) {
+                    Some(Owner::Ferrule(cmd)) => cmd,
+                    _ => "see `ferrule board vocab`",
+                };
+                let hint = format!("only ferrule logs it, with `{cmd}`");
+                write!(
+                    f,
+                    "card-log=reject event={} reason=owner hint={hint}",
+                    self.event
+                )
+            }
             Reason::InProgress => write!(
                 f,
                 "card-log=reject event={} reason=inprogress move=inreview",
@@ -337,6 +384,8 @@ pub struct Context {
     pub reads: usize,
     /// `read` events one stage card may carry.
     pub read_budget: usize,
+    /// The line comes from `ferrule board log`, not from a ferrule command.
+    pub agent: bool,
 }
 
 /// One word after the event: a positional (no key) or a `key=value` pair,
@@ -500,6 +549,9 @@ pub fn check(event: &str, args: &[String], ctx: Context) -> Result<Line, Reject>
     };
     if !scope_ok {
         return Err(reject(Reason::Scope));
+    }
+    if ctx.agent && matches!(spec.owner, Owner::Ferrule(_)) {
+        return Err(reject(Reason::Owner));
     }
     if let Some(v) = value {
         let ok = !v.is_empty()
@@ -679,7 +731,7 @@ pub fn table() -> String {
 #[must_use]
 pub fn table_for(event: Option<&str>, kind: Option<Scope>) -> Option<String> {
     let mut out = String::from(
-        "scope   event            values                         positional  keys                   text\n",
+        "scope   event            values                         positional  keys                   text      owner\n",
     );
     let wanted = VOCABULARY.iter().filter(|e| {
         event.is_none_or(|n| e.name.trim_end_matches('=') == n.trim_end_matches('='))
@@ -713,9 +765,13 @@ pub fn table_for(event: Option<&str>, kind: Option<Scope>) -> Option<String> {
             Text::Yes => "yes",
             Text::Required => "required",
         };
+        let owner = match e.owner {
+            Owner::Agent => "agent",
+            Owner::Ferrule(_) => "ferrule",
+        };
         let _ = writeln!(
             out,
-            "{scope:<7} {:<16} {values:<30} {positional:<11} {keys:<22} {text}",
+            "{scope:<7} {:<16} {values:<30} {positional:<11} {keys:<22} {text:<9} {owner}",
             e.name
         );
     }
@@ -735,12 +791,14 @@ mod tests {
         in_progress: false,
         reads: 0,
         read_budget: READ_BUDGET,
+        agent: false,
     };
     const PARENT: Context = Context {
         stage: false,
         in_progress: false,
         reads: 0,
         read_budget: READ_BUDGET,
+        agent: false,
     };
 
     fn body(event: &str, a: &str, ctx: Context) -> Result<String, String> {
@@ -969,5 +1027,52 @@ mod tests {
         assert_eq!(p.args, []);
         assert_eq!(p.text.as_deref(), Some("reason=\"open"));
         assert_eq!(parse("green"), ("green", Parts::default()));
+    }
+
+    #[test]
+    fn ut_an_agent_may_not_log_what_only_ferrule_writes() {
+        let agent = Context {
+            agent: true,
+            ..PARENT
+        };
+        let got = check("gauntlet=pass", &args("sha=x"), agent).unwrap_err();
+        assert_eq!(
+            got.to_string(),
+            "card-log=reject event=gauntlet reason=owner hint=only ferrule logs it, with `ferrule pr push <slug>`"
+        );
+        assert!(check("gauntlet=pass", &args("sha=x"), PARENT).is_ok());
+        assert!(check("ci-waived", &args("-- why"), agent).is_ok());
+        assert!(check("spec-keep=MB-R-001", &[], agent).is_ok());
+    }
+
+    #[test]
+    fn ut_agent_events_are_the_ones_the_guides_have_agents_log() {
+        let agent: Vec<&str> = VOCABULARY
+            .iter()
+            .filter(|e| e.owner == Owner::Agent)
+            .map(|e| e.name)
+            .collect();
+        assert_eq!(
+            agent,
+            [
+                "spawn",
+                "test-red",
+                "green",
+                "spec-delta",
+                "checks=",
+                "commit=",
+                "feedback=",
+                "stopped",
+                "follow-up",
+                "read",
+                "note",
+                "minor=",
+                "minor-moved=",
+                "files+=",
+                "spec-keep=",
+                "overturned",
+                "ci-waived",
+            ]
+        );
     }
 }

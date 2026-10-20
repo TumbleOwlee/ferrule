@@ -254,6 +254,10 @@ Reasons:
                                  `use=<event>` names the event to log instead
   reason=inprogress              `commit=` on a card still in `inprogress`;
                                  `move=inreview` says to move it first
+  reason=owner                   An event only a ferrule command writes (the
+                                 `owner` column of `board vocab` says
+                                 `ferrule`), e.g. `gauntlet=`; the hint names
+                                 the command that logs it
   The `hint=` of `reason=value` and `reason=key` names what that event
   takes, e.g. the one-of set (`checks=` takes pass|fail), required keys
   (`stop` needs `kind=question|approval|stage|blocked`; `spec-delta` needs
@@ -282,6 +286,8 @@ Output:
               without spaces if several)
   keys        The `key=value` arguments the event accepts
   text        Whether `-- <free text>` is no, yes or required
+  owner       `agent` for an event `board log` takes; `ferrule` for one only a
+              ferrule command logs (`board log` refuses it, reason=owner)
 Filters: --event <name> keeps that event (with or without its `=`); --kind
 stage|parent keeps the events that card kind takes (`both` events count for
 either).
@@ -299,8 +305,10 @@ Refusals:
                                  end of the line: `<path>: <problem>` for a
                                  card file whose `id:` or `parent:` disagrees
                                  with its name, whose `state:` is not the
-                                 state directory it sits in, or that has a key
-                                 its kind does not carry, `card <id> is already on the
+                                 state directory it sits in, that has a key
+                                 its kind does not carry, or whose log line
+                                 stamp is not `YYYY-MM-DDTHH:MM`,
+                                 `card <id> is already on the
                                  board`, an I/O error or `state database: ...`.
                                  Fix the file or the board and run it again.
 Exit codes: 0 ok, 2 refused.
@@ -575,6 +583,7 @@ fn log(card: &str, event: &str, args: &[String], out: &mut impl Write) -> io::Re
         args,
         &board::now(),
         config.thresholds.read_budget,
+        true,
     ) {
         Ok(()) => Ok(exit::OK),
         Err(LogError::Card) => {

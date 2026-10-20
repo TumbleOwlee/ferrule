@@ -3,7 +3,7 @@ mod golden;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use golden::Run;
+use golden::{Run, seed_log};
 
 const NOW: &str = "2026-10-05T09:00";
 
@@ -195,8 +195,8 @@ fn it_stage_stop_checkpoint_after_three_autos() {
     );
 
     let s = Scratch::new(5);
-    s.ok(&["board", "log", "ss.s2", "stop=5"]);
-    s.ok(&["board", "log", "ss.s3", "auto=yes"]);
+    seed_log(&s.root, NOW, "ss.s2", &["stop=5"]);
+    seed_log(&s.root, NOW, "ss.s3", &["auto=yes"]);
     assert_eq!(s.say(&["stage", "stop", "ss", "s4"]), "auto");
 }
 
@@ -225,7 +225,7 @@ fn it_sha_check_and_reconcile() {
         "reconcile=clean next=s1\nexit=0"
     );
     s.ok(&["board", "log", "ss.s2", "commit=deadbee"]);
-    s.ok(&["board", "log", "ss", "gauntlet=pass", &format!("sha={m}")]);
+    seed_log(&s.root, NOW, "ss", &["gauntlet=pass", &format!("sha={m}")]);
     assert_eq!(
         s.run(&["run", "reconcile", "ss"]).text(),
         format!(
@@ -315,12 +315,12 @@ fn it_cleanup_refuses_until_pushed_and_green_then_archives() {
     git(&s.wt, &["push", "-q"]);
     assert!(cleanup().starts_with("cleanup=refused reason=no-ci hint="));
     assert!(s.wt.is_dir());
-    s.ok(&["board", "log", "demo", "ci=1"]);
+    seed_log(&s.root, NOW, "demo", &["ci=1"]);
     assert!(cleanup().starts_with("cleanup=refused reason=ci-red hint="));
     assert!(s.wt.is_dir());
     assert_eq!(s.say(&["run", "metrics"]), "");
 
-    s.ok(&["board", "log", "demo", "ci=0"]);
+    seed_log(&s.root, NOW, "demo", &["ci=0"]);
     assert_eq!(cleanup(), "cleanup=done archive=1");
     assert!(!s.wt.exists());
     assert!(!has_ref(&s.root, "refs/heads/feat/demo"));
@@ -681,9 +681,9 @@ fn it_run_status_summarises_cards_and_worktree() {
     );
     assert_eq!(lines[4..6], ["gauntlet=-", "ci=-"]);
     assert_eq!(lines[6], format!("last=ss.s1 {NOW} note started"));
-    s.ok(&["board", "log", "ss", "pr=draft"]);
-    s.ok(&["board", "log", "ss", "gauntlet=pass", "cov=80%", "sha=abc"]);
-    s.ok(&["board", "log", "ss", "ci=0"]);
+    seed_log(&s.root, NOW, "ss", &["pr=draft"]);
+    seed_log(&s.root, NOW, "ss", &["gauntlet=pass", "cov=80%", "sha=abc"]);
+    seed_log(&s.root, NOW, "ss", &["ci=0"]);
     s.ok(&["board", "log", "ss", "note", "--", "see pr=7 and ci=1"]);
     let got = s.say(&["run", "status", "ss"]);
     let lines: Vec<&str> = got.lines().collect();

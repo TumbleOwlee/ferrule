@@ -7,7 +7,7 @@ mod golden;
 use std::fmt::Write as _;
 use std::path::Path;
 
-use golden::{Run, check};
+use golden::{Run, check, seed_log};
 
 const NOW: &str = "2026-10-05T09:00";
 const R: &str = ".claude/tasks/artifacts/ns";
@@ -89,9 +89,7 @@ impl Board {
     }
 
     fn log(&self, args: &[&str]) {
-        let mut all = vec!["board", "log", "ns"];
-        all.extend_from_slice(args);
-        self.ok(&all);
+        seed_log(self.root(), NOW, "ns", args);
     }
 
     /// `gate next` with the status words, recorded as the shell tests did.

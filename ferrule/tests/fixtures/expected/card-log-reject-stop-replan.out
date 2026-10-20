@@ -1,2 +1,0 @@
-card-log=reject event=stop reason=value hint=stop takes kind=question|approval|stage|blocked, optional keys gate,agent,count, no -- text
-exit=2

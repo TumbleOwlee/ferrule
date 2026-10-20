@@ -6,7 +6,7 @@ mod golden;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use golden::{FakeGh, GH_FIELDS, Run, fixtures, gh_json};
+use golden::{FakeGh, GH_FIELDS, Run, fixtures, gh_json, seed_log};
 
 fn git(dir: &Path, args: &[&str]) -> String {
     let out = Command::new("git")
@@ -515,14 +515,12 @@ fn it_replan_swaps_the_uncommitted_stages() {
     let gate2 = p.ok(&["gate", "approve", "demo", "gate2"]);
     assert!(gate2.contains("issue=12 "), "adopted: {gate2}");
     let sha0 = p.land("s0", "docs/specs/modbus/requirements.md");
-    p.ok(&[
-        "board",
-        "log",
+    seed_log(
+        &p.root,
+        "2026-10-05T09:00",
         "demo",
-        "gauntlet=pass",
-        "cov=80%",
-        &format!("sha={sha0}"),
-    ]);
+        &["gauntlet=pass", "cov=80%", &format!("sha={sha0}")],
+    );
     p.ok(&["board", "move", "demo.s0", "done"]);
     p.ok(&["board", "move", "demo.s1", "inprogress"]);
     p.ok(&[
@@ -585,14 +583,12 @@ fn it_replan_approve_is_refused_twice() {
     );
     p.ok(&["gate", "approve", "demo", "gate2"]);
     let sha0 = p.land("s0", "docs/specs/modbus/requirements.md");
-    p.ok(&[
-        "board",
-        "log",
+    seed_log(
+        &p.root,
+        "2026-10-05T09:00",
         "demo",
-        "gauntlet=pass",
-        "cov=80%",
-        &format!("sha={sha0}"),
-    ]);
+        &["gauntlet=pass", "cov=80%", &format!("sha={sha0}")],
+    );
     p.ok(&["board", "move", "demo.s0", "done"]);
     p.ok(&["stage", "replan", "demo", "start"]);
     p.ok(&["stage", "replan", "demo", "approve"]);
@@ -717,7 +713,7 @@ fn it_reconcile_checks_the_host() {
     p.ok(&["run", "init", "demo"]);
     p.artifacts();
     p.ok(&["board", "set", "demo", "issue=12", "pr=34"]);
-    p.ok(&["board", "log", "demo", "pr=ready"]);
+    seed_log(&p.root, "2026-10-05T09:00", "demo", &["pr=ready"]);
     let closed = "#12 Reconnect dropped Modbus clients [CLOSED]\nhttps://github.com/o/r/issues/12\nby someone\n\nbody\n\n--- 0 comment(s) ---\n";
     gh.serve(
         &["issue", "view", "12", "--json", GH_FIELDS],

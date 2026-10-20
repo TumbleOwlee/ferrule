@@ -131,6 +131,36 @@ pub fn list(value: &str) -> Vec<&str> {
         .collect()
 }
 
+/// Whether `s` is a stamp as the log writes it, `YYYY-MM-DDTHH:MM`.
+#[must_use]
+pub fn valid_stamp(s: &str) -> bool {
+    let b = s.as_bytes();
+    let num = |from: usize, to: usize| -> Option<u32> {
+        let digits = b.get(from..to)?;
+        digits
+            .iter()
+            .all(u8::is_ascii_digit)
+            .then(|| digits.iter().fold(0, |n, d| n * 10 + u32::from(d - b'0')))
+    };
+    b.len() == 16
+        && b[4] == b'-'
+        && b[7] == b'-'
+        && b[10] == b'T'
+        && b[13] == b':'
+        && num(0, 4).is_some()
+        && num(5, 7).is_some_and(|m| (1..=12).contains(&m))
+        && num(8, 10).is_some_and(|d| (1..=31).contains(&d))
+        && num(11, 13).is_some_and(|h| h < 24)
+        && num(14, 16).is_some_and(|m| m < 60)
+}
+
+/// The problem with `FERRULE_NOW`, when it is set and not a stamp.
+#[must_use]
+pub fn now_problem() -> Option<String> {
+    let now = std::env::var("FERRULE_NOW").ok()?;
+    (!valid_stamp(&now)).then(|| format!("FERRULE_NOW={now} is not a stamp like 2026-01-02T14:02"))
+}
+
 /// The current UTC minute, `YYYY-MM-DDTHH:MM`; `FERRULE_NOW` overrides it.
 #[must_use]
 pub fn now() -> String {
@@ -535,7 +565,7 @@ pub fn create_all(conn: &mut Connection, cards: &[NewCard], now: &str) -> Result
         insert(&tx, &c.id, c.state, &c.fields, now)
             .map_err(|e| BatchError::Card(c.id.clone(), e))?;
         for (event, args) in &c.log {
-            append(&tx, &c.id, event, args, now, vocab::READ_BUDGET)
+            append(&tx, &c.id, event, args, now, vocab::READ_BUDGET, false)
                 .map_err(|e| BatchError::Log(c.id.clone(), e))?;
         }
     }
@@ -557,7 +587,7 @@ pub fn replace_cards(
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(sql)?;
     for (event, args) in parent_log {
-        append(&tx, parent, event, args, now, vocab::READ_BUDGET)
+        append(&tx, parent, event, args, now, vocab::READ_BUDGET, false)
             .map_err(|e| BatchError::Log(parent.to_owned(), e))?;
     }
     for id in delete {
@@ -568,7 +598,7 @@ pub fn replace_cards(
         insert(&tx, &c.id, c.state, &c.fields, now)
             .map_err(|e| BatchError::Card(c.id.clone(), e))?;
         for (event, args) in &c.log {
-            append(&tx, &c.id, event, args, now, vocab::READ_BUDGET)
+            append(&tx, &c.id, event, args, now, vocab::READ_BUDGET, false)
                 .map_err(|e| BatchError::Log(c.id.clone(), e))?;
         }
     }
@@ -663,10 +693,11 @@ pub fn log(
     args: &[String],
     now: &str,
 ) -> Result<(), LogError> {
-    log_with_budget(conn, id, event, args, now, vocab::READ_BUDGET)
+    log_with_budget(conn, id, event, args, now, vocab::READ_BUDGET, false)
 }
 
-/// [`log`] with the project's `read` budget.
+/// [`log`] with the project's `read` budget; `agent` is a line from
+/// `ferrule board log`, which may not carry an event only ferrule writes.
 pub fn log_with_budget(
     conn: &mut Connection,
     id: &str,
@@ -674,9 +705,10 @@ pub fn log_with_budget(
     args: &[String],
     now: &str,
     read_budget: usize,
+    agent: bool,
 ) -> Result<(), LogError> {
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    append(&tx, id, event, args, now, read_budget)?;
+    append(&tx, id, event, args, now, read_budget, agent)?;
     tx.commit()?;
     Ok(())
 }
@@ -688,6 +720,7 @@ fn append(
     args: &[String],
     now: &str,
     read_budget: usize,
+    agent: bool,
 ) -> Result<(), LogError> {
     let Some(st) = state(conn, id)? else {
         return Err(LogError::Card);
@@ -703,6 +736,7 @@ fn append(
         in_progress: st == State::InProgress,
         reads,
         read_budget,
+        agent,
     };
     let line = vocab::check(event, args, ctx).map_err(LogError::Reject)?;
     if now.chars().count() + 1 + line.body.chars().count() > vocab::MAX_LINE {
@@ -883,6 +917,7 @@ pub fn move_card(conn: &mut Connection, id: &str, to: State, now: &str) -> Resul
         &[],
         now,
         vocab::READ_BUDGET,
+        false,
     ) {
         Ok(()) => {}
         Err(LogError::Sql(e)) => return Err(MoveError::Sql(e)),
@@ -1060,6 +1095,11 @@ pub fn import(conn: &mut Connection, board: &Path, now: &str) -> Result<usize, I
             Err(CardError::Card) => unreachable!("insert never looks a card up by id"),
         }
         for (at, body) in card.events {
+            if !valid_stamp(&at) {
+                return Err(bad(format!(
+                    "log stamp {at} is not a stamp like 2026-01-02T14:02"
+                )));
+            }
             let (name, parts) = vocab::parse(&body);
             insert_event(&tx, id, &at, name, &parts, &body)?;
         }
@@ -1324,6 +1364,24 @@ mod tests {
             Some("0")
         );
         assert_eq!(log_lines(&s.conn, "r", Some("ci")).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn ut_a_stamp_is_year_to_minute() {
+        assert!(valid_stamp("2026-10-05T09:00"));
+        for bad in [
+            "",
+            "t",
+            "2026-10-05",
+            "2026-10-05 09:00",
+            "2026-10-05T09:00:00",
+            "2026-13-05T09:00",
+            "2026-10-05T24:00",
+            "2026-10-05T09:60",
+            "2026-1a-05T09:00",
+        ] {
+            assert!(!valid_stamp(bad), "{bad}");
+        }
     }
 
     #[test]

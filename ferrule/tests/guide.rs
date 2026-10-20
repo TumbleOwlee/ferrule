@@ -5,7 +5,7 @@ mod golden;
 
 use std::path::Path;
 
-use golden::Run;
+use golden::{Run, seed_log};
 
 fn ferrule(root: &Path, cwd: &Path, args: &[&str]) -> String {
     Run::new(args)
@@ -49,7 +49,7 @@ fn it_guide_cuts_to_the_cards_lane_and_state() {
 
     let gate4 = ok(root, &["guide", "gate4", "--slug", "demo"]);
     assert!(!gate4.contains("(done)"), "{gate4}");
-    ok(root, &["board", "log", "demo", "pr=ready"]);
+    seed_log(root, "2026-10-05T09:00", "demo", &["pr=ready"]);
     let gate4 = ok(root, &["guide", "gate4", "--slug", "demo"]);
     assert!(
         gate4.contains("(done)\n- **Approved** → `ferrule gate approve demo gate4`"),
