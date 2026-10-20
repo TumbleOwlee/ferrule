@@ -736,7 +736,7 @@ fn apply(root: &Path, item: &Item, lock: &mut Lock, report: &mut Report) -> std:
 pub fn deny_rules(allow: &[String]) -> Vec<String> {
     let mut out: Vec<String> = guard::REPLACED
         .iter()
-        .filter(|r| !allow.iter().any(|a| r.raw.starts_with(a.as_str())))
+        .filter(|r| !reopened(r.raw, allow))
         .flat_map(|r| [format!("Bash({})", r.raw), format!("Bash({} :*)", r.raw)])
         .collect();
     for path in [
@@ -749,6 +749,18 @@ pub fn deny_rules(allow: &[String]) -> Vec<String> {
         out.push(format!("Edit({path})"));
     }
     out
+}
+
+/// Whether `[guard] allow` re-opens the whole of `raw`, as the guard reads
+/// it: an entry's words must be a word prefix of the command. A longer
+/// entry (`git push --dry-run`) re-opens one form only, which a deny rule
+/// cannot express, so the rule stays.
+fn reopened(raw: &str, allow: &[String]) -> bool {
+    let words: Vec<&str> = raw.split_whitespace().collect();
+    allow.iter().any(|a| {
+        let a: Vec<&str> = a.split_whitespace().collect();
+        !a.is_empty() && words.starts_with(&a)
+    })
 }
 
 /// Where the project drifted from what this binary would write: one
@@ -1021,6 +1033,17 @@ mod tests {
         let some = deny_rules(&["gh issue".to_owned()]);
         assert!(!some.iter().any(|r| r.starts_with("Bash(gh issue")));
         assert!(some.contains(&"Bash(gh pr create :*)".to_owned()));
+    }
+
+    #[test]
+    fn ut_deny_rules_match_allow_by_words() {
+        let has = |rules: &[String], raw: &str| rules.contains(&format!("Bash({raw} :*)"));
+        let partial = deny_rules(&["gh iss".to_owned()]);
+        assert!(has(&partial, "gh issue view"));
+        let whole = deny_rules(&["gh issue".to_owned()]);
+        assert!(!has(&whole, "gh issue view"));
+        let longer = deny_rules(&["git push --dry-run".to_owned()]);
+        assert!(has(&longer, "git push"));
     }
 
     #[test]
