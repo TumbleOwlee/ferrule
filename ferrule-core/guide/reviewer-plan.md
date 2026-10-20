@@ -1,6 +1,6 @@
 # reviewer-plan — Plan and re-plan checks
 
-Read by `fe-reviewer` only in scope `plan` or `plan from s<n>` (its `## Plan scope`); everything in `ferrule guide reviewer` still applies.
+Read by `fe-reviewer` only in scope `plan` or `plan from s<n>` (its `## Plan scope`); everything in `ferrule guide show reviewer` still applies.
 
 ## Plan checks
 
@@ -15,7 +15,7 @@ Check `plan.md` against `spec-diff.md`, spec-fidelity axis only:
 - the plan reaches `architecture.md`: every new or changed component has a stage, no stage builds one it doesn't name, and every signature in `## Interfaces` appears as written in the step that builds it
 - spec edits the planner made since the architecture stop are recorded (`Revisions:`, a `decisions.md` line each)
 - every stage's `files` list covers what its steps touch and matches `## Shared`
-- every stage title obeys `ferrule guide planner`, its `## Stage title` and matches its heading and stage-table row
+- every stage title obeys `ferrule guide show planner`, its `## Stage title` and matches its heading and stage-table row
 
 ## Re-plan checks
 

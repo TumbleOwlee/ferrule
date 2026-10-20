@@ -607,13 +607,15 @@ impl Refusal {
             }
             Refusal::BlockedBy => "move the cards in its blocked-by to done first".to_owned(),
             Refusal::Commit => {
-                "commit the stage with `ferrule card commit <card> -m <msg>` first".to_owned()
+                "commit the stage with `ferrule stage commit <card> -m <msg>` first".to_owned()
             }
             Refusal::Unverified => {
-                "run `ferrule run gauntlet <slug>` so a gauntlet=pass covers the commit sha"
+                "run `ferrule ci gauntlet <slug>` so a gauntlet=pass covers the commit sha"
                     .to_owned()
             }
-            Refusal::Gate2 => "approve gate 2 first: `ferrule run approve <slug> gate2`".to_owned(),
+            Refusal::Gate2 => {
+                "approve gate 2 first: `ferrule gate approve <slug> gate2`".to_owned()
+            }
         }
     }
 }

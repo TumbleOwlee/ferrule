@@ -1,6 +1,6 @@
 //! Parsers and models shared by the ferrule subcommands. Subcommands never
 //! re-parse a workflow file on their own; they go through these modules.
-//! A subcommand's own models live under its module (`card`, `hook`,
+//! A subcommand's own models live under its module (`card` for the board, `hook`,
 //! `install`, `issue`, `pr`, `prompt`, `run`, `spec`); the rest are shared.
 
 pub mod artifacts;

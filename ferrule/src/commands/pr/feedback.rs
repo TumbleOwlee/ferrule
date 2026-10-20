@@ -9,7 +9,7 @@ use ferrule_core::pr::publish;
 use ferrule_core::project::{self, Layout};
 
 use crate::cli::stage_name;
-use crate::commands::card::store;
+use crate::commands::board::store;
 use crate::commands::exit;
 use crate::commands::issue::post_failed;
 
@@ -32,7 +32,7 @@ Refusals (stdout, exit 1):
 Errors (stderr, exit 1): the CI host's error.
 Exit codes: 0 ok, 1 refused.
 Backend: reads threads from the configured CI host.
-See: ferrule guide feedback";
+See: ferrule guide show feedback";
 
 const FB_FETCH_AFTER_LONG_HELP: &str = "\
 Output:
@@ -43,7 +43,7 @@ Output:
 Errors (stderr, exit 1): `pr feedback: <the host's error>`.
 Exit codes: 0 ok, 1 refused.
 Backend: reads the threads from the configured CI host.
-See: ferrule guide feedback";
+See: ferrule guide show feedback";
 
 const FB_REPLY_AFTER_LONG_HELP: &str = "\
 Output:
@@ -59,7 +59,7 @@ Errors (stderr):
       exit 2. Fix: give the stage and the pushed commit.
 Exit codes: 0 ok, 1 refused, 2 usage.
 Backend: posts to the configured CI host.
-See: ferrule guide feedback";
+See: ferrule guide show feedback";
 
 #[derive(Debug, Subcommand)]
 pub enum FeedbackCommand {

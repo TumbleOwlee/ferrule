@@ -11,10 +11,13 @@ use golden::Run;
 
 /// Source file to the commands whose `--help` documents its status tokens.
 const SOURCES: &[(&str, &[&str])] = &[
-    ("ferrule-core/src/card/board.rs", &["card move"]),
-    ("ferrule-core/src/card/vocab.rs", &["card log"]),
-    ("ferrule-core/src/guide.rs", &["guide"]),
-    ("ferrule-core/src/install/mod.rs", &["install"]),
+    ("ferrule-core/src/card/board.rs", &["board move"]),
+    ("ferrule-core/src/card/vocab.rs", &["board log"]),
+    ("ferrule-core/src/guide.rs", &["guide show", "guide check"]),
+    (
+        "ferrule-core/src/install/mod.rs",
+        &["setup install", "setup check"],
+    ),
     (
         "ferrule-core/src/pr/publish.rs",
         &["pr open", "pr push", "pr publish", "pr feedback route"],
@@ -23,31 +26,49 @@ const SOURCES: &[(&str, &[&str])] = &[
     ("ferrule-core/src/run/archive.rs", &["run metrics"]),
     (
         "ferrule-core/src/run/gate.rs",
-        &["run approve", "run replan"],
+        &["gate approve", "stage replan"],
     ),
-    ("ferrule-core/src/run/gauntlet.rs", &["run gauntlet"]),
-    ("ferrule-core/src/run/mod.rs", &["run stage-stop"]),
-    ("ferrule-core/src/run/next.rs", &["run next"]),
+    ("ferrule-core/src/run/gauntlet.rs", &["ci gauntlet"]),
+    ("ferrule-core/src/run/mod.rs", &["stage stop"]),
+    ("ferrule-core/src/run/next.rs", &["gate next"]),
     ("ferrule-core/src/run/rebuild.rs", &["run rebuild"]),
     (
-        "ferrule/src/commands/card.rs",
+        "ferrule/src/commands/board.rs",
         &[
-            "card commit",
-            "card import",
-            "card log",
-            "card move",
-            "card new",
-            "card set",
-            "card show",
+            "board import",
+            "board log",
+            "board move",
+            "board new",
+            "board set",
+            "board show",
+            "stage commit",
         ],
     ),
-    ("ferrule/src/commands/guide.rs", &["guide"]),
-    ("ferrule/src/commands/install.rs", &["install"]),
+    (
+        "ferrule/src/commands/ci.rs",
+        &["ci gauntlet", "ci wait", "ci failed"],
+    ),
+    (
+        "ferrule/src/commands/file.rs",
+        &["file headings", "file section"],
+    ),
+    (
+        "ferrule/src/commands/gate.rs",
+        &["gate approve", "gate next"],
+    ),
+    (
+        "ferrule/src/commands/guide.rs",
+        &["guide show", "guide list", "guide check"],
+    ),
+    (
+        "ferrule/src/commands/install.rs",
+        &["setup install", "setup check"],
+    ),
     (
         "ferrule/src/commands/issue.rs",
         &[
             "issue body",
-            "issue file",
+            "issue post",
             "pr body",
             "pr open",
             "pr push",
@@ -65,25 +86,29 @@ const SOURCES: &[(&str, &[&str])] = &[
     ),
     (
         "ferrule/src/commands/pr/mod.rs",
-        &["pr open", "pr push", "pr publish"],
+        &["pr open", "pr push", "pr publish", "ci failed"],
     ),
     (
         "ferrule/src/commands/run.rs",
         &[
-            "run approve",
-            "run ci",
             "run cleanup",
             "run export",
-            "run gauntlet",
             "run init",
             "run metrics",
-            "run next",
             "run rebuild",
             "run reconcile",
-            "run replan",
-            "run sha-check",
-            "run stage-stop",
+            "gate approve",
+            "gate next",
+            "stage verify",
+            "stage stop",
+            "stage replan",
+            "ci gauntlet",
+            "ci wait",
         ],
+    ),
+    (
+        "ferrule/src/commands/stage.rs",
+        &["stage commit", "stage verify", "stage stop", "stage replan"],
     ),
     (
         "ferrule/src/commands/hook/mod.rs",
@@ -97,7 +122,7 @@ const SOURCES: &[(&str, &[&str])] = &[
         "ferrule/src/commands/spec.rs",
         &["spec collisions", "spec related"],
     ),
-    ("ferrule/src/commands/uninstall.rs", &["uninstall"]),
+    ("ferrule/src/commands/uninstall.rs", &["setup uninstall"]),
 ];
 
 /// Tokens that are not CLI output: a file, or `file:token`, and why.
@@ -303,7 +328,7 @@ fn dash_h_equals_long_help() {
     for command in [
         vec![],
         vec!["run"],
-        vec!["card", "log"],
+        vec!["board", "log"],
         vec!["pr", "feedback", "reply"],
     ] {
         let short = Run::new(command.iter().copied().chain(["-h"])).output();
@@ -341,18 +366,18 @@ fn check_group(groups: &[&str]) {
 }
 
 #[test]
-fn help_card() {
-    check_group(&["card"]);
+fn help_board() {
+    check_group(&["board"]);
 }
 
 #[test]
-fn help_run() {
-    check_group(&["run"]);
+fn help_run_gate_stage_ci() {
+    check_group(&["run", "gate", "stage", "ci"]);
 }
 
 #[test]
-fn help_spec_guide_install() {
-    check_group(&["spec", "guide", "install", "uninstall"]);
+fn help_spec_file_guide_setup() {
+    check_group(&["spec", "file", "guide", "setup"]);
 }
 
 #[test]

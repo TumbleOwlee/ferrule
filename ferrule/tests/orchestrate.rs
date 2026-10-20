@@ -123,7 +123,7 @@ impl Project {
     }
 
     fn field(&self, card: &str, key: &str) -> String {
-        self.ok(&["card", "field", card, key])
+        self.ok(&["board", "field", card, key])
     }
 
     /// The demo run's artifacts, the plan with its stage table.
@@ -142,15 +142,15 @@ impl Project {
     /// Commits a change in the worktree as stage `sid` and logs it.
     fn land(&self, sid: &str, file: &str) -> String {
         let card = format!("demo.{sid}");
-        self.ok(&["card", "move", &card, "inprogress"]);
+        self.ok(&["board", "move", &card, "inprogress"]);
         let path = self.worktree().join(file);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, format!("{sid}\n")).unwrap();
         git(&self.worktree(), &["add", "."]);
         git(&self.worktree(), &["commit", "-qm", sid]);
         let sha = git(&self.worktree(), &["rev-parse", "--short", "HEAD"]);
-        self.ok(&["card", "move", &card, "inreview"]);
-        self.ok(&["card", "log", &card, &format!("commit={sha}")]);
+        self.ok(&["board", "move", &card, "inreview"]);
+        self.ok(&["board", "log", &card, &format!("commit={sha}")]);
         sha
     }
 }
@@ -216,14 +216,14 @@ fn through_gate2(p: &Project) {
     p.artifacts();
 
     p.ok(&["prompt", "render", "demo", "gate1"]);
-    let gate1 = p.ok(&["run", "approve", "demo", "gate1", "--lane", "full"]);
+    let gate1 = p.ok(&["gate", "approve", "demo", "gate1", "--lane", "full"]);
     assert!(
         gate1.starts_with("approve=done gate=gate1 spec-rev=5"),
         "{gate1}"
     );
     assert_eq!(p.field("demo", "gate1"), "2026-10-05");
     assert_eq!(p.field("demo", "lane"), "full");
-    p.ok(&["run", "approve", "demo", "arch"]);
+    p.ok(&["gate", "approve", "demo", "arch"]);
 
     gh.serve(
         &[
@@ -249,7 +249,7 @@ fn through_gate2(p: &Project) {
         ],
         "https://github.com/o/r/issues/12\n",
     );
-    let gate2 = p.ok(&["run", "approve", "demo", "gate2", "--issue", "new"]);
+    let gate2 = p.ok(&["gate", "approve", "demo", "gate2", "--issue", "new"]);
     assert!(
         gate2.starts_with(
             "approve=done gate=gate2 issue=12 worktree=.ferrule/worktrees/demo stages=3"
@@ -309,7 +309,10 @@ fn first_stage(p: &Project) {
         r#"{"state":"OPEN","isDraft":true,"body":"stale"}"#,
     );
     gh.serve(&["pr", "edit", "34", "--body-file", "-"], "");
-    assert_eq!(p.ok(&["card", "move", "demo.s0", "done"]), "pr-body=pushed");
+    assert_eq!(
+        p.ok(&["board", "move", "demo.s0", "done"]),
+        "pr-body=pushed"
+    );
     assert!(
         gh.log().contains("pr edit 34 --body-file -"),
         "{}",
@@ -332,8 +335,8 @@ fn first_stage(p: &Project) {
 /// Gate 4 published, then CI red and green.
 fn publish_and_ci(p: &Project) {
     let gh = &p.gh;
-    p.ok(&["card", "move", "demo.s0", "inreview"]);
-    p.ok(&["card", "move", "demo.s0", "done"]);
+    p.ok(&["board", "move", "demo.s0", "inreview"]);
+    p.ok(&["board", "move", "demo.s0", "done"]);
     serve(gh, &graphql("34"), NO_THREADS);
     gh.serve(&["pr", "ready", "34"], "");
     gh.serve(
@@ -367,7 +370,7 @@ fn publish_and_ci(p: &Project) {
         gh.log()
             .contains("pr edit 34 --body-file - --title Reconnect dropped Modbus clients")
     );
-    let shown = p.ok(&["card", "show", "demo"]);
+    let shown = p.ok(&["board", "show", "demo"]);
     assert!(
         shown.contains("pr=ready") && shown.contains("follow-ups=[40]"),
         "{shown}"
@@ -393,14 +396,14 @@ fn publish_and_ci(p: &Project) {
         ],
         "[]",
     );
-    let red = p.ok(&["run", "ci", "demo"]);
+    let red = p.ok(&["ci", "wait", "demo"]);
     assert!(red.starts_with("ci=1 failed=test\n"), "{red}");
     gh.serve(
         &["pr", "checks", "34", "--watch"],
         "test\tpass\t1m\thttps://x\n",
     );
     std::fs::remove_file(gh.dir.path().join("fx").join("pr_checks_34_--watch.exit")).unwrap();
-    let green = p.ok(&["run", "ci", "demo"]);
+    let green = p.ok(&["ci", "wait", "demo"]);
     assert!(green.starts_with("ci=0\n"), "{green}");
     assert!(green.contains("ferrule run cleanup demo"), "{green}");
 }
@@ -418,12 +421,12 @@ fn it_publish_refuses_threads_and_stage_refs() {
     let p = Project::new();
     p.ok(&["run", "init", "demo"]);
     p.artifacts();
-    p.ok(&["card", "set", "demo", "pr=34", "branch=feat/demo"]);
+    p.ok(&["board", "set", "demo", "pr=34", "branch=feat/demo"]);
     serve(&p.gh, &graphql("34"), &threads("src/x.rs"));
     assert_eq!(
         p.ferrule(&["pr", "publish", "demo"]).text(),
         "publish=refused reason=threads threads=1 \
-         hint=resolve the open threads: ferrule guide feedback\nexit=1"
+         hint=resolve the open threads: ferrule guide show feedback\nexit=1"
     );
     serve(&p.gh, &graphql("34"), NO_THREADS);
     let pr = p.run_dir().join("pr.md");
@@ -442,12 +445,12 @@ fn it_publish_refuses_threads_and_stage_refs() {
 fn it_push_refuses_an_unverified_head_and_main() {
     let p = Project::new();
     p.ok(&["run", "init", "demo"]);
-    p.ok(&["card", "set", "demo", "branch=main"]);
+    p.ok(&["board", "set", "demo", "branch=main"]);
     assert_eq!(
         p.ferrule(&["pr", "push", "demo"]).text(),
         "push=refused reason=main hint=push from a branch other than main\nexit=1"
     );
-    p.ok(&["card", "set", "demo", "branch=feat/demo"]);
+    p.ok(&["board", "set", "demo", "branch=feat/demo"]);
     git(
         &p.root,
         &[
@@ -462,7 +465,7 @@ fn it_push_refuses_an_unverified_head_and_main() {
     assert_eq!(
         p.ferrule(&["pr", "push", "demo"]).text(),
         "push=refused reason=sha mismatch=card-commit hint=push a stage's last commit= \
-         on the run's branch: ferrule run sha-check\nexit=1"
+         on the run's branch: ferrule stage verify\nexit=1"
     );
 }
 
@@ -484,21 +487,21 @@ fn it_replan_swaps_the_uncommitted_stages() {
         ],
         r#"[{"number":12,"title":"Reconnect dropped Modbus clients"}]"#,
     );
-    let gate2 = p.ok(&["run", "approve", "demo", "gate2"]);
+    let gate2 = p.ok(&["gate", "approve", "demo", "gate2"]);
     assert!(gate2.contains("issue=12 "), "adopted: {gate2}");
     let sha0 = p.land("s0", "docs/specs/modbus/requirements.md");
     p.ok(&[
-        "card",
+        "board",
         "log",
         "demo",
         "gauntlet=pass",
         "cov=80%",
         &format!("sha={sha0}"),
     ]);
-    p.ok(&["card", "move", "demo.s0", "done"]);
-    p.ok(&["card", "move", "demo.s1", "inprogress"]);
+    p.ok(&["board", "move", "demo.s0", "done"]);
+    p.ok(&["board", "move", "demo.s1", "inprogress"]);
     p.ok(&[
-        "card",
+        "board",
         "log",
         "demo.s1",
         "spec-delta",
@@ -510,7 +513,7 @@ fn it_replan_swaps_the_uncommitted_stages() {
     ]);
 
     assert_eq!(
-        p.ok(&["run", "replan", "demo", "start"]),
+        p.ok(&["stage", "replan", "demo", "start"]),
         "replan=started from=s1"
     );
     assert!(p.run_dir().join("plan.prev.md").is_file());
@@ -520,16 +523,16 @@ fn it_replan_swaps_the_uncommitted_stages() {
     )
     .unwrap();
     assert_eq!(
-        p.ok(&["run", "replan", "demo", "approve", "--stops", "s1"]),
+        p.ok(&["stage", "replan", "demo", "approve", "--stops", "s1"]),
         "replan=approved from=s1 stages=1"
     );
     assert_eq!(p.field("demo.s1", "title"), "Retry loop");
     assert_eq!(p.field("demo.s1", "stop"), "yes");
     assert_eq!(
-        p.ferrule(&["card", "show", "demo.s2"]).text(),
-        "card-show=card hint=check the id with `ferrule card board`\nexit=1"
+        p.ferrule(&["board", "show", "demo.s2"]).text(),
+        "card-show=card hint=check the id with `ferrule board list`\nexit=1"
     );
-    let parent = p.ok(&["card", "show", "demo"]);
+    let parent = p.ok(&["board", "show", "demo"]);
     assert!(
         parent.contains("spec-delta MB-R-170 added origin=impl retired"),
         "{parent}"
@@ -570,12 +573,12 @@ fn it_issue_file_variants() {
     p.ok(&["run", "init", "demo"]);
     p.artifacts();
     assert_eq!(
-        p.ferrule(&["issue", "file", "demo", "--split"]).text(),
+        p.ferrule(&["issue", "post", "demo", "--split"]).text(),
         "post=refused reason=no-issue \
-         hint=file the tracking issue first: ferrule issue file <slug>\nexit=1"
+         hint=file the tracking issue first: ferrule issue post <slug>\nexit=1"
     );
-    p.ok(&["card", "set", "demo", "issue=12"]);
-    assert_eq!(p.ok(&["issue", "file", "demo"]), "issue=12 action=recorded");
+    p.ok(&["board", "set", "demo", "issue=12"]);
+    assert_eq!(p.ok(&["issue", "post", "demo"]), "issue=12 action=recorded");
     gh.serve(
         &[
             "issue",
@@ -601,7 +604,7 @@ fn it_issue_file_variants() {
         "https://github.com/o/r/issues/56\n",
     );
     assert_eq!(
-        p.ok(&["issue", "file", "demo", "--split"]),
+        p.ok(&["issue", "post", "demo", "--split"]),
         "issue=56 action=created"
     );
     assert_eq!(p.field("demo", "split"), "[56]");
@@ -612,7 +615,7 @@ fn it_issue_file_variants() {
     .unwrap();
     gh.serve(&["issue", "comment", "12", "--body-file", "-"], "");
     assert_eq!(
-        p.ok(&["issue", "file", "demo", "--comment"]),
+        p.ok(&["issue", "post", "demo", "--comment"]),
         "issue=12 action=commented"
     );
     assert!(gh.log().contains("issue comment 12 --body-file -"));
@@ -629,12 +632,12 @@ fn it_issue_file_variants() {
         "",
     );
     assert_eq!(
-        p.ok(&["issue", "file", "demo", "--reuse", "41"]),
+        p.ok(&["issue", "post", "demo", "--reuse", "41"]),
         "issue=41 action=edited"
     );
     assert_eq!(p.field("demo", "issue"), "41");
     assert_eq!(
-        p.ferrule(&["issue", "file", "demo", "--split", "--comment"])
+        p.ferrule(&["issue", "post", "demo", "--split", "--comment"])
             .text(),
         "exit=2"
     );
@@ -646,8 +649,8 @@ fn it_reconcile_checks_the_host() {
     let gh = &p.gh;
     p.ok(&["run", "init", "demo"]);
     p.artifacts();
-    p.ok(&["card", "set", "demo", "issue=12", "pr=34"]);
-    p.ok(&["card", "log", "demo", "pr=ready"]);
+    p.ok(&["board", "set", "demo", "issue=12", "pr=34"]);
+    p.ok(&["board", "log", "demo", "pr=ready"]);
     let closed = "#12 Reconnect dropped Modbus clients [CLOSED]\nhttps://github.com/o/r/issues/12\nby someone\n\nbody\n\n--- 0 comment(s) ---\n";
     gh.serve(
         &["issue", "view", "12", "--json", GH_FIELDS],
@@ -672,8 +675,8 @@ fn it_reconcile_checks_the_host() {
 fn it_card_commit_checks_the_card_and_the_branch() {
     let p = Project::new();
     p.ok(&["run", "init", "demo"]);
-    p.ok(&["card", "set", "demo", "branch=feat/demo"]);
-    p.ok(&["card", "new", "demo.s1", "title=Add a"]);
+    p.ok(&["board", "set", "demo", "branch=feat/demo"]);
+    p.ok(&["board", "new", "demo.s1", "title=Add a"]);
     git(
         &p.root,
         &[
@@ -700,21 +703,23 @@ fn it_card_commit_checks_the_card_and_the_branch() {
             .text()
     };
     assert_eq!(
-        in_wt(&["card", "commit", "demo.s1", "-m", "Add a"]),
-        "commit=refused reason=state state=open hint=move the card to inreview first: `ferrule card move demo.s1 inreview`\nexit=1"
+        in_wt(&["stage", "commit", "demo.s1", "-m", "Add a"]),
+        "commit=refused reason=state state=open hint=move the card to inreview first: `ferrule board move demo.s1 inreview`\nexit=1"
     );
-    p.ok(&["card", "move", "demo.s1", "inprogress"]);
-    p.ok(&["card", "move", "demo.s1", "inreview"]);
+    p.ok(&["board", "move", "demo.s1", "inprogress"]);
+    p.ok(&["board", "move", "demo.s1", "inreview"]);
     let trailer = format!("{}: A <a@b>", ["Co", "Authored", "By"].join("-"));
-    let done = in_wt(&["card", "commit", "demo.s1", "-m", "Add a", "-m", &trailer]);
+    let done = in_wt(&["stage", "commit", "demo.s1", "-m", "Add a", "-m", &trailer]);
     let sha = git(&p.worktree(), &["rev-parse", "--short", "HEAD"]);
     assert_eq!(done, format!("commit=done sha={sha} card=demo.s1\nexit=0"));
     assert_eq!(git(&p.worktree(), &["log", "-1", "--format=%B"]), "Add a");
     assert_eq!(p.field("demo.s1", "log:commit"), sha);
 
-    let on_main = p.ferrule(&["card", "commit", "--no-run", "-m", "x"]).text();
+    let on_main = p
+        .ferrule(&["stage", "commit", "--no-run", "-m", "x"])
+        .text();
     assert_eq!(
         on_main,
-        "commit=refused reason=main branch=main hint=commit on the run's branch, not main: `ferrule run approve <slug> gate2` creates it and its worktree; with --no-run, check out another branch first\nexit=1"
+        "commit=refused reason=main branch=main hint=commit on the run's branch, not main: `ferrule gate approve <slug> gate2` creates it and its worktree; with --no-run, check out another branch first\nexit=1"
     );
 }

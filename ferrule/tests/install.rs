@@ -1,4 +1,4 @@
-//! `ferrule install`, `install --check` and `uninstall` on scratch
+//! `ferrule setup install`, `setup check` and `uninstall` on scratch
 //! repositories.
 
 mod golden;
@@ -76,7 +76,7 @@ fn it_install_writes_the_adapters_and_is_idempotent() {
         "{agent}"
     );
     assert!(
-        agent.contains("`ferrule guide implementer --stage s<n>`"),
+        agent.contains("`ferrule guide show implementer --stage s<n>`"),
         "{agent}"
     );
     assert!(
@@ -106,7 +106,7 @@ fn it_install_writes_the_adapters_and_is_idempotent() {
     assert!(deny.iter().any(|r| r == "Edit(**/.ferrule/state.db)"));
 
     assert_eq!(
-        ferrule(root, &["install", "--check"]),
+        ferrule(root, &["setup", "check"]),
         format!("install-check=ok version={VERSION}\nexit=0")
     );
     let again = ferrule(root, &["install"]);
@@ -165,7 +165,7 @@ fn it_install_merges_into_existing_project_files() {
     // A guard allow-list re-opens commands in the deny rules too.
     let config = read(root, ".ferrule/ferrule.toml") + "\n[guard]\nallow = [\"gh issue\"]\n";
     std::fs::write(root.join(".ferrule/ferrule.toml"), config).unwrap();
-    let check = ferrule(root, &["install", "--check"]);
+    let check = ferrule(root, &["setup", "check"]);
     assert!(
         check.contains("drift path=.claude/settings.json reason=edited"),
         "{check}"
@@ -179,7 +179,7 @@ fn it_install_merges_into_existing_project_files() {
             .any(|r| r.as_str().unwrap().starts_with("Bash(gh issue"))
     );
     assert!(deny.iter().any(|r| r == "Bash(rm -rf:*)"));
-    assert!(ferrule(root, &["install", "--check"]).ends_with("exit=0"));
+    assert!(ferrule(root, &["setup", "check"]).ends_with("exit=0"));
 }
 
 #[test]
@@ -201,10 +201,10 @@ fn it_install_keeps_edited_files_and_refuses_foreign_ones() {
     let planner = root.join(".claude/agents/fe-planner.md");
     let edited = std::fs::read_to_string(&planner).unwrap() + "One more rule.\n";
     std::fs::write(&planner, &edited).unwrap();
-    let check = ferrule(root, &["install", "--check"]);
+    let check = ferrule(root, &["setup", "check"]);
     assert!(
         check.starts_with(
-            "install-check=drift count=1 hint=run ferrule install, review the diff, commit\ndrift path=.claude/agents/fe-planner.md reason=edited\n"
+            "install-check=drift count=1 hint=run ferrule setup install, review the diff, commit\ndrift path=.claude/agents/fe-planner.md reason=edited\n"
         ),
         "{check}"
     );
@@ -224,8 +224,8 @@ fn it_a_pinned_version_refuses_other_binaries() {
     let config = read(root, ".ferrule/ferrule.toml")
         .replace(&format!("version = \"{VERSION}\""), "version = \"0.0.1\"");
     std::fs::write(root.join(".ferrule/ferrule.toml"), config).unwrap();
-    assert_eq!(ferrule(root, &["card", "board"]), "exit=1");
-    let check = ferrule(root, &["install", "--check"]);
+    assert_eq!(ferrule(root, &["board", "list"]), "exit=1");
+    let check = ferrule(root, &["setup", "check"]);
     assert!(
         check.contains(&format!(
             "drift path=.ferrule/ferrule.toml reason=version pinned=0.0.1 binary={VERSION}"
@@ -233,7 +233,7 @@ fn it_a_pinned_version_refuses_other_binaries() {
         "{check}"
     );
     assert!(ferrule(root, &["install"]).ends_with("exit=0"));
-    assert!(ferrule(root, &["card", "board"]).ends_with("exit=0"));
+    assert!(ferrule(root, &["board", "list"]).ends_with("exit=0"));
 }
 
 /// Runs `ferrule` in `root`: its stderr, and its exit code.
@@ -282,27 +282,31 @@ fn it_a_lock_from_another_version_names_the_update() {
     };
 
     lock_at("0.0.1");
-    let (_, err, code) = stderr(root, &["card", "board"], "");
+    let (_, err, code) = stderr(root, &["board", "list"], "");
     assert_eq!(code, 1);
     assert!(
         err.contains(&format!("reason=version locked=0.0.1 binary={VERSION}")),
         "{err}"
     );
-    assert!(err.contains("run ferrule install"), "{err}");
+    assert!(err.contains("run ferrule setup install"), "{err}");
 
     let (out, _, code) = stderr(root, &["hook", "shell"], &bash("git status"));
     assert_eq!(code, 0);
     assert!(
-        out.contains("\"deny\"") && out.contains("run ferrule install"),
+        out.contains("\"deny\"") && out.contains("run ferrule setup install"),
         "{out}"
     );
-    let (out, _, code) = stderr(root, &["hook", "shell"], &bash(".ferrule/ferrule install"));
+    let (out, _, code) = stderr(
+        root,
+        &["hook", "shell"],
+        &bash(".ferrule/ferrule setup install"),
+    );
     assert_eq!((out.as_str(), code), ("", 0));
     let (out, _, _) = stderr(root, &["hook", "session-start"], "");
-    assert!(out.contains("run ferrule install"), "{out}");
+    assert!(out.contains("run ferrule setup install"), "{out}");
 
     lock_at("99.0.0");
-    let (_, err, code) = stderr(root, &["card", "board"], "");
+    let (_, err, code) = stderr(root, &["board", "list"], "");
     assert_eq!(code, 1);
     assert!(err.contains("--tag v99.0.0"), "{err}");
     let (out, _, code) = stderr(
@@ -313,7 +317,7 @@ fn it_a_lock_from_another_version_names_the_update() {
     assert_eq!((out.as_str(), code), ("", 0));
 
     assert!(ferrule(root, &["install"]).ends_with("exit=0"));
-    assert!(ferrule(root, &["card", "board"]).ends_with("exit=0"));
+    assert!(ferrule(root, &["board", "list"]).ends_with("exit=0"));
 }
 
 #[test]
@@ -322,7 +326,7 @@ fn it_uninstall_takes_out_what_install_put_in() {
     let root = dir.path();
     std::fs::write(root.join("AGENTS.md"), "# Agents\n").unwrap();
     ferrule(root, &["install"]);
-    ferrule(root, &["card", "new", "demo"]);
+    ferrule(root, &["board", "new", "demo"]);
     let edited = read(root, ".claude/skills/fe-review/SKILL.md") + "x\n";
     std::fs::write(root.join(".claude/skills/fe-review/SKILL.md"), edited).unwrap();
 

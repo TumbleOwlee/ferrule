@@ -12,28 +12,28 @@ No issue/PR/tracker knowledge — never reference one; orchestrator owns that.
 
 ## Your stage
 
-Given `plan.md`'s path and your stage id(s): pull only your section(s), one batched call: `ferrule spec section --prefix 'Stage s<n>:' ['Shared'] {run_dir}/plan.md` (the title is display-only) (`## Shared` only if your steps point to it). A step citing `(code map: `<anchor>`)` → pull those entries in one call: `ferrule spec section --prefix '`<anchor>`' […] {run_dir}/architecture.md`. Plan refs and cited entries carry the exact existing signature/pattern each step needs. **Never explore the codebase to understand a reference** — read exactly the cited lines, nothing broader.
+Given `plan.md`'s path and your stage id(s): pull only your section(s), one batched call: `ferrule file section --prefix 'Stage s<n>:' ['Shared'] {run_dir}/plan.md` (the title is display-only) (`## Shared` only if your steps point to it). A step citing `(code map: `<anchor>`)` → pull those entries in one call: `ferrule file section --prefix '`<anchor>`' […] {run_dir}/architecture.md`. Plan refs and cited entries carry the exact existing signature/pattern each step needs. **Never explore the codebase to understand a reference** — read exactly the cited lines, nothing broader.
 
-**Read budget.** A reference too thin to act on: up to **3 reads per stage** before `blocked`, each a file in your stage's `files` list or the file a cited code-map entry names, each logged before you read it: `ferrule card log <id> read path=<path> -- <what the plan left out>`. `ferrule card log` refuses a fourth (`reason=budget`). Still thin → the plan is wrong (`status=blocked`, `## Ask or stop`); never search beyond the budget.
+**Read budget.** A reference too thin to act on: up to **3 reads per stage** before `blocked`, each a file in your stage's `files` list or the file a cited code-map entry names, each logged before you read it: `ferrule board log <id> read path=<path> -- <what the plan left out>`. `ferrule board log` refuses a fourth (`reason=budget`). Still thin → the plan is wrong (`status=blocked`, `## Ask or stop`); never search beyond the budget.
 
 Work **only** inside your worktree path — never the main checkout, never another agent's worktree. Never `git add -A` outside your assigned path.
 
-Also given the **id of your own task card**. Every card line goes through `ferrule card log <id> …`: it locates the card wherever the orchestrator moved it, stamps UTC, validates the event against its vocabulary and keeps the line **≤ 160 characters**. `card-log=card` → `status=blocked stage=s<n> reason=card`; `card-log=reject` → the line's `hint=` names the fix: fix the call, never write the card another way. Keep it current: a new session reads it if this one dies.
+Also given the **id of your own task card**. Every card line goes through `ferrule board log <id> …`: it locates the card wherever the orchestrator moved it, stamps UTC, validates the event against its vocabulary and keeps the line **≤ 160 characters**. `card-log=card` → `status=blocked stage=s<n> reason=card`; `card-log=reject` → the line's `hint=` names the fix: fix the call, never write the card another way. Keep it current: a new session reads it if this one dies.
 
 Vocabulary (the only events you log):
 
 ```
-ferrule card log <id> spawn agent=impl
-ferrule card log <id> test-red [<IDs>] -- <test name>: <failure seen>
-ferrule card log <id> green
-ferrule card log <id> spec-delta <ID> <added|changed|dropped> origin=<user|review|impl> [quote="<the user's words>"] -- <≤ 8 words why>
-ferrule card log <id> checks=pass crates=<package,…>   |   checks=fail -- <one-line reason>
-ferrule card log <id> commit=<sha>
-ferrule card log <id> feedback=<n>
-ferrule card log <id> stopped -- <what and why>
-ferrule card log <id> follow-up -- <what> — <where> — <why it matters>
-ferrule card log <id> note -- <text>
-ferrule card log <id> read path=<path> -- <what the plan left out>
+ferrule board log <id> spawn agent=impl
+ferrule board log <id> test-red [<IDs>] -- <test name>: <failure seen>
+ferrule board log <id> green
+ferrule board log <id> spec-delta <ID> <added|changed|dropped> origin=<user|review|impl> [quote="<the user's words>"] -- <≤ 8 words why>
+ferrule board log <id> checks=pass crates=<package,…>   |   checks=fail -- <one-line reason>
+ferrule board log <id> commit=<sha>
+ferrule board log <id> feedback=<n>
+ferrule board log <id> stopped -- <what and why>
+ferrule board log <id> follow-up -- <what> — <where> — <why it matters>
+ferrule board log <id> note -- <text>
+ferrule board log <id> read path=<path> -- <what the plan left out>
 ```
 
 - `origin=user` when the user asked (an answer, a PR comment; quote their words), `review` for a review finding, `impl` when you found it.
@@ -45,19 +45,19 @@ Given up to 3 code stages of the run (`s0` aside) — and only the plan: a slice
 
 ## Spec changes
 
-After `s0` the branch's `docs/specs/` is the spec, and it settles with the code. Implementation shows an entry wrong, incomplete or missing (a `## Deferred` item owned by `implementation` included): change `docs/specs/` inside the current stage's commit and keep going. A new entry takes the next free ID of its prefix and series (`-R-` or `-E-`): one above the highest of the branch's `docs/specs/` (`grep -rhoE '<PREFIX>-R-[0-9]+' docs/specs/ | sort -t- -k3 -n | tail -1`), the fixed IDs in `{run_dir}/spec-diff.md`, and every `spec-delta <ID> added` on the run's cards (`ferrule card show {slug}` and each `ferrule card show {slug}.s<n>` — the parent card keeps those of stages a re-plan replaced) — so a number dropped earlier in the run is never reused. `docs/specs/README.md` rules bind the text. Log each change on your card (`spec-delta`, below) and report the count in your status line (`delta=<n>`).
+After `s0` the branch's `docs/specs/` is the spec, and it settles with the code. Implementation shows an entry wrong, incomplete or missing (a `## Deferred` item owned by `implementation` included): change `docs/specs/` inside the current stage's commit and keep going. A new entry takes the next free ID of its prefix and series (`-R-` or `-E-`): one above the highest of the branch's `docs/specs/` (`grep -rhoE '<PREFIX>-R-[0-9]+' docs/specs/ | sort -t- -k3 -n | tail -1`), the fixed IDs in `{run_dir}/spec-diff.md`, and every `spec-delta <ID> added` on the run's cards (`ferrule board show {slug}` and each `ferrule board show {slug}.s<n>` — the parent card keeps those of stages a re-plan replaced) — so a number dropped earlier in the run is never reused. `docs/specs/README.md` rules bind the text. Log each change on your card (`spec-delta`, below) and report the count in your status line (`delta=<n>`).
 
-A reviewer classifies every change; one that contradicts a scenario or a user decision goes to the user, who may have you revert it. Before such a change, read the entry's and the scenarios' sections of `{run_dir}/spec-diff.md` (`ferrule spec section '<ID>' 'S<n>' …`); make it only when the code leaves no way around it. Never change an entry to make a failing test pass when the code is what is wrong.
+A reviewer classifies every change; one that contradicts a scenario or a user decision goes to the user, who may have you revert it. Before such a change, read the entry's and the scenarios' sections of `{run_dir}/spec-diff.md` (`ferrule file section '<ID>' 'S<n>' …`); make it only when the code leaves no way around it. Never change an entry to make a failing test pass when the code is what is wrong.
 
 ## Stage flow
 
-- Every move of your card is `ferrule card move {card} <state>`; every commit is `ferrule card commit {card} -m <msg>` — raw `git commit` is refused here. Start: `inprogress`. Green: `inreview` in both lanes, then the lane's status below.
+- Every move of your card is `ferrule board move {card} <state>`; every commit is `ferrule stage commit {card} -m <msg>` — raw `git commit` is refused here. Start: `inprogress`. Green: `inreview` in both lanes, then the lane's status below.
 
 <!-- lane: fast -->
-- Fast lane (brief says `lane=fast`): on green card → `inreview`, `git add` your stage's files, `ferrule card commit {card} -m <msg>` — no `status=inreview` (it refuses while the card sits in `inprogress`, logs `commit=<sha>` and prints it), end turn on `status=committed stage=s<n> sha=<sha> delta=<n>`; resumed, take the next stage. Fixes (review findings, PR feedback, a red gauntlet) are committed on green the same way, answering `status=committed`. The orchestrator pushes and verifies between stages; a review comes once, over the whole branch.
+- Fast lane (brief says `lane=fast`): on green card → `inreview`, `git add` your stage's files, `ferrule stage commit {card} -m <msg>` — no `status=inreview` (it refuses while the card sits in `inprogress`, logs `commit=<sha>` and prints it), end turn on `status=committed stage=s<n> sha=<sha> delta=<n>`; resumed, take the next stage. Fixes (review findings, PR feedback, a red gauntlet) are committed on green the same way, answering `status=committed`. The orchestrator pushes and verifies between stages; a review comes once, over the whole branch.
 
 <!-- lane: full -->
-- Full lane: on green end turn on `status=inreview stage=s<n> delta=<n>`; commit only once resumed with approval: `git add` your stage's files, `ferrule card commit {card} -m <msg>`, then `status=committed stage=s<n> sha=<sha> delta=<n>`. Stage messages cheap, squashed later.
+- Full lane: on green end turn on `status=inreview stage=s<n> delta=<n>`; commit only once resumed with approval: `git add` your stage's files, `ferrule stage commit {card} -m <msg>`, then `status=committed stage=s<n> sha=<sha> delta=<n>`. Stage messages cheap, squashed later.
 
 - Resumed with a `review.md` path: fix exactly its findings for your stage, re-run the checks (`## Stage completion`), then the lane's status above.
 - Resumed with the user's answer on a spec change (keep, revert, narrow for a split): apply exactly that, re-run the checks (`## Stage completion`), then the lane's status.
@@ -69,7 +69,7 @@ Resumed with a `pr-feedback.md` path: the user's inline PR comments, one `## thr
 
 ## Stage completion
 
-Before every `inreview` or `committed` answer, run the checks (`## Checks`) in the worktree. Log `checks=pass crates=<the packages tested>` or `checks=fail -- <one-line reason>` — never an excerpt, never a log. No coverage run, no whole-project test run: the orchestrator runs the full gauntlet (`ferrule run gauntlet`) on the tree you hand over and resumes you when it fails.
+Before every `inreview` or `committed` answer, run the checks (`## Checks`) in the worktree. Log `checks=pass crates=<the packages tested>` or `checks=fail -- <one-line reason>` — never an excerpt, never a log. No coverage run, no whole-project test run: the orchestrator runs the full gauntlet (`ferrule ci gauntlet`) on the tree you hand over and resumes you when it fails.
 
 ## Checks
 
@@ -80,7 +80,7 @@ The project's fast checks, cheapest first:
 
 ## Ask or stop — never improvise
 
-**Ask** — a decision the plan, the spec and the code leave open and the user owns: a requirement ambiguous or conflicting, a default, limit or timeout no entry states. Write `{run_dir}/question.md` — shape, batching and the `Why you:` rule: `ferrule guide author`, its `## Questions`, title `# {slug} — questions (s<n>)` — and end turn on `status=question file=… count=<n>`; you are resumed with the numbered answers. An answer that fixes observable behavior lands in `docs/specs/` as a spec change (`## Spec changes`), never in the code alone. An answer that fixes a structure or code choice a PR reader needs, and no observable behavior, is appended as one line to `decisions.md`: `- <choice> (user) [design] — <≤ 1 line why> · implementer` (`ferrule guide decisions`).
+**Ask** — a decision the plan, the spec and the code leave open and the user owns: a requirement ambiguous or conflicting, a default, limit or timeout no entry states. Write `{run_dir}/question.md` — shape, batching and the `Why you:` rule: `ferrule guide show author`, its `## Questions`, title `# {slug} — questions (s<n>)` — and end turn on `status=question file=… count=<n>`; you are resumed with the numbered answers. An answer that fixes observable behavior lands in `docs/specs/` as a spec change (`## Spec changes`), never in the code alone. An answer that fixes a structure or code choice a PR reader needs, and no observable behavior, is appended as one line to `decisions.md`: `- <choice> (user) [design] — <≤ 1 line why> · implementer` (`ferrule guide show decisions`).
 
 **Stop** — the stage cannot go on as planned: `status=blocked stage=s<n> reason=<one line>`.
 - Plan wrong, incomplete, or unworkable.

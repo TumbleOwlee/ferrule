@@ -1,6 +1,6 @@
 use std::io::{self, Write};
 
-use clap::Args;
+use clap::{Args, Subcommand};
 use ferrule_core::install::{self, Error, Options, Stack, VERSION};
 use ferrule_core::project;
 
@@ -8,7 +8,7 @@ use super::exit;
 use crate::cli::Command;
 use crate::commands::hook::HookCommand;
 
-/// Shown after `ferrule install --help`.
+/// Shown after `ferrule setup install --help`.
 const INSTALL_AFTER_LONG_HELP: &str = "\
 Output:
   install=done version=<v> host=<h> stack=<s> viewer=<glow|stdout> hooks=<k> written=<n> kept=<n>
@@ -20,7 +20,7 @@ Output:
       wrote, always written or updated) and the git hooks (written into
       .git/hooks, or into the lefthook file; reported only as `hooks=<k>` of
       the summary). `.ferrule/state.db` is not created by install; it appears
-      on first board use (`ferrule run init`, `ferrule card new`).
+      on first board use (`ferrule run init`, `ferrule board new`).
   kept=<path> new=<path>.ferrule-new diff=+<a>/-<b>
       A file someone edited was kept; the new version is beside it. Merge
       it in, then delete the .ferrule-new file.
@@ -36,16 +36,6 @@ Refusals (stdout):
       written. Move it away or rerun with --force.
   install=refused reason=<error> hint=fix the file the reason names, then rerun
       The lock or .claude/settings.json is unreadable or not valid.
-With --check, nothing is written:
-  install-check=ok version=<v>
-      Files match the lock and this binary.
-  install-check=drift count=<n> hint=run ferrule install, review the diff, commit
-      Followed by one `drift path=<file> reason=<r>` line each. r is
-      missing, stale (unedited, older), reason=edited (changed by hand, or
-      settings.json deny rules differ) or version (then pinned=<v> or
-      locked=<v>, and binary=<v>).
-  install-check=refused reason=<error> hint=fix the file the reason names, then rerun
-      The lock or settings file is unreadable.
 Version mismatch (stderr of every other command):
   ferrule=refused reason=version pinned=<v> binary=<v>: <fix>
   ferrule=refused reason=version locked=<v> binary=<v>: <fix>
@@ -56,8 +46,50 @@ Version mismatch (stderr of every other command):
 Exit codes: 0 ok, 1 refused or drift, 2 usage (2 also blocks a git hook on a
 version mismatch).";
 
+/// Shown after `ferrule setup check --help`.
+const CHECK_AFTER_LONG_HELP: &str = "\
+Output (nothing is written):
+  install-check=ok version=<v>
+      Files match the lock and this binary.
+  install-check=drift count=<n> hint=run ferrule setup install, review the diff, commit
+      Followed by one `drift path=<file> reason=<r>` line each. r is
+      missing, stale (unedited, older), reason=edited (changed by hand, or
+      settings.json deny rules differ) or version (then pinned=<v> or
+      locked=<v>, and binary=<v>).
+  install-check=refused reason=<error> hint=fix the file the reason names, then rerun
+      The lock or settings file is unreadable.
+Exit codes: 0 ok, 1 refused or drift, 2 usage.";
+
+#[derive(Debug, Subcommand)]
+pub enum SetupCommand {
+    /// Set up or upgrade ferrule in this repository.
+    ///
+    /// Writes `.ferrule/`, the agent host's files and the git hooks, and
+    /// records what it wrote in `.ferrule/ferrule.lock`. A rerun upgrades
+    /// unedited files and writes `<file>.ferrule-new` beside edited ones.
+    #[command(after_long_help = INSTALL_AFTER_LONG_HELP)]
+    Install(InstallArgs),
+    /// Check the generated files against the lock and this binary.
+    ///
+    /// Writes nothing; fails when a file drifted.
+    #[command(after_long_help = CHECK_AFTER_LONG_HELP)]
+    Check {
+        /// The agent host whose files to check.
+        #[arg(long, default_value = "claude", value_parser = ["claude"])]
+        host: String,
+    },
+    /// Remove what `setup install` added.
+    ///
+    /// Keeps `.ferrule/` (the board and every run's files) unless `--purge`.
+    #[command(after_long_help = super::uninstall::UNINSTALL_AFTER_LONG_HELP)]
+    Uninstall {
+        /// Also remove `.ferrule/`: the board and every run's files.
+        #[arg(long)]
+        purge: bool,
+    },
+}
+
 #[derive(Debug, Args)]
-#[command(after_long_help = INSTALL_AFTER_LONG_HELP)]
 pub struct InstallArgs {
     /// The agent host to write files for.
     #[arg(long, default_value = "claude", value_parser = ["claude"])]
@@ -65,21 +97,20 @@ pub struct InstallArgs {
     /// The stack for a new `ferrule.toml` [default: detected].
     #[arg(long, value_parser = ["rust", "node", "go", "python", "none"])]
     pub stack: Option<String>,
-    /// Write nothing; fail when the generated files drift from the lock or
-    /// from this binary.
-    #[arg(long, conflicts_with_all = ["stack", "force"])]
+    /// Set by `ferrule setup check`, never on the command line.
+    #[arg(skip)]
     pub check: bool,
     /// Overwrite files at generated paths that ferrule did not write.
     #[arg(long)]
     pub force: bool,
 }
 
-/// Refuses every command but install's when the project pins another
+/// Refuses every command but `setup` when the project pins another
 /// version or its generated files come from one. A git hook refuses with
 /// exit 2, the code that blocks it; the Claude Code hooks check for
 /// themselves, so that the update they ask for can still run.
 pub fn pinned(command: &Command) -> Option<u8> {
-    if matches!(command, Command::Install(_) | Command::Uninstall { .. }) {
+    if matches!(command, Command::Setup(_)) {
         return None;
     }
     if matches!(command, Command::Hook(h) if !matches!(h, HookCommand::Git { .. })) {
@@ -94,7 +125,23 @@ pub fn pinned(command: &Command) -> Option<u8> {
     })
 }
 
-pub fn install(args: &InstallArgs, out: &mut impl Write) -> io::Result<u8> {
+pub fn run(command: &SetupCommand, out: &mut impl Write) -> io::Result<u8> {
+    match command {
+        SetupCommand::Install(args) => install(args, out),
+        SetupCommand::Check { host } => install(
+            &InstallArgs {
+                host: host.clone(),
+                stack: None,
+                check: true,
+                force: false,
+            },
+            out,
+        ),
+        SetupCommand::Uninstall { purge } => super::uninstall::run(*purge, out),
+    }
+}
+
+fn install(args: &InstallArgs, out: &mut impl Write) -> io::Result<u8> {
     let root = project::toplevel();
     if args.check {
         return match install::check(&root) {
@@ -105,7 +152,7 @@ pub fn install(args: &InstallArgs, out: &mut impl Write) -> io::Result<u8> {
             Ok(drift) => {
                 writeln!(
                     out,
-                    "install-check=drift count={} hint=run ferrule install, review the diff, commit",
+                    "install-check=drift count={} hint=run ferrule setup install, review the diff, commit",
                     drift.len()
                 )?;
                 for d in drift {

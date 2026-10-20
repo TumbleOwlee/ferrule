@@ -10,7 +10,7 @@ use ferrule_core::project::{self, Layout};
 use ferrule_core::remote;
 use ferrule_core::term::{self, Style};
 
-use super::card::{sql, store};
+use super::board::{sql, store};
 use super::exit;
 
 const ISSUE_VIEW_AFTER_LONG_HELP: &str = "\
@@ -34,7 +34,7 @@ Errors (stderr, exit 1): `issue request: <the tracker's error>` for an unknown
 issue, a missing credential or a failing `gh`/`curl`.
 Exit codes: 0 ok, 1 refused.
 Backend: reads from the configured tracker.
-See: ferrule guide epic";
+See: ferrule guide show epic";
 
 const ISSUE_BODY_AFTER_LONG_HELP: &str = "\
 Output (stdout): the body, line 1 `# <title>`, nothing else. Reads the run's
@@ -52,9 +52,9 @@ Refusals:
   (no line, nothing printed)
       The body would be empty. Exit 1.
 Exit codes: 0 ok, 1 refused, 3 content (stage-ref).
-See: ferrule guide issue";
+See: ferrule guide show issue";
 
-const ISSUE_FILE_AFTER_LONG_HELP: &str = "\
+const ISSUE_POST_AFTER_LONG_HELP: &str = "\
 Output:
   issue=<n> action=<action>
       Filed or updated issue <n>; the card's `issue:` (or `slices:` /
@@ -66,11 +66,11 @@ Output:
         commented  `--comment` posted issue-comment.md
         recorded   The card already names the issue; nothing was posted
 Refusals (stdout, exit 1):
-  post=refused reason=card hint=no card for this slug; check it with `ferrule card board`
-      No card for the slug. Fix: check the slug with `ferrule card board`.
-  post=refused reason=no-issue hint=file the tracking issue first: ferrule issue file <slug>
+  post=refused reason=card hint=no card for this slug; check it with `ferrule board list`
+      No card for the slug. Fix: check the slug with `ferrule board list`.
+  post=refused reason=no-issue hint=file the tracking issue first: ferrule issue post <slug>
       `--split`, `--follow-up` or `--comment` before the card has an issue.
-      Fix: `ferrule issue file <slug>` first.
+      Fix: `ferrule issue post <slug>` first.
   body=refused stage-ref=<token> hint=reword the source text so it names no stage or agent
       The tracking or slice body names a stage or an agent. Exit 3. Fix:
       reword the source file (see `issue body`).
@@ -78,7 +78,7 @@ Errors (stderr, exit 1): `missing <path>` for an absent run file; the tracker's
 error when the host call fails.
 Exit codes: 0 ok, 1 refused, 3 content.
 Backend: writes to the configured tracker (`gh`, Jira or Bitbucket).
-See: ferrule guide issue";
+See: ferrule guide show issue";
 
 #[derive(Debug, Subcommand)]
 pub enum IssueCommand {
@@ -110,11 +110,11 @@ pub enum IssueCommand {
         #[arg(long, value_name = "N")]
         slice: Option<u32>,
     },
-    /// File the run's issue, or a related one, and record its number.
+    /// Post the run's issue, a related one or a comment; record its number.
     ///
     /// An open issue with the same title is adopted, never filed twice.
-    #[command(after_long_help = ISSUE_FILE_AFTER_LONG_HELP)]
-    File {
+    #[command(after_long_help = ISSUE_POST_AFTER_LONG_HELP)]
+    Post {
         /// The run's slug.
         slug: String,
         #[command(flatten)]
@@ -168,7 +168,7 @@ pub fn run(command: &IssueCommand, style: Option<Style>, out: &mut impl Write) -
         IssueCommand::View { issue } => view(issue, style, out),
         IssueCommand::Request { issue, part } => request(issue, *part, style, out),
         IssueCommand::Body { slug, slice } => body(slug, *slice, style, out),
-        IssueCommand::File {
+        IssueCommand::Post {
             slug,
             target,
             reuse,
@@ -323,7 +323,7 @@ pub fn post_failed(e: publish::Error, out: &mut impl Write) -> io::Result<u8> {
             writeln!(
                 out,
                 "post=refused reason=no-issue \
-                 hint=file the tracking issue first: ferrule issue file <slug>"
+                 hint=file the tracking issue first: ferrule issue post <slug>"
             )?;
             Ok(exit::REFUSED)
         }
@@ -331,14 +331,14 @@ pub fn post_failed(e: publish::Error, out: &mut impl Write) -> io::Result<u8> {
             writeln!(
                 out,
                 "post=refused reason=no-branch \
-                 hint=approve gate2 first: ferrule run approve <slug> gate2"
+                 hint=approve gate2 first: ferrule gate approve <slug> gate2"
             )?;
             Ok(exit::REFUSED)
         }
         publish::Error::Card => {
             writeln!(
                 out,
-                "post=refused reason=card hint=no card for this slug; check it with `ferrule card board`"
+                "post=refused reason=card hint=no card for this slug; check it with `ferrule board list`"
             )?;
             Ok(exit::REFUSED)
         }
@@ -363,7 +363,7 @@ fn file(slug: &str, t: FileTarget, reuse: Option<u64>, out: &mut impl Write) -> 
     let Some(mut s) = store(false)? else {
         writeln!(
             out,
-            "post=refused reason=card hint=no card for this slug; check it with `ferrule card board`"
+            "post=refused reason=card hint=no card for this slug; check it with `ferrule board list`"
         )?;
         return Ok(exit::REFUSED);
     };

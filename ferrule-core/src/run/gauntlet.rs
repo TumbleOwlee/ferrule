@@ -34,7 +34,7 @@ pub enum Outcome {
     NoSteps,
 }
 
-const NO_WORKTREE_HINT: &str = "create it with: ferrule run approve <slug> gate2";
+const NO_WORKTREE_HINT: &str = "create it with: ferrule gate approve <slug> gate2";
 const NO_STEPS_HINT: &str = "add [[gauntlet.step]] tables to ferrule.toml";
 
 impl std::fmt::Display for Outcome {

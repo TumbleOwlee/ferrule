@@ -9,7 +9,7 @@ use ferrule_core::project::{self, Layout};
 use ferrule_core::prompt::render::{Kind, Viewed};
 use ferrule_core::prompt::{self, approval};
 
-use super::card::{sql, store};
+use super::board::{sql, store};
 use super::exit;
 use crate::cli::stage_id;
 
@@ -62,7 +62,7 @@ Refusals:
   prompt show: ...     the viewer step refused; see `ferrule prompt show`
 Exit codes: 0 ok, 1 refused (a shown file is not readable), 2 usage,
 3 content (a shown summary is over its cap).
-See: ferrule guide approval";
+See: ferrule guide show approval";
 
 /// Shown after `ferrule prompt lines --help`.
 const LINES_AFTER_LONG_HELP: &str = "\
@@ -78,7 +78,7 @@ Errors (stderr):
   prompt lines: not readable: <file>
                        exit 1; the other files still print; fix the path
 Exit codes: 0 ok, 1 refused (a file not readable), 2 usage.
-See: ferrule guide approval";
+See: ferrule guide show approval";
 
 /// Shown after `ferrule prompt show --help`.
 const SHOW_AFTER_LONG_HELP: &str = "\
@@ -100,7 +100,7 @@ Errors (stderr):
                        (`[thresholds]`); have the agent that wrote it trim
                        it, never show the full file instead
 Exit codes: 0 ok, 1 refused, 2 usage, 3 content (summary over its cap).
-See: ferrule guide approval";
+See: ferrule guide show approval";
 
 #[derive(Debug, Subcommand)]
 pub enum PromptCommand {

@@ -4,7 +4,7 @@ use ferrule_core::{install, project};
 
 use super::exit;
 
-/// Shown after `ferrule uninstall --help`.
+/// Shown after `ferrule setup uninstall --help`.
 pub const UNINSTALL_AFTER_LONG_HELP: &str = "\
 Output:
   uninstall=done removed=<n> kept=<n>

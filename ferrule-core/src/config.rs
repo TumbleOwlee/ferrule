@@ -14,7 +14,7 @@ pub const FILE: &str = "ferrule.toml";
 pub struct Config {
     /// The ferrule version the project is pinned to.
     pub version: Option<String>,
-    /// Agent hosts `ferrule install` renders for.
+    /// Agent hosts `ferrule setup install` renders for.
     pub hosts: Vec<String>,
     /// The project's stack, detected at install.
     pub stack: Option<String>,

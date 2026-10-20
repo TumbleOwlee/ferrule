@@ -31,7 +31,7 @@ Output:
                              the title is the card's `title` field, if any.
                              Nothing when there is no board yet.
 Exit codes: 0 always.
-See: ferrule guide board";
+See: ferrule guide show board";
 
 const SHOW_AFTER_LONG_HELP: &str = "\
 Output:
@@ -41,16 +41,16 @@ Output:
   ---                        entry, oldest first.
 Refusals:
   card-show=card             No such card; check the id with
-                             `ferrule card board` (hint= says so)
+                             `ferrule board list` (hint= says so)
 Exit codes: 0 ok, 1 refused.
-See: ferrule guide board";
+See: ferrule guide show board";
 
 const FIELD_AFTER_LONG_HELP: &str = "\
 Output:
   <value>                    The value on one line. Nothing, with exit 0, when
                              the card, the field or the log key is absent.
 Fields:
-  <name>                     A frontmatter field (`ferrule guide board`)
+  <name>                     A frontmatter field (`ferrule guide show board`)
   state                      open, inprogress, inreview or done
   log:<key>                  The value of the last `<key>=` token in the log;
                              the event word counts, so `log:commit` is the
@@ -58,25 +58,25 @@ Fields:
   pass-sha                   The `sha=` of the last `gauntlet=pass` line
 
 Examples:
-  ferrule card field <slug> lane
-  ferrule card field <slug>.s1 log:commit
-  ferrule card field <slug>.s1 pass-sha
+  ferrule board field <slug> lane
+  ferrule board field <slug>.s1 log:commit
+  ferrule board field <slug>.s1 pass-sha
 Exit codes: 0 always.
-See: ferrule guide board";
+See: ferrule guide show board";
 
 const NEW_AFTER_LONG_HELP: &str = "\
 Output:
   (nothing)                      The card was created; exit 0.
 Refusals:
   card-new=exists                The card exists already; pick another id, or
-                                 change it with `ferrule card set`
+                                 change it with `ferrule board set`
   card-new=reject key=<k>        <k> is not a field of this kind of card; the
                                  hint lists the allowed ones (see Fields)
   card-new=reject arg=<a>        A field argument without `=`; write key=value
 Every refusal ends in `hint=<fix>`. Nothing is created on a refusal.
-Fields (`ferrule card set` takes the same):
+Fields (`ferrule board set` takes the same):
   stage card <slug>.s<n>         title, blocked-by, files, branch, worktree,
-                                 stop. `ferrule run approve <slug> gate2`
+                                 stop. `ferrule gate approve <slug> gate2`
                                  creates the stage cards and sets title,
                                  blocked-by, files, branch and stop itself.
   parent card <slug>             kind, epic, slices, issue, pr, branch, lane,
@@ -84,24 +84,24 @@ Fields (`ferrule card set` takes the same):
                                  no-arch, gate2, split, upstream, artifacts,
                                  worktree. The workflow sets these itself, so
                                  do not set them by hand: gate1, arch, gate2
-                                 and lane (`ferrule run approve`), branch
+                                 and lane (`ferrule gate approve`), branch
                                  (approve gate2), kind and epic (`run init`
-                                 of a slice, `run approve gate1 --epic`),
+                                 of a slice, `gate approve gate1 --epic`),
                                  issue, slices and split (`ferrule issue
                                  file`; gate2 files the issue too), pr
                                  (`ferrule pr open`, or the first `pr push`).
 Exit codes: 0 ok, 1 refused (exists), 2 rejected input.
-See: ferrule guide board";
+See: ferrule guide show board";
 
 const SET_AFTER_LONG_HELP: &str = "\
 Output:
   (nothing)                      The fields were written; exit 0.
 Refusals:
   card-set=card                  No such card; check the id with
-                                 `ferrule card board`
+                                 `ferrule board list`
   card-set=reject key=<k>        <k> is not a field of this kind of card; the
                                  hint lists the allowed ones, also under
-                                 Fields in `ferrule card new --help` (do not
+                                 Fields in `ferrule board new --help` (do not
                                  hand-set the ones the workflow commands
                                  write: gate1, arch, gate2, lane, branch,
                                  issue, pr, slices, split); fields before it
@@ -110,7 +110,7 @@ Refusals:
                                  nothing is written
 Every refusal ends in `hint=<fix>`.
 Exit codes: 0 ok, 1 refused (card), 2 rejected input.
-See: ferrule guide board";
+See: ferrule guide show board";
 
 const MOVE_AFTER_LONG_HELP: &str = "\
 Output:
@@ -124,7 +124,7 @@ Output:
                                  stands (details on stderr).
 Refusals:
   card-move=card                 No such card; check the id with
-                                 `ferrule card board`
+                                 `ferrule board list`
   card-move=refused from=<s> to=<s> reason=<r> hint=<fix>
                                  The board forbids the move; nothing changes.
 Reasons:
@@ -141,13 +141,13 @@ Reasons:
   blocked-by                     A stage moved to inprogress while a card in its
                                  `blocked-by` is not done
   commit                         A stage moved to done with no `commit=` in its
-                                 log; commit it with `ferrule card commit`
+                                 log; commit it with `ferrule stage commit`
   unverified                     A stage moved to done whose `commit=` sha no
                                  run `gauntlet=pass` covers; run the gauntlet
   gate2                          The parent moved to inprogress before its
-                                 `gate2` field is set; `ferrule run approve`
+                                 `gate2` field is set; `ferrule gate approve`
 Exit codes: 0 ok, 1 refused (no such card), 2 refused (reason).
-See: ferrule guide board";
+See: ferrule guide show board";
 
 const LOG_AFTER_LONG_HELP: &str = "\
 Output:
@@ -155,12 +155,12 @@ Output:
                                  minute; exit 0.
 Refusals:
   card-log=card                  No such card; check the id with
-                                 `ferrule card board`
+                                 `ferrule board list`
   card-log=reject event=<e> reason=<r> hint=<fix>
                                  The vocabulary refuses the line; nothing is
                                  appended. <e> is the event without its `=`.
 Reasons:
-  event                          Not an event; `ferrule card vocab` lists them
+  event                          Not an event; `ferrule board vocab` lists them
   key                            A `key=value` the event does not take (a
                                  `stop` also needs `kind=`)
   scope                          The event is for the other card kind (stage
@@ -175,7 +175,7 @@ Reasons:
   budget                         The stage card has used its `read` budget
                                  (3, or `read_budget` of `ferrule.toml`); never
                                  read past it: stop with status=blocked
-                                 (see `ferrule guide implementer`)
+                                 (see `ferrule guide show implementer`)
   reason=typed                   A `note` that starts with an event's name;
                                  `use=<event>` names the event to log instead
   reason=inprogress              `commit=` on a card still in `inprogress`;
@@ -185,17 +185,17 @@ Reasons:
   (`stop` needs `kind=question|approval|stage|blocked`; `spec-delta` needs
   `origin=user|review|impl`) and whether `-- text` is required, optional or
   not allowed.
-  `[ids]` in a hint or in `card vocab` is an optional list of fixed spec IDs
+  `[ids]` in a hint or in `board vocab` is an optional list of fixed spec IDs
   like MB-R-001, comma-separated without spaces if several (MB-R-001,MB-R-002).
   The hint of a value refusal names what that event takes.
 Exit codes: 0 ok, 1 refused (no such card), 2 rejected line.
-See: ferrule guide board
+See: ferrule guide show board
 
 Examples:
-  ferrule card log <slug>.s1 test-red MB-R-001 -- parses_empty: panicked
-  ferrule card log <slug>.s1 test-red MB-R-001,MB-R-002 -- two tests: red
-  ferrule card log <slug>.s1 read path=src/lib.rs -- what the plan left out
-  ferrule card vocab               every event and its arguments";
+  ferrule board log <slug>.s1 test-red MB-R-001 -- parses_empty: panicked
+  ferrule board log <slug>.s1 test-red MB-R-001,MB-R-002 -- two tests: red
+  ferrule board log <slug>.s1 read path=src/lib.rs -- what the plan left out
+  ferrule board vocab               every event and its arguments";
 
 const VOCAB_AFTER_LONG_HELP: &str = "\
 Output:
@@ -209,37 +209,7 @@ Output:
   keys        The `key=value` arguments the event accepts
   text        Whether `-- <free text>` is no, yes or required
 Exit codes: 0 always.
-See: ferrule guide board";
-
-const COMMIT_AFTER_LONG_HELP: &str = "\
-Output:
-  commit=done sha=<sha>          Committed; <sha> is the short hash.
-  commit=done sha=<sha> card=<id>
-                                 Also logged `commit=<sha>` on the card.
-  commit=done sha=<sha> card-log=failed
-                                 Committed, but the log write failed (details
-                                 on stderr): log it with
-                                 `ferrule card log <id> commit=<sha>`; exit 1.
-Refusals (checked in this order; each line ends in `hint=<fix>`):
-  commit=refused reason=main branch=<b>
-                                 On the main branch <b>; commit on the run's
-                                 branch: `ferrule run approve <slug> gate2`
-                                 creates it and its worktree (cd there); with
-                                 --no-run, check out another branch first
-  commit=refused reason=card     No such card; check the id with
-                                 `ferrule card board`
-  commit=refused reason=state state=<s>
-                                 The card is in <s>, not inreview; move it with
-                                 `ferrule card move <card> inreview`
-  commit=refused reason=branch want=<b>
-                                 The run's `branch` field is <b> and another
-                                 branch is checked out; check out <b>
-  commit=refused reason=git      `git commit` failed (nothing staged, a hook
-                                 refused); git's message is on stderr
-With --no-run only the main-branch check applies and no card is touched.
-Attribution trailers are stripped from the message first.
-Exit codes: 0 ok, 1 refused.
-See: ferrule guide implementer";
+See: ferrule guide show board";
 
 const IMPORT_AFTER_LONG_HELP: &str = "\
 Output:
@@ -253,11 +223,11 @@ Refusals:
                                  board`, an I/O error or `state database: ...`.
                                  Fix the file or the board and run it again.
 Exit codes: 0 ok, 2 refused.
-See: ferrule guide board";
+See: ferrule guide show board";
 
-const HINT_CARD: &str = "check the id with `ferrule card board`";
+const HINT_CARD: &str = "check the id with `ferrule board list`";
 const HINT_KEY_VALUE: &str = "pass each field as key=value";
-const HINT_EXISTS: &str = "pick another id, or change the card with `ferrule card set`";
+const HINT_EXISTS: &str = "pick another id, or change the card with `ferrule board set`";
 
 fn hint_field(card: &str) -> String {
     board::fields_hint(board::CardId::parse(card).stage.is_some())
@@ -266,10 +236,10 @@ const HINT_GIT: &str =
     "git commit failed; stage the changes with `git add` and read the message git prints on stderr";
 
 #[derive(Debug, Subcommand)]
-pub enum CardCommand {
+pub enum BoardCommand {
     /// List every card with its state and title.
     #[command(after_long_help = BOARD_AFTER_LONG_HELP)]
-    Board,
+    List,
     /// Print a card: frontmatter and log.
     #[command(after_long_help = SHOW_AFTER_LONG_HELP)]
     Show {
@@ -322,7 +292,7 @@ pub enum CardCommand {
     Log {
         /// Card id: `<slug>` or `<slug>.s<n>`.
         card: String,
-        /// `<name>` or `<name>=<value>`; `card vocab` lists them.
+        /// `<name>` or `<name>=<value>`; `board vocab` lists them.
         event: String,
         /// The event's arguments: `[positional…] [key=value…] [-- free text]`.
         #[arg(
@@ -332,25 +302,9 @@ pub enum CardCommand {
         )]
         args: Vec<String>,
     },
-    /// List the events `card log` accepts.
+    /// List the events `board log` accepts.
     #[command(after_long_help = VOCAB_AFTER_LONG_HELP)]
     Vocab,
-    /// Commit the staged changes of a stage in review.
-    ///
-    /// Refuses the main branch and a branch other than the run's, strips
-    /// attribution trailers from the message and logs `commit=` on the card.
-    #[command(after_long_help = COMMIT_AFTER_LONG_HELP)]
-    Commit {
-        /// The stage card, `<slug>.s<n>`; omitted with `--no-run`.
-        #[arg(required_unless_present = "no_run", conflicts_with = "no_run")]
-        card: Option<String>,
-        /// The commit message; repeat for more paragraphs.
-        #[arg(short, long = "message", required = true)]
-        message: Vec<String>,
-        /// Commit outside a run: only the branch and trailer rules apply.
-        #[arg(long)]
-        no_run: bool,
-    },
     /// Load a markdown board into the state database: all cards or none.
     #[command(after_long_help = IMPORT_AFTER_LONG_HELP)]
     Import {
@@ -394,7 +348,7 @@ fn key_values(args: &[String]) -> Result<Vec<(String, String)>, String> {
         .collect()
 }
 
-/// `card log`'s words after the event, `--` included: clap consumes a `--`
+/// `board log`'s words after the event, `--` included: clap consumes a `--`
 /// that comes right after the event as its own escape, so it is taken back
 /// from the raw arguments, whose tail the parsed words are.
 fn with_separator(args: &[String]) -> Vec<String> {
@@ -411,25 +365,24 @@ fn with_separator(args: &[String]) -> Vec<String> {
     out
 }
 
-pub fn run(command: &CardCommand, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
+pub fn run(command: &BoardCommand, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
     match command {
-        CardCommand::Field { card, field: f } => field(card, f, out),
-        CardCommand::Log { card, event, args } => log(card, event, &with_separator(args), out),
-        CardCommand::Move { card, state: to } => move_card(card, state(*to), out),
-        CardCommand::Commit { card, message, .. } => commit(card.as_deref(), message, out),
-        CardCommand::Show { card } => show(card, style, out),
-        CardCommand::Board => list(style, out),
-        CardCommand::Import { board } => import(board, out),
-        CardCommand::Vocab => {
+        BoardCommand::Field { card, field: f } => field(card, f, out),
+        BoardCommand::Log { card, event, args } => log(card, event, &with_separator(args), out),
+        BoardCommand::Move { card, state: to } => move_card(card, state(*to), out),
+        BoardCommand::Show { card } => show(card, style, out),
+        BoardCommand::List => list(style, out),
+        BoardCommand::Import { board } => import(board, out),
+        BoardCommand::Vocab => {
             write!(out, "{}", vocab::table())?;
             Ok(exit::OK)
         }
-        CardCommand::New {
+        BoardCommand::New {
             card,
             state: st,
             fields,
         } => new(card, state(*st), fields, out),
-        CardCommand::Set { card, fields } => set(card, fields, out),
+        BoardCommand::Set { card, fields } => set(card, fields, out),
     }
 }
 
@@ -668,13 +621,17 @@ pub(crate) fn sync_draft(s: &mut Store, card: &str, out: &mut impl Write) -> io:
 }
 
 /// The checks before a commit, the commit, then `commit=` on the card.
-fn commit(card: Option<&str>, message: &[String], out: &mut impl Write) -> io::Result<u8> {
+pub(super) fn commit(
+    card: Option<&str>,
+    message: &[String],
+    out: &mut impl Write,
+) -> io::Result<u8> {
     let here = std::env::current_dir()?;
     let config = ferrule_core::config::Config::load(&project::main_checkout()).map_err(sql)?;
     let branch = ferrule_core::git::out(&here, &["symbolic-ref", "--short", "-q", "HEAD"]);
     if branch.as_deref() == Some(config.main_branch.as_str()) {
         let hint = format!(
-            "commit on the run's branch, not {}: `ferrule run approve <slug> gate2` creates it and its worktree; with --no-run, check out another branch first",
+            "commit on the run's branch, not {}: `ferrule gate approve <slug> gate2` creates it and its worktree; with --no-run, check out another branch first",
             config.main_branch
         );
         writeln!(
@@ -686,7 +643,7 @@ fn commit(card: Option<&str>, message: &[String], out: &mut impl Write) -> io::R
     }
     let mut store = None;
     if let Some(id) = card {
-        let Some(s) = super::card::store(false)? else {
+        let Some(s) = super::board::store(false)? else {
             writeln!(out, "commit=refused reason=card hint={HINT_CARD}")?;
             return Ok(exit::REFUSED);
         };
@@ -698,7 +655,7 @@ fn commit(card: Option<&str>, message: &[String], out: &mut impl Write) -> io::R
             Some(State::InReview) => {}
             Some(other) => {
                 let hint =
-                    format!("move the card to inreview first: `ferrule card move {id} inreview`");
+                    format!("move the card to inreview first: `ferrule board move {id} inreview`");
                 writeln!(
                     out,
                     "commit=refused reason=state state={} hint={hint}",
@@ -747,7 +704,7 @@ fn commit(card: Option<&str>, message: &[String], out: &mut impl Write) -> io::R
             &board::now(),
         ) {
             writeln!(out, " card-log=failed")?;
-            eprintln!("card commit: committed {sha} but could not log it on {id}: {e:?}");
+            eprintln!("stage commit: committed {sha} but could not log it on {id}: {e:?}");
             return Ok(exit::REFUSED);
         }
         write!(out, " card={id}")?;

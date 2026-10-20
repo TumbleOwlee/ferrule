@@ -19,28 +19,28 @@ fn spec_project() -> tempfile::TempDir {
 
 #[test]
 fn it_sections_lists_headings_outside_fences() {
-    Run::new(["spec", "sections", &doc()]).golden("list-sections");
+    Run::new(["file", "headings", &doc()]).golden("list-sections");
 }
 
 #[test]
 fn it_section_prints_each_heading_in_turn() {
-    Run::new(["spec", "section", "## Alpha", "## Beta", &doc()]).golden("extract-section");
+    Run::new(["file", "section", "## Alpha", "## Beta", &doc()]).golden("extract-section");
 }
 
 #[test]
 fn it_section_missing_heading_fails() {
-    Run::new(["spec", "section", "## Gamma", &doc()]).golden("extract-section-missing");
+    Run::new(["file", "section", "## Gamma", &doc()]).golden("extract-section-missing");
 }
 
 #[test]
 fn it_section_prefix_matches_heading_start() {
-    Run::new(["spec", "section", "--prefix", "## Al", "## Beta", &doc()])
+    Run::new(["file", "section", "--prefix", "## Al", "## Beta", &doc()])
         .golden("extract-section-prefix");
 }
 
 #[test]
 fn it_section_prefix_missing_fails() {
-    Run::new(["spec", "section", "--prefix", "## Zz", &doc()])
+    Run::new(["file", "section", "--prefix", "## Zz", &doc()])
         .golden("extract-section-prefix-missing");
 }
 
@@ -265,7 +265,7 @@ fn it_render_writes_fixed_ids_back_as_local_ids() {
 fn it_render_pr_form_marks_requirements_reworded_after_filing() {
     let p = tempfile::tempdir().unwrap();
     let board = fixtures().join("board");
-    let imported = Run::new(["card", "import", board.to_str().unwrap()])
+    let imported = Run::new(["board", "import", board.to_str().unwrap()])
         .env("CLAUDE_PROJECT_DIR", p.path())
         .cwd(p.path())
         .text();

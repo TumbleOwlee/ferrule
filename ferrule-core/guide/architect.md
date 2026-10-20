@@ -6,7 +6,7 @@ Lay down the structure the change is built on: which types exist, which are new 
 
 ## Project rules
 
-`AGENTS.md` is already in your context; never re-read it. Its rules on the spec, reading, code, text and scope bind you here. Never read the orchestrator's topics — gate and board mechanics are its own. Read `ferrule spec section 'Rules for writing specs' docs/specs/README.md`, and the `ARCHITECTURE.md` sections the change touches.
+`AGENTS.md` is already in your context; never re-read it. Its rules on the spec, reading, code, text and scope bind you here. Never read the orchestrator's topics — gate and board mechanics are its own. Read `ferrule file section 'Rules for writing specs' docs/specs/README.md`, and the `ARCHITECTURE.md` sections the change touches.
 
 ## Input
 
@@ -16,7 +16,7 @@ Read `spec-diff.md` whole (it is the brief). Then the code its scenarios run thr
 
 ## Grilling
 
-Surface every structural decision via the orchestrator in `{run_dir}/question.md` — shape, batching and the `Why you:` rule: `ferrule guide author`, its `## Questions`, title `# {slug} — questions (architecture)` — and end turn on `status=question file=… count=<n>`. Typical decisions: extend an existing type or add one; trait or enum dispatch; interface choices (`&self` or `&mut self`, owned or borrowed, sync or async, generic or `dyn`, what a method returns on failure); who owns what (and the lifetimes that shape the API); which crate; sync/async boundary; for a replacement, migrate, wrap or remove the old component; any public surface (signatures, error variants, config keys) — the user sees it.
+Surface every structural decision via the orchestrator in `{run_dir}/question.md` — shape, batching and the `Why you:` rule: `ferrule guide show author`, its `## Questions`, title `# {slug} — questions (architecture)` — and end turn on `status=question file=… count=<n>`. Typical decisions: extend an existing type or add one; trait or enum dispatch; interface choices (`&self` or `&mut self`, owned or borrowed, sync or async, generic or `dyn`, what a method returns on failure); who owns what (and the lifetimes that shape the API); which crate; sync/async boundary; for a replacement, migrate, wrap or remove the old component; any public surface (signatures, error variants, config keys) — the user sees it.
 
 The user's own design (a trait shape, a struct layout, a module cut, a method signature) binds: record it `(user)` and design around it. Where it conflicts with the code or the spec, say so in a question — never adapt it silently.
 
@@ -29,7 +29,7 @@ Edit `spec-diff.md` in place:
 - sharpen or drop a draft entry
 - resolve `## Deferred` items owned by `architecture`, removing each
 
-A change that contradicts a scenario or a `(user)` line of `decisions.md` is asked first (`Entry:` line quoting it). Every other change is appended to `decisions.md` as a `(chosen)` `[spec <ID>]` line — the user confirms it at the architecture stop (`ferrule guide decisions`). Each pass bumps the rev and adds one `Revisions:` line ending `(fe-architect)`.
+A change that contradicts a scenario or a `(user)` line of `decisions.md` is asked first (`Entry:` line quoting it). Every other change is appended to `decisions.md` as a `(chosen)` `[spec <ID>]` line — the user confirms it at the architecture stop (`ferrule guide show decisions`). Each pass bumps the rev and adds one `Revisions:` line ending `(fe-architect)`.
 
 No `spec-diff.md` (a non-behavior change): no spec edits. A structure that needs observable behavior to change → end turn on `status=behavior-change reason=<what and why>`; the orchestrator runs gate 1, then resumes you.
 
@@ -37,7 +37,7 @@ A change needed only for something outside the goal (an area the brief's `Area:`
 
 ## Output
 
-`architecture.md`, headed so `ferrule spec section` pulls exactly one section; heading text exact and stable once written:
+`architecture.md`, headed so `ferrule file section` pulls exactly one section; heading text exact and stable once written:
 
 ````
 # {slug} — architecture (rev N)
@@ -87,10 +87,10 @@ Both `ferrule pr body` forms, the draft re-rendered on every card move and the g
 - <open point> — <plan | implementation>
 ````
 
-- Decisions — every structure choice, asked or not — go to `decisions.md`, never into this file: `ferrule guide decisions`.
+- Decisions — every structure choice, asked or not — go to `decisions.md`, never into this file: `ferrule guide show decisions`.
 - `## Interfaces`: one subsection per new or changed component of `## Components`, in the project's language, as code that would compile with bodies filled in: a trait with every method signature, a struct with every field and its type, an enum with every variant and its fields. A changed existing type shows only its new or changed members. No bodies, no private helpers, no derives unless they are part of the contract (`Serialize` on a config type).
 - `## Interactions`: one subsection per scenario of `spec-diff.md` (a non-behavior change: per affected flow).
-- `## Code map` is the code you read that the plan will need, so the planner never reads it again and the implementer pulls single entries by anchor (`ferrule spec section --prefix '\`<anchor>\`'`) — an anchor never changes once the architecture stop is approved: one `###` entry per location the change touches or must match, anchored on a name or a quoted unique string (never a line number), with the exact lines copied verbatim — never paraphrased — at most 15 per entry. Whole section at most about 150 lines: a location that needs more gets the anchor and the one-line note only. Leave out what you read and ruled out.
+- `## Code map` is the code you read that the plan will need, so the planner never reads it again and the implementer pulls single entries by anchor (`ferrule file section --prefix '\`<anchor>\`'`) — an anchor never changes once the architecture stop is approved: one `###` entry per location the change touches or must match, anchored on a name or a quoted unique string (never a line number), with the exact lines copied verbatim — never paraphrased — at most 15 per entry. Whole section at most about 150 lines: a location that needs more gets the anchor and the one-line note only. Leave out what you read and ruled out.
 - `## Deferred`: the brief's `plan`/`implementation` items plus your own.
 
 `architecture.summary.md` — the user's file, written last, rewritten whole on every revision, **≤ 25 lines / 2 KB** (`ferrule prompt show` refuses more). Shape only — decisions live in `decisions.md`. Blank line between blocks:
@@ -115,7 +115,7 @@ Open: <decision the user still owes, or none>
 
 ## Epics, slices, size guard
 
-Read `ferrule guide architect-epic` first when the brief says `mode=epic`, when it names `epic.md` (a slice run), or when a behavior run's architecture would add or change more than 8 components.
+Read `ferrule guide show architect-epic` first when the brief says `mode=epic`, when it names `epic.md` (a slice run), or when a behavior run's architecture would add or change more than 8 components.
 
 ## No architecture
 

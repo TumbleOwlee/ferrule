@@ -17,13 +17,13 @@ pub struct Replaced {
     pub why: &'static str,
 }
 
-/// Every raw command ferrule runs itself. `ferrule install` writes the
+/// Every raw command ferrule runs itself. `ferrule setup install` writes the
 /// `permissions.deny` backstop from this list, so the guard and the rules
 /// cannot drift apart.
 pub const REPLACED: &[Replaced] = &[
     Replaced {
         raw: "git commit",
-        instead: "ferrule card commit <card> -m <msg> (outside a run: ferrule card commit --no-run -m <msg>)",
+        instead: "ferrule stage commit <card> -m <msg> (outside a run: ferrule stage commit --no-run -m <msg>)",
         why: "it checks the stage card and the branch, strips attribution trailers and logs commit=",
     },
     Replaced {
@@ -33,7 +33,7 @@ pub const REPLACED: &[Replaced] = &[
     },
     Replaced {
         raw: "git worktree add",
-        instead: "ferrule run approve <slug> gate2",
+        instead: "ferrule gate approve <slug> gate2",
         why: "a run's worktree lives and dies with the run",
     },
     Replaced {
@@ -43,17 +43,17 @@ pub const REPLACED: &[Replaced] = &[
     },
     Replaced {
         raw: "gh issue create",
-        instead: "ferrule issue file <slug> [--slice <n>|--split|--follow-up <k>]",
+        instead: "ferrule issue post <slug> [--slice <n>|--split|--follow-up <k>]",
         why: "title and body come from the run's files; an open issue with the same title is adopted",
     },
     Replaced {
         raw: "gh issue edit",
-        instead: "ferrule issue file <slug> --reuse <n>",
+        instead: "ferrule issue post <slug> --reuse <n>",
         why: "title and body come from the run's files",
     },
     Replaced {
         raw: "gh issue comment",
-        instead: "ferrule issue file <slug> --comment",
+        instead: "ferrule issue post <slug> --comment",
         why: "the comment is the run's issue-comment.md",
     },
     Replaced {
@@ -63,7 +63,7 @@ pub const REPLACED: &[Replaced] = &[
     },
     Replaced {
         raw: "gh pr edit",
-        instead: "ferrule card move (re-renders the draft) or ferrule pr publish <slug>",
+        instead: "ferrule board move (re-renders the draft) or ferrule pr publish <slug>",
         why: "the body comes from the run state",
     },
     Replaced {
@@ -225,7 +225,7 @@ fn flood(c: &Command, name: &str, args: &[String], cwd: &Path) -> Option<String>
             }
             if is_markdown(a) {
                 return Some(format!(
-                    "Whole-file cat of a .md file. Run: ferrule spec sections {a} to see headings, then ferrule spec section '<heading>' {a} for just what's needed. Genuinely need the whole document? Use the Read tool instead."
+                    "Whole-file cat of a .md file. Run: ferrule file headings {a} to see headings, then ferrule file section '<heading>' {a} for just what's needed. Genuinely need the whole document? Use the Read tool instead."
                 ));
             }
             let lines = std::fs::read_to_string(&path).map_or(0, |t| t.lines().count());
@@ -259,7 +259,7 @@ fn flood(c: &Command, name: &str, args: &[String], cwd: &Path) -> Option<String>
     }
 }
 
-const OWNED_REASON: &str = "Only ferrule writes .ferrule/state.db and .ferrule/ferrule.lock. Use ferrule card log|move|set for the board, ferrule card show|board to read it, ferrule install for the lock.";
+const OWNED_REASON: &str = "Only ferrule writes .ferrule/state.db and .ferrule/ferrule.lock. Use ferrule board log|move|set for the board, ferrule board show|board to read it, ferrule setup install for the lock.";
 
 /// Programs that may name ferrule's files: they only list or read them.
 const OWNED_READERS: &[&str] = &[
@@ -358,7 +358,7 @@ fn replaced(name: &str, args: &[String], policy: Policy) -> Option<String> {
                     .is_some_and(|m| !m.eq_ignore_ascii_case("GET"))
             });
         return writes.then(|| {
-            "A writing 'gh api' call is ferrule's to run here. Use: ferrule pr feedback reply <pr> <file> [<stage> <sha>] for review threads, ferrule issue file / ferrule pr publish for the rest. Re-open it with [guard] allow = [\"gh api\"] in .ferrule/ferrule.toml if the project needs it.".to_owned()
+            "A writing 'gh api' call is ferrule's to run here. Use: ferrule pr feedback reply <pr> <file> [<stage> <sha>] for review threads, ferrule issue post / ferrule pr publish for the rest. Re-open it with [guard] allow = [\"gh api\"] in .ferrule/ferrule.toml if the project needs it.".to_owned()
         });
     }
     // A run's summary and its `--json` fields are short; its logs flood.
@@ -368,7 +368,7 @@ fn replaced(name: &str, args: &[String], policy: Policy) -> Option<String> {
             .iter()
             .any(|a| a == "--log" || a == "--log-failed" || a.starts_with("--log="));
         return logs.then(|| {
-            "A raw CI log floods the context. Use: ferrule pr failed [<branch>] [--run <id>] [--job <name>] [--context <n>]: the failed job's error lines, each with the n lines after it. A run's summary or --json fields (gh run view <id>) stay allowed.".to_owned()
+            "A raw CI log floods the context. Use: ferrule ci failed [<branch>] [--run <id>] [--job <name>] [--context <n>]: the failed job's error lines, each with the n lines after it. A run's summary or --json fields (gh run view <id>) stay allowed.".to_owned()
         });
     }
     let r = REPLACED.iter().find(|r| {

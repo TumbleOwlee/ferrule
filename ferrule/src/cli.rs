@@ -1,30 +1,35 @@
 use clap::{Parser, Subcommand, ValueEnum};
 
-use crate::commands::card::CardCommand;
-use crate::commands::guide::GuideArgs;
+use crate::commands::board::BoardCommand;
+use crate::commands::ci::CiCommand;
+use crate::commands::file::FileCommand;
+use crate::commands::gate::GateCommand;
+use crate::commands::guide::GuideCommand;
 use crate::commands::hook::HookCommand;
-use crate::commands::install::InstallArgs;
+use crate::commands::install::SetupCommand;
 use crate::commands::issue::IssueCommand;
 use crate::commands::pr::PrCommand;
 use crate::commands::prompt::PromptCommand;
 use crate::commands::run::RunCommand;
 use crate::commands::spec::SpecCommand;
+use crate::commands::stage::StageCommand;
 
 /// Shown after `ferrule --help`.
 const AFTER_LONG_HELP: &str = "\
 Getting started:
-  ferrule install              Set up .ferrule/, the agent files and the git hooks
-  ferrule guide --list         The workflow's topics, orchestrator and agent
-  ferrule guide <topic>        One topic, cut to the current run
+  ferrule setup install        Set up .ferrule/, the agent files and the git hooks
+  ferrule guide list           The workflow's topics, orchestrator and agent
+  ferrule guide show <topic>   One topic, cut to the current run
 
 Output:
-  Status lines are `key=value`, one fact per line. Documents (guide, spec,
-  card show|board, issue and pr view|request|body) are styled on a terminal
-  and printed as markdown when piped; `--format` overrides that.
+  Status lines are `key=value`, one fact per line. Documents (guide show,
+  file, spec render, board show|list, issue and pr view|request|body) are
+  styled on a terminal and printed as markdown when piped; `--format`
+  overrides that.
   A refusal ends in `hint=<fix>`. Each command's --help lists its outputs
-  and refusals. Every command but install and uninstall refuses (stderr)
-  with `ferrule=refused reason=version pinned=<v> binary=<v>: <fix>` when
-  the binary and the project's version differ; the line names the fix.
+  and refusals. Every command but setup refuses (stderr) with
+  `ferrule=refused reason=version pinned=<v> binary=<v>: <fix>` when the
+  binary and the project's version differ; the line names the fix.
 
 Exit codes:
   0  done, or a negative answer that is not an error
@@ -81,40 +86,37 @@ pub enum Format {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// Set up or upgrade ferrule in this repository.
-    ///
-    /// Writes `.ferrule/`, the agent host's files and the git hooks, and
-    /// records what it wrote in `.ferrule/ferrule.lock`. A rerun upgrades
-    /// unedited files and writes `<file>.ferrule-new` beside edited ones.
-    Install(InstallArgs),
-    /// Remove what `install` added.
-    ///
-    /// Keeps `.ferrule/` (the board and every run's files) unless `--purge`.
-    #[command(after_long_help = crate::commands::uninstall::UNINSTALL_AFTER_LONG_HELP)]
-    Uninstall {
-        /// Also remove `.ferrule/`: the board and every run's files.
-        #[arg(long)]
-        purge: bool,
-    },
+    /// Set up, check or remove ferrule in this repository.
+    #[command(subcommand)]
+    Setup(SetupCommand),
     /// Print the workflow's instructions, one topic at a time.
-    ///
-    /// A topic is cut to the run's lane, its finished steps are marked, and
-    /// `{slug}`, `{run_dir}` and the other placeholders are filled from the
-    /// run's card.
-    Guide(GuideArgs),
-    /// Drive a run, from its start to its clean-up.
+    #[command(subcommand)]
+    Guide(GuideCommand),
+    /// A run's lifecycle: start, resume, finish and archive.
     #[command(subcommand)]
     Run(RunCommand),
-    /// Read and change the task board.
+    /// Approvals, and the step after an agent reports at a gate.
     #[command(subcommand)]
-    Card(CardCommand),
-    /// Read spec and other markdown files.
+    Gate(GateCommand),
+    /// One stage's work: commit, verify, stop, re-plan.
+    #[command(subcommand)]
+    Stage(StageCommand),
+    /// Checks of the code, local and remote.
+    #[command(subcommand)]
+    Ci(CiCommand),
+    /// The task board: cards, their fields, moves and log.
+    #[command(subcommand)]
+    Board(BoardCommand),
+    /// The spec's entries and the run's spec diff.
     #[command(subcommand)]
     Spec(SpecCommand),
+    /// Read files: their headings and sections.
+    #[command(subcommand)]
+    File(FileCommand),
     /// Show the user what a stop needs.
     #[command(subcommand)]
     Prompt(PromptCommand),
-    /// Read, assemble and file the tracking issue.
+    /// Read, assemble and post the tracking issue.
     #[command(subcommand)]
     Issue(IssueCommand),
     /// Read, assemble, push and publish the pull request.

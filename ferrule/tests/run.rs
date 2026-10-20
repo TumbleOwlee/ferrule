@@ -63,7 +63,7 @@ impl Scratch {
             wt,
         };
         s.ok(&[
-            "card",
+            "board",
             "new",
             "ss",
             "--state",
@@ -85,7 +85,7 @@ impl Scratch {
             };
             let files = format!("files=[f{n}.txt]");
             s.ok(&[
-                "card", "new", &id, "--state", state, &title, &blocked, &files,
+                "board", "new", &id, "--state", state, &title, &blocked, &files,
             ]);
         }
         s.artifact(
@@ -127,7 +127,7 @@ impl Scratch {
     }
 
     fn last_line(&self, card: &str) -> String {
-        self.say(&["card", "show", card])
+        self.say(&["board", "show", card])
             .lines()
             .last()
             .unwrap_or_default()
@@ -145,7 +145,7 @@ impl Scratch {
 #[test]
 fn it_stage_stop_rules_in_order() {
     let s = Scratch::new(5);
-    let stop = |sid: &str| s.say(&["run", "stage-stop", "ss", sid]);
+    let stop = |sid: &str| s.say(&["stage", "stop", "ss", sid]);
     assert_eq!(stop("s0"), "auto");
     assert_eq!(stop("s1"), "auto");
     assert_eq!(s.last_line("ss.s1"), "2026-10-05T09:00 auto=yes");
@@ -161,13 +161,13 @@ fn it_stage_stop_rules_in_order() {
     );
     assert_eq!(stop("s3"), "stop=2 reason=verification detail=\"demo TUI\"");
     assert_eq!(
-        s.say(&["run", "stage-stop", "ss", "s1", "--threads", "2"]),
+        s.say(&["stage", "stop", "ss", "s1", "--threads", "2"]),
         "stop=3 reason=pr-threads detail=\"2 threads\""
     );
     assert_eq!(stop("s5"), "auto");
-    s.ok(&["card", "set", "ss.s2", "stop=yes"]);
+    s.ok(&["board", "set", "ss.s2", "stop=yes"]);
     assert_eq!(stop("s2"), "stop=5 reason=plan-marked");
-    s.ok(&["card", "set", "ss.s5", "stop=yes"]);
+    s.ok(&["board", "set", "ss.s5", "stop=yes"]);
     assert_eq!(stop("s5"), "stop=5 reason=plan-marked");
 
     std::fs::write(s.wt.join("a.txt"), "a\n").unwrap();
@@ -187,28 +187,25 @@ fn it_stage_stop_checkpoint_after_three_autos() {
     let s = Scratch::new(5);
     s.remove_artifact("plan.summary.md");
     for n in 1..=3 {
-        assert_eq!(
-            s.say(&["run", "stage-stop", "ss", &format!("s{n}")]),
-            "auto"
-        );
+        assert_eq!(s.say(&["stage", "stop", "ss", &format!("s{n}")]), "auto");
     }
     assert_eq!(
-        s.say(&["run", "stage-stop", "ss", "s4"]),
+        s.say(&["stage", "stop", "ss", "s4"]),
         "stop=7 reason=checkpoint"
     );
 
     let s = Scratch::new(5);
-    s.ok(&["card", "log", "ss.s2", "stop=5"]);
-    s.ok(&["card", "log", "ss.s3", "auto=yes"]);
-    assert_eq!(s.say(&["run", "stage-stop", "ss", "s4"]), "auto");
+    s.ok(&["board", "log", "ss.s2", "stop=5"]);
+    s.ok(&["board", "log", "ss.s3", "auto=yes"]);
+    assert_eq!(s.say(&["stage", "stop", "ss", "s4"]), "auto");
 }
 
 #[test]
 fn it_sha_check_and_reconcile() {
     let s = Scratch::new(2);
     let s1 = s.commit_in_worktree("f1.txt", "x\n", "s1");
-    s.ok(&["card", "log", "ss.s1", &format!("commit={s1}")]);
-    let check = |sha: &str| s.run(&["run", "sha-check", "ss", "s1", sha]).text();
+    s.ok(&["board", "log", "ss.s1", &format!("commit={s1}")]);
+    let check = |sha: &str| s.run(&["stage", "verify", "ss", "s1", sha]).text();
     assert_eq!(check(&s1), "sha=ok\nexit=0");
     assert!(check("deadbee").starts_with("sha=mismatch reason=missing hint="));
     git(&s.root, &["commit", "-q", "--allow-empty", "-m", "on-main"]);
@@ -217,18 +214,18 @@ fn it_sha_check_and_reconcile() {
     let s1b = s.commit_in_worktree("f1.txt", "x\ny\n", "s1b");
     assert!(check(&s1b).starts_with("sha=mismatch reason=card-commit hint="));
     assert!(
-        s.run(&["run", "sha-check", "ss", "s7", &s1])
+        s.run(&["stage", "verify", "ss", "s7", &s1])
             .text()
             .starts_with("sha=mismatch reason=card hint=")
     );
 
-    s.ok(&["card", "log", "ss.s0", &format!("commit={s1}")]);
+    s.ok(&["board", "log", "ss.s0", &format!("commit={s1}")]);
     assert_eq!(
         s.run(&["run", "reconcile", "ss"]).text(),
         "reconcile=clean next=s1\nexit=0"
     );
-    s.ok(&["card", "log", "ss.s2", "commit=deadbee"]);
-    s.ok(&["card", "log", "ss", "gauntlet=pass", &format!("sha={m}")]);
+    s.ok(&["board", "log", "ss.s2", "commit=deadbee"]);
+    s.ok(&["board", "log", "ss", "gauntlet=pass", &format!("sha={m}")]);
     assert_eq!(
         s.run(&["run", "reconcile", "ss"]).text(),
         format!(
@@ -291,7 +288,7 @@ fn pushed_run() -> Scratch {
     };
     let board = golden::fixtures().join("board");
     assert_eq!(
-        s.say(&["card", "import", board.to_str().unwrap()]),
+        s.say(&["board", "import", board.to_str().unwrap()]),
         "import=ok cards=13"
     );
     for slug in ["demo", "nospec"] {
@@ -318,19 +315,19 @@ fn it_cleanup_refuses_until_pushed_and_green_then_archives() {
     git(&s.wt, &["push", "-q"]);
     assert!(cleanup().starts_with("cleanup=refused reason=no-ci hint="));
     assert!(s.wt.is_dir());
-    s.ok(&["card", "log", "demo", "ci=1"]);
+    s.ok(&["board", "log", "demo", "ci=1"]);
     assert!(cleanup().starts_with("cleanup=refused reason=ci-red hint="));
     assert!(s.wt.is_dir());
     assert_eq!(s.say(&["run", "metrics"]), "");
 
-    s.ok(&["card", "log", "demo", "ci=0"]);
+    s.ok(&["board", "log", "demo", "ci=0"]);
     assert_eq!(cleanup(), "cleanup=done archive=1");
     assert!(!s.wt.exists());
     assert!(!has_ref(&s.root, "refs/heads/feat/demo"));
     assert!(!s.root.join(".ferrule/runs/demo").exists());
     assert!(s.root.join(".ferrule/runs/nospec/issue.md").exists());
-    assert_eq!(s.say(&["card", "field", "nospec", "state"]), "inreview");
-    assert_eq!(s.say(&["card", "field", "demo", "state"]), "");
+    assert_eq!(s.say(&["board", "field", "nospec", "state"]), "inreview");
+    assert_eq!(s.say(&["board", "field", "demo", "state"]), "");
     let metrics = s.say(&["run", "metrics"]);
     assert!(
         metrics.starts_with("demo start=") && metrics.ends_with(" ci=0"),
@@ -395,7 +392,7 @@ coverage = "llvm-cov"
 fn it_gauntlet_runs_the_configured_steps_and_caches_a_pass() {
     let s = Scratch::new(1);
     let g = |extra: &[&str]| {
-        let mut args = vec!["run", "gauntlet", "ss"];
+        let mut args = vec!["ci", "gauntlet", "ss"];
         args.extend_from_slice(extra);
         s.run(&args).text()
     };

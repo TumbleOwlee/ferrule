@@ -516,9 +516,9 @@ pub fn list(root: &Path) -> Vec<String> {
     out
 }
 
-/// The names `ferrule guide <name>` mentions in `text`.
+/// The names `ferrule guide show <name>` mentions in `text`.
 fn references(text: &str) -> Vec<&str> {
-    text.match_indices("ferrule guide ")
+    text.match_indices("ferrule guide show ")
         .filter_map(|(i, m)| {
             let rest = &text[i + m.len()..];
             let end = rest
@@ -530,11 +530,11 @@ fn references(text: &str) -> Vec<&str> {
         .collect()
 }
 
-/// The `(topic, heading)` pairs of every `ferrule guide <topic> --section
+/// The `(topic, heading)` pairs of every `ferrule guide show <topic> --section
 /// '<heading>'` in `text`; a heading without quotes is one word.
 fn section_references(text: &str) -> Vec<(&str, &str)> {
     let mut out = Vec::new();
-    for (i, m) in text.match_indices("ferrule guide ") {
+    for (i, m) in text.match_indices("ferrule guide show ") {
         let rest = &text[i + m.len()..];
         let rest = &rest[..rest.find('`').unwrap_or(rest.len())];
         let name = rest.split_whitespace().next().unwrap_or("");
@@ -679,7 +679,7 @@ mod tests {
     #[test]
     fn ut_references_and_tags() {
         assert_eq!(
-            references("run `ferrule guide gate4 --slug x`, then ferrule guide --list"),
+            references("run `ferrule guide show gate4 --slug x`, then ferrule guide list"),
             ["gate4"]
         );
         assert_eq!(tag("<!-- lane: fast -->"), Some(Ok(Tag::Lane(Lane::Fast))));
@@ -710,7 +710,7 @@ mod tests {
         assert_eq!(headings("## Gate (2)\n"), ["Gate (2)"]);
         assert_eq!(
             section_references(
-                "see `ferrule guide stages --section 'Full lane' --section Output`, `ferrule guide x`"
+                "see `ferrule guide show stages --section 'Full lane' --section Output`, `ferrule guide show x`"
             ),
             [("stages", "Full lane"), ("stages", "Output")]
         );

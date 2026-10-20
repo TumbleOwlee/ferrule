@@ -1,60 +1,60 @@
-$ run next ns gate3 status=findings file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md count=2 user=0 stage=[s2]
+$ gate next ns gate3 status=findings file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md count=2 user=0 stage=[s2]
 logged: review=2-open scope=branch
 next=fix
 do: resume the implementer on the findings, then the gauntlet and the same reviewer's follow-up
-guide: ferrule guide stage-review --slug ns
+guide: ferrule guide show stage-review --slug ns
 exit=0
-$ run next ns gate3 status=clean file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md count=0 user=0 stage=[s2]
+$ gate next ns gate3 status=clean file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md count=0 user=0 stage=[s2]
 logged: review=2-resolved
 next=stage-stop
-run: ferrule run stage-stop ns s2 --threads <n>
+run: ferrule stage stop ns s2 --threads <n>
 do: run the stage stop decision with the PR thread count
-guide: ferrule guide stage-review --slug ns
+guide: ferrule guide show stage-review --slug ns
 exit=0
 log:
 2026-10-05T09:00 review=2-open scope=branch
 2026-10-05T09:00 review=2-resolved
-$ run next ns gate3 status=findings file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md count=0 user=1
+$ gate next ns gate3 status=findings file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md count=0 user=1
 logged: review=clean
 next=stop
 run: ferrule prompt render ns gate3
 do: show the gate 3 stop with the open Needs user item
-guide: ferrule guide gate3 --slug ns
+guide: ferrule guide show gate3 --slug ns
 exit=0
-$ run next ns gate3 status=findings file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md count=0 user=1
+$ gate next ns gate3 status=findings file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md count=0 user=1
 logged: review=clean
 next=pr reason=needs-user
 do: spawn the spec author for the PR body
-guide: ferrule guide gate4 --slug ns
+guide: ferrule guide show gate4 --slug ns
 exit=0
 log:
 2026-10-05T09:00 review=2-open scope=branch
 2026-10-05T09:00 review=2-resolved
 2026-10-05T09:00 review=clean
 2026-10-05T09:00 review=clean
-$ run next ns gate3 status=findings file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md count=1 user=0
+$ gate next ns gate3 status=findings file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md count=1 user=0
 logged: review=1-open scope=branch
 next=fix
 do: move the implicated stage to inprogress, resume its implementer, gauntlet, then a fresh branch review
-guide: ferrule guide gate3 --slug ns
+guide: ferrule guide show gate3 --slug ns
 exit=0
-$ run next ns gate3 status=clean file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md
+$ gate next ns gate3 status=clean file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md
 logged: review=1-resolved
 next=pr
 do: spawn the spec author for the PR body
-guide: ferrule guide gate4 --slug ns
+guide: ferrule guide show gate4 --slug ns
 exit=0
-$ run next ns gate3 status=findings file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md count=3 user=0
+$ gate next ns gate3 status=findings file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md count=3 user=0
 logged: review=3-open scope=branch
 next=fix
 do: move the implicated stage to inprogress, resume its implementer, gauntlet, then a fresh branch review
-guide: ferrule guide gate3 --slug ns
+guide: ferrule guide show gate3 --slug ns
 exit=0
-$ run next ns gate3 status=clean file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md
+$ gate next ns gate3 status=clean file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md
 logged: review=3-resolved
 next=pr
 do: spawn the spec author for the PR body
-guide: ferrule guide gate4 --slug ns
+guide: ferrule guide show gate4 --slug ns
 exit=0
 log:
 2026-10-05T09:00 review=1-open scope=branch

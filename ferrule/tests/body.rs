@@ -12,7 +12,7 @@ use golden::{Run, fixtures};
 fn project() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     let board = fixtures().join("board");
-    let got = ferrule(dir.path(), &["card", "import", board.to_str().unwrap()]).text();
+    let got = ferrule(dir.path(), &["board", "import", board.to_str().unwrap()]).text();
     assert_eq!(got, "import=ok cards=13\nexit=0");
     copy_dir(&board.join("artifacts"), &dir.path().join(".ferrule/runs"));
     dir
@@ -219,14 +219,14 @@ fn it_pr_draft_lists_the_spec_changes_the_branch_commits() {
             ][..],
         ),
     ] {
-        let mut all = vec!["card", "log", "mrcpr.s3", "spec-delta"];
+        let mut all = vec!["board", "log", "mrcpr.s3", "spec-delta"];
         all.extend_from_slice(args);
         let got = ferrule(p, &all).env("FERRULE_NOW", at).text();
         assert_eq!(got, "exit=0", "{args:?}");
     }
     ferrule(p, &["pr", "body", "mrcpr", "draft"]).golden("pr-body-mrcpr-draft-live");
     assert_eq!(
-        ferrule(p, &["card", "set", "mrcpr", "branch="]).text(),
+        ferrule(p, &["board", "set", "mrcpr", "branch="]).text(),
         "exit=0"
     );
     ferrule(p, &["pr", "body", "mrcpr", "draft"]).golden("pr-body-mrcpr-draft-nobranch");

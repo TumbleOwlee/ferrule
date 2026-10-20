@@ -17,36 +17,36 @@
   plan.prev.md       plan.md as the last plan review saw it, for the follow-up pass
   review.md          review findings + history, keyed by stage id, append-only
   review.verdict.md  open findings per stage, rewritten every pass, capped
-  gauntlet.log       full output of the last ferrule run gauntlet
-  question.md        an agent's batch of decisions for the user (ferrule guide question)
-  slices.md          epic run: the ordered slices, each later its own issue (ferrule guide epic)
-  epic.md            slice run: the epic issue's spec and skeleton architecture (ferrule guide epic)
+  gauntlet.log       full output of the last ferrule ci gauntlet
+  question.md        an agent's batch of decisions for the user (ferrule guide show question)
+  slices.md          epic run: the ordered slices, each later its own issue (ferrule guide show epic)
+  epic.md            slice run: the epic issue's spec and skeleton architecture (ferrule guide show epic)
   slice-line.md      slice run: the slice issue's **Part of epic** line
-  issue.md           title + goal + out of scope (ferrule guide issue)
+  issue.md           title + goal + out of scope (ferrule guide show issue)
   request.md         the request issue's original body, stored once (gate 1 or reuse)
   issue-spec.md      the brief a reused issue already carries
   issue-comment.md   changelog comment of the latest user-approved spec change after filing
-  split-issue.md     an issue split off (ferrule guide split)
+  split-issue.md     an issue split off (ferrule guide show split)
   follow-up-<k>.md   gate 4: an issue for something the run noticed outside its goal
-  pr.md              gate 4 PR title + body (ferrule guide gate4)
-  pr-feedback.md     unresolved PR review threads (ferrule guide feedback)
-  ci.log             the last ferrule run ci wait
+  pr.md              gate 4 PR title + body (ferrule guide show gate4)
+  pr-feedback.md     unresolved PR review threads (ferrule guide show feedback)
+  ci.log             the last ferrule ci wait wait
 ```
 
 `{run_dir}` is in the **main checkout**: every spawn brief passes its absolute path (an agent in a worktree would resolve a relative one inside the worktree). Every ferrule command finds the main checkout itself, from any worktree.
 
 ### Cards
 
-A card's state is one of `open`, `inprogress`, `inreview`, `done`. Every move, the implementer's included, is `ferrule card move <card-id> <state>`: it refuses a transition the table below forbids (a stage to `done` without a `commit=` the parent's `gauntlet=pass` verified, a stage started before its `blocked-by`, the parent before `gate2`), logs `moved=<state>` and, once the run has a PR, re-renders its draft body (`pr-body=…`). "card → `<state>`" in this guide means that call. `ferrule card show <id>` prints a card, `ferrule card board` every card with its state.
+A card's state is one of `open`, `inprogress`, `inreview`, `done`. Every move, the implementer's included, is `ferrule board move <card-id> <state>`: it refuses a transition the table below forbids (a stage to `done` without a `commit=` the parent's `gauntlet=pass` verified, a stage started before its `blocked-by`, the parent before `gate2`), logs `moved=<state>` and, once the run has a PR, re-renders its draft body (`pr-body=…`). "card → `<state>`" in this guide means that call. `ferrule board show <id>` prints a card, `ferrule board list` every card with its state.
 
-Cards live in the main checkout's database only — a worktree agent gets its own card's id and writes only that card (`ferrule guide implementer` says how).
+Cards live in the main checkout's database only — a worktree agent gets its own card's id and writes only that card (`ferrule guide show implementer` says how).
 
 | Card | Id | Owner |
 |---|---|---|
 | parent | `{slug}` | orchestrator — one per run |
 | stage | `{slug}.s<n>` | the implementer working that stage |
 
-Cards are agent-only: fields + a log of terse field=value tokens, no prose. Log lines are appended by `ferrule card log`, never rewritten.
+Cards are agent-only: fields + a log of terse field=value tokens, no prose. Log lines are appended by `ferrule board log`, never rewritten.
 
 ```
 id: {slug}.s3
@@ -63,9 +63,9 @@ stop: no
 
 Stage field `title` = the stage's display name, from the `## Shared` stage table of `plan.md`.
 
-Log line = `<ISO minute> <event> [key=value …]`; `ferrule card vocab` lists the events. Every line on any card is written by `ferrule card log <card-id> <event> [k=v …] [-- <text>]`; "log <event>" in this guide means that call. A free-text remark on any card (a rename, a correction) is `note -- <text>`, never starting with an event's name — `ferrule card log` refuses it with `reason=typed use=<event>`. A mid-run addition to a stage's `files` is logged on its card as `files+=<path>[, <path>] user=approved reason=…`, a minor handed to another stage as `minor-moved=<verdict line>` (on the stage that gave it up). Every line is stamped in UTC, so a resumed session can order events across cards.
+Log line = `<ISO minute> <event> [key=value …]`; `ferrule board vocab` lists the events. Every line on any card is written by `ferrule board log <card-id> <event> [k=v …] [-- <text>]`; "log <event>" in this guide means that call. A free-text remark on any card (a rename, a correction) is `note -- <text>`, never starting with an event's name — `ferrule board log` refuses it with `reason=typed use=<event>`. A mid-run addition to a stage's `files` is logged on its card as `files+=<path>[, <path>] user=approved reason=…`, a minor handed to another stage as `minor-moved=<verdict line>` (on the stage that gave it up). Every line is stamped in UTC, so a resumed session can order events across cards.
 
-Parent fields: `kind: epic|slice` (absent on a plain run), `epic` (slice run: the epic's issue number), `slices: [<n>, …]` (epic run: the child issues, in slice order), `issue`, `pr` (number, set when the draft opens), `branch`, `lane: fast|full` (set at the first approval stop), `gate1` approval date, `with-arch` (fast lane, until the architecture stop), `with-plan` (fast lane without an architecture step, until gate 2's stop) or `skipped`, `arch` approval date, `no-arch` or `skipped` (fast lane without an architecture step), `gate2` approval date, `split: [<n>, …]` (issues split off), `follow-ups: [<n>, …]`, `upstream: [<repo>#<n>, …]`. `ferrule card field {slug} <field>` reads one; `ferrule run init`, `ferrule run approve` and `ferrule issue file` set most of them. Never the goal or normative text — the issue holds the goal, `{run_dir}` the spec.
+Parent fields: `kind: epic|slice` (absent on a plain run), `epic` (slice run: the epic's issue number), `slices: [<n>, …]` (epic run: the child issues, in slice order), `issue`, `pr` (number, set when the draft opens), `branch`, `lane: fast|full` (set at the first approval stop), `gate1` approval date, `with-arch` (fast lane, until the architecture stop), `with-plan` (fast lane without an architecture step, until gate 2's stop) or `skipped`, `arch` approval date, `no-arch` or `skipped` (fast lane without an architecture step), `gate2` approval date, `split: [<n>, …]` (issues split off), `follow-ups: [<n>, …]`, `upstream: [<repo>#<n>, …]`. `ferrule board field {slug} <field>` reads one; `ferrule run init`, `ferrule gate approve` and `ferrule issue post` set most of them. Never the goal or normative text — the issue holds the goal, `{run_dir}` the spec.
 
 | Card | `open` | `inprogress` | `inreview` | `done` |
 |---|---|---|---|---|
@@ -76,4 +76,4 @@ Rules:
 - **No agent writes its own `done`** — the orchestrator's move (table above).
 - **Runnable** = every `blocked-by` card `done`.
 - Blocking derives from `blocked-by`; there is no blocked state.
-- Reconciling cards with git: `ferrule guide resume`. Cards end in `ferrule guide cleanup`.
+- Reconciling cards with git: `ferrule guide show resume`. Cards end in `ferrule guide show cleanup`.

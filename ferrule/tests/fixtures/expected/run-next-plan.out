@@ -1,74 +1,74 @@
-$ run next ns gate2 status=ready file=.claude/tasks/artifacts/ns/plan.md summary=.claude/tasks/artifacts/ns/plan.summary.md
+$ gate next ns gate2 status=ready file=.claude/tasks/artifacts/ns/plan.md summary=.claude/tasks/artifacts/ns/plan.summary.md
 next=review
 do: spawn the plan reviewer
-guide: ferrule guide gate2 --slug ns
+guide: ferrule guide show gate2 --slug ns
 exit=0
-$ run next ns gate2 status=findings file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md count=2 user=0
+$ gate next ns gate2 status=findings file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md count=2 user=0
 logged: plan-review=findings count=2 round=1
 next=revise
 run: cp .ferrule/runs/ns/plan.md .ferrule/runs/ns/plan.prev.md
 do: resume the planner with the review file
-guide: ferrule guide gate2 --slug ns
+guide: ferrule guide show gate2 --slug ns
 exit=0
-$ run next ns gate2 status=ready file=.claude/tasks/artifacts/ns/plan.md summary=.claude/tasks/artifacts/ns/plan.summary.md
+$ gate next ns gate2 status=ready file=.claude/tasks/artifacts/ns/plan.md summary=.claude/tasks/artifacts/ns/plan.summary.md
 next=follow-up
 do: spawn the plan reviewer again for a follow-up round
-guide: ferrule guide gate2 --slug ns
+guide: ferrule guide show gate2 --slug ns
 exit=0
-$ run next ns gate2 status=findings file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md count=1 user=0
+$ gate next ns gate2 status=findings file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md count=1 user=0
 logged: plan-review=findings count=1 round=2
 next=revise
 run: cp .ferrule/runs/ns/plan.md .ferrule/runs/ns/plan.prev.md
 do: resume the planner with the review file
-guide: ferrule guide gate2 --slug ns
+guide: ferrule guide show gate2 --slug ns
 exit=0
-$ run next ns gate2 status=ready file=.claude/tasks/artifacts/ns/plan.md summary=.claude/tasks/artifacts/ns/plan.summary.md
+$ gate next ns gate2 status=ready file=.claude/tasks/artifacts/ns/plan.md summary=.claude/tasks/artifacts/ns/plan.summary.md
 next=follow-up
 do: spawn the plan reviewer again for a follow-up round
-guide: ferrule guide gate2 --slug ns
+guide: ferrule guide show gate2 --slug ns
 exit=0
-$ run next ns gate2 status=findings file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md count=1 user=0
+$ gate next ns gate2 status=findings file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md count=1 user=0
 logged: plan-review=findings count=1 round=3
 next=issue
 do: ask the spec author for the tracking issue
-guide: ferrule guide gate2 --slug ns
+guide: ferrule guide show gate2 --slug ns
 exit=0
 log:
 2026-10-05T09:00 plan-review=findings count=2 round=1
 2026-10-05T09:00 plan-review=findings count=1 round=2
 2026-10-05T09:00 plan-review=findings count=1 round=3
-$ run next ns gate2 status=findings file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md count=0 user=0
+$ gate next ns gate2 status=findings file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md count=0 user=0
 logged: plan-review=findings count=0 round=1
 next=revise
 run: cp .ferrule/runs/ns/plan.md .ferrule/runs/ns/plan.prev.md
 do: resume the planner with the review file
-guide: ferrule guide gate2 --slug ns
+guide: ferrule guide show gate2 --slug ns
 exit=0
-$ run next ns gate2 status=clean file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md
+$ gate next ns gate2 status=clean file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md
 logged: plan-review=clean round=2
 next=issue
 do: ask the spec author for the tracking issue
-guide: ferrule guide gate2 --slug ns
+guide: ferrule guide show gate2 --slug ns
 exit=0
-$ run next ns gate2 status=question
+$ gate next ns gate2 status=question
 next=relay
 do: relay the question file to the user and resume the agent with the answers
-guide: ferrule guide question --slug ns
+guide: ferrule guide show question --slug ns
 exit=0
-$ run next ns gate2 status=arch-gap
+$ gate next ns gate2 status=arch-gap
 next=arch-gap
 do: spawn the architect, then resume the planner with its summary
-guide: ferrule guide gate2 --slug ns
+guide: ferrule guide show gate2 --slug ns
 exit=0
-$ run next ns gate2 status=split
+$ gate next ns gate2 status=split
 next=split
 do: handle the split request
-guide: ferrule guide split --slug ns
+guide: ferrule guide show split --slug ns
 exit=0
-$ run next ns gate2 status=behavior-change
+$ gate next ns gate2 status=behavior-change
 next=behavior-change
 do: the plan found a behavior change in a non-behavior run: back to the spec author
-guide: ferrule guide principles --slug ns
+guide: ferrule guide show principles --slug ns
 exit=0
 log:
 2026-10-05T09:00 plan-review=findings count=0 round=1

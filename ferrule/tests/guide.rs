@@ -25,7 +25,7 @@ fn ok(root: &Path, args: &[&str]) -> String {
 fn it_guide_cuts_to_the_cards_lane_and_state() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
-    ok(root, &["card", "new", "demo", "lane=fast", "pr=34"]);
+    ok(root, &["board", "new", "demo", "lane=fast", "pr=34"]);
 
     let stages = ok(root, &["guide", "stages", "--slug", "demo"]);
     assert!(stages.contains("## Fast lane\n"), "{stages}");
@@ -49,10 +49,10 @@ fn it_guide_cuts_to_the_cards_lane_and_state() {
 
     let gate4 = ok(root, &["guide", "gate4", "--slug", "demo"]);
     assert!(!gate4.contains("(done)"), "{gate4}");
-    ok(root, &["card", "log", "demo", "pr=ready"]);
+    ok(root, &["board", "log", "demo", "pr=ready"]);
     let gate4 = ok(root, &["guide", "gate4", "--slug", "demo"]);
     assert!(
-        gate4.contains("(done)\n- **Approved** → `ferrule run approve demo gate4`"),
+        gate4.contains("(done)\n- **Approved** → `ferrule gate approve demo gate4`"),
         "{gate4}"
     );
     assert!(!gate4.contains("(done)\n- **CI**"), "{gate4}");
@@ -78,7 +78,7 @@ fn it_guide_reads_the_slug_and_stage_of_a_worktree() {
     std::fs::create_dir_all(&wt).unwrap();
     let out = ferrule(root, &wt, &["guide", "implementer", "--stage", "s2"]);
     assert!(out.ends_with("exit=0"), "{out}");
-    assert!(out.contains("`ferrule card show demo`"), "{out}");
+    assert!(out.contains("`ferrule board show demo`"), "{out}");
     assert!(!out.contains("<slug>"), "{out}");
 }
 
@@ -117,7 +117,7 @@ fn it_guide_check_flags_unknown_topics_and_bad_tags() {
     std::fs::create_dir_all(&guide).unwrap();
     std::fs::write(
         guide.join("deploy.md"),
-        "# deploy — Shipping a release\n\nThen `ferrule guide releases`, `ferrule guide stages --section 'Nope'`.\n\n<!-- lane: slow -->\nx\n",
+        "# deploy — Shipping a release\n\nThen `ferrule guide show releases`, `ferrule guide show stages --section 'Nope'`.\n\n<!-- lane: slow -->\nx\n",
     )
     .unwrap();
     assert_eq!(
@@ -129,7 +129,7 @@ fn it_guide_check_flags_unknown_topics_and_bad_tags() {
     );
     assert_eq!(
         ferrule(root, root, &["guide", "nosuch"]),
-        "guide=unknown topic=nosuch list=ferrule guide --list\nexit=1"
+        "guide=unknown topic=nosuch list=ferrule guide list\nexit=1"
     );
     assert!(ferrule(root, root, &["guide"]).ends_with("exit=2"));
 }

@@ -52,7 +52,7 @@ impl From<body::Error> for Error {
     }
 }
 
-/// What `issue file` posts.
+/// What `issue post` posts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Target {
     /// The run's tracking issue; an epic's is edited again to link its
@@ -347,12 +347,12 @@ impl std::fmt::Display for PushRefused {
         match self {
             PushRefused::Main => f.write_str("push=refused reason=main hint=push from a branch other than main"),
             PushRefused::NoBranch => f.write_str(
-                "push=refused reason=branch hint=approve gate2 first: ferrule run approve <slug> gate2",
+                "push=refused reason=branch hint=approve gate2 first: ferrule gate approve <slug> gate2",
             ),
             PushRefused::Sha(m) => write!(
                 f,
                 "push=refused reason=sha mismatch={m} \
-hint=push a stage's last commit= on the run's branch: ferrule run sha-check"
+hint=push a stage's last commit= on the run's branch: ferrule stage verify"
             ),
             PushRefused::Gauntlet(g) => write!(
                 f,
@@ -404,7 +404,7 @@ impl std::fmt::Display for PublishRefused {
             PublishRefused::Threads(n) => write!(
                 f,
                 "publish=refused reason=threads threads={n} \
-hint=resolve the open threads: ferrule guide feedback"
+hint=resolve the open threads: ferrule guide show feedback"
             ),
             PublishRefused::Collide(ids) => {
                 write!(

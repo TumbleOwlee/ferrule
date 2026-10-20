@@ -122,7 +122,7 @@ impl Ctx<'_> {
 
     fn guide(&mut self, topic: Topic) {
         self.out.push(format!(
-            "guide: ferrule guide {} --slug {}",
+            "guide: ferrule guide show {} --slug {}",
             topic.name(),
             self.slug
         ));
@@ -333,7 +333,7 @@ fn ci_result(c: &mut Ctx, ci: &str) -> rusqlite::Result<()> {
     } else {
         c.next("fix", None);
         let branch = c.field("branch")?.unwrap_or_default();
-        c.run(&format!("ferrule pr failed {branch}"));
+        c.run(&format!("ferrule ci failed {branch}"));
         c.act("read the failed workflow and fix it");
         c.guide(Topic::Gate4);
     }
@@ -472,7 +472,7 @@ fn branch_resolved(c: &mut Ctx, window: &[&str]) -> rusqlite::Result<()> {
     let slug = c.slug;
     if let Some(n) = c.open_stage()? {
         c.next("stage-stop", None);
-        c.run(&format!("ferrule run stage-stop {slug} s{n} --threads <n>"));
+        c.run(&format!("ferrule stage stop {slug} s{n} --threads <n>"));
         c.act("run the stage stop decision with the PR thread count");
         c.guide(Topic::StageReview);
     } else if c.needs_user() && c.field("lane")?.as_deref() == Some("full") {

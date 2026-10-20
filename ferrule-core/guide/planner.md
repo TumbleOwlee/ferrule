@@ -18,7 +18,7 @@ Read both files whole. `architecture.md` is the target: every new or changed com
 
 ## Interview before drafting
 
-Surface every plan-shaped decision (stage boundaries, test strategy, file layout — structure is settled in `architecture.md`) via the orchestrator, with a recommendation, in `{run_dir}/question.md` — shape, batching and the `Why you:` rule: `ferrule guide author`, its `## Questions`, title `# {slug} — questions (gate 2)` — and end turn on `status=question file=… count=<n>`. No plan until every decision is resolved.
+Surface every plan-shaped decision (stage boundaries, test strategy, file layout — structure is settled in `architecture.md`) via the orchestrator, with a recommendation, in `{run_dir}/question.md` — shape, batching and the `Why you:` rule: `ferrule guide show author`, its `## Questions`, title `# {slug} — questions (gate 2)` — and end turn on `status=question file=… count=<n>`. No plan until every decision is resolved.
 
 Every decision, asked or not, is one line appended to `decisions.md` (`## Decision lines`).
 
@@ -32,13 +32,13 @@ Every decision, asked or not, is one line appended to `decisions.md` (`## Decisi
 
 ## Decision lines
 
-Shape, tags and rules: `ferrule guide decisions` — read it before your first decision. A `[process]` line records a stage cut, a title or a test choice; `[design]` a structure or code choice beyond the architecture.
+Shape, tags and rules: `ferrule guide show decisions` — read it before your first decision. A `[process]` line records a stage cut, a title or a test choice; `[design]` a structure or code choice beyond the architecture.
 
 ## Output
 
-`plan.md` is flat markdown, headed so `ferrule spec section` pulls exactly one section — a stage-scoped reader (implementer, stage reviewer) never opens the whole file. Heading text is exact and stable once written: implementers and stage reviewers find a stage by its `## Stage s<n>:` prefix, and the orchestrator copies each title onto its card, so a heading renamed after approval disagrees with its card and the draft PR.
+`plan.md` is flat markdown, headed so `ferrule file section` pulls exactly one section — a stage-scoped reader (implementer, stage reviewer) never opens the whole file. Heading text is exact and stable once written: implementers and stage reviewers find a stage by its `## Stage s<n>:` prefix, and the orchestrator copies each title onto its card, so a heading renamed after approval disagrees with its card and the draft PR.
 
-- `## Shared` — first section. **Stage table** (below), verification approach if uniform across stages, any code reference cited by 2+ stages. `ferrule run approve {slug} gate2` creates the stage cards from the table alone.
+- `## Shared` — first section. **Stage table** (below), verification approach if uniform across stages, any code reference cited by 2+ stages. `ferrule gate approve {slug} gate2` creates the stage cards from the table alone.
 - `## Stage s0: Land spec` — the first stage whenever `spec-diff.md` has entries to land: copy each `## <ID>` into its `docs/specs/<area>/` file (exact target file + insertion point per ID, contract-file rows likewise; the heading's ` · was R<n>` never lands), one commit, no code. Every other stage is `blocked-by: [s0]`. A `no-diff` or non-behavior plan has no `s0` — no empty stage.
 - `## Stage s<n>: <title>` — one per stage, self-contained: numbered file-level steps, tests added, `files` touched, `blocked-by`, ID→test table (scenarios included: `S<n>` → the integration test or the Verification step that walks it), the `## Deferred` items owned by `implementation` this stage meets, **Verification** (how exercised beyond unit tests — unit tests alone, or the manual steps that exercise it — plus expected coverage impact), expected commits.
 
@@ -95,7 +95,7 @@ The stage's display name, also its card's `title:`: imperative, verb first (`Upd
 
 ## Re-plan
 
-Spawned with `mode=replan from=s<n>`: read `ferrule guide planner-replan` first.
+Spawned with `mode=replan from=s<n>`: read `ferrule guide show planner-replan` first.
 
 ## Rules
 

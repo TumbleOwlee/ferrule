@@ -277,11 +277,11 @@ impl fmt::Display for Reject {
                     _ => "budget",
                 };
                 let hint = match r {
-                    Reason::Event => "run `ferrule card vocab` for the events",
+                    Reason::Event => "run `ferrule board vocab` for the events",
                     Reason::Key => {
                         let hint = self.spec.map_or_else(
                             || {
-                                "use only the keys the event lists in `ferrule card vocab`"
+                                "use only the keys the event lists in `ferrule board vocab`"
                                     .to_owned()
                             },
                             |s| {
@@ -299,12 +299,12 @@ impl fmt::Display for Reject {
                         );
                     }
                     Reason::Scope => {
-                        "the event is for the other card kind; see `ferrule card vocab`"
+                        "the event is for the other card kind; see `ferrule board vocab`"
                     }
                     Reason::Value => {
                         let hint = self.spec.map_or_else(
                             || {
-                                "check the value, positional words and `-- text` against `ferrule card vocab`"
+                                "check the value, positional words and `-- text` against `ferrule board vocab`"
                                     .to_owned()
                             },
                             usage,
@@ -617,7 +617,7 @@ mod tests {
         let r = check("nosuch", &[], STAGE).unwrap_err().to_string();
         assert_eq!(
             r,
-            "card-log=reject event=nosuch reason=event hint=run `ferrule card vocab` for the events"
+            "card-log=reject event=nosuch reason=event hint=run `ferrule board vocab` for the events"
         );
     }
 

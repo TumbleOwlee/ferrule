@@ -202,11 +202,11 @@ fn it_failed_prints_the_error_lines() {
         "test\tCompiling x\ntest\terror[E0308]: mismatched types\ntest\tPost job cleanup failed\ntest\ttest a ... FAILED\n",
     );
     assert_eq!(
-        ferrule(&gh, p.path(), &["pr", "failed", "feat/x"]).text(),
+        ferrule(&gh, p.path(), &["ci", "failed", "feat/x"]).text(),
         "test\terror[E0308]: mismatched types\ntest\ttest a ... FAILED\nexit=0"
     );
     assert_eq!(
-        ferrule(&gh, p.path(), &["pr", "failed", "feat/none"]).text(),
+        ferrule(&gh, p.path(), &["ci", "failed", "feat/none"]).text(),
         "exit=1"
     );
 }
@@ -228,7 +228,7 @@ fn it_failed_takes_a_run_a_job_and_context() {
             &gh,
             p.path(),
             &[
-                "pr",
+                "ci",
                 "failed",
                 "--run",
                 "6",
@@ -245,7 +245,7 @@ fn it_failed_takes_a_run_a_job_and_context() {
         ferrule(
             &gh,
             p.path(),
-            &["pr", "failed", "--run", "6", "--job", "docs"]
+            &["ci", "failed", "--run", "6", "--job", "docs"]
         )
         .text(),
         "exit=1"

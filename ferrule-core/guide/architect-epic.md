@@ -1,6 +1,6 @@
 # architect-epic — The size guard, epic mode and slice runs
 
-Read by `fe-architect` only on the triggers in its `## Epics, slices, size guard`; everything in `ferrule guide architect` still applies.
+Read by `fe-architect` only on the triggers in its `## Epics, slices, size guard`; everything in `ferrule guide show architect` still applies.
 
 ## Size guard
 

@@ -6,7 +6,7 @@ Grill the user to a common understanding of the feature and write it down as the
 
 ## Project rules
 
-`AGENTS.md` is already in your context; never re-read it. Its rules on the spec, reading, code, text and scope bind you here. Read, one batched call: `ferrule spec section 'Rules for writing specs' 'Per-area files' docs/specs/README.md`; then the sections of the affected area's `requirements.md`, `edge-cases.md`, `api-contract.md`/`data-contract.md` the goal touches. **Never read source code.** Gate 1 is existing spec + the request; whether code already matches is the implementer's discovery, how it is built the architect's.
+`AGENTS.md` is already in your context; never re-read it. Its rules on the spec, reading, code, text and scope bind you here. Read, one batched call: `ferrule file section 'Rules for writing specs' 'Per-area files' docs/specs/README.md`; then the sections of the affected area's `requirements.md`, `edge-cases.md`, `api-contract.md`/`data-contract.md` the goal touches. **Never read source code.** Gate 1 is existing spec + the request; whether code already matches is the implementer's discovery, how it is built the architect's.
 
 ## Grilling — gate 1
 
@@ -88,7 +88,7 @@ Change: <≤ 12 words, what moved>
 - **Scenarios** are the agreed anchors: one flow each, `Given`/`When`/`Then` one line each (`And` lines allowed). Later agents never contradict one without asking the user. They never land in `docs/specs/`; the issue carries them.
 - **Entries** state one observable rule each; `docs/specs/README.md` binds their text only once it lands. No public signatures, error variants or config-key spelling unless the user decided them — that is the architect's.
 - `Revisions:` only from rev 2 on, one line per revision, newest last; nothing else in the file says what an earlier revision looked like. A revision made while the issue is **filed** carries its date, `- rev 5 (2026-10-16) — <a>; <b> (<by>)`: `spec-render.sh changes` renders those ending (user), (review) or (impl) into the PR's `## Spec changes since filing`; other authors' dated lines stay in `spec-diff.md`.
-- Every decision, `(user)` when the user answered it, `(chosen)` when you settled it alone, is one line appended to `{run_dir}/decisions.md` — never into `spec-diff.md`: `[spec <ID>]` for an entry's, `[scope]` for a scenario's or the scope's. Shape: `ferrule guide decisions`, read before your first decision.
+- Every decision, `(user)` when the user answered it, `(chosen)` when you settled it alone, is one line appended to `{run_dir}/decisions.md` — never into `spec-diff.md`: `[spec <ID>]` for an entry's, `[scope]` for a scenario's or the scope's. Shape: `ferrule guide show decisions`, read before your first decision.
 - `## Other spec changes`: three fields split by ` › ` (`ferrule spec render` makes them a File / Section / Change table row in the PR). A row or note that itself contains a backtick is wrapped in double backticks (`` ``…`` ``), never nested single ones — GitHub ends the span at the inner backtick.
 - `## Deferred`: every point you did not ask, with the agent that settles it. Later agents remove the items they resolve.
 - `no-diff`: the violated entries, each `## <ID> — violated · <file> `## <heading>`` with its current text; no `Change:`.
@@ -134,5 +134,5 @@ Issue IDs are the issue's local `R<n>`/`E<n>`/`S<n>` (the `· was R<n>` heading 
 
 ## Split issue, gate 4
 
-Resumed for a split or for gate 4: read `ferrule guide author-late` first — it holds the `split-issue.md` shape, the gate 4 sync and the `pr.md` shape.
+Resumed for a split or for gate 4: read `ferrule guide show author-late` first — it holds the `split-issue.md` shape, the gate 4 sync and the `pr.md` shape.
 

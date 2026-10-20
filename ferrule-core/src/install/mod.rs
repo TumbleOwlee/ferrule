@@ -1,4 +1,4 @@
-//! `ferrule install`: the `.ferrule/` directory and the thin files each
+//! `ferrule setup install`: the `.ferrule/` directory and the thin files each
 //! agent host reads, generated from templates inside the binary.
 //!
 //! Every generated file, and every marked block ferrule keeps inside a
@@ -232,7 +232,7 @@ fn hash(text: &str) -> String {
 #[serde(default)]
 struct Lock {
     version: String,
-    /// `ferrule install` added the `@AGENTS.md` line to `CLAUDE.md`.
+    /// `ferrule setup install` added the `@AGENTS.md` line to `CLAUDE.md`.
     claude_md: bool,
     /// The `permissions.deny` rules ferrule added to the settings.
     deny: Vec<String>,
@@ -695,7 +695,7 @@ pub fn install(root: &Path, opts: &Options) -> Result<Report, Error> {
     }
     ensure_git_hooks(root, &mut report)?;
     if !report.viewer {
-        report.hints.push("hint=no viewer: prompt show prints approval files into the agent's context; install glow and rerun ferrule install".to_owned());
+        report.hints.push("hint=no viewer: prompt show prints approval files into the agent's context; install glow and rerun ferrule setup install".to_owned());
     }
     VERSION.clone_into(&mut lock.version);
     let text = lock.text();
@@ -921,7 +921,7 @@ impl Mismatch {
             format!("this binary is older than the project's; run {cargo}")
         } else {
             format!(
-                "the project's ferrule files are from {v}; run ferrule install to update them to {VERSION} and commit the result, or keep {v} with {cargo}"
+                "the project's ferrule files are from {v}; run ferrule setup install to update them to {VERSION} and commit the result, or keep {v} with {cargo}"
             )
         };
         format!("ferrule=refused reason=version {key}={v} binary={VERSION}: {fix}")
@@ -947,14 +947,18 @@ pub fn version_mismatch(root: &Path) -> Option<Mismatch> {
     (!locked.is_empty() && locked != VERSION).then_some(Mismatch::Locked(locked))
 }
 
-/// `command` installs ferrule or runs `ferrule install`: what a version
-/// mismatch asks for, so the guard lets it through.
+/// `command` installs ferrule or runs `ferrule setup install` (or the old
+/// `ferrule setup install`): what a version mismatch asks for, so the guard lets it
+/// through.
 #[must_use]
 pub fn is_update(command: &str) -> bool {
     let words: Vec<&str> = command.split_whitespace().collect();
     let ferrule_install = words
         .windows(2)
-        .any(|w| w[0].ends_with("ferrule") && w[1] == "install");
+        .any(|w| w[0].ends_with("ferrule") && w[1] == "install")
+        || words
+            .windows(3)
+            .any(|w| w[0].ends_with("ferrule") && w[1] == "setup" && w[2] == "install");
     let cargo_install = words.windows(2).any(|w| w == ["cargo", "install"])
         && words.iter().any(|w| w.contains("ferrule"));
     ferrule_install || cargo_install
@@ -980,11 +984,16 @@ mod tests {
         assert!(later("0.10.0", "0.9.3"));
         assert!(!later("0.9.3", "0.10.0"));
         assert!(!later("dev", "0.1.0"));
-        assert!(is_update(".ferrule/ferrule install --force"));
+        assert!(is_update(".ferrule/ferrule setup install --force"));
+        assert!(
+            is_update("ferrule install"),
+            "the old name, kept for one release"
+        );
+        assert!(!is_update("ferrule setup check"));
         assert!(is_update(
             "cargo install --git https://github.com/TumbleOwlee/ferrule --tag v1.0.0"
         ));
-        assert!(!is_update("ferrule card board"));
+        assert!(!is_update("ferrule board list"));
         assert!(!is_update("cargo install ripgrep"));
     }
 

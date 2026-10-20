@@ -434,7 +434,7 @@ fn epic_parts(c: &Ctx, out: &mut String) -> Result<(), Error> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Form {
     /// From the first push to gate 4: progress, rendered again on every
-    /// card move.
+    /// board move.
     Draft,
     /// At gate 4, from pr.md.
     Full,

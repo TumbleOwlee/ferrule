@@ -1,4 +1,7 @@
-pub mod card;
+pub mod board;
+pub mod ci;
+pub mod file;
+pub mod gate;
 pub mod guide;
 pub mod hook;
 pub mod install;
@@ -7,6 +10,7 @@ pub mod pr;
 pub mod prompt;
 pub mod run;
 pub mod spec;
+pub mod stage;
 pub mod uninstall;
 
 use std::io::{self, Write};

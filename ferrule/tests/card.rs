@@ -10,7 +10,7 @@ const NOW: &str = "2026-10-05T09:00";
 fn project() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     let board = fixtures().join("board");
-    let got = ferrule(dir.path(), &["card", "import", board.to_str().unwrap()]).text();
+    let got = ferrule(dir.path(), &["board", "import", board.to_str().unwrap()]).text();
     assert_eq!(got, "import=ok cards=13\nexit=0");
     dir
 }
@@ -22,16 +22,16 @@ fn ferrule(project: &Path, args: &[&str]) -> Run {
         .cwd(project)
 }
 
-/// `card log`, then the card's last log line when it was accepted, as the
+/// `board log`, then the card's last log line when it was accepted, as the
 /// workflow's tests read it back with `tail -1`.
 fn log_tail(project: &Path, card: &str, args: &[&str]) -> String {
-    let mut all = vec!["card", "log", card];
+    let mut all = vec!["board", "log", card];
     all.extend_from_slice(args);
     let out = ferrule(project, &all).text();
     if out != "exit=0" {
         return out;
     }
-    let shown = ferrule(project, &["card", "show", card]).text();
+    let shown = ferrule(project, &["board", "show", card]).text();
     let last = shown.lines().rev().nth(1).unwrap_or_default().to_owned();
     format!("{last}\nexit=0")
 }
@@ -49,13 +49,13 @@ fn it_field_reads_frontmatter_log_and_pass_sha() {
         "pass-sha",
         "nosuch",
     ] {
-        let out = ferrule(p.path(), &["card", "field", "demo", f]).output();
+        let out = ferrule(p.path(), &["board", "field", "demo", f]).output();
         got.push_str(f);
         got.push('=');
         got.push_str(&String::from_utf8_lossy(&out.stdout));
         got.push('\n');
     }
-    let none = ferrule(p.path(), &["card", "field", "nosuch", "lane"]).text();
+    let none = ferrule(p.path(), &["board", "field", "nosuch", "lane"]).text();
     got.push_str(&none);
     check("card-field", &got);
 }
@@ -128,7 +128,7 @@ fn it_log_appends_validated_lines() {
 fn it_log_rejects_and_leaves_the_card_unchanged() {
     let p = project();
     let p = p.path();
-    let before = ferrule(p, &["card", "show", "demo.s1"]).text();
+    let before = ferrule(p, &["board", "show", "demo.s1"]).text();
     let x160 = "x".repeat(160);
     let cases: &[(&str, &[&str])] = &[
         ("card-log-reject-event", &["demo.s1", "frobnicate"]),
@@ -173,12 +173,12 @@ fn it_log_rejects_and_leaves_the_card_unchanged() {
         ("card-log-read-no-text", &["demo.s1", "read", "path=f1.rs"]),
     ];
     for (name, args) in cases {
-        let mut all = vec!["card", "log"];
+        let mut all = vec!["board", "log"];
         all.extend_from_slice(args);
         ferrule(p, &all).golden(name);
     }
-    assert_eq!(ferrule(p, &["card", "show", "demo.s1"]).text(), before);
-    let waived = ferrule(p, &["card", "log", "demo", "ci-waived"]).output();
+    assert_eq!(ferrule(p, &["board", "show", "demo.s1"]).text(), before);
+    let waived = ferrule(p, &["board", "log", "demo", "ci-waived"]).output();
     assert_eq!(waived.status.code(), Some(2));
 }
 
@@ -190,7 +190,9 @@ fn it_log_read_budget_and_commit_state() {
         let path = format!("path=f{k}.rs");
         let got = ferrule(
             p,
-            &["card", "log", "demo.s2", "read", &path, "--", "the", "plan"],
+            &[
+                "board", "log", "demo.s2", "read", &path, "--", "the", "plan",
+            ],
         )
         .text();
         assert_eq!(got, "exit=0");
@@ -198,7 +200,7 @@ fn it_log_read_budget_and_commit_state() {
     ferrule(
         p,
         &[
-            "card",
+            "board",
             "log",
             "demo.s2",
             "read",
@@ -210,9 +212,9 @@ fn it_log_read_budget_and_commit_state() {
     )
     .golden("card-log-read-budget");
     new(p, &["demo.s3", "--state", "inprogress"]);
-    ferrule(p, &["card", "log", "demo.s3", "commit=abc1234"])
+    ferrule(p, &["board", "log", "demo.s3", "commit=abc1234"])
         .golden("card-log-reject-commit-inprogress");
-    let shown = ferrule(p, &["card", "show", "demo.s3"]).text();
+    let shown = ferrule(p, &["board", "show", "demo.s3"]).text();
     assert!(!shown.contains("commit="));
     assert_eq!(
         log_tail(p, "demo.s1", &["commit=abc1234"]),
@@ -221,7 +223,7 @@ fn it_log_read_budget_and_commit_state() {
 }
 
 fn new(p: &Path, args: &[&str]) {
-    let mut all = vec!["card", "new"];
+    let mut all = vec!["board", "new"];
     all.extend_from_slice(args);
     assert_eq!(ferrule(p, &all).text(), "exit=0", "{args:?}");
 }
@@ -244,16 +246,16 @@ fn it_move_follows_the_board_rules() {
     new(p, &["ss.s0", "title=Spec", "blocked-by=[]"]);
     new(p, &["ss.s1", "title=One", "blocked-by=[ss.s0]"]);
     new(p, &["ss.s2", "title=Two", "blocked-by=[s1]"]);
-    let mv = |card: &str, to: &str| ferrule(p, &["card", "move", card, to]).text();
+    let mv = |card: &str, to: &str| ferrule(p, &["board", "move", card, to]).text();
     let refused = |from: &str, to: &str, reason: &str| {
         let hint = match reason {
             "transition" => "TRANSITION",
             "blocked-by" => "move the cards in its blocked-by to done first",
-            "commit" => "commit the stage with `ferrule card commit <card> -m <msg>` first",
+            "commit" => "commit the stage with `ferrule stage commit <card> -m <msg>` first",
             "unverified" => {
-                "run `ferrule run gauntlet <slug>` so a gauntlet=pass covers the commit sha"
+                "run `ferrule ci gauntlet <slug>` so a gauntlet=pass covers the commit sha"
             }
-            _ => "approve gate 2 first: `ferrule run approve <slug> gate2`",
+            _ => "approve gate 2 first: `ferrule gate approve <slug> gate2`",
         };
         format!("card-move=refused from={from} to={to} reason={reason} hint={hint}\nexit=2")
     };
@@ -265,15 +267,19 @@ fn it_move_follows_the_board_rules() {
     );
     assert_eq!(mv("ss.s0", "inprogress"), "exit=0");
     assert_eq!(mv("ss.s0", "inreview"), "exit=0");
-    let shown = ferrule(p, &["card", "show", "ss.s0"]).text();
+    let shown = ferrule(p, &["board", "show", "ss.s0"]).text();
     assert!(shown.ends_with("2026-10-05T09:00 moved=inreview\nexit=0"));
     assert_eq!(mv("ss.s0", "done"), refused("inreview", "done", "commit"));
-    ferrule(p, &["card", "log", "ss.s0", "commit=abc1234"]).text();
+    ferrule(p, &["board", "log", "ss.s0", "commit=abc1234"]).text();
     assert_eq!(
         mv("ss.s0", "done"),
         refused("inreview", "done", "unverified")
     );
-    ferrule(p, &["card", "log", "ss", "gauntlet=pass", "sha=abc1234def"]).text();
+    ferrule(
+        p,
+        &["board", "log", "ss", "gauntlet=pass", "sha=abc1234def"],
+    )
+    .text();
     assert_eq!(mv("ss.s0", "done"), "exit=0");
     assert_eq!(mv("ss.s0", "done"), "exit=0", "same state is a no-op");
     assert_eq!(mv("ss.s1", "inprogress"), "exit=0");
@@ -306,7 +312,7 @@ fn it_move_follows_the_board_rules() {
     );
     new(p, &["ep", "kind=epic"]);
     assert_eq!(mv("ep", "inreview"), "exit=0");
-    ferrule(p, &["card", "move", "nosuch.s1", "done"]).golden("card-move-no-card");
+    ferrule(p, &["board", "move", "nosuch.s1", "done"]).golden("card-move-no-card");
 }
 
 #[test]
@@ -316,27 +322,27 @@ fn it_new_and_set_validate_fields() {
     new(p, &["r", "lane=fast"]);
     let run = |args: &[&str]| ferrule(p, args).text();
     assert_eq!(
-        run(&["card", "new", "r"]),
-        "card-new=exists hint=pick another id, or change the card with `ferrule card set`\nexit=1"
+        run(&["board", "new", "r"]),
+        "card-new=exists hint=pick another id, or change the card with `ferrule board set`\nexit=1"
     );
     assert_eq!(
-        run(&["card", "new", "r.s1", "lane=fast"]),
+        run(&["board", "new", "r.s1", "lane=fast"]),
         "card-new=reject key=lane hint=a stage card takes only title, blocked-by, files, branch, worktree, stop\nexit=2"
     );
     assert_eq!(
-        run(&["card", "set", "r", "gate2=2026-10-03", "pr=7"]),
+        run(&["board", "set", "r", "gate2=2026-10-03", "pr=7"]),
         "exit=0"
     );
-    assert_eq!(run(&["card", "set", "r", "lane="]), "exit=0");
-    assert_eq!(run(&["card", "field", "r", "gate2"]), "2026-10-03\nexit=0");
-    assert_eq!(run(&["card", "field", "r", "lane"]), "exit=0");
-    assert_eq!(run(&["card", "field", "r", "state"]), "open\nexit=0");
+    assert_eq!(run(&["board", "set", "r", "lane="]), "exit=0");
+    assert_eq!(run(&["board", "field", "r", "gate2"]), "2026-10-03\nexit=0");
+    assert_eq!(run(&["board", "field", "r", "lane"]), "exit=0");
+    assert_eq!(run(&["board", "field", "r", "state"]), "open\nexit=0");
     assert_eq!(
-        run(&["card", "set", "x", "pr=1"]),
-        "card-set=card hint=check the id with `ferrule card board`\nexit=1"
+        run(&["board", "set", "x", "pr=1"]),
+        "card-set=card hint=check the id with `ferrule board list`\nexit=1"
     );
     assert_eq!(
-        run(&["card", "show", "r"]),
+        run(&["board", "show", "r"]),
         "---\nid: r\nstate: open\ngate2: 2026-10-03\npr: 7\n---\nexit=0"
     );
 }
@@ -345,7 +351,7 @@ fn it_new_and_set_validate_fields() {
 fn it_import_is_all_or_nothing() {
     let p = project();
     let board = fixtures().join("board");
-    let again = ferrule(p.path(), &["card", "import", board.to_str().unwrap()]).text();
+    let again = ferrule(p.path(), &["board", "import", board.to_str().unwrap()]).text();
     assert!(again.starts_with("import=refused reason=card "), "{again}");
 
     let bad = tempfile::tempdir().unwrap();
@@ -359,17 +365,17 @@ fn it_import_is_all_or_nothing() {
     let fresh = tempfile::tempdir().unwrap();
     let got = ferrule(
         fresh.path(),
-        &["card", "import", bad.path().to_str().unwrap()],
+        &["board", "import", bad.path().to_str().unwrap()],
     )
     .text();
     assert!(got.contains("unknown frontmatter key color"), "{got}");
-    assert_eq!(ferrule(fresh.path(), &["card", "board"]).text(), "exit=0");
+    assert_eq!(ferrule(fresh.path(), &["board", "list"]).text(), "exit=0");
 }
 
 #[test]
 fn it_board_lists_every_card_in_run_order() {
     let p = project();
-    let got = ferrule(p.path(), &["card", "board"]).text();
+    let got = ferrule(p.path(), &["board", "list"]).text();
     let first: Vec<&str> = got.lines().take(4).collect();
     assert_eq!(
         first,
@@ -417,17 +423,17 @@ fn it_worktree_reaches_the_main_checkouts_board() {
         "feat/x",
     ]);
     new(&repo, &["x", "--state", "inprogress"]);
-    let got = Run::new(["card", "log", "x", "note", "--", "from", "the", "worktree"])
+    let got = Run::new(["board", "log", "x", "note", "--", "from", "the", "worktree"])
         .env("FERRULE_NOW", NOW)
         .cwd(&wt)
         .text();
     assert_eq!(got, "exit=0");
-    let shown = ferrule(&repo, &["card", "show", "x"]).text();
+    let shown = ferrule(&repo, &["board", "show", "x"]).text();
     assert!(shown.contains("note from the worktree"), "{shown}");
 }
 
 fn log_at(p: &Path, at: &str, args: &[&str]) {
-    let mut all = vec!["card", "log"];
+    let mut all = vec!["board", "log"];
     all.extend_from_slice(args);
     let got = Run::new(&all)
         .env("CLAUDE_PROJECT_DIR", p)

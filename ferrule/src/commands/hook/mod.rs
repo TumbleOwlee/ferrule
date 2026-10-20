@@ -30,7 +30,7 @@ Refuses:
                        unfiltered find -type, a raw CI log
   a git or gh call a ferrule command replaces; the reason names it
                        (`[guard] allow` in ferrule.toml lets one through)
-  every call but `ferrule install` while the binary and the project's pin
+  every call but `ferrule setup install` while the binary and the project's pin
                        or lock disagree: `ferrule=refused reason=version ...`
 Errors (stderr):
   ferrule hook: unreadable PreToolUse payload (...); refusing the call
@@ -69,7 +69,7 @@ Refuses:
                        filesystem, and the `[hook.readonly] mutating`
                        prefixes of ferrule.toml; record what you needed to
                        probe as a finding for the implementer instead
-  every call but `ferrule install` while the binary and the project's pin
+  every call but `ferrule setup install` while the binary and the project's pin
                        or lock disagree: `ferrule=refused reason=version ...`
   deny when ferrule.toml cannot be read: ferrule hook reviewer: <error>
 Errors (stderr):
@@ -88,10 +88,10 @@ Output (stdout, added to the session's context):
   [ferrule] unfinished cards — a run was interrupted:
   <card> <state>       one line per card in inprogress or inreview
   Ask to resume: reconcile every card against git before acting on it
-  (ferrule guide resume).
+  (ferrule guide show resume).
 Prints nothing when there is no board or no unfinished card.
 Exit codes: 0 always.
-See: ferrule guide resume";
+See: ferrule guide show resume";
 
 #[derive(Debug, Subcommand)]
 pub enum HookCommand {
@@ -243,7 +243,7 @@ fn session_start(out: &mut impl Write) -> io::Result<u8> {
     if let Some(m) = install::version_mismatch(&project::main_checkout()) {
         writeln!(out, "[ferrule] {}", m.message())?;
     }
-    let Ok(Some(s)) = super::card::store(false) else {
+    let Ok(Some(s)) = super::board::store(false) else {
         return Ok(exit::OK);
     };
     let Ok(cards) = board::all(&s.conn) else {
@@ -262,7 +262,7 @@ fn session_start(out: &mut impl Write) -> io::Result<u8> {
     }
     writeln!(
         out,
-        "Ask to resume: reconcile every card against git before acting on it (ferrule guide resume)."
+        "Ask to resume: reconcile every card against git before acting on it (ferrule guide show resume)."
     )?;
     Ok(exit::OK)
 }

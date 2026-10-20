@@ -9,7 +9,7 @@ use crate::commands::exit;
 
 /// Shown after `ferrule hook git --help`.
 pub const GIT_AFTER_LONG_HELP: &str = "\
-Called by the git hooks `ferrule install` writes, not by hand. The main
+Called by the git hooks `ferrule setup install` writes, not by hand. The main
 branch is `main_branch` of ferrule.toml (default main).
 Per hook (git passes its arguments and stdin):
   pre-commit           no input; refuses a commit while HEAD is the main

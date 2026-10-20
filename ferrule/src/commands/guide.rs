@@ -1,34 +1,48 @@
 use std::io::{self, Write};
 use std::path::Path;
 
-use clap::Args;
+use clap::{Args, Subcommand};
 use ferrule_core::card::board;
 use ferrule_core::config::Config;
 use ferrule_core::guide::{self, Context, Lane};
 use ferrule_core::project::{self, Layout};
 use ferrule_core::term::{self, Style};
 
-use super::card::{sql, store};
+use super::board::{sql, store};
 use super::exit;
 use crate::cli::stage_name;
 
-/// Shown after `ferrule guide --help`.
-const GUIDE_AFTER_LONG_HELP: &str = "\
+/// Shown after `ferrule guide show --help`.
+const SHOW_AFTER_LONG_HELP: &str = "\
 Output:
   The topic's markdown, cut to the run's lane (a `<!-- lane: … -->` part
   for the other lane is left out), finished steps marked, placeholders such
   as {slug} and {run_dir} filled. With --section, only those sections.
-  --list prints the topics, `Orchestrator:`, `Agents:` and `Project:`
-  groups with `  <topic>  <summary>` lines.
-  --check prints guide-check=ok, or one guide-check=fail line per problem.
 Refusals (stdout, exit 1):
-  guide=unknown topic=<name> list=ferrule guide --list
+  guide=unknown topic=<name> list=ferrule guide list
                                  No such topic; the list command names them.
   guide=unknown-section topic=<name> section=<heading>
                                  The topic has no section of that heading
                                  (one line per miss). Followed by one
                                  section=<heading> line for each heading the
                                  topic has; pick from those.
+Exit codes: 0 ok, 1 refused, 2 usage.
+Example:
+  ferrule guide show gate4 --section 'Gate 4 — pull request' --slug my-run";
+
+/// Shown after `ferrule guide list --help`.
+const LIST_AFTER_LONG_HELP: &str = "\
+Output:
+  The topics in `Orchestrator:`, `Agents:` and `Project:` groups, one
+  `  <topic>  <summary>` line each.
+Exit codes: 0 ok.";
+
+/// Shown after `ferrule guide check --help`.
+const CHECK_AFTER_LONG_HELP: &str = "\
+Output:
+  guide-check=ok                 Every topic and section a topic names
+                                 exists and every tag is well-formed.
+Refusals (stdout, exit 1), one line per problem:
   guide-check=fail topic=<name> names-unknown=<topic>[#<heading>]
                                  The topic names a topic or section that does
                                  not exist. Last key hint=fix the name or add
@@ -42,16 +56,30 @@ Refusals (stdout, exit 1):
                                  A project topic must start with
                                  `# <name> — <summary>`. Last key hint=start
                                  the file with # <name> — <summary>.
-Exit codes: 0 ok, 1 refused, 2 usage.
-Example:
-  ferrule guide gate4 --section 'Gate 4 — pull request' --slug my-run";
+Exit codes: 0 ok, 1 refused.";
+
+#[derive(Debug, Subcommand)]
+pub enum GuideCommand {
+    /// Print one topic, cut to the run's lane.
+    ///
+    /// Its finished steps are marked, and `{slug}`, `{run_dir}` and the
+    /// other placeholders are filled from the run's card.
+    #[command(after_long_help = SHOW_AFTER_LONG_HELP)]
+    Show(ShowArgs),
+    /// List the topics.
+    #[command(after_long_help = LIST_AFTER_LONG_HELP)]
+    List,
+    /// Check that every topic and section a topic names exists and every
+    /// tag is well-formed.
+    #[command(after_long_help = CHECK_AFTER_LONG_HELP)]
+    Check,
+}
 
 #[derive(Debug, Args)]
-#[command(after_long_help = GUIDE_AFTER_LONG_HELP)]
-pub struct GuideArgs {
-    /// The topic, e.g. `gate2` or `implementer`; `--list` names them all.
-    #[arg(required_unless_present_any = ["list", "check"])]
-    pub topic: Option<String>,
+pub struct ShowArgs {
+    /// The topic, e.g. `gate2` or `implementer`; `ferrule guide list` names
+    /// them all.
+    pub topic: String,
     /// Print only this section, by heading text ignoring case; repeatable.
     #[arg(long, value_name = "HEADING")]
     pub section: Vec<String>,
@@ -65,43 +93,52 @@ pub struct GuideArgs {
     /// Cut to this lane instead of the run's.
     #[arg(long, value_parser = ["fast", "full"])]
     pub lane: Option<String>,
-    /// List the topics.
-    #[arg(long, conflicts_with_all = ["topic", "check"])]
-    pub list: bool,
-    /// Check that every topic and section a topic names exists and every
-    /// tag is well-formed.
-    #[arg(long, conflicts_with = "topic")]
-    pub check: bool,
 }
 
-pub fn run(args: &GuideArgs, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
+pub fn run(command: &GuideCommand, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
     let layout = Layout::new(project::main_checkout());
-    if args.list {
-        for line in guide::list(&layout.root) {
-            match style {
-                Some(s) if !line.starts_with(' ') => writeln!(out, "{}", term::strong(&line, s))?,
-                _ => writeln!(out, "{line}")?,
-            }
+    let args = match command {
+        GuideCommand::Show(args) => args,
+        GuideCommand::List => return list(&layout, style, out),
+        GuideCommand::Check => return check(&layout, out),
+    };
+    show(&layout, args, style, out)
+}
+
+fn list(layout: &Layout, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
+    for line in guide::list(&layout.root) {
+        match style {
+            Some(s) if !line.starts_with(' ') => writeln!(out, "{}", term::strong(&line, s))?,
+            _ => writeln!(out, "{line}")?,
         }
+    }
+    Ok(exit::OK)
+}
+
+fn check(layout: &Layout, out: &mut impl Write) -> io::Result<u8> {
+    let problems = guide::check(&layout.root);
+    for p in &problems {
+        writeln!(out, "guide-check=fail {p}")?;
+    }
+    if problems.is_empty() {
+        writeln!(out, "guide-check=ok")?;
         return Ok(exit::OK);
     }
-    if args.check {
-        let problems = guide::check(&layout.root);
-        for p in &problems {
-            writeln!(out, "guide-check=fail {p}")?;
-        }
-        if problems.is_empty() {
-            writeln!(out, "guide-check=ok")?;
-            return Ok(exit::OK);
-        }
-        return Ok(exit::REFUSED);
-    }
-    let name = args.topic.as_deref().unwrap_or_default();
+    Ok(exit::REFUSED)
+}
+
+fn show(
+    layout: &Layout,
+    args: &ShowArgs,
+    style: Option<Style>,
+    out: &mut impl Write,
+) -> io::Result<u8> {
+    let name = args.topic.as_str();
     let Some(text) = guide::load(&layout.root, name) else {
-        writeln!(out, "guide=unknown topic={name} list=ferrule guide --list")?;
+        writeln!(out, "guide=unknown topic={name} list=ferrule guide list")?;
         return Ok(exit::REFUSED);
     };
-    let ctx = context(&layout, args)?;
+    let ctx = context(layout, args)?;
     let rendered = guide::render(&text, &ctx);
     let body = guide::body(&rendered);
     if args.section.is_empty() {
@@ -143,7 +180,7 @@ fn abs(p: &Path) -> String {
         .to_string()
 }
 
-fn context(layout: &Layout, args: &GuideArgs) -> io::Result<Context> {
+fn context(layout: &Layout, args: &ShowArgs) -> io::Result<Context> {
     let config = Config::load(&layout.root).map_err(sql)?;
     let mut ctx = Context::default();
     ctx.vars.push(("main", config.main_branch));

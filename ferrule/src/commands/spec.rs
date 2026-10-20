@@ -12,33 +12,6 @@ use ferrule_core::{project, spec};
 
 use super::exit;
 
-/// Shown after `ferrule spec section --help`.
-const SECTION_AFTER_LONG_HELP: &str = "\
-Output:
-  The markdown of each matched section, heading line included, in the order
-  the headings were given, trailing blank lines dropped. No status line.
-Refusals (stderr, exit 1):
-  no section matched:            Followed by the unmatched HEADING texts, one
-                                 per line; matched sections still print. List
-                                 the file's headings with `ferrule spec
-                                 sections FILE`, or add --prefix.
-  cannot read <file>: <error>    The file is missing or unreadable.
-Exit codes: 0 every heading matched, 1 refused, 2 usage.
-Examples:
-  ferrule spec section Status Scope docs/specs/mb/requirements.md
-  ferrule spec section Status 'Open questions' docs/specs/x.md
-  (headings first, the file last; quote a heading that has spaces)";
-
-/// Shown after `ferrule spec sections --help`.
-const SECTIONS_AFTER_LONG_HELP: &str = "\
-Output:
-  Each heading line of the file, in file order, fenced code skipped. With
-  more than one FILE, each list follows a `== <file> ==` line.
-Refusals (stderr, exit 1):
-  cannot read <file>: <error>    The file is missing or unreadable; the other
-                                 files still list.
-Exit codes: 0 ok, 1 a file could not be read, 2 usage.";
-
 /// Shown after `ferrule spec id --help`.
 const ID_AFTER_LONG_HELP: &str = "\
 Output:
@@ -69,7 +42,7 @@ No match:
                                  1). Nothing to cite; try other nouns, or
                                  go on when none fits.
 Exit codes: 0 ok, 1 refused, 2 usage.
-See: ferrule guide author";
+See: ferrule guide show author";
 
 /// Shown after `ferrule spec collisions --help`.
 const COLLISIONS_AFTER_LONG_HELP: &str = "\
@@ -87,7 +60,7 @@ Refusals:
                                  The branch and REF share no history (exit
                                  2). Fetch REF, or name the right one.
 Exit codes: 0 clean, 1 collide, 2 error or usage.
-See: ferrule guide gate4";
+See: ferrule guide show gate4";
 
 /// Shown after `ferrule spec render --help`.
 const RENDER_AFTER_LONG_HELP: &str = "\
@@ -102,15 +75,6 @@ Example:
 
 #[derive(Debug, Subcommand)]
 pub enum SpecCommand {
-    /// Print markdown sections by heading.
-    ///
-    /// A section runs from its heading to the next heading of equal or
-    /// shallower depth. Ask for every heading of one file in one call.
-    #[command(after_long_help = SECTION_AFTER_LONG_HELP)]
-    Section(SectionArgs),
-    /// List markdown files' headings, fenced code skipped.
-    #[command(after_long_help = SECTIONS_AFTER_LONG_HELP)]
-    Sections(SectionsArgs),
     /// Print spec entries by fixed ID, as `file:line:text`.
     #[command(after_long_help = ID_AFTER_LONG_HELP)]
     Id(IdArgs),
@@ -216,8 +180,6 @@ const RELATED_TEXT_MAX: usize = 100;
 
 pub fn run(command: &SpecCommand, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
     match command {
-        SpecCommand::Section(args) => section(args, style, out),
-        SpecCommand::Sections(args) => sections(args, style, out),
         SpecCommand::Id(args) => id(args, out),
         SpecCommand::Related(args) => related(args, out),
         SpecCommand::Collisions(args) => collisions(args, out),
@@ -231,7 +193,11 @@ fn read(path: &Path) -> Option<String> {
         .ok()
 }
 
-fn section(args: &SectionArgs, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
+pub(super) fn section(
+    args: &SectionArgs,
+    style: Option<Style>,
+    out: &mut impl Write,
+) -> io::Result<u8> {
     let Some(text) = read(&args.file) else {
         return Ok(exit::REFUSED);
     };
@@ -264,7 +230,11 @@ fn section(args: &SectionArgs, style: Option<Style>, out: &mut impl Write) -> io
     Ok(exit::REFUSED)
 }
 
-fn sections(args: &SectionsArgs, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
+pub(super) fn sections(
+    args: &SectionsArgs,
+    style: Option<Style>,
+    out: &mut impl Write,
+) -> io::Result<u8> {
     let mut code = exit::OK;
     for file in &args.files {
         let name = file.display().to_string();
@@ -361,7 +331,7 @@ fn collisions(args: &CollisionsArgs, out: &mut impl Write) -> io::Result<u8> {
     let reference = if let Some(r) = &args.reference {
         r.clone()
     } else {
-        let config = Config::load(&project::main_checkout()).map_err(super::card::sql)?;
+        let config = Config::load(&project::main_checkout()).map_err(super::board::sql)?;
         format!("origin/{}", config.main_branch)
     };
     match spec::collisions(&args.worktree, &reference) {
@@ -405,8 +375,8 @@ fn render(args: &RenderArgs, style: Option<Style>, out: &mut impl Write) -> io::
             .and_then(Path::file_name)
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default();
-        Some(match super::card::store(false)? {
-            Some(s) => board::reworded_ids(&s.conn, &slug).map_err(super::card::sql)?,
+        Some(match super::board::store(false)? {
+            Some(s) => board::reworded_ids(&s.conn, &slug).map_err(super::board::sql)?,
             None => HashSet::new(),
         })
     } else {

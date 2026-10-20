@@ -1,4 +1,4 @@
-//! `run next` replays the workflow's next-step scenarios; the expected
+//! `gate next` replays the workflow's next-step scenarios; the expected
 //! transcripts are the shell tests' with each script call replaced by the
 //! ferrule command that took its place.
 
@@ -50,7 +50,7 @@ impl Board {
         let arch = format!("arch={arch}");
         let lane = format!("lane={lane}");
         let mut args = vec![
-            "card",
+            "board",
             "new",
             "ns",
             "--state",
@@ -89,15 +89,15 @@ impl Board {
     }
 
     fn log(&self, args: &[&str]) {
-        let mut all = vec!["card", "log", "ns"];
+        let mut all = vec!["board", "log", "ns"];
         all.extend_from_slice(args);
         self.ok(&all);
     }
 
-    /// `run next` with the status words, recorded as the shell tests did.
+    /// `gate next` with the status words, recorded as the shell tests did.
     fn next(&mut self, args: &[&str]) {
-        let _ = writeln!(self.transcript, "$ run next {}", args.join(" "));
-        let mut all = vec!["run", "next"];
+        let _ = writeln!(self.transcript, "$ gate next {}", args.join(" "));
+        let mut all = vec!["gate", "next"];
         all.extend_from_slice(args);
         let out = self.ferrule(&all).text();
         self.transcript.push_str(&out);
@@ -107,7 +107,7 @@ impl Board {
     /// The parent card's log lines.
     fn log_dump(&mut self) {
         self.transcript.push_str("log:\n");
-        let shown = self.ferrule(&["card", "show", "ns"]).output();
+        let shown = self.ferrule(&["board", "show", "ns"]).output();
         let shown = String::from_utf8_lossy(&shown.stdout).into_owned();
         for line in shown.split("---\n").nth(2).unwrap_or("").lines() {
             self.transcript.push_str(line);
@@ -250,8 +250,8 @@ fn it_next_branch_review_rounds() {
     let mut b = Board::new();
     let (review, verdict) = (file("review.md"), summary("review.verdict.md"));
     b.reset("full", "2026-10-02", 2, "clean");
-    b.ok(&["card", "new", "ns.s1", "--state", "done"]);
-    b.ok(&["card", "new", "ns.s2", "--state", "inreview"]);
+    b.ok(&["board", "new", "ns.s1", "--state", "done"]);
+    b.ok(&["board", "new", "ns.s2", "--state", "inreview"]);
     let findings = |count: &'static str, user: &'static str| {
         [
             "ns",
@@ -279,17 +279,17 @@ fn it_next_branch_review_rounds() {
     b.log_dump();
     // s2 reaches done: the same log on a board where it already is.
     b.reset("full", "2026-10-02", 2, "needs-user");
-    b.ok(&["card", "new", "ns.s1", "--state", "done"]);
-    b.ok(&["card", "new", "ns.s2", "--state", "done"]);
+    b.ok(&["board", "new", "ns.s1", "--state", "done"]);
+    b.ok(&["board", "new", "ns.s2", "--state", "done"]);
     b.log(&["review=2-open", "scope=branch"]);
     b.log(&["review=2-resolved"]);
     b.next(&findings("count=0", "user=1"));
-    b.ok(&["card", "set", "ns", "lane=fast"]);
+    b.ok(&["board", "set", "ns", "lane=fast"]);
     b.next(&findings("count=0", "user=1"));
     b.log_dump();
     b.reset("full", "2026-10-02", 2, "clean");
-    b.ok(&["card", "new", "ns.s1", "--state", "done"]);
-    b.ok(&["card", "new", "ns.s2", "--state", "done"]);
+    b.ok(&["board", "new", "ns.s1", "--state", "done"]);
+    b.ok(&["board", "new", "ns.s2", "--state", "done"]);
     let clean = [
         "ns",
         "gate3",

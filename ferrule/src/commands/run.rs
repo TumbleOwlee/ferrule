@@ -15,9 +15,8 @@ use ferrule_core::run::rebuild;
 use ferrule_core::run::{self as core_run, Error};
 use ferrule_core::store::DIR;
 
-use super::card::{sql, store};
+use super::board::{sql, store};
 use super::exit;
-use crate::cli::stage_id;
 
 /// Shown after `ferrule run init --help`.
 const INIT_AFTER_LONG_HELP: &str = "\
@@ -35,139 +34,7 @@ Errors (stderr):
   init: <host error>               The issue could not be read (exit 1)
 Refusals end in ` hint=<fix>`.
 Exit codes: 0 done, 1 refused, 2 usage.
-See: ferrule guide gate1";
-
-/// Shown after `ferrule run approve --help`.
-const APPROVE_AFTER_LONG_HELP: &str = "\
-Output:
-  approve=done gate=<gate> [issue=<n>] [worktree=<path>] [stages=<n>] [<record>]
-      The approval is recorded. `<record>` is what the last stop showed:
-      `spec-rev=<n>`, `arch-rev=<n>` and `decisions-seen=<lines>`, also logged
-      on the card. `issue=`, `worktree=` and `stages=` appear for gate2 only.
-Refusals:
-  approve=refused reason=card      No such run; check the slug with
-                                   `ferrule card board`
-  approve=refused reason=no-plan   gate2: plan.md is missing from the run dir
-  approve=refused reason=no-stages gate2: plan.md has no `## Shared` stage table
-  approve=refused reason=usage     gate2: --issue is neither `new` nor a number
-  approve=refused reason=worktree  gate2: `git worktree add` failed
-  approve=refused reason=move      gate2: the parent card cannot move to
-                                   inprogress
-  post=refused reason=no-issue|no-branch|card
-                                   gate2: filing the issue failed; an issue body
-                                   that fails its checks prints as
-                                   `ferrule issue file` does (a host error goes
-                                   to stderr, exit 1)
-The approve=refused lines end in ` hint=<fix>`.
-Exit codes: 0 done, 1 refused, 2 usage.
-See: ferrule guide approval";
-
-/// Shown after `ferrule run gauntlet --help`.
-const GAUNTLET_AFTER_LONG_HELP: &str = "\
-Output (the steps' own output goes to .ferrule/runs/<slug>/gauntlet.log):
-  gauntlet=pass cov=<pct> sha=<sha> [cached]
-      Every step passed; `cov` is the line coverage of the step marked
-      `coverage = \"llvm-cov\"`, `?` when none is. `cached`: this exact tree
-      passed before and nothing ran; --force runs it anyway. Not logged on
-      the card: `ferrule pr push` logs `gauntlet=pass`.
-Failures:
-  gauntlet=fail step=<name> sha=<sha> log=<path>
-      The step exited non-zero; read the log, fix, rerun.
-  gauntlet=fail step=<name> sha=<sha> reason=timeout log=<path>
-      The step ran past its timeout and was killed.
-  gauntlet=fail step=cd reason=no-worktree
-      The run has no worktree; `ferrule run approve <slug> gate2` adds it.
-  gauntlet=fail step=config reason=no-steps
-      ferrule.toml has no [[gauntlet.step]]; add the project's checks.
-The no-worktree and no-steps lines end in ` hint=<fix>`.
-Exit codes: 0 pass, 1 fail.
-See: ferrule guide verify";
-
-/// Shown after `ferrule run sha-check --help`.
-const SHA_CHECK_AFTER_LONG_HELP: &str = "\
-Output:
-  sha=ok                           The commit is in the worktree, on the run's
-                                   branch, and the card's last commit=
-Refusals:
-  sha=mismatch reason=card         No such run or stage; check the slug and
-                                   stage with `ferrule card board`
-  sha=mismatch reason=missing      The worktree has no such commit; ask the
-                                   implementer for the real sha
-  sha=mismatch reason=off-branch   The run's branch lacks the commit
-  sha=mismatch reason=card-commit  The stage card's last commit= is another
-                                   commit; commit with `ferrule card commit`
-Refusals end in ` hint=<fix>`.
-Exit codes: 0 ok, 1 mismatch, 2 usage.
-See: ferrule guide stages";
-
-/// Shown after `ferrule run stage-stop --help`.
-const STAGE_STOP_AFTER_LONG_HELP: &str = "\
-Output (also logged on the stage card; s0 never stops):
-  auto                             Continue without a stop; logs `auto=yes`
-  stop=<n> reason=<why> [detail=\"...\"]
-                                   Stop for the user's approval; logs `stop=<n>`.
-                                   The first rule that holds wins:
-    stop=1 reason=needs-user       review.verdict.md has a Needs user item
-    stop=2 reason=verification     plan.summary.md lists the stage under
-                                   `Verification beyond unit tests`; the
-                                   detail names it
-    stop=3 reason=pr-threads       --threads is above 0; detail=\"<n> threads\"
-    stop=5 reason=plan-marked      The stage's card has stop: yes
-    stop=6 reason=diff-size        The diff since the previous stage is over
-                                   the [thresholds] of ferrule.toml; detail=
-                                   \"<lines> lines, <files> files\"
-    stop=7 reason=checkpoint       Enough stages auto-continued in a row
-Refusals:
-  stage-stop=card                  No such stage card; check the slug and
-                                   stage with `ferrule card board`
-The refusal ends in ` hint=<fix>`.
-Exit codes: 0 auto or stop, 1 refused, 2 usage.
-See: ferrule guide stage-review";
-
-/// Shown after `ferrule run replan --help`.
-const REPLAN_AFTER_LONG_HELP: &str = "\
-Output:
-  replan=started from=s<n>         Logged on the card, plan.md saved as
-                                   plan.prev.md; <n> is the lowest stage
-                                   without a commit
-  replan=approved from=s<n> stages=<n>
-                                   The stage cards from s<n> on are replaced
-                                   by the new plan's <n> stages; each
-                                   `spec-delta <id> added origin=<o>` line of
-                                   the dropped stages is logged again on the
-                                   parent, so the ids stay retired
-  pr-body=pushed|unchanged         After approve: the draft PR's body synced
-  pr-body=refused stage-ref=s<n>   The body names stage s<n> that has no card
-  pr-body=failed                   The sync failed (details on stderr)
-Refusals:
-  replan=refused reason=card       No such run; check the slug with
-                                   `ferrule card board`
-  replan=refused reason=move       start: the parent cannot move to inprogress
-  replan=refused reason=no-replan  approve before start
-  replan=refused reason=no-plan    approve: plan.md is missing
-  replan=refused reason=no-stages  approve: the plan has no stage from s<n> on
-Refusals end in ` hint=<fix>`.
-Exit codes: 0 ok, 1 refused, 2 usage.
-See: ferrule guide replan";
-
-/// Shown after `ferrule run ci --help`.
-const CI_AFTER_LONG_HELP: &str = "\
-Output:
-  ci=<code> [failed=<jobs>]        The checks' exit code (0 is green) and,
-                                   when red, the comma-separated failed jobs
-  <error line>...                  When red: the failed run's error lines
-  next=, run:, do:, guide: lines   The next step, as `ferrule run next <slug>
-                                   ci ci=<code>` prints it; see its help
-The output of the wait is saved in .ferrule/runs/<slug>/ci.log.
-Refusals:
-  ci=refused reason=card           No such run; check the slug with
-                                   `ferrule card board`
-  post=refused reason=card         The run has no PR recorded; open it with
-                                   `ferrule pr open <slug>`
-  (stderr: the host's error)       The checks could not be read (exit 1)
-The ci=refused line ends in ` hint=<fix>`.
-Exit codes: 0 ok, 1 refused.
-See: ferrule guide gate4";
+See: ferrule guide show gate1";
 
 /// Shown after `ferrule run reconcile --help`.
 const RECONCILE_AFTER_LONG_HELP: &str = "\
@@ -191,9 +58,9 @@ then a summary:
                                    resuming
 Errors (stderr):
   reconcile: no card for <slug>    Exit 2; check the slug with
-                                   `ferrule card board`
+                                   `ferrule board list`
 Exit codes: 0 clean, 1 differ, 2 usage.
-See: ferrule guide resume";
+See: ferrule guide show resume";
 
 /// Shown after `ferrule run rebuild --help`.
 const REBUILD_AFTER_LONG_HELP: &str = "\
@@ -218,7 +85,7 @@ Refusals (nothing is written):
   rebuild=refused reason=worktree      `git worktree add` failed
 Refusals end in ` hint=<fix>`.
 Exit codes: 0 done, 1 refused, 2 usage.
-See: ferrule guide resume";
+See: ferrule guide show resume";
 
 /// Shown after `ferrule run cleanup --help`.
 const CLEANUP_AFTER_LONG_HELP: &str = "\
@@ -235,7 +102,7 @@ Refusals (nothing is removed):
                                               them, or ask the user, then push
   cleanup=refused reason=no-upstream          The branch was never pushed
   cleanup=refused reason=unpushed-commits     Push with `ferrule pr push <slug>`
-  cleanup=refused reason=no-ci                No ci= logged; `ferrule run ci`
+  cleanup=refused reason=no-ci                No ci= logged; `ferrule ci wait`
   cleanup=refused reason=ci-red               The last ci= is not 0 and no later
                                               ci-waived line exists
   cleanup=refused reason=worktree-remove-failed
@@ -246,7 +113,7 @@ Refusals (nothing is removed):
                                               deleted; `git branch -D` it
 Refusals end in ` hint=<fix>`.
 Exit codes: 0 done, 1 refused.
-See: ferrule guide cleanup";
+See: ferrule guide show cleanup";
 
 /// Shown after `ferrule run metrics --help`.
 const METRICS_AFTER_LONG_HELP: &str = "\
@@ -263,15 +130,15 @@ Output, one line (recorded; a rerun replaces the run's line):
                      an epic
 Without a slug: every recorded line, oldest run first (nothing if none).
 Refusals:
-  metrics=refused reason=no-ci     No ci= logged; run `ferrule run ci <slug>`
+  metrics=refused reason=no-ci     No ci= logged; run `ferrule ci wait <slug>`
   metrics=refused reason=ci-red    The last ci= is not 0 and no later
                                    ci-waived line exists
   (stderr) metrics: no card for <slug>
                                    Exit 1; check the slug with
-                                   `ferrule card board`
+                                   `ferrule board list`
 The reason lines end in ` hint=<fix>`.
 Exit codes: 0 ok, 1 refused.
-See: ferrule guide cleanup";
+See: ferrule guide show cleanup";
 
 /// Shown after `ferrule run export --help`.
 const EXPORT_AFTER_LONG_HELP: &str = "\
@@ -283,68 +150,7 @@ Refusals:
                                    `ferrule run cleanup` creates one and
                                    prints its id. Ends in ` hint=<fix>`.
 Exit codes: 0 done, 1 refused.
-See: ferrule guide cleanup";
-
-/// Shown after `ferrule run next --help`.
-const NEXT_AFTER_LONG_HELP: &str = "\
-Statuses each position takes:
-  gate2    ready, findings, clean, question, arch-gap, split, behavior-change,
-           new, reuse (with issue=<n>)
-  replan   ready, findings, clean, question, arch-gap, split, behavior-change
-  gate3    findings (with count=<n>), clean
-  gate4    ready, question
-  ci       ci=<exit code of gh pr checks>
-
-Output, in order:
-  logged: <event>                  An event logged on the card:
-                                   `plan-review=findings count=<n> round=<r>`,
-                                   `plan-review=clean round=<r>`,
-                                   `review=<n>-open scope=branch`,
-                                   `review=<n>-resolved`, `review=clean`,
-                                   `replan=pre-authorized` or `ci=<code>`
-  next=<word> [reason=<why>]       The one next action:
-    relay            question: relay the question file to the user
-    arch-gap         spawn the architect, then resume the planner
-    split            handle the split request
-    behavior-change  back to the spec author
-    review           spawn the plan reviewer
-    follow-up        spawn the plan reviewer again after findings
-    revise           plan review found issues (rounds 1 and 2): resume the
-                     planner with the review file
-    issue            plan review is done (clean, or findings in round 3): ask
-                     the spec author for the tracking issue
-    stop             show the stop and wait for the user's approval
-    notice           show the notice, then go on as if approved
-    fix              gate3: findings are open; ci: CI is red
-    stage-stop       gate3 clean with a stage not done: decide its stop
-    pr               gate3 clean on every stage: spawn the spec author for
-                     the PR body
-    done             ci=0: clean up the run
-  reason=<why>                     Why `stop` stops, or `pr` has `needs-user`.
-                                   gate2 stops for: lane (not fast),
-                                   no-arch-stop, needs-user, outgrown (plan
-                                   over two stages) and reuse. A re-plan stops
-                                   for: not-gate4, needs-user, arch-moved and
-                                   outgrown; otherwise it logs
-                                   replan=pre-authorized and gives `notice`.
-  run: <command>                   A command to run now, slug filled in
-  do: <what>                       What to do next (spawn, resume, show)
-  guide: ferrule guide <topic> --slug <slug>
-                                   The topic to read before acting
-Errors:
-  run-next=card                    No such run (exit 1); check the slug with
-                                   `ferrule card board`
-  run-next=unknown at=<pos> status=<word>
-                                   The position does not take that status
-                                   (exit 2); the list above has the valid ones
-  usage: ferrule run next <slug> <pos> status=<word>  (stderr, exit 2)
-                                   The status line lacks status= (ci=<code>
-                                   at ci)
-The run-next lines end in ` hint=<fix>`.
-Exit codes: 0 ok, 1 refused, 2 usage.
-
-Example:
-  ferrule run next <slug> gate2 status=ready file=plan.md";
+See: ferrule guide show cleanup";
 
 #[derive(Debug, Subcommand)]
 pub enum RunCommand {
@@ -359,95 +165,6 @@ pub enum RunCommand {
         /// The issue the user named: a GitHub number or URL, or a Jira key.
         #[arg(long)]
         issue: Option<String>,
-    },
-    /// Record an approved gate.
-    ///
-    /// `gate2` also files the issue, adds the worktree, moves the parent
-    /// card to inprogress and creates the stage cards.
-    #[command(after_long_help = APPROVE_AFTER_LONG_HELP)]
-    Approve(ApproveArgs),
-    /// Log an agent's outcome and print the next step.
-    ///
-    /// Prints `next=`, then `run:` and `do:` lines and a `guide:` line
-    /// naming the topic to read next.
-    ///
-    /// Reads `status=`, `count=`, `issue=` and `ci=` from the status line and
-    /// ignores the rest. Prints `run-next=unknown` (exit 2) for a status the
-    /// position does not take.
-    #[command(after_long_help = NEXT_AFTER_LONG_HELP)]
-    Next {
-        /// The run's slug.
-        slug: String,
-        /// Where the run is: the step whose agent wrote the status line.
-        #[arg(value_enum)]
-        position: NextAt,
-        /// The agent's status line, as one argument or several.
-        #[arg(
-            required = true,
-            allow_hyphen_values = true,
-            value_name = "STATUS_LINE"
-        )]
-        status: Vec<String>,
-    },
-    /// Run the gauntlet in the run's worktree.
-    ///
-    /// The steps are `[[gauntlet.step]]` of `ferrule.toml`. Prints one
-    /// status line; the output goes to the run's gauntlet.log.
-    #[command(after_long_help = GAUNTLET_AFTER_LONG_HELP)]
-    Gauntlet {
-        /// The run's slug.
-        slug: String,
-        /// Run even when this tree passed before.
-        #[arg(long)]
-        force: bool,
-    },
-    /// Verify a stage's reported commit before anything is pushed.
-    ///
-    /// The commit exists in the worktree, the run's branch holds it, and
-    /// it is the stage card's last `commit=`.
-    #[command(after_long_help = SHA_CHECK_AFTER_LONG_HELP)]
-    ShaCheck {
-        /// The run's slug.
-        slug: String,
-        /// The stage, `s<n>`.
-        #[arg(value_parser = stage_id, value_name = "STAGE")]
-        stage: u32,
-        /// The commit the implementer reported.
-        sha: String,
-    },
-    /// Decide whether a green full-lane stage stops for approval.
-    ///
-    /// Logs the outcome on the stage card.
-    #[command(after_long_help = STAGE_STOP_AFTER_LONG_HELP)]
-    StageStop {
-        /// The run's slug.
-        slug: String,
-        /// The stage, `s<n>`.
-        #[arg(value_parser = stage_id, value_name = "STAGE")]
-        stage: u32,
-        /// Unresolved PR review threads.
-        #[arg(long, default_value_t = 0)]
-        threads: u32,
-    },
-    /// Start or approve a re-plan.
-    #[command(after_long_help = REPLAN_AFTER_LONG_HELP)]
-    Replan {
-        /// The run's slug.
-        slug: String,
-        /// Which half of the re-plan.
-        step: ReplanStep,
-        /// With `approve`: stages that stop for approval beyond the plan's,
-        /// e.g. `s1,s3`.
-        #[arg(long)]
-        stops: Option<String>,
-    },
-    /// Wait for the PR's checks and print the next step.
-    ///
-    /// Logs `ci=`; on red, also prints the failed run's error lines.
-    #[command(after_long_help = CI_AFTER_LONG_HELP)]
-    Ci {
-        /// The run's slug.
-        slug: String,
     },
     /// Reconcile a run's cards with git and the host before resuming.
     ///
@@ -569,7 +286,7 @@ pub enum ReplanStep {
     Approve,
 }
 
-const CARD_HINT: &str = "check the slug with `ferrule card board`";
+const CARD_HINT: &str = "check the slug with `ferrule board list`";
 const EXPORT_HINT: &str =
     "the run has no such archive; `ferrule run cleanup` creates one and prints its id";
 
@@ -585,12 +302,12 @@ fn hint(reason: &str, slug: &str) -> String {
             "git could not add the worktree; check `git worktree list` and --branch".to_owned()
         }
         "move" => {
-            format!("the parent card cannot move to inprogress; see `ferrule card show {slug}`")
+            format!("the parent card cannot move to inprogress; see `ferrule board show {slug}`")
         }
-        "no-replan" => format!("start it first: ferrule run replan {slug} start"),
+        "no-replan" => format!("start it first: ferrule stage replan {slug} start"),
         "detached-head" => "check the run's branch out in its worktree".to_owned(),
         "uncommitted-changes" => {
-            "commit them with `ferrule card commit`, or ask the user, then push".to_owned()
+            "commit them with `ferrule stage commit`, or ask the user, then push".to_owned()
         }
         "no-upstream" | "unpushed-commits" => format!("push the branch: ferrule pr push {slug}"),
         "worktree-remove-failed" => {
@@ -600,9 +317,9 @@ fn hint(reason: &str, slug: &str) -> String {
         "branch-delete-failed" => {
             "delete the branch by hand with `git branch -D`, then rerun".to_owned()
         }
-        "no-ci" => format!("record CI first: ferrule run ci {slug}"),
+        "no-ci" => format!("record CI first: ferrule ci wait {slug}"),
         "ci-red" => format!(
-            "fix CI and rerun `ferrule run ci {slug}`; on the user's word only: ferrule card log {slug} ci-waived -- <why>"
+            "fix CI and rerun `ferrule ci wait {slug}`; on the user's word only: ferrule board log {slug} ci-waived -- <why>"
         ),
         _ => return String::new(),
     };
@@ -620,7 +337,9 @@ fn sha_hint(m: core_run::Mismatch, slug: &str, stage: u32) -> String {
             "the run's branch lacks the commit; it must be committed on that branch".to_owned()
         }
         core_run::Mismatch::CardCommit => {
-            format!("commit through `ferrule card commit {slug}.s{stage}` so the card logs commit=")
+            format!(
+                "commit through `ferrule stage commit {slug}.s{stage}` so the card logs commit="
+            )
         }
     }
 }
@@ -631,31 +350,16 @@ fn layout() -> Layout {
 
 pub fn run(command: &RunCommand, out: &mut impl Write) -> io::Result<u8> {
     match command {
-        RunCommand::ShaCheck { slug, stage, sha } => sha_check(slug, *stage, sha, out),
-        RunCommand::Reconcile { slug, local } => reconcile(slug, *local, out),
         RunCommand::Init { slug, issue } => init(slug, issue.as_deref(), out),
-        RunCommand::Approve(args) => approve(args, out),
-        RunCommand::Replan { slug, step, stops } => replan(slug, *step, stops.as_deref(), out),
-        RunCommand::Ci { slug } => ci(slug, out),
-        RunCommand::Gauntlet { slug, force } => gauntlet(slug, *force, out),
-        RunCommand::Next {
-            slug,
-            position,
-            status,
-        } => next_step(slug, *position, status, out),
-        RunCommand::Metrics { slug } => metrics(slug.as_deref(), out),
-        RunCommand::Cleanup { slug } => cleanup(slug, out),
+        RunCommand::Reconcile { slug, local } => reconcile(slug, *local, out),
         RunCommand::Rebuild { issue, pr } => rebuild(issue, pr, out),
+        RunCommand::Cleanup { slug } => cleanup(slug, out),
         RunCommand::Export { slug, archive, to } => export(slug, *archive, to.as_deref(), out),
-        RunCommand::StageStop {
-            slug,
-            stage,
-            threads,
-        } => stage_stop(slug, *stage, *threads, out),
+        RunCommand::Metrics { slug } => metrics(slug.as_deref(), out),
     }
 }
 
-fn sha_check(slug: &str, stage: u32, sha: &str, out: &mut impl Write) -> io::Result<u8> {
+pub(super) fn sha_check(slug: &str, stage: u32, sha: &str, out: &mut impl Write) -> io::Result<u8> {
     let verdict = match store(false)? {
         Some(s) => {
             core_run::sha_check(&s.conn, &layout(), slug, &format!("s{stage}"), sha).map_err(sql)?
@@ -719,7 +423,12 @@ fn reconcile(slug: &str, local: bool, out: &mut impl Write) -> io::Result<u8> {
     }
 }
 
-fn stage_stop(slug: &str, stage: u32, threads: u32, out: &mut impl Write) -> io::Result<u8> {
+pub(super) fn stage_stop(
+    slug: &str,
+    stage: u32,
+    threads: u32,
+    out: &mut impl Write,
+) -> io::Result<u8> {
     let layout = layout();
     let config = Config::load(&layout.root).map_err(sql)?;
     let Some(mut s) = store(false)? else {
@@ -852,7 +561,7 @@ fn export(
     }
 }
 
-fn gauntlet(slug: &str, force: bool, out: &mut impl Write) -> io::Result<u8> {
+pub(super) fn gauntlet(slug: &str, force: bool, out: &mut impl Write) -> io::Result<u8> {
     let layout = layout();
     let config = Config::load(&layout.root).map_err(sql)?;
     let Some(s) = store(true)? else {
@@ -880,7 +589,12 @@ fn gauntlet(slug: &str, force: bool, out: &mut impl Write) -> io::Result<u8> {
     })
 }
 
-fn next_step(slug: &str, at: NextAt, status: &[String], out: &mut impl Write) -> io::Result<u8> {
+pub(super) fn next_step(
+    slug: &str,
+    at: NextAt,
+    status: &[String],
+    out: &mut impl Write,
+) -> io::Result<u8> {
     let at = match at {
         NextAt::Gate2 => At::Gate2,
         NextAt::Replan => At::Replan,
@@ -902,7 +616,7 @@ fn next_step(slug: &str, at: NextAt, status: &[String], out: &mut impl Write) ->
         }
         Err(next::Error::Usage) => {
             eprintln!(
-                "usage: ferrule run next <slug> {} status=<word>…",
+                "usage: ferrule gate next <slug> {} status=<word>…",
                 at.as_str()
             );
             Ok(exit::USAGE)
@@ -914,7 +628,7 @@ fn next_step(slug: &str, at: NextAt, status: &[String], out: &mut impl Write) ->
         Err(next::Error::Unknown(word)) => {
             writeln!(
                 out,
-                "run-next=unknown at={} status={word} hint=`ferrule run next --help` lists the statuses each position takes",
+                "run-next=unknown at={} status={word} hint=`ferrule gate next --help` lists the statuses each position takes",
                 at.as_str()
             )?;
             Ok(exit::USAGE)
@@ -1021,7 +735,7 @@ fn init(slug: &str, issue: Option<&str>, out: &mut impl Write) -> io::Result<u8>
     }
 }
 
-fn approve(args: &ApproveArgs, out: &mut impl Write) -> io::Result<u8> {
+pub(super) fn approve(args: &ApproveArgs, out: &mut impl Write) -> io::Result<u8> {
     let (g, gate_name) = match args.gate {
         GateName::Gate1 => (Gate::Gate1, "gate1"),
         GateName::Arch => (Gate::Arch, "arch"),
@@ -1083,7 +797,7 @@ fn approve(args: &ApproveArgs, out: &mut impl Write) -> io::Result<u8> {
     }
 }
 
-fn replan(
+pub(super) fn replan(
     slug: &str,
     step: ReplanStep,
     stops: Option<&str>,
@@ -1112,7 +826,7 @@ fn replan(
         Ok(line) => {
             writeln!(out, "{line}")?;
             if matches!(step, ReplanStep::Approve) {
-                super::card::sync_draft(&mut s, slug, out)?;
+                super::board::sync_draft(&mut s, slug, out)?;
             }
             Ok(exit::OK)
         }
@@ -1120,7 +834,7 @@ fn replan(
     }
 }
 
-fn ci(slug: &str, out: &mut impl Write) -> io::Result<u8> {
+pub(super) fn ci(slug: &str, out: &mut impl Write) -> io::Result<u8> {
     let layout = layout();
     let config = Config::load(&layout.root).map_err(sql)?;
     let Some(mut s) = store(false)? else {

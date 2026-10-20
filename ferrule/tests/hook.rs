@@ -92,7 +92,7 @@ fn it_shell_guard_refuses_floods_and_writes_to_ferrules_files() {
             ("cp backup.db .ferrule/state.db", "deny"),
             ("echo x >> .ferrule/runs/demo/review.md", "allow"),
             ("echo 'x' > .ferrule/ferrule.toml", "allow"),
-            ("ferrule card log demo green", "allow"),
+            ("ferrule board log demo green", "allow"),
             ("echo 'cat notes.md'", "allow"),
             ("echo $(cat notes.md)", "allow"),
         ],
@@ -507,7 +507,7 @@ fn it_session_start_names_unfinished_cards() {
         .unwrap();
     assert!(out.stdout.is_empty());
     let new = Command::new(env!("CARGO_BIN_EXE_ferrule"))
-        .args(["card", "new", "demo", "--state", "inprogress"])
+        .args(["board", "new", "demo", "--state", "inprogress"])
         .env("CLAUDE_PROJECT_DIR", p.path())
         .current_dir(p.path())
         .output()
@@ -521,7 +521,7 @@ fn it_session_start_names_unfinished_cards() {
         .unwrap();
     let text = String::from_utf8_lossy(&out.stdout);
     assert!(
-        text.contains("demo inprogress\n") && text.contains("ferrule guide resume"),
+        text.contains("demo inprogress\n") && text.contains("ferrule guide show resume"),
         "{text}"
     );
 }

@@ -15,7 +15,7 @@ const NOW: &str = "2026-10-05T09:00";
 fn project() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     let board = fixtures().join("board");
-    let got = ferrule(dir.path(), &["card", "import", board.to_str().unwrap()]).text();
+    let got = ferrule(dir.path(), &["board", "import", board.to_str().unwrap()]).text();
     assert_eq!(got, "import=ok cards=13\nexit=0");
     copy_dir(&board.join("artifacts"), &dir.path().join(".ferrule/runs"));
     config(dir.path(), "[viewer]\ncommand = [\"true\"]\n");
@@ -166,7 +166,7 @@ fn render(p: &Path, args: &[&str]) -> Run {
 }
 
 fn stops(p: &Path) -> String {
-    let shown = ferrule(p, &["card", "show", "demo"]).output();
+    let shown = ferrule(p, &["board", "show", "demo"]).output();
     let shown = String::from_utf8_lossy(&shown.stdout).into_owned();
     let mut out = String::new();
     for line in shown.lines().filter(|l| l.contains(" stop ")) {
@@ -251,7 +251,7 @@ fn it_render_approved_records_what_was_shown() {
     assert!(render(p, &["demo", "gate2"]).text().ends_with("exit=0"));
     render(p, &["demo", "approved"]).golden("prompt-render-approved");
     render(p, &["demo", "arch"]).golden("prompt-render-since-rev");
-    let set = |kv: &str| assert_eq!(ferrule(p, &["card", "set", "demo", kv]).text(), "exit=0");
+    let set = |kv: &str| assert_eq!(ferrule(p, &["board", "set", "demo", kv]).text(), "exit=0");
     set("gate1=");
     set("lane=fast");
     render(p, &["demo", "arch"]).golden("prompt-render-arch-fast");
