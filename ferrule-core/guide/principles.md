@@ -2,7 +2,7 @@
 
 ## Principles
 
-Every run, `/spec-request` included.
+Every run, `/fe-request` included.
 
 - Replaces any generic workflow skill (`/workflow`); `docs/specs/` is already the PRD and design record.
 - Branch off `{main}`, never commit to `{main}`. `<type>/{slug}`, type ∈ {`feat`, `fix`, `docs`}. **Enforced:** `ferrule hook git pre-commit` refuses a commit on `{main}` and `ferrule hook git pre-push` a push targeting it.
