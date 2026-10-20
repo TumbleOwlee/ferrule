@@ -19,6 +19,19 @@ pub fn needs_user(verdict: &str) -> bool {
     false
 }
 
+/// The stage ids of a verification item's head (`s1, s3` or `s1,s3`), when
+/// every one is an `s<n>`.
+#[must_use]
+pub fn verification_ids(ids: &str) -> Option<Vec<&str>> {
+    let ids: Vec<&str> = ids.split(',').map(str::trim).collect();
+    ids.iter()
+        .all(|id| {
+            id.strip_prefix('s')
+                .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+        })
+        .then_some(ids)
+}
+
 /// What a plan summary's `Verification beyond unit tests:` list asks of
 /// stage `sid` (`- s1, s3 — demo TUI`), if it names it.
 #[must_use]
@@ -30,7 +43,7 @@ pub fn verification(summary: &str, sid: &str) -> Option<String> {
         } else if on && let Some(item) = line.strip_prefix("- ") {
             let mut parts = item.split(" — ");
             let ids = parts.next().unwrap_or("");
-            if ids.split(',').map(str::trim).any(|id| id == sid) {
+            if verification_ids(ids).is_some_and(|ids| ids.contains(&sid)) {
                 return Some(parts.next().unwrap_or("").to_owned());
             }
         } else if !(on && line.starts_with("  - ")) {
@@ -82,6 +95,9 @@ mod tests {
         assert_eq!(verification(s, "s3").as_deref(), Some("demo TUI"));
         assert_eq!(verification(s, "s4").as_deref(), Some("log"));
         assert_eq!(verification(s, "s2"), None);
+        let tight = "Verification beyond unit tests:\n- s1,s3 — demo\n";
+        assert_eq!(verification(tight, "s3").as_deref(), Some("demo"));
+        assert_eq!(verification(tight, "s1").as_deref(), Some("demo"));
     }
 
     #[test]

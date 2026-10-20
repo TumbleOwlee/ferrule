@@ -17,7 +17,7 @@ use crate::spec::{
     self,
     diff::{Part, Render, SpecDiff},
 };
-use crate::{artifacts, git};
+use crate::{artifacts, git, markdown, pr};
 
 #[derive(Debug)]
 pub enum Error {
@@ -52,16 +52,12 @@ const AGENTS: [&str; 6] = [
 /// are not scanned.
 #[must_use]
 pub fn stage_ref(text: &str) -> Option<String> {
-    let mut fence = false;
     let mut request = false;
-    for line in text.lines() {
-        if line.starts_with("```") {
-            fence = !fence;
+    for line in markdown::classified(text) {
+        if line.fenced {
             continue;
         }
-        if fence {
-            continue;
-        }
+        let line = line.text;
         if line.starts_with("<details><summary>Original request</summary>") {
             request = true;
         }
@@ -176,23 +172,15 @@ fn first_line(text: &str) -> &str {
 
 /// `[71, 72]` → its n-th item, 1-based.
 fn nth(list: Option<&str>, n: usize) -> Option<String> {
-    list?
-        .trim_matches(|c| c == '[' || c == ']')
-        .split(',')
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .nth(n.checked_sub(1)?)
-        .map(str::to_owned)
+    pr::publish::numbers(list)
+        .get(n.checked_sub(1)?)
+        .map(u64::to_string)
 }
 
 /// An issue.md section's lines without blanks, under its heading.
 fn section(issue: &str, name: &str) -> String {
-    let heading = format!("## {name}");
-    let body: Vec<&str> = issue
-        .lines()
-        .skip_while(|l| *l != heading)
-        .skip(1)
-        .take_while(|l| !l.starts_with("## "))
+    let body: Vec<&str> = md_section(issue, name)
+        .into_iter()
         .filter(|l| !l.is_empty())
         .collect();
     if body.is_empty() {
@@ -282,14 +270,11 @@ fn decide(summary: &str) -> &str {
 /// inside it kept.
 fn md_section<'a>(text: &'a str, name: &str) -> Vec<&'a str> {
     let heading = format!("## {name}");
-    let mut fence = false;
     let mut on = false;
     let mut out = Vec::new();
-    for l in text.lines() {
-        if l.starts_with("```") {
-            fence = !fence;
-        }
-        if !fence && l.starts_with("## ") {
+    for line in markdown::classified(text) {
+        let l = line.text;
+        if !line.fenced && l.starts_with("## ") {
             on = l == heading;
             continue;
         }
@@ -720,11 +705,7 @@ fn verification(summary: &str, sid: &str) -> Vec<String> {
             on = true;
         } else if on && let Some(item) = l.strip_prefix("- ") {
             let (ids, rest) = item.split_once(" — ").unwrap_or((item, ""));
-            let listed = ids.split(", ").all(|id| {
-                id.strip_prefix('s')
-                    .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
-            });
-            cur = listed && ids.split(", ").any(|id| id == sid);
+            cur = artifacts::verification_ids(ids).is_some_and(|ids| ids.contains(&sid));
             if cur {
                 out.push(format!("  - beyond unit tests: {rest}"));
             }
@@ -981,6 +962,33 @@ mod tests {
                 text: "popup on Esc".into()
             })
         );
+    }
+
+    #[test]
+    fn ut_verification_accepts_tight_and_spaced_lists() {
+        let tight = "Verification beyond unit tests:\n- s1,s3 — demo\n  - see it\n";
+        let spaced = tight.replace("s1,s3", "s1, s3");
+        for sid in ["s1", "s3"] {
+            assert_eq!(verification(tight, sid), verification(&spaced, sid));
+            assert_eq!(verification(tight, sid).len(), 2);
+            assert_eq!(
+                artifacts::verification(tight, sid),
+                artifacts::verification(&spaced, sid)
+            );
+            assert!(artifacts::verification(tight, sid).is_some());
+        }
+        assert!(verification(tight, "s2").is_empty());
+    }
+
+    #[test]
+    fn ut_fences_of_either_kind_hide_refs_and_headings() {
+        assert_eq!(stage_ref("~~~\ns1\n~~~\n"), None);
+        assert_eq!(
+            stage_ref("~~~\n```\ns1\n```\n~~~\ns2\n").as_deref(),
+            Some("s2")
+        );
+        let text = "## A\none\n~~~\n## B\n~~~\ntwo\n## C\nx\n";
+        assert_eq!(md_section(text, "A"), ["one", "~~~", "## B", "~~~", "two"]);
     }
 
     #[test]

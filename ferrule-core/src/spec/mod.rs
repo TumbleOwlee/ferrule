@@ -126,7 +126,11 @@ fn entry_on_line(line: &str) -> Option<(&str, String)> {
 pub fn entries(text: &str) -> Vec<SpecEntry> {
     let mut heading: Option<String> = None;
     let mut out = Vec::new();
-    for line in markdown::lines(text) {
+    for line in markdown::classified(text) {
+        if line.fenced {
+            continue;
+        }
+        let line = line.text;
         if let Some(h) = line.strip_prefix("## ") {
             heading = Some(h.to_owned());
             continue;
@@ -200,12 +204,12 @@ pub fn find_id(dir: &Path, id: &str) -> io::Result<Vec<IdHit>> {
     let mut out = Vec::new();
     for path in markdown_files(dir)? {
         let text = std::fs::read_to_string(&path)?;
-        for (i, line) in markdown::lines(&text).enumerate() {
-            if line.contains(&needle) {
+        for line in markdown::classified(&text) {
+            if !line.fenced && line.text.contains(&needle) {
                 out.push(IdHit {
                     path: path.clone(),
-                    line: i + 1,
-                    text: line.to_owned(),
+                    line: line.number,
+                    text: line.text.to_owned(),
                 });
             }
         }
@@ -251,6 +255,30 @@ pub fn collisions(worktree: &Path, reference: &str) -> Option<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ut_entries_ignore_fenced_ids() {
+        let text = "## A\n**MB-R-001** — real\n```\n**MB-R-002** — x\n```\n~~~\n**MB-R-003** — y\n```\n**MB-R-004** — z\n~~~\n**MB-R-005** — real\r\n";
+        let ids: Vec<_> = entries(text).into_iter().map(|e| e.id).collect();
+        assert_eq!(ids, ["MB-R-001", "MB-R-005"]);
+        let crlf = entries("## A\r\n**MB-R-001** — real\r\n");
+        assert_eq!(crlf[0].text, "real");
+    }
+
+    #[test]
+    fn ut_find_id_skips_fences() {
+        let dir = std::env::temp_dir().join(format!("ferrule-find-id-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("a.md"),
+            "**MB-R-001** — real\n~~~\n**MB-R-001** — in a fence\n~~~\n",
+        )
+        .unwrap();
+        let hits = find_id(&dir, "MB-R-001").unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].line, 1);
+    }
 
     #[test]
     fn ut_highest_needs_a_whole_word() {

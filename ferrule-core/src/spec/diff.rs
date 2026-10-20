@@ -134,7 +134,17 @@ impl SpecDiff {
     pub fn parse(text: &str) -> Self {
         let mut diff = SpecDiff::default();
         let mut sec = Section::None;
-        for line in markdown::lines(text) {
+        for line in markdown::classified(text) {
+            if line.fenced {
+                // Code in an entry stays in its text, delimiters included.
+                if sec == Section::Entry
+                    && let Some(entry) = diff.entries.last_mut()
+                {
+                    entry.text.push(line.text.to_owned());
+                }
+                continue;
+            }
+            let line = line.text;
             if line.starts_with("## ")
                 && let Some(local) = was_suffix(line)
             {
@@ -531,5 +541,58 @@ mod tests {
             diff.back("MB-R-161 replaces MB-R-002"),
             "R1 replaces MB-R-002"
         );
+    }
+}
+
+#[cfg(test)]
+mod reader_tests {
+    use super::*;
+
+    const DIFF: &str = "# Spec diff\n\n## Summary\n- rev 1 (2026-10-05) — first (user)\n\n## MB-R-001\nChange: new\nThe text.\n```\n## MB-R-002\n```\n~~~\n## MB-R-003\n```\n## MB-R-004\n~~~\n";
+
+    #[test]
+    fn ut_parse_reads_crlf_like_lf() {
+        let crlf = DIFF.replace('\n', "\r\n");
+        let lf = SpecDiff::parse(DIFF);
+        let cr = SpecDiff::parse(&crlf);
+        assert_eq!(lf.revisions.len(), 1);
+        assert_eq!(cr.revisions.len(), 1);
+        assert_eq!(cr.entries.len(), 1);
+        assert_eq!(cr.entries[0].id, "MB-R-001");
+        let opts = Render::default();
+        assert_eq!(
+            render(&cr, Part::Entries, &opts),
+            render(&lf, Part::Entries, &opts)
+        );
+    }
+
+    #[test]
+    fn ut_entry_keeps_its_code_block_verbatim() {
+        let text = "## MB-R-001\nBefore.\n```sh\n## not a heading\n\n  - x\n```\nAfter.\n";
+        let d = SpecDiff::parse(text);
+        assert_eq!(d.entries.len(), 1);
+        assert_eq!(
+            d.entries[0].text,
+            [
+                "Before.",
+                "```sh",
+                "## not a heading",
+                "",
+                "  - x",
+                "```",
+                "After."
+            ]
+        );
+        assert!(d.entries[0].why.is_empty());
+    }
+
+    #[test]
+    fn ut_parse_ignores_fenced_headings() {
+        let ids: Vec<_> = SpecDiff::parse(DIFF)
+            .entries
+            .iter()
+            .map(|e| e.id.clone())
+            .collect();
+        assert_eq!(ids, ["MB-R-001"]);
     }
 }

@@ -1,7 +1,7 @@
 //! Markdown headings and sections, read line by line the way the workflow's
 //! files are written: a heading is `#`s plus a space or tab at the start of a
-//! line, and a line starting with three backticks opens or closes a fence
-//! inside which nothing is a heading.
+//! line, and a fence of three or more backticks or tildes hides everything inside it;
+//! `\n`, `\r\n` and `\r` all end a line.
 
 /// How a requested heading is compared with the file's headings.
 ///
@@ -46,14 +46,92 @@ pub struct Heading<'a> {
     pub line: &'a str,
 }
 
-/// Splits text into lines the way `awk` reads them: a final newline does not
-/// start another line.
+/// Splits text into lines the way `awk` reads them, but with `\n`, `\r\n`
+/// and a lone `\r` all ending a line: a final line ending does not start
+/// another line.
 pub fn lines(text: &str) -> impl Iterator<Item = &str> {
-    let body = text.strip_suffix('\n').unwrap_or(text);
-    (!text.is_empty())
-        .then(|| body.split('\n'))
-        .into_iter()
-        .flatten()
+    let mut rest = text;
+    std::iter::from_fn(move || {
+        if rest.is_empty() {
+            return None;
+        }
+        let (line, tail) = match rest.find(['\r', '\n']) {
+            Some(at) => {
+                let skip = if rest[at..].starts_with("\r\n") { 2 } else { 1 };
+                (&rest[..at], &rest[at + skip..])
+            }
+            None => (rest, ""),
+        };
+        rest = tail;
+        Some(line)
+    })
+}
+
+/// One line of a text, with where it stands relative to fenced code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Line<'a> {
+    /// 1-based.
+    pub number: usize,
+    /// Without its line ending.
+    pub text: &'a str,
+    /// The line is a fence delimiter or inside a fenced block.
+    pub fenced: bool,
+    /// The line opens or closes a fenced block.
+    pub delimiter: bool,
+}
+
+/// An opening fence: its character and length. Three or more backticks (with
+/// none in the info string) or tildes, indented by at most three spaces.
+fn fence_open(line: &str) -> Option<(u8, usize)> {
+    let indent = line.bytes().take_while(|&b| b == b' ').count();
+    let rest = line.get(indent..).filter(|_| indent <= 3)?;
+    let ch = *rest
+        .as_bytes()
+        .first()
+        .filter(|b| matches!(b, b'`' | b'~'))?;
+    let len = rest.bytes().take_while(|&b| b == ch).count();
+    let info = &rest[len..];
+    (len >= 3 && !(ch == b'`' && info.contains('`'))).then_some((ch, len))
+}
+
+/// Whether `line` closes a fence opened with `ch` repeated `len` times: the
+/// same character, at least as many, and nothing after but blanks.
+fn fence_close(line: &str, ch: u8, len: usize) -> bool {
+    let indent = line.bytes().take_while(|&b| b == b' ').count();
+    let Some(rest) = line.get(indent..).filter(|_| indent <= 3) else {
+        return false;
+    };
+    let run = rest.bytes().take_while(|&b| b == ch).count();
+    run >= len && rest[run..].trim_matches([' ', '\t']).is_empty()
+}
+
+/// Every line of `text` with its number and fence state. A fence opens on a
+/// line of three or more backticks or tildes and closes on one of the same
+/// character, at least as long; an unclosed fence runs to the end.
+pub fn classified(text: &str) -> impl Iterator<Item = Line<'_>> {
+    let mut open: Option<(u8, usize)> = None;
+    lines(text).enumerate().map(move |(i, text)| {
+        let (fenced, delimiter) = match open {
+            Some((ch, len)) if fence_close(text, ch, len) => {
+                open = None;
+                (true, true)
+            }
+            Some(_) => (true, false),
+            None => match fence_open(text) {
+                Some(f) => {
+                    open = Some(f);
+                    (true, true)
+                }
+                None => (false, false),
+            },
+        };
+        Line {
+            number: i + 1,
+            text,
+            fenced,
+            delimiter,
+        }
+    })
 }
 
 fn heading_level(line: &str) -> Option<usize> {
@@ -66,21 +144,21 @@ fn heading_level(line: &str) -> Option<usize> {
 
 /// Every line of `text`, paired with its heading level when it is a heading
 /// outside fenced code.
-fn classified(text: &str) -> impl Iterator<Item = (&str, Option<usize>)> {
-    let mut fence = false;
-    lines(text).map(move |line| {
-        if line.starts_with("```") {
-            fence = !fence;
-        }
-        let level = if fence { None } else { heading_level(line) };
-        (line, level)
+fn with_levels(text: &str) -> impl Iterator<Item = (&str, Option<usize>)> {
+    classified(text).map(|l| {
+        let level = if l.fenced {
+            None
+        } else {
+            heading_level(l.text)
+        };
+        (l.text, level)
     })
 }
 
 /// The headings of `text` in file order, fenced code skipped.
 #[must_use]
 pub fn headings(text: &str) -> Vec<Heading<'_>> {
-    classified(text)
+    with_levels(text)
         .filter_map(|(line, level)| level.map(|level| Heading { level, line }))
         .collect()
 }
@@ -95,7 +173,7 @@ pub fn section_lines<'a>(text: &'a str, want: &str, how: Match) -> Vec<&'a str> 
     let mut start_level = 0;
     let mut done = false;
     let want = request(want);
-    for (line, level) in classified(text) {
+    for (line, level) in with_levels(text) {
         if let Some(level) = level {
             if printing && level <= start_level {
                 printing = false;
@@ -188,6 +266,66 @@ mod tests {
             ["### Alpha child", "Child body.", ""]
         );
         assert_eq!(section_lines(DOC, "Alph", Match::Exact), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn ut_lines_split_on_crlf_and_cr() {
+        assert_eq!(
+            lines("a\r\nb\rc\n\r\nd\r\n").collect::<Vec<_>>(),
+            ["a", "b", "c", "", "d"]
+        );
+    }
+
+    fn fenced(text: &str) -> Vec<bool> {
+        classified(text).map(|l| l.fenced).collect()
+    }
+
+    #[test]
+    fn ut_classified_tracks_both_fence_kinds() {
+        assert_eq!(
+            fenced("a\n```\nb\n```\nc\n"),
+            [false, true, true, true, false]
+        );
+        assert_eq!(
+            fenced("a\n~~~\nb\n~~~\nc\n"),
+            [false, true, true, true, false]
+        );
+        let got: Vec<_> = classified("x\n~~~\ny\n~~~\n")
+            .map(|l| (l.number, l.delimiter))
+            .collect();
+        assert_eq!(got, [(1, false), (2, true), (3, false), (4, true)]);
+    }
+
+    #[test]
+    fn ut_fence_closes_only_on_same_char_and_length() {
+        // A ``` line inside a ~~~ block, and a shorter run, do not close it.
+        assert_eq!(
+            fenced("~~~\n```\nx\n```\n~~~\nout\n"),
+            [true, true, true, true, true, false]
+        );
+        assert_eq!(
+            fenced("````\n```\nx\n````\nout\n"),
+            [true, true, true, true, false]
+        );
+        assert_eq!(
+            fenced("```\n~~~\nx\n```\nout\n"),
+            [true, true, true, true, false]
+        );
+        // Two marks are no fence; closing needs nothing after the run.
+        assert_eq!(fenced("``\nx\n"), [false, false]);
+        assert_eq!(
+            fenced("```\n``` x\ny\n```\nz\n"),
+            [true, true, true, true, false]
+        );
+    }
+
+    #[test]
+    fn ut_headings_skip_tilde_fences_and_crlf() {
+        let found: Vec<_> = headings("# A\r\n~~~\r\n# no\r\n~~~\r\n## B\r\n")
+            .iter()
+            .map(|h| h.line)
+            .collect();
+        assert_eq!(found, ["# A", "## B"]);
     }
 
     #[test]
