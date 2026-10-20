@@ -11,6 +11,7 @@
 //! | s1 | Add backoff | ferrowl-modbus/src/client_core.rs, ferrowl-modbus/src/lib.rs | s0 |
 //! ```
 
+use std::ffi::OsStr;
 use std::path::Path;
 
 use rusqlite::Connection;
@@ -341,15 +342,14 @@ fn approve_gate2(
         .unwrap_or_else(|| format!("feat/{slug}"));
     let wt = layout.worktree(slug);
     if !wt.is_dir() {
-        let wts = wt.to_string_lossy();
         let add = [
-            "worktree",
-            "add",
-            "-q",
-            &wts,
-            "-b",
-            &branch,
-            &config.main_branch,
+            OsStr::new("worktree"),
+            OsStr::new("add"),
+            OsStr::new("-q"),
+            wt.as_os_str(),
+            OsStr::new("-b"),
+            OsStr::new(&branch),
+            OsStr::new(&config.main_branch),
         ];
         if !git::ok(&layout.root, &add) {
             return Err(Error::Refused("worktree"));

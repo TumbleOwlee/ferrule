@@ -2,6 +2,7 @@
 //! worktree and moves its cards and artifacts into a compressed archive,
 //! and the export that writes an archive back out as files.
 
+use std::ffi::OsStr;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
@@ -242,8 +243,8 @@ pub fn cleanup(
         metrics(conn, slug, now)?;
     }
     if let Some(branch) = &branch {
-        let wt_arg = wt.to_string_lossy();
-        if !git::ok(&layout.root, &["worktree", "remove", &wt_arg]) {
+        let remove = [OsStr::new("worktree"), OsStr::new("remove"), wt.as_os_str()];
+        if !git::ok(&layout.root, &remove) {
             return Err(Error::Refused("worktree-remove-failed"));
         }
         if !git::ok(&layout.root, &["branch", "-D", branch]) {

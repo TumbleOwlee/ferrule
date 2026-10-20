@@ -233,8 +233,9 @@ fn diff_size(wt: &Path, base: &str) -> Option<(usize, usize)> {
         files += 1;
     }
     let untracked =
-        git::out(wt, &["ls-files", "--others", "--exclude-standard"]).unwrap_or_default();
-    for u in untracked.lines().filter(|l| !l.is_empty()) {
+        git::out(wt, &["ls-files", "-z", "--others", "--exclude-standard"]).unwrap_or_default();
+    // `-z`: git quotes non-ASCII paths otherwise.
+    for u in untracked.split('\0').filter(|l| !l.is_empty()) {
         // `wc -l`: newlines, not lines.
         lines += std::fs::read(wt.join(u)).map_or(0, |b| b.split(|&c| c == b'\n').count() - 1);
         files += 1;

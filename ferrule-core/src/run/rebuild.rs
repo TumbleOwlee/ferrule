@@ -5,6 +5,7 @@
 //! (`<!-- s1 blocked-by s0 -->`); a ticked line is a landed stage with its
 //! commit in parentheses.
 
+use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::path::Path;
 
@@ -378,7 +379,7 @@ fn worktree(layout: &Layout, slug: &str, branch: &str) -> Result<(), Refused> {
     }
     let root = &layout.root;
     let _ = git::ok(root, &["worktree", "prune"]);
-    let wt = wt.to_string_lossy();
+    let wt = wt.as_os_str();
     let ok = if git::ok(
         root,
         &[
@@ -388,19 +389,28 @@ fn worktree(layout: &Layout, slug: &str, branch: &str) -> Result<(), Refused> {
             &format!("refs/heads/{branch}"),
         ],
     ) {
-        git::ok(root, &["worktree", "add", "-q", &wt, branch])
+        git::ok(
+            root,
+            &[
+                OsStr::new("worktree"),
+                OsStr::new("add"),
+                OsStr::new("-q"),
+                wt,
+                OsStr::new(branch),
+            ],
+        )
     } else {
         git::ok(
             root,
             &[
-                "worktree",
-                "add",
-                "-q",
-                "--track",
-                "-b",
-                branch,
-                &wt,
-                &format!("origin/{branch}"),
+                OsStr::new("worktree"),
+                OsStr::new("add"),
+                OsStr::new("-q"),
+                OsStr::new("--track"),
+                OsStr::new("-b"),
+                OsStr::new(branch),
+                wt,
+                OsStr::new(&format!("origin/{branch}")),
             ],
         )
     };
