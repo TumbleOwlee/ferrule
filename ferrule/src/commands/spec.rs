@@ -46,7 +46,7 @@ No match:
 Too many matches:
   related=too-many count=<n> max=<m> hint=rerun with more or more specific keywords
                                  More than `related_max` entries (in
-                                 [thresholds] of ferrule.toml, default 20)
+                                 [thresholds] of ferrule.toml, default 40)
                                  match; none is printed. Every keyword must
                                  match, so add one or make one narrower
                                  (exit 1).

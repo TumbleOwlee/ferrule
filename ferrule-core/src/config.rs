@@ -185,7 +185,7 @@ impl Default for Thresholds {
             stage_stop_checkpoint: 3,
             summary_max_lines: 25,
             summary_max_bytes: 2048,
-            related_max: 20,
+            related_max: 40,
         }
     }
 }
