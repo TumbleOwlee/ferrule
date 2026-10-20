@@ -25,11 +25,24 @@ Output:
   one JSON line        exit 0; permissionDecision \"deny\" with a reason that
                        names the ferrule command to run instead
 Refuses:
-  a write to a file only ferrule writes (state.db, ferrule.lock, ...)
+  a write to a file only ferrule writes (state.db, ferrule.lock, ...),
+                       by any glob, brace or case form, and removing or
+                       moving .ferrule itself; git clean -x over it
   a flood: whole-file cat of a .md or large file, unfiltered git diff/show,
                        unfiltered find -type, a raw CI log
   a git or gh call a ferrule command replaces; the reason names it
-                       (`[guard] allow` in ferrule.toml lets one through)
+                       (`[guard] allow` in ferrule.toml lets one through).
+                       Commit-making calls count: merge, cherry-pick,
+                       revert, am, commit-tree, send-pack, update-ref on a
+                       branch. Seen behind wrappers (timeout, nice, env,
+                       sudo, exec, xargs, find -exec, ...), in sh -c and
+                       eval strings, by absolute path, behind gh -R, and
+                       in git -c / git config / gh alias definitions
+  what the guard cannot follow: ANSI-C quoting $'...', arithmetic ((...)),
+                       a substitution inside ${...} or $((...)), a script
+                       piped, heredoc'd or here-string'd into a shell,
+                       source or eval, a variable or substitution where the
+                       program or a git/gh subcommand goes, cd into a glob
   every call but `ferrule setup install` while the binary and the project's pin
                        or lock disagree: `ferrule=refused reason=version ...`
 Errors (stderr):
@@ -98,8 +111,9 @@ See: ferrule guide show resume";
 pub enum HookCommand {
     /// Guard every Bash call (`PreToolUse`).
     ///
-    /// Refuses writes to files only ferrule writes, output floods, and the
-    /// git and gh calls a ferrule command replaces, naming that command.
+    /// Refuses writes to files only ferrule writes, output floods, the git
+    /// and gh calls a ferrule command replaces (naming that command), and
+    /// shell constructs it cannot follow.
     #[command(after_long_help = SHELL_AFTER_LONG_HELP)]
     Shell,
     /// Strip attribution trailers from a Bash call (`PreToolUse`).

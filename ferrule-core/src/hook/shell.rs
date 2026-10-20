@@ -44,6 +44,21 @@ pub struct Command {
     pub piped: bool,
     /// It runs inside `$(…)`, backticks or `<(…)`, its output captured.
     pub substituted: bool,
+    /// Its stdin is the previous command's output, through `|` or `|&`.
+    pub fed: bool,
+    /// A construct in it the lexer cannot follow.
+    pub opaque: Option<Opaque>,
+}
+
+/// What the lexer cannot follow: a command could hide inside it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Opaque {
+    /// ANSI-C quoting, `$'…'`.
+    AnsiC,
+    /// An arithmetic command, `((…))`: its `<<` is no heredoc.
+    Arithmetic,
+    /// `$(…)` or backticks inside `${…}` or `$((…))`, kept verbatim.
+    NestedSubstitution,
 }
 
 impl Command {
@@ -67,6 +82,7 @@ pub fn parse(src: &str) -> Vec<Command> {
         pos: 0,
         bodies: Vec::new(),
         pending: Vec::new(),
+        opaque: None,
     };
     let mut commands = lexer.list(false);
     for command in &mut commands {
@@ -87,6 +103,8 @@ struct Lexer {
     /// Heredocs whose bodies start after the next newline: id, delimiter,
     /// whether leading tabs are stripped (`<<-`).
     pending: Vec<(usize, String, bool)>,
+    /// Seen in the command being lexed; set on it when it ends.
+    opaque: Option<Opaque>,
 }
 
 fn ends_word(c: char) -> bool {
@@ -124,8 +142,14 @@ impl Lexer {
         let mut inner = Vec::new();
         let mut cur = Command::default();
         let mut word_start = true;
-        let finish = |cur: &mut Command, out: &mut Vec<Command>, inner: &mut Vec<Command>| {
-            if !cur.words.is_empty() || !cur.redirects.is_empty() {
+        let finish = |cur: &mut Command,
+                      out: &mut Vec<Command>,
+                      inner: &mut Vec<Command>,
+                      opaque: &mut Option<Opaque>| {
+            if let Some(o) = opaque.take() {
+                cur.opaque.get_or_insert(o);
+            }
+            if !cur.words.is_empty() || !cur.redirects.is_empty() || cur.opaque.is_some() {
                 out.push(std::mem::take(cur));
             }
             *cur = Command::default();
@@ -155,7 +179,7 @@ impl Lexer {
                 }
                 '\n' => {
                     self.pos += 1;
-                    finish(&mut cur, &mut out, &mut inner);
+                    finish(&mut cur, &mut out, &mut inner, &mut self.opaque);
                     self.heredoc_bodies();
                 }
                 '&' if matches!(self.peek_at(1), Some('>')) => {
@@ -163,21 +187,36 @@ impl Lexer {
                     self.redirect(&mut cur, &mut inner);
                 }
                 ';' | '&' | '|' => {
-                    if self.eat("|&") || (self.peek_at(1) != Some('|') && self.eat("|")) {
+                    let piped = self.eat("|&") || (self.peek_at(1) != Some('|') && self.eat("|"));
+                    if piped {
                         cur.piped = true;
                     } else if !self.eat("&&") && !self.eat("||") && !self.eat(";;") {
                         self.pos += 1;
                     }
-                    finish(&mut cur, &mut out, &mut inner);
+                    finish(&mut cur, &mut out, &mut inner, &mut self.opaque);
+                    cur.fed = piped;
                 }
                 '<' | '>' if self.peek_at(1) == Some('(') => {
+                    let start = self.pos;
                     self.pos += 2;
                     inner.extend(substituted(self.list(true)));
+                    cur.words.push(format!("{c}(…)"));
+                    cur.spans.push(start..self.pos);
                 }
                 '<' | '>' => self.redirect(&mut cur, &mut inner),
+                '(' if self.peek_at(1) == Some('(') => {
+                    let start = self.pos;
+                    let mut text = String::new();
+                    self.pos += 2;
+                    text.push_str("((");
+                    self.verbatim_until("))", &mut text);
+                    self.opaque = Some(Opaque::Arithmetic);
+                    cur.words.push(text);
+                    cur.spans.push(start..self.pos);
+                }
                 '(' | ')' => {
                     self.pos += 1;
-                    finish(&mut cur, &mut out, &mut inner);
+                    finish(&mut cur, &mut out, &mut inner, &mut self.opaque);
                 }
                 d if d.is_ascii_digit() && word_start && self.fd_redirect() => {
                     self.redirect(&mut cur, &mut inner);
@@ -191,7 +230,7 @@ impl Lexer {
             }
             word_start = true;
         }
-        finish(&mut cur, &mut out, &mut inner);
+        finish(&mut cur, &mut out, &mut inner, &mut self.opaque);
         out
     }
 
@@ -324,6 +363,23 @@ impl Lexer {
                     self.pos += 1;
                     self.double_quoted(&mut out, inner);
                 }
+                '$' if self.peek_at(1) == Some('\'') => {
+                    self.pos += 2;
+                    self.opaque = Some(Opaque::AnsiC);
+                    while let Some(c) = self.peek() {
+                        self.pos += 1;
+                        match c {
+                            '\'' => break,
+                            '\\' => {
+                                if let Some(n) = self.peek() {
+                                    out.push(n);
+                                    self.pos += 1;
+                                }
+                            }
+                            _ => out.push(c),
+                        }
+                    }
+                }
                 '$' | '`' => self.substitution(&mut out, inner),
                 _ => {
                     out.push(c);
@@ -362,10 +418,14 @@ impl Lexer {
     fn substitution(&mut self, out: &mut String, inner: &mut Vec<Command>) {
         if self.eat("$((") {
             out.push_str("$((");
+            let from = out.len();
             self.verbatim_until("))", out);
+            self.nested_substitution(&out[from..]);
         } else if self.eat("${") {
             out.push_str("${");
+            let from = out.len();
             self.verbatim_until("}", out);
+            self.nested_substitution(&out[from..]);
         } else if self.eat("$(") {
             out.push_str("$(…)");
             inner.extend(substituted(self.list(true)));
@@ -395,6 +455,13 @@ impl Lexer {
         }
     }
 
+    /// Text kept verbatim that would run a command.
+    fn nested_substitution(&mut self, verbatim: &str) {
+        if verbatim.contains("$(") || verbatim.contains('`') {
+            self.opaque = Some(Opaque::NestedSubstitution);
+        }
+    }
+
     fn verbatim_until(&mut self, end: &str, out: &mut String) {
         while self.peek().is_some() {
             if self.eat(end) {
@@ -414,32 +481,335 @@ fn substituted(commands: Vec<Command>) -> impl Iterator<Item = Command> {
     })
 }
 
-/// Shell keywords and wrappers that run the command after them.
-const PREFIXES: &[&str] = &[
-    "!", "{", "}", "if", "then", "else", "elif", "while", "until", "do", "sudo", "env", "command",
-    "time", "nice", "nohup", "exec", "xargs",
+/// Shell keywords that run the command after them.
+const KEYWORDS: &[&str] = &[
+    "!", "{", "}", "if", "then", "else", "elif", "while", "until", "do",
 ];
 
-/// The program a command runs, by base name, and its arguments: past
-/// `NAME=value` assignments, shell keywords, wrappers such as `env` or
-/// `xargs`, and the wrappers' options.
+/// A program that runs the command after its options and operands.
+struct Wrapper {
+    name: &'static str,
+    /// Options whose value is the next word.
+    valued: &'static [&'static str],
+    /// Options after which the wrapper runs no command from its words
+    /// (`command -v`), or runs one from a string (`env -S`).
+    stops: &'static [&'static str],
+    /// Operands before the command: `timeout`'s duration.
+    operands: usize,
+}
+
+const WRAPPERS: &[Wrapper] = &[
+    Wrapper {
+        name: "sudo",
+        valued: &[
+            "-u",
+            "-g",
+            "-p",
+            "-C",
+            "-D",
+            "-r",
+            "-t",
+            "-U",
+            "-T",
+            "-R",
+            "--user",
+            "--group",
+            "--prompt",
+            "--chdir",
+            "--role",
+            "--type",
+            "--other-user",
+            "--close-from",
+        ],
+        stops: &[],
+        operands: 0,
+    },
+    Wrapper {
+        name: "doas",
+        valued: &["-u", "-C"],
+        stops: &[],
+        operands: 0,
+    },
+    Wrapper {
+        name: "env",
+        valued: &["-u", "-C", "--unset", "--chdir"],
+        stops: &["-S", "--split-string"],
+        operands: 0,
+    },
+    Wrapper {
+        name: "command",
+        valued: &[],
+        stops: &["-v", "-V"],
+        operands: 0,
+    },
+    Wrapper {
+        name: "builtin",
+        valued: &[],
+        stops: &[],
+        operands: 0,
+    },
+    Wrapper {
+        name: "time",
+        valued: &["-f", "-o", "--format", "--output"],
+        stops: &[],
+        operands: 0,
+    },
+    Wrapper {
+        name: "nice",
+        valued: &["-n", "--adjustment"],
+        stops: &[],
+        operands: 0,
+    },
+    Wrapper {
+        name: "nohup",
+        valued: &[],
+        stops: &[],
+        operands: 0,
+    },
+    Wrapper {
+        name: "setsid",
+        valued: &[],
+        stops: &[],
+        operands: 0,
+    },
+    Wrapper {
+        name: "exec",
+        valued: &["-a"],
+        stops: &[],
+        operands: 0,
+    },
+    Wrapper {
+        name: "xargs",
+        valued: &[
+            "-I",
+            "-L",
+            "-n",
+            "-P",
+            "-s",
+            "-d",
+            "-E",
+            "-a",
+            "--max-args",
+            "--max-procs",
+            "--max-chars",
+            "--max-lines",
+            "--delimiter",
+            "--eof",
+            "--arg-file",
+            "--process-slot-var",
+        ],
+        stops: &[],
+        operands: 0,
+    },
+    Wrapper {
+        name: "timeout",
+        valued: &["-s", "-k", "--signal", "--kill-after"],
+        stops: &[],
+        operands: 1,
+    },
+    Wrapper {
+        name: "stdbuf",
+        valued: &["-i", "-o", "-e", "--input", "--output", "--error"],
+        stops: &[],
+        operands: 0,
+    },
+    Wrapper {
+        name: "ionice",
+        valued: &["-c", "-n", "--class", "--classdata"],
+        stops: &[],
+        operands: 0,
+    },
+];
+
+impl Wrapper {
+    /// How many of `rest` are the wrapper's options and operands; `None`
+    /// when an option stops it from wrapping.
+    fn skip(&self, rest: &[String]) -> Option<usize> {
+        let mut i = 0;
+        while let Some(w) = rest.get(i) {
+            if self.stops.iter().any(|s| w.starts_with(s)) {
+                return None;
+            }
+            if w == "--" {
+                i += 1;
+                break;
+            }
+            if !w.starts_with('-') {
+                break;
+            }
+            i += if self.valued.contains(&w.as_str()) {
+                2
+            } else {
+                1
+            };
+        }
+        Some(i + self.operands)
+    }
+}
+
+/// The file name of a program path: `/usr/bin/git` → `git`.
 #[must_use]
-pub fn program(words: &[String]) -> Option<(&str, &[String])> {
+pub fn base(word: &str) -> &str {
+    word.rsplit('/').next().unwrap_or(word)
+}
+
+/// Where the program sits in `words`, past `NAME=value` assignments, shell
+/// keywords and wrappers with their options; and whether `xargs` runs it.
+fn locate(words: &[String]) -> (usize, bool) {
     let mut i = 0;
-    let mut wrapped = false;
+    let mut xargs = false;
     while let Some(w) = words.get(i) {
         let assignment = w
             .split_once('=')
             .is_some_and(|(name, _)| !name.is_empty() && !name.starts_with('-'));
-        if assignment || PREFIXES.contains(&w.as_str()) || (wrapped && w.starts_with('-')) {
-            wrapped |= !assignment;
+        if assignment || KEYWORDS.contains(&w.as_str()) {
             i += 1;
+        } else if w == "coproc" {
+            // `coproc NAME { …; }` names the coprocess; `coproc cmd` does not.
+            i += if words.get(i + 2).is_some_and(|w| w == "{") {
+                2
+            } else {
+                1
+            };
+        } else if let Some(n) = WRAPPERS
+            .iter()
+            .find(|x| x.name == base(w))
+            .and_then(|x| x.skip(&words[i + 1..]))
+        {
+            xargs |= base(w) == "xargs";
+            i += 1 + n;
         } else {
             break;
         }
     }
+    (i, xargs)
+}
+
+/// The program a command runs, by base name, and its arguments: past
+/// `NAME=value` assignments, shell keywords, wrappers such as `env`,
+/// `timeout` or `xargs`, and the wrappers' options with their values.
+#[must_use]
+pub fn program(words: &[String]) -> Option<(&str, &[String])> {
+    let i = locate(words).0;
     let name = words.get(i)?;
-    Some((name.rsplit('/').next().unwrap_or(name), &words[i + 1..]))
+    Some((base(name), &words[i + 1..]))
+}
+
+/// Whether `xargs` runs the command's program, adding words from stdin.
+#[must_use]
+pub fn via_xargs(words: &[String]) -> bool {
+    locate(words).1
+}
+
+/// Shells: their script is a `-c` string, a file, or stdin.
+pub const SHELLS: &[&str] = &["sh", "bash", "dash", "zsh", "ksh", "mksh", "ash", "fish"];
+
+/// Where a shell's script comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Script<'a> {
+    /// `-c '…'`.
+    Inline(&'a str),
+    /// The first operand.
+    File(&'a str),
+    /// No operand, or `-s`.
+    Stdin,
+}
+
+/// The script of a shell called with `args`.
+#[must_use]
+pub fn shell_script(args: &[String]) -> Script<'_> {
+    let (mut inline, mut stdin) = (false, false);
+    let mut i = 0;
+    while let Some(w) = args.get(i) {
+        match w.as_str() {
+            "--" => {
+                i += 1;
+                break;
+            }
+            "-o" | "+o" | "-O" | "+O" | "--rcfile" | "--init-file" => i += 2,
+            o if o.starts_with("--") => i += 1,
+            o if (o.starts_with('-') || o.starts_with('+')) && o.len() > 1 => {
+                inline |= o[1..].contains('c');
+                stdin |= o[1..].contains('s');
+                i += 1;
+            }
+            _ => break,
+        }
+    }
+    match args.get(i) {
+        Some(s) if inline => Script::Inline(s),
+        Some(f) if !stdin => Script::File(f),
+        _ => Script::Stdin,
+    }
+}
+
+/// The shell code a program runs from its words: a shell's `-c` script,
+/// `eval`'s words, the `-c` command of `su`, `runuser`, `flock` and
+/// `script`, `env -S`'s string with the words after it.
+#[must_use]
+pub fn scripts(name: &str, args: &[String]) -> Vec<String> {
+    match name {
+        s if SHELLS.contains(&s) => match shell_script(args) {
+            Script::Inline(s) => vec![s.to_owned()],
+            _ => Vec::new(),
+        },
+        "eval" => vec![args.join(" ")],
+        "su" | "runuser" | "flock" | "script" => args
+            .iter()
+            .enumerate()
+            .filter_map(|(i, a)| match a.as_str() {
+                "-c" | "--command" => args.get(i + 1).cloned(),
+                a => a.strip_prefix("--command=").map(str::to_owned),
+            })
+            .collect(),
+        "env" => {
+            let Some(i) = args
+                .iter()
+                .position(|a| a.starts_with("-S") || a.starts_with("--split-string"))
+            else {
+                return Vec::new();
+            };
+            let (value, rest) = match args[i].as_str() {
+                "-S" | "--split-string" => (args.get(i + 1).cloned().unwrap_or_default(), i + 2),
+                a => (
+                    a.strip_prefix("--split-string=")
+                        .or_else(|| a.strip_prefix("-S"))
+                        .unwrap_or_default()
+                        .to_owned(),
+                    i + 1,
+                ),
+            };
+            let words: Vec<String> = std::iter::once(value)
+                .chain(args.iter().skip(rest).cloned())
+                .collect();
+            vec![words.join(" ")]
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// The commands `find -exec`, `-execdir`, `-ok` and `-okdir` run, each up
+/// to its `;` or `+`.
+#[must_use]
+pub fn find_execs(name: &str, args: &[String]) -> Vec<Vec<String>> {
+    let mut out = Vec::new();
+    if name != "find" {
+        return out;
+    }
+    let mut i = 0;
+    while i < args.len() {
+        if matches!(args[i].as_str(), "-exec" | "-execdir" | "-ok" | "-okdir") {
+            let start = i + 1;
+            let end = args[start..]
+                .iter()
+                .position(|a| a == ";" || a == "+")
+                .map_or(args.len(), |n| start + n);
+            out.push(args[start..end].to_vec());
+            i = end;
+        }
+        i += 1;
+    }
+    out
 }
 
 /// A `git` invocation: its `-C` directory, subcommand and the arguments
@@ -461,7 +831,7 @@ pub fn git(args: &[String]) -> Option<Git<'_>> {
                 dir = args.get(i + 1).map(String::as_str);
                 i += 2;
             }
-            "-c" | "--git-dir" | "--work-tree" | "--namespace" => i += 2,
+            "-c" | "--config-env" | "--git-dir" | "--work-tree" | "--namespace" => i += 2,
             w if w.starts_with('-') => i += 1,
             sub => {
                 return Some(Git {
@@ -584,10 +954,72 @@ mod tests {
         let w: Vec<String> = ["FOO=1", "sudo", "-u", "x", "/bin/rm", "-rf", "t"]
             .map(String::from)
             .to_vec();
-        // `-u`'s argument is not known to be one; it is taken as the program.
-        assert_eq!(program(&w).map(|p| p.0), Some("x"));
+        assert_eq!(program(&w).map(|p| p.0), Some("rm"));
         let w: Vec<String> = ["do", "env", "A=b", "rm", "x"].map(String::from).to_vec();
         assert_eq!(program(&w).map(|p| p.0), Some("rm"));
+    }
+
+    #[test]
+    fn ut_program_skips_wrapper_option_values() {
+        let p = |src: &str| {
+            let c = parse(src);
+            program(&c[0].words).map(|(n, a)| (n.to_owned(), a.len()))
+        };
+        assert_eq!(p("timeout -s KILL 5 git push"), Some(("git".into(), 1)));
+        assert_eq!(p("nice -n 5 /usr/bin/git push"), Some(("git".into(), 1)));
+        assert_eq!(p("xargs -n 1 -I {} rm {}"), Some(("rm".into(), 1)));
+        assert_eq!(p("env -u X A=b exec -a n git"), Some(("git".into(), 0)));
+        assert_eq!(p("coproc git push"), Some(("git".into(), 1)));
+        assert_eq!(p("command -v git"), Some(("command".into(), 2)));
+        assert!(via_xargs(&parse("xargs git")[0].words));
+    }
+
+    #[test]
+    fn ut_arithmetic_takes_no_heredoc() {
+        let c = parse("(( x << 2 ))\ngit push");
+        assert_eq!(c[0].opaque, Some(Opaque::Arithmetic));
+        assert_eq!(c[1].words, ["git", "push"]);
+    }
+
+    #[test]
+    fn ut_constructs_the_lexer_cannot_follow() {
+        let opaque = |src: &str| parse(src).iter().find_map(|c| c.opaque);
+        assert_eq!(opaque("echo $'a\\'b'"), Some(Opaque::AnsiC));
+        assert_eq!(opaque("echo \"$'x'\""), None);
+        assert_eq!(
+            opaque("echo ${x:-$(git push)}"),
+            Some(Opaque::NestedSubstitution)
+        );
+        assert_eq!(
+            opaque("echo $(( $(id -u) + 1 ))"),
+            Some(Opaque::NestedSubstitution)
+        );
+        assert_eq!(opaque("echo ${x:-y} $((1+2))"), None);
+    }
+
+    #[test]
+    fn ut_pipe_feeds_the_right_command_and_process_substitution_is_a_word() {
+        let c = parse("echo x | sh; diff <(a) b");
+        assert!(c[1].fed);
+        assert_eq!(c[2].words, ["diff", "<(…)", "b"]);
+        assert_eq!(c[2].spans.len(), 3);
+    }
+
+    #[test]
+    fn ut_scripts_and_find_execs() {
+        let w = |s: &[&str]| s.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+        assert_eq!(scripts("bash", &w(&["-lc", "git push", "x"])), ["git push"]);
+        assert_eq!(shell_script(&w(&["-s", "a"])), Script::Stdin);
+        assert_eq!(shell_script(&w(&["run.sh"])), Script::File("run.sh"));
+        assert_eq!(scripts("eval", &w(&["git", "push"])), ["git push"]);
+        assert_eq!(scripts("env", &w(&["-S", "git push", "x"])), ["git push x"]);
+        assert_eq!(
+            find_execs(
+                "find",
+                &w(&[".", "-exec", "rm", "{}", ";", "-ok", "ls", "+"])
+            ),
+            [w(&["rm", "{}"]), w(&["ls"])]
+        );
     }
 
     #[test]

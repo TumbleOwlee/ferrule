@@ -197,6 +197,53 @@ fn it_shell_guard_names_the_ferrule_command_for_raw_git_and_gh() {
 }
 
 #[test]
+fn it_shell_guard_sees_through_wrappers_and_fails_closed() {
+    let p = project();
+    std::fs::create_dir(p.path().join(".ferrule")).unwrap();
+    check(
+        "shell",
+        p.path(),
+        &[
+            ("timeout 60 git push", "deny"),
+            ("bash -c \"git commit -m x\"", "deny"),
+            ("gh -R o/r pr create", "deny"),
+            ("nice -n 5 git push", "deny"),
+            ("find . -exec git commit -m x \\;", "deny"),
+            ("echo x | xargs -n 1 git push origin", "deny"),
+            ("eval 'git push'", "deny"),
+            ("bash <<EOF\ngit push\nEOF", "deny"),
+            ("\"$(which git)\" push", "deny"),
+            ("/usr/lib/git-core/git-commit -m x", "deny"),
+            ("git -c alias.ci=commit ci -m x", "deny"),
+            ("git merge feat", "deny"),
+            ("git update-ref refs/heads/main abc", "deny"),
+            ("echo $'x'", "deny"),
+            ("(( n << 1 ))\ngit push", "deny"),
+            ("rm -rf .ferrule", "deny"),
+            ("git -C .ferrule clean -fdx", "deny"),
+            ("rm .ferrule/sta{te,x}.db", "deny"),
+            ("rm .ferrule/STATE.DB", "deny"),
+            ("cd .fer* && rm state.db", "deny"),
+            ("echo $(git rev-parse HEAD)", "allow"),
+            ("timeout 600 cargo test -q", "allow"),
+            ("git merge-base main HEAD", "allow"),
+            ("gh -R o/r pr list", "allow"),
+        ],
+    );
+    let payload = json!({
+        "tool_name": "Bash",
+        "tool_input": {"command": "timeout 60 git push"},
+        "cwd": p.path(),
+    });
+    let out = run_hook("shell", p.path(), payload.to_string().as_bytes());
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let reason = v["hookSpecificOutput"]["permissionDecisionReason"]
+        .as_str()
+        .unwrap();
+    assert!(reason.contains("Use: ferrule pr push"), "{reason}");
+}
+
+#[test]
 fn it_shell_guard_honours_the_projects_allow_list() {
     let p = project();
     std::fs::create_dir(p.path().join(".ferrule")).unwrap();
