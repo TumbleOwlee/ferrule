@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use clap::{Args, Subcommand, ValueEnum};
 use ferrule_core::card::board;
+use ferrule_core::card::typed::Name;
 use ferrule_core::config::Config;
 use ferrule_core::pr::publish;
 use ferrule_core::project::{self, Layout};
@@ -582,7 +583,7 @@ fn status(slug: &str, out: &mut impl Write) -> io::Result<u8> {
         return Ok(exit::REFUSED);
     };
     let c = &s.conn;
-    let last_value = |name: &str| -> io::Result<String> {
+    let last_value = |name: Name| -> io::Result<String> {
         Ok(board::last_value(c, slug, name)
             .map_err(sql)?
             .unwrap_or_else(|| "-".to_owned()))
@@ -608,7 +609,7 @@ fn status(slug: &str, out: &mut impl Write) -> io::Result<u8> {
         field(slug, "branch")?,
         field(slug, "issue")?,
         field(slug, "pr")?,
-        last_value("pr=")?,
+        last_value(Name::Pr)?,
         if gates.is_empty() {
             "-".to_owned()
         } else {
@@ -616,7 +617,7 @@ fn status(slug: &str, out: &mut impl Write) -> io::Result<u8> {
         }
     )?;
     for (n, id, st) in &board::stages(c, slug).map_err(sql)? {
-        let commit = board::last_value(c, id, "commit=").map_err(sql)?;
+        let commit = board::last_value(c, id, Name::Commit).map_err(sql)?;
         writeln!(
             out,
             "stage=s{n} state={} commit={} title={}",
@@ -651,7 +652,7 @@ fn status(slug: &str, out: &mut impl Write) -> io::Result<u8> {
         .last()
         .and_then(|(_, body)| body.strip_prefix("gauntlet="));
     writeln!(out, "gauntlet={}", gauntlet.unwrap_or("-"))?;
-    writeln!(out, "ci={}", last_value("ci=")?)?;
+    writeln!(out, "ci={}", last_value(Name::Ci)?)?;
     if let Some((card, at, body)) = board::run_log_lines(c, slug, None).map_err(sql)?.pop() {
         writeln!(out, "last={card} {at} {body}")?;
     }

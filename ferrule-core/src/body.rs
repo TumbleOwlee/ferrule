@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use rusqlite::Connection;
 
 use crate::card::board::{self, State};
+use crate::card::typed::{Change, Name, Typed};
 use crate::project::Layout;
 use crate::spec::{
     self,
@@ -436,13 +437,23 @@ struct Delta {
 }
 
 fn delta(e: &board::Event) -> Option<Delta> {
+    let Typed::SpecDelta {
+        id,
+        change,
+        origin,
+        quote,
+        text,
+    } = e.typed()
+    else {
+        return None;
+    };
     let owned = |v: Option<&str>| v.unwrap_or_default().to_owned();
     Some(Delta {
-        id: e.positional(0)?.to_owned(),
-        kind: owned(e.positional(1)),
-        origin: owned(e.arg("origin")),
-        quote: owned(e.arg("quote")),
-        text: e.text.clone().unwrap_or_default(),
+        id: id.to_owned(),
+        kind: owned(change.map(Change::as_str)),
+        origin: owned(origin),
+        quote: owned(quote),
+        text: owned(text),
     })
 }
 
@@ -583,7 +594,7 @@ pub fn pr(
         slug,
     };
     let issue = c.need("issue.md")?;
-    let deltas: Vec<Delta> = board::run_events(conn, slug, &["spec-delta"])?
+    let deltas: Vec<Delta> = board::run_events(conn, slug, &[Name::SpecDelta])?
         .iter()
         .filter_map(delta)
         .collect();
@@ -728,7 +739,7 @@ fn stages(c: &Ctx, summary: &str, out: &mut String) -> Result<(), Error> {
         let (state, commit, blocked) = match card {
             Some((_, id, st)) => (
                 Some(*st),
-                board::last_value(c.conn, id, "commit=")?,
+                board::last_value(c.conn, id, Name::Commit)?,
                 board::field(c.conn, id, "blocked-by")?.unwrap_or_default(),
             ),
             None => (None, None, String::new()),
@@ -884,10 +895,14 @@ fn full(c: &Ctx, issue: &str, deltas: &[Delta]) -> Result<String, Error> {
             );
         }
     }
-    if let Some(cov) = board::last_arg(c.conn, c.slug, "gauntlet=", "cov")? {
+    let gauntlets = board::events(c.conn, c.slug, &[Name::Gauntlet])?;
+    if let Some(cov) = gauntlets.iter().rev().find_map(|e| match e.typed() {
+        Typed::Gauntlet { cov, .. } => cov,
+        _ => None,
+    }) {
         let _ = write!(status, " · coverage {cov}");
     }
-    if let Some(review) = board::last_value(c.conn, c.slug, "review=")? {
+    if let Some(review) = board::last_value(c.conn, c.slug, Name::Review)? {
         let _ = write!(status, " · review {review}");
     }
     if let Some(split) = c.field("split")? {

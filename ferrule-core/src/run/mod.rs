@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use rusqlite::Connection;
 
 use crate::card::board::{self, State};
+use crate::card::typed::{Name, Typed};
 use crate::config::Config;
 use crate::project::Layout;
 use crate::{artifacts, git};
@@ -89,7 +90,7 @@ pub fn sha_check(
     if !on_branch {
         return Ok(Err(Mismatch::OffBranch));
     }
-    let logged = board::last_value(conn, &card, "commit=")?;
+    let logged = board::last_value(conn, &card, Name::Commit)?;
     if logged.and_then(|l| git::commit(&wt, &l)).as_deref() != Some(full.as_str()) {
         return Ok(Err(Mismatch::CardCommit));
     }
@@ -153,7 +154,7 @@ pub fn reconcile(conn: &Connection, layout: &Layout, slug: &str) -> Result<Recon
     };
     let mut next = None;
     for (n, id, state) in board::stages(conn, slug)? {
-        match board::last_value(conn, &id, "commit=")? {
+        match board::last_value(conn, &id, Name::Commit)? {
             Some(sha) => {
                 if git::commit(root, &sha).is_none() {
                     differ.push(format!("commit s{n} {sha} does not exist"));
@@ -280,7 +281,7 @@ fn decide(
     let wt = worktree(conn, layout, slug, &card)?;
     let mut base = None;
     for (_, id, _) in stages.iter().rev().filter(|(n, _, _)| *n < me) {
-        base = board::last_value(conn, id, "commit=")?;
+        base = board::last_value(conn, id, Name::Commit)?;
         if base.is_some() {
             break;
         }
@@ -295,8 +296,8 @@ fn decide(
     }
     let mut run = 0;
     for (_, id, _) in stages.iter().filter(|(n, _, _)| (1..me).contains(n)) {
-        match board::last_event(conn, id, &["auto=", "stop="])? {
-            Some(e) if e.name == "auto=" => run += 1,
+        match board::last_event(conn, id, &[Name::Auto, Name::StageStop])? {
+            Some(e) if e.typed() == Typed::Auto => run += 1,
             Some(_) => run = 0,
             None => {}
         }

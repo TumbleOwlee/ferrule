@@ -17,6 +17,7 @@ use std::path::Path;
 use rusqlite::Connection;
 
 use crate::card::board::{self, NewCard, State};
+use crate::card::typed::{Change, Grant, Name, Typed};
 use crate::config::Config;
 use crate::git;
 use crate::issue::request::{self, Part};
@@ -449,7 +450,7 @@ pub fn approve(
 fn replan_from(conn: &Connection, slug: &str) -> rusqlite::Result<u32> {
     let stages = board::stages(conn, slug)?;
     for (n, id, _) in &stages {
-        if board::last_value(conn, id, "commit=")?.is_none() {
+        if board::last_value(conn, id, Name::Commit)?.is_none() {
             return Ok(*n);
         }
     }
@@ -499,11 +500,15 @@ pub fn replan_approve(
 ) -> Result<(u32, usize), Error> {
     // Only a start logged after the last approval is pending; approving
     // again would recreate stages that have since progressed.
-    let from: u32 = board::events(conn, slug, &["replan", "replan="])?
+    let from: u32 = board::events(conn, slug, &[Name::Replan, Name::ReplanApproved])?
         .iter()
         .rev()
-        .take_while(|e| !e.is("replan=", "approved"))
-        .find_map(|e| e.arg("from")?.strip_prefix('s')?.parse().ok())
+        .map(board::Event::typed)
+        .take_while(|k| *k != Typed::ReplanApproved(Grant::Approved))
+        .find_map(|k| match k {
+            Typed::Replan { from: Some(f) } => f.strip_prefix('s')?.parse().ok(),
+            _ => None,
+        })
         .ok_or(Error::Refused("no-replan"))?;
     let dir = layout.run_dir(slug);
     let plan =
@@ -521,9 +526,15 @@ pub fn replan_approve(
         if n < from {
             continue;
         }
-        for e in board::events(conn, &id, &["spec-delta"])? {
-            if let (Some(eid), Some("added")) = (e.positional(0), e.positional(1)) {
-                let origin = e.arg("origin").unwrap_or("impl");
+        for e in board::events(conn, &id, &[Name::SpecDelta])? {
+            if let Typed::SpecDelta {
+                id: eid,
+                change: Some(Change::Added),
+                origin,
+                ..
+            } = e.typed()
+            {
+                let origin = origin.unwrap_or("impl");
                 relog.push((
                     "spec-delta".to_owned(),
                     vec![

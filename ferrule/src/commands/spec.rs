@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use clap::{Args, Subcommand, ValueEnum};
 use ferrule_core::card::board;
+use ferrule_core::card::typed::{Change, Name, Typed};
 use ferrule_core::config::Config;
 use ferrule_core::markdown::{self, Match};
 use ferrule_core::spec::diff::{Part, SpecDiff};
@@ -362,8 +363,13 @@ fn run_texts(slug: &str) -> io::Result<Option<Vec<String>>> {
     if let Ok(diff) = std::fs::read_to_string(layout.run_dir(slug).join("spec-diff.md")) {
         texts.push(diff);
     }
-    for e in board::run_events(&s.conn, slug, &["spec-delta"]).map_err(super::board::sql)? {
-        if let (Some(id), Some("added")) = (e.positional(0), e.positional(1)) {
+    for e in board::run_events(&s.conn, slug, &[Name::SpecDelta]).map_err(super::board::sql)? {
+        if let Typed::SpecDelta {
+            id,
+            change: Some(Change::Added),
+            ..
+        } = e.typed()
+        {
             texts.push(id.to_owned());
         }
     }

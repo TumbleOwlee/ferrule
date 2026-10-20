@@ -12,6 +12,7 @@ use flate2::write::ZlibEncoder;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 use crate::card::board::{self, Event};
+use crate::card::typed::Typed;
 use crate::git;
 use crate::project::Layout;
 
@@ -66,20 +67,17 @@ fn is_stamp(at: &str) -> bool {
         })
 }
 
-/// `name` lines carrying `key=`.
-fn count(events: &[Event], name: &str, key: &str) -> usize {
-    events
-        .iter()
-        .filter(|e| e.name == name && e.arg(key).is_some())
-        .count()
+/// Lines that `pick` keeps.
+fn count(events: &[Event], pick: impl Fn(Typed) -> bool) -> usize {
+    events.iter().filter(|e| pick(e.typed())).count()
 }
 
 /// `stop kind=<k>` lines.
 fn stops(events: &[Event], kind: &str) -> usize {
-    events
-        .iter()
-        .filter(|e| e.name == "stop" && e.arg("kind") == Some(kind))
-        .count()
+    count(
+        events,
+        |t| matches!(t, Typed::Stop { kind: Some(k), .. } if k == kind),
+    )
 }
 
 /// The run's last `ci=` value, `waived` when a `ci-waived` line is newer.
@@ -87,11 +85,13 @@ fn ci(events: &[Event]) -> Result<String, CiRefusal> {
     let mut last = None;
     let mut waived_after = false;
     for e in events {
-        if e.name == "ci=" {
-            last.clone_from(&e.value);
-            waived_after = false;
-        } else if e.name == "ci-waived" && last.is_some() {
-            waived_after = true;
+        match e.typed() {
+            Typed::Ci(v) => {
+                last = Some(v.to_owned());
+                waived_after = false;
+            }
+            Typed::CiWaived if last.is_some() => waived_after = true,
+            _ => {}
         }
     }
     match last {
@@ -124,7 +124,7 @@ pub fn metrics(conn: &Connection, slug: &str, now: &str) -> Result<String, Error
         .to_owned();
     let first_red = stage_events
         .iter()
-        .filter(|e| is_stamp(&e.at) && e.name == "test-red")
+        .filter(|e| is_stamp(&e.at) && e.typed() == Typed::TestRed)
         .map(|e| e.at.as_str())
         .min()
         .unwrap_or("-");
@@ -141,19 +141,23 @@ pub fn metrics(conn: &Connection, slug: &str, now: &str) -> Result<String, Error
     };
     let overturned: u64 = parent
         .iter()
-        .filter(|e| e.name == "overturned")
-        .filter_map(|e| e.arg("count")?.parse::<u64>().ok())
+        .filter_map(|e| match e.typed() {
+            Typed::Overturned { count } => count,
+            _ => None,
+        })
         .sum();
+    let reads = count(&stage_events, |t| {
+        matches!(t, Typed::Read { path: Some(_) })
+    });
     let metrics_line = format!(
-        "{slug} start={start} end={now} first-red={first_red} stages={} stops={} question={} approval={} stage={} blocked={} replans={} overturned={overturned} reads={} lane={lane} ci={ci}",
+        "{slug} start={start} end={now} first-red={first_red} stages={} stops={} question={} approval={} stage={} blocked={} replans={} overturned={overturned} reads={reads} lane={lane} ci={ci}",
         stages.len(),
-        count(&parent, "stop", "kind"),
+        count(&parent, |t| matches!(t, Typed::Stop { kind: Some(_), .. })),
         stops(&parent, "question"),
         stops(&parent, "approval"),
         stops(&parent, "stage"),
         stops(&parent, "blocked"),
-        count(&parent, "replan", "from"),
-        count(&stage_events, "read", "path"),
+        count(&parent, |t| matches!(t, Typed::Replan { from: Some(_) })),
     );
     conn.execute(
         "INSERT INTO metrics (run, start, line) VALUES (?1, ?2, ?3)

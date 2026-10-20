@@ -8,6 +8,7 @@ use std::path::Path;
 
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
+use crate::card::typed::{Change, Name, Typed, Verdict};
 use crate::card::vocab::{self, Context, Reject};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -255,12 +256,6 @@ impl Event {
             .map(|(_, v)| v.as_str())
     }
 
-    /// Whether this is valued event `name` (`=` included) at `value`.
-    #[must_use]
-    pub fn is(&self, name: &str, value: &str) -> bool {
-        self.name == name && self.value.as_deref() == Some(value)
-    }
-
     /// `body` parsed back as a log line of card `r`.
     #[cfg(test)]
     pub(crate) fn parsed(body: &str) -> Self {
@@ -287,9 +282,9 @@ enum Of<'a> {
     Run(&'a str),
 }
 
-/// The log lines of `of` named one of `names` (every line when empty),
+/// The log lines of `of` that are one of `names` (every line when empty),
 /// in the order they were logged; only the newest when `last`.
-fn select(conn: &Connection, of: &Of, names: &[&str], last: bool) -> rusqlite::Result<Vec<Event>> {
+fn select(conn: &Connection, of: &Of, names: &[Name], last: bool) -> rusqlite::Result<Vec<Event>> {
     let (scope, key) = match of {
         Of::Card(id) => ("card = ?1", *id),
         Of::Run(run) => ("card IN (SELECT id FROM cards WHERE run = ?1)", *run),
@@ -306,7 +301,7 @@ fn select(conn: &Connection, of: &Of, names: &[&str], last: bool) -> rusqlite::R
          WHERE e.id IN ({filter})
          ORDER BY e.id, a.idx"
     ))?;
-    let params = std::iter::once(key).chain(names.iter().copied());
+    let params = std::iter::once(key).chain(names.iter().map(|n| n.stored()));
     let mut rows = st.query(rusqlite::params_from_iter(params))?;
     let mut out: Vec<Event> = Vec::new();
     while let Some(r) = rows.next()? {
@@ -329,50 +324,33 @@ fn select(conn: &Connection, of: &Of, names: &[&str], last: bool) -> rusqlite::R
     Ok(out)
 }
 
-/// A card's log lines named one of `names` (every line when empty),
+/// A card's log lines that are one of `names` (every line when empty),
 /// oldest first.
-pub fn events(conn: &Connection, id: &str, names: &[&str]) -> rusqlite::Result<Vec<Event>> {
+pub fn events(conn: &Connection, id: &str, names: &[Name]) -> rusqlite::Result<Vec<Event>> {
     select(conn, &Of::Card(id), names, false)
 }
 
-/// The log lines of every card of run `run` named one of `names` (every
-/// line when empty), in the order they were logged.
-pub fn run_events(conn: &Connection, run: &str, names: &[&str]) -> rusqlite::Result<Vec<Event>> {
+/// The log lines of every card of run `run` that are one of `names`
+/// (every line when empty), in the order they were logged.
+pub fn run_events(conn: &Connection, run: &str, names: &[Name]) -> rusqlite::Result<Vec<Event>> {
     select(conn, &Of::Run(run), names, false)
 }
 
-/// A card's newest log line named one of `names`.
-pub fn last_event(conn: &Connection, id: &str, names: &[&str]) -> rusqlite::Result<Option<Event>> {
+/// A card's newest log line that is one of `names`.
+pub fn last_event(conn: &Connection, id: &str, names: &[Name]) -> rusqlite::Result<Option<Event>> {
     Ok(select(conn, &Of::Card(id), names, true)?.pop())
 }
 
-/// The value of a card's newest `name` line (`name` with its `=`).
-pub fn last_value(conn: &Connection, id: &str, name: &str) -> rusqlite::Result<Option<String>> {
+/// The value of a card's newest `name` line.
+pub fn last_value(conn: &Connection, id: &str, name: Name) -> rusqlite::Result<Option<String>> {
     Ok(conn
         .query_row(
             "SELECT value FROM events WHERE card = ?1 AND name = ?2 ORDER BY id DESC LIMIT 1",
-            [id, name],
+            [id, name.stored()],
             |r| r.get::<_, Option<String>>(0),
         )
         .optional()?
         .flatten())
-}
-
-/// The newest `key=` on a card's `name` lines.
-pub fn last_arg(
-    conn: &Connection,
-    id: &str,
-    name: &str,
-    key: &str,
-) -> rusqlite::Result<Option<String>> {
-    conn.query_row(
-        "SELECT a.value FROM events e JOIN event_args a ON a.event = e.id
-         WHERE e.card = ?1 AND e.name = ?2 AND a.key = ?3
-         ORDER BY e.id DESC, a.idx DESC LIMIT 1",
-        [id, name, key],
-        |r| r.get(0),
-    )
-    .optional()
 }
 
 /// The value a card last logged under `key`: a `<key>=` event's own value
@@ -395,20 +373,33 @@ pub fn last_logged(conn: &Connection, id: &str, key: &str) -> rusqlite::Result<O
 
 /// The `sha=` of every `gauntlet=pass` line on a card, oldest first.
 pub fn pass_shas(conn: &Connection, id: &str) -> rusqlite::Result<Vec<String>> {
-    Ok(events(conn, id, &["gauntlet="])?
+    Ok(events(conn, id, &[Name::Gauntlet])?
         .iter()
-        .filter(|e| e.is("gauntlet=", "pass"))
-        .filter_map(|e| e.arg("sha").map(str::to_owned))
+        .filter_map(|e| match e.typed() {
+            Typed::Gauntlet {
+                result: Verdict::Pass,
+                sha: Some(sha),
+                ..
+            } => Some(sha.to_owned()),
+            _ => None,
+        })
         .collect())
 }
 
 /// IDs of run `run`'s requirements reworded after filing, from the
 /// `spec-delta <ID> changed origin=…` lines on any of its cards.
 pub fn reworded_ids(conn: &Connection, run: &str) -> rusqlite::Result<HashSet<String>> {
-    Ok(run_events(conn, run, &["spec-delta"])?
+    Ok(run_events(conn, run, &[Name::SpecDelta])?
         .iter()
-        .filter(|e| e.positional(1) == Some("changed") && e.arg("origin").is_some())
-        .filter_map(|e| e.positional(0).map(str::to_owned))
+        .filter_map(|e| match e.typed() {
+            Typed::SpecDelta {
+                id,
+                change: Some(Change::Changed),
+                origin: Some(_),
+                ..
+            } => Some(id.to_owned()),
+            _ => None,
+        })
         .collect())
 }
 
@@ -951,7 +942,7 @@ fn refusal(
                 blocked.then_some(Refusal::BlockedBy)
             }
             (InProgress, InReview) | (InReview | Done, InProgress) => None,
-            (InReview, Done) => match last_value(conn, card.id, "commit=")? {
+            (InReview, Done) => match last_value(conn, card.id, Name::Commit)? {
                 None => Some(Refusal::Commit),
                 Some(sha) => {
                     let verified = pass_shas(conn, card.run)?
@@ -1319,22 +1310,23 @@ mod tests {
             last_logged(&s.conn, "r.s1", "reason").unwrap().as_deref(),
             Some("a b")
         );
+        let files = last_event(&s.conn, "r.s1", &[]).unwrap().unwrap();
         assert_eq!(
-            last_arg(&s.conn, "r.s1", "files+=", "user")
-                .unwrap()
-                .as_deref(),
-            Some("dl")
+            (files.value.as_deref(), files.arg("user")),
+            (Some("src/x.rs"), Some("dl"))
+        );
+        let stop = last_event(&s.conn, "r", &[Name::Stop]).unwrap().unwrap();
+        assert_eq!(
+            stop.typed(),
+            Typed::Stop {
+                kind: Some("approval"),
+                gate: Some("gate4")
+            }
         );
         assert_eq!(
-            last_value(&s.conn, "r.s1", "files+=").unwrap().as_deref(),
-            Some("src/x.rs")
+            last_event(&s.conn, "r", &[Name::ReplanApproved]).unwrap(),
+            None
         );
-        let stop = last_event(&s.conn, "r", &["stop"]).unwrap().unwrap();
-        assert_eq!(
-            (stop.arg("kind"), stop.arg("gate")),
-            (Some("approval"), Some("gate4"))
-        );
-        assert_eq!(last_event(&s.conn, "r", &["replan="]).unwrap(), None);
     }
 
     #[test]
@@ -1349,7 +1341,7 @@ mod tests {
         log(&mut s.conn, "r", "ci=1", &[], at).unwrap();
         log(&mut s.conn, "r", "ci=0", &[], at).unwrap();
 
-        let run: Vec<String> = run_events(&s.conn, "r", &["note"])
+        let run: Vec<String> = run_events(&s.conn, "r", &[])
             .unwrap()
             .into_iter()
             .filter_map(|e| e.text)
@@ -1360,7 +1352,7 @@ mod tests {
             "ci=0"
         );
         assert_eq!(
-            last_value(&s.conn, "r", "ci=").unwrap().as_deref(),
+            last_value(&s.conn, "r", Name::Ci).unwrap().as_deref(),
             Some("0")
         );
         assert_eq!(log_lines(&s.conn, "r", Some("ci")).unwrap().len(), 2);

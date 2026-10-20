@@ -10,6 +10,7 @@ use rusqlite::Connection;
 
 use crate::artifacts;
 use crate::card::board::{self, State};
+use crate::card::typed::{Grant, Name, Typed, Verdict};
 use crate::project::Layout;
 use crate::prompt::{approval, lines};
 
@@ -219,7 +220,7 @@ impl Run<'_> {
     }
 
     /// The value of the parent's newest `name` line.
-    fn value(&self, name: &str) -> rusqlite::Result<Option<String>> {
+    fn value(&self, name: Name) -> rusqlite::Result<Option<String>> {
         board::last_value(self.conn, self.slug, name)
     }
 
@@ -238,12 +239,16 @@ impl Run<'_> {
 
     /// A `replan=pre-authorized` line newer than the last gate 4 stop.
     fn replan_unseen(&self) -> rusqlite::Result<bool> {
-        let events = board::events(self.conn, self.slug, &["replan=", "stop"])?;
+        let events = board::events(self.conn, self.slug, &[Name::ReplanApproved, Name::Stop])?;
         let replan = events
             .iter()
-            .rposition(|e| e.is("replan=", "pre-authorized"));
+            .rposition(|e| e.typed() == Typed::ReplanApproved(Grant::PreAuthorized));
         let gate4 = events.iter().rposition(|e| {
-            e.name == "stop" && e.arg("kind") == Some("approval") && e.arg("gate") == Some("gate4")
+            e.typed()
+                == Typed::Stop {
+                    kind: Some("approval"),
+                    gate: Some("gate4"),
+                }
         });
         Ok(match (replan, gate4) {
             (Some(r), Some(g)) => r > g,
@@ -318,7 +323,7 @@ impl Run<'_> {
         let since: u32 = if brief_pending {
             0
         } else {
-            number(self.value("spec-rev=")?)
+            number(self.value(Name::SpecRev)?)
         };
         let summary = std::fs::read_to_string(self.art("plan.summary.md")).unwrap_or_default();
         let rows: Vec<&str> = summary.lines().filter(|l| is_stage_row(l)).collect();
@@ -327,7 +332,7 @@ impl Run<'_> {
             brief_pending,
             want_spec: spec.is_file()
                 && (brief_pending || rev_of(&spec).is_some_and(|r| r > since)),
-            seen: number(self.value("decisions-seen=")?),
+            seen: number(self.value(Name::DecisionsSeen)?),
             stages: rows.len(),
             first: rows
                 .first()
@@ -385,7 +390,7 @@ impl Run<'_> {
             }
             Kind::Gate2 | Kind::Gate2Notice | Kind::Replan => {
                 if kind == Kind::Replan {
-                    let arch_rev: u32 = number(self.value("arch-rev=")?);
+                    let arch_rev: u32 = number(self.value(Name::ArchRev)?);
                     if rev_of(&self.art("architecture.summary.md")).is_some_and(|r| r > arch_rev) {
                         add(&mut show, "architecture.summary.md");
                     }
@@ -950,16 +955,20 @@ fn auto(run: &Run, args: &[(String, String)]) -> Result<Vec<String>, Error> {
         .map(|(n, _, _)| n)
         .find(|&n| n > me)
         .map_or_else(|| "gate 4".to_owned(), |n| format!("s{n}"));
-    let pass = board::events(run.conn, run.slug, &["gauntlet="])?
-        .into_iter()
+    let events = board::events(run.conn, run.slug, &[Name::Gauntlet])?;
+    let (cov, sha) = events
+        .iter()
         .rev()
-        .find(|e| e.is("gauntlet=", "pass"));
-    let token = |key: &str| {
-        pass.as_ref()
-            .and_then(|e| e.arg(key))
-            .unwrap_or("-")
-            .to_owned()
-    };
+        .find_map(|e| match e.typed() {
+            Typed::Gauntlet {
+                result: Verdict::Pass,
+                cov,
+                sha,
+                ..
+            } => Some((cov, sha)),
+            _ => None,
+        })
+        .unwrap_or_default();
     let detail = std::fs::read_to_string(run.art("review.verdict.md"))
         .ok()
         .and_then(|v| {
@@ -972,8 +981,8 @@ fn auto(run: &Run, args: &[(String, String)]) -> Result<Vec<String>, Error> {
     Ok(vec![format!(
         "Landed {sid} · {} · review clean · gauntlet pass {} · pushed {} · spec detail: {detail} · next: {next} (auto-continue — say stop to hold)",
         run.slug,
-        token("cov"),
-        token("sha")
+        cov.unwrap_or("-"),
+        sha.unwrap_or("-")
     )])
 }
 
