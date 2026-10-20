@@ -449,7 +449,7 @@ pub fn approve(
 fn replan_from(conn: &Connection, slug: &str) -> rusqlite::Result<u32> {
     let stages = board::stages(conn, slug)?;
     for (n, id, _) in &stages {
-        if board::last_token(conn, id, "commit")?.is_none() {
+        if board::last_value(conn, id, "commit=")?.is_none() {
             return Ok(*n);
         }
     }
@@ -499,12 +499,11 @@ pub fn replan_approve(
 ) -> Result<(u32, usize), Error> {
     // Only a start logged after the last approval is pending; approving
     // again would recreate stages that have since progressed.
-    let from: u32 = board::events(conn, slug)?
+    let from: u32 = board::events(conn, slug, &["replan", "replan="])?
         .iter()
         .rev()
-        .map(|(_, body)| body.as_str())
-        .take_while(|body| *body != "replan=approved")
-        .find_map(|body| body.strip_prefix("replan from=s")?.parse().ok())
+        .take_while(|e| !e.is("replan=", "approved"))
+        .find_map(|e| e.arg("from")?.strip_prefix('s')?.parse().ok())
         .ok_or(Error::Refused("no-replan"))?;
     let dir = layout.run_dir(slug);
     let plan =
@@ -522,14 +521,9 @@ pub fn replan_approve(
         if n < from {
             continue;
         }
-        for (_, body) in board::events(conn, &id)? {
-            let mut words = body.split(' ');
-            if let (Some("spec-delta"), Some(eid), Some("added")) =
-                (words.next(), words.next(), words.next())
-            {
-                let origin = words
-                    .find_map(|w| w.strip_prefix("origin="))
-                    .unwrap_or("impl");
+        for e in board::events(conn, &id, &["spec-delta"])? {
+            if let (Some(eid), Some("added")) = (e.positional(0), e.positional(1)) {
+                let origin = e.arg("origin").unwrap_or("impl");
                 relog.push((
                     "spec-delta".to_owned(),
                     vec![

@@ -218,8 +218,9 @@ impl Run<'_> {
         board::field(self.conn, self.slug, key)
     }
 
-    fn token(&self, key: &str) -> rusqlite::Result<Option<String>> {
-        board::last_token(self.conn, self.slug, key)
+    /// The value of the parent's newest `name` line.
+    fn value(&self, name: &str) -> rusqlite::Result<Option<String>> {
+        board::last_value(self.conn, self.slug, name)
     }
 
     fn log(&mut self, event: &str, args: &[&str]) -> rusqlite::Result<()> {
@@ -237,18 +238,18 @@ impl Run<'_> {
 
     /// A `replan=pre-authorized` line newer than the last gate 4 stop.
     fn replan_unseen(&self) -> rusqlite::Result<bool> {
-        let events = board::events(self.conn, self.slug)?;
-        let last = |needle: &str| events.iter().rposition(|(_, b)| b.contains(needle));
-        Ok(
-            match (
-                last("replan=pre-authorized"),
-                last("stop kind=approval gate=gate4"),
-            ) {
-                (Some(r), Some(g)) => r > g,
-                (Some(_), None) => true,
-                _ => false,
-            },
-        )
+        let events = board::events(self.conn, self.slug, &["replan=", "stop"])?;
+        let replan = events
+            .iter()
+            .rposition(|e| e.is("replan=", "pre-authorized"));
+        let gate4 = events.iter().rposition(|e| {
+            e.name == "stop" && e.arg("kind") == Some("approval") && e.arg("gate") == Some("gate4")
+        });
+        Ok(match (replan, gate4) {
+            (Some(r), Some(g)) => r > g,
+            (Some(_), None) => true,
+            _ => false,
+        })
     }
 
     fn stages(&self) -> rusqlite::Result<Vec<(u32, String, State)>> {
@@ -317,7 +318,7 @@ impl Run<'_> {
         let since: u32 = if brief_pending {
             0
         } else {
-            number(self.token("spec-rev")?)
+            number(self.value("spec-rev=")?)
         };
         let summary = std::fs::read_to_string(self.art("plan.summary.md")).unwrap_or_default();
         let rows: Vec<&str> = summary.lines().filter(|l| is_stage_row(l)).collect();
@@ -326,7 +327,7 @@ impl Run<'_> {
             brief_pending,
             want_spec: spec.is_file()
                 && (brief_pending || rev_of(&spec).is_some_and(|r| r > since)),
-            seen: number(self.token("decisions-seen")?),
+            seen: number(self.value("decisions-seen=")?),
             stages: rows.len(),
             first: rows
                 .first()
@@ -384,7 +385,7 @@ impl Run<'_> {
             }
             Kind::Gate2 | Kind::Gate2Notice | Kind::Replan => {
                 if kind == Kind::Replan {
-                    let arch_rev: u32 = number(self.token("arch-rev")?);
+                    let arch_rev: u32 = number(self.value("arch-rev=")?);
                     if rev_of(&self.art("architecture.summary.md")).is_some_and(|r| r > arch_rev) {
                         add(&mut show, "architecture.summary.md");
                     }
@@ -949,14 +950,13 @@ fn auto(run: &Run, args: &[(String, String)]) -> Result<Vec<String>, Error> {
         .map(|(n, _, _)| n)
         .find(|&n| n > me)
         .map_or_else(|| "gate 4".to_owned(), |n| format!("s{n}"));
-    let pass = board::events(run.conn, run.slug)?
+    let pass = board::events(run.conn, run.slug, &["gauntlet="])?
         .into_iter()
         .rev()
-        .find(|(_, b)| b.contains("gauntlet=pass"))
-        .map(|(_, b)| b);
+        .find(|e| e.is("gauntlet=", "pass"));
     let token = |key: &str| {
-        pass.as_deref()
-            .and_then(|b| b.split(' ').find_map(|t| t.strip_prefix(key)))
+        pass.as_ref()
+            .and_then(|e| e.arg(key))
             .unwrap_or("-")
             .to_owned()
     };
@@ -972,14 +972,33 @@ fn auto(run: &Run, args: &[(String, String)]) -> Result<Vec<String>, Error> {
     Ok(vec![format!(
         "Landed {sid} · {} · review clean · gauntlet pass {} · pushed {} · spec detail: {detail} · next: {next} (auto-continue — say stop to hold)",
         run.slug,
-        token("cov="),
-        token("sha=")
+        token("cov"),
+        token("sha")
     )])
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ut_replan_unseen_reads_the_stop_by_key() {
+        let mut s = crate::store::Store::memory().unwrap();
+        board::create(&mut s.conn, "r", State::Open, &[], "t").unwrap();
+        board::insert_body(&s.conn, "r", "t", "replan=pre-authorized");
+        board::insert_body(&s.conn, "r", "t", "stop gate=gate4 kind=approval");
+        board::insert_body(&s.conn, "r", "t", "note replan=pre-authorized");
+        let layout = Layout::new(PathBuf::from("."));
+        let run = Run {
+            conn: &mut s.conn,
+            layout: &layout,
+            slug: "r",
+            now: "t",
+        };
+        assert!(!run.replan_unseen().unwrap());
+        board::insert_body(run.conn, "r", "t", "replan=pre-authorized");
+        assert!(run.replan_unseen().unwrap());
+    }
 
     #[test]
     fn ut_reorder_keeps_items_under_their_header() {

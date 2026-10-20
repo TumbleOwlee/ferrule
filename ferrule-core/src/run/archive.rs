@@ -10,7 +10,7 @@ use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
-use crate::card::board;
+use crate::card::board::{self, Event};
 use crate::git;
 use crate::project::Layout;
 
@@ -65,32 +65,31 @@ fn is_stamp(at: &str) -> bool {
         })
 }
 
-fn count(events: &[(String, String)], prefix: &str) -> usize {
-    events.iter().filter(|(_, b)| b.starts_with(prefix)).count()
-}
-
-/// `stop kind=<k>` lines, the kind standing alone.
-fn stops(events: &[(String, String)], kind: &str) -> usize {
-    let p = format!("stop kind={kind}");
+/// `name` lines carrying `key=`.
+fn count(events: &[Event], name: &str, key: &str) -> usize {
     events
         .iter()
-        .filter(|(_, b)| {
-            b.strip_prefix(&p)
-                .is_some_and(|r| r.is_empty() || r.starts_with(' '))
-        })
+        .filter(|e| e.name == name && e.arg(key).is_some())
+        .count()
+}
+
+/// `stop kind=<k>` lines.
+fn stops(events: &[Event], kind: &str) -> usize {
+    events
+        .iter()
+        .filter(|e| e.name == "stop" && e.arg("kind") == Some(kind))
         .count()
 }
 
 /// The run's last `ci=` value, `waived` when a `ci-waived` line is newer.
-fn ci(events: &[(String, String)]) -> Result<String, CiRefusal> {
+fn ci(events: &[Event]) -> Result<String, CiRefusal> {
     let mut last = None;
     let mut waived_after = false;
-    for (_, body) in events {
-        let first = body.split(' ').next().unwrap_or("");
-        if let Some(v) = first.strip_prefix("ci=") {
-            last = Some(v.to_owned());
+    for e in events {
+        if e.name == "ci=" {
+            last.clone_from(&e.value);
             waived_after = false;
-        } else if first == "ci-waived" && last.is_some() {
+        } else if e.name == "ci-waived" && last.is_some() {
             waived_after = true;
         }
     }
@@ -108,24 +107,24 @@ pub fn metrics(conn: &Connection, slug: &str, now: &str) -> Result<String, Error
     if board::state(conn, slug)?.is_none() {
         return Err(Error::Card);
     }
-    let parent = board::events(conn, slug)?;
+    let parent = board::events(conn, slug, &[])?;
     let stages = board::stages(conn, slug)?;
     let mut stage_events = Vec::new();
     for (_, id, _) in &stages {
-        stage_events.extend(board::events(conn, id)?);
+        stage_events.extend(board::events(conn, id, &[])?);
     }
     let start = parent
         .iter()
         .chain(&stage_events)
-        .map(|(at, _)| at.as_str())
+        .map(|e| e.at.as_str())
         .filter(|at| is_stamp(at))
         .min()
         .unwrap_or("-")
         .to_owned();
     let first_red = stage_events
         .iter()
-        .filter(|(at, b)| is_stamp(at) && (b == "test-red" || b.starts_with("test-red ")))
-        .map(|(at, _)| at.as_str())
+        .filter(|e| is_stamp(&e.at) && e.name == "test-red")
+        .map(|e| e.at.as_str())
         .min()
         .unwrap_or("-");
     let epic = board::field(conn, slug, "kind")?.as_deref() == Some("epic");
@@ -141,20 +140,19 @@ pub fn metrics(conn: &Connection, slug: &str, now: &str) -> Result<String, Error
     };
     let overturned: u64 = parent
         .iter()
-        .filter(|(_, b)| b.starts_with("overturned "))
-        .flat_map(|(_, b)| b.split_whitespace())
-        .filter_map(|t| t.strip_prefix("count=")?.parse::<u64>().ok())
+        .filter(|e| e.name == "overturned")
+        .filter_map(|e| e.arg("count")?.parse::<u64>().ok())
         .sum();
     let metrics_line = format!(
         "{slug} start={start} end={now} first-red={first_red} stages={} stops={} question={} approval={} stage={} blocked={} replans={} overturned={overturned} reads={} lane={lane} ci={ci}",
         stages.len(),
-        count(&parent, "stop kind="),
+        count(&parent, "stop", "kind"),
         stops(&parent, "question"),
         stops(&parent, "approval"),
         stops(&parent, "stage"),
         stops(&parent, "blocked"),
-        count(&parent, "replan from="),
-        count(&stage_events, "read path="),
+        count(&parent, "replan", "from"),
+        count(&stage_events, "read", "path"),
     );
     conn.execute(
         "INSERT INTO metrics (run, start, line) VALUES (?1, ?2, ?3)
@@ -348,11 +346,8 @@ pub fn export(
 mod tests {
     use super::*;
 
-    fn ev(lines: &[&str]) -> Vec<(String, String)> {
-        lines
-            .iter()
-            .map(|b| ("2026-10-04T11:50".to_owned(), (*b).to_owned()))
-            .collect()
+    fn ev(lines: &[&str]) -> Vec<Event> {
+        lines.iter().map(|b| Event::parsed(b)).collect()
     }
 
     #[test]
@@ -362,6 +357,22 @@ mod tests {
         assert_eq!(ci(&ev(&["ci=1", "ci-waived x"])), Ok("waived".into()));
         assert_eq!(ci(&ev(&["ci-waived x", "ci=1"])), Err(CiRefusal::CiRed));
         assert_eq!(ci(&ev(&["ci-waived x"])), Err(CiRefusal::NoCi));
+    }
+
+    #[test]
+    fn ut_metrics_count_stops_by_key_not_position() {
+        let mut s = crate::store::Store::memory().unwrap();
+        board::create(&mut s.conn, "r", board::State::Open, &[], "t").unwrap();
+        let at = "2026-10-04T11:50";
+        board::insert_body(&s.conn, "r", at, "stop gate=gate4 kind=approval");
+        board::insert_body(&s.conn, "r", at, "stop kind=question gate=gate2");
+        board::insert_body(&s.conn, "r", at, "note stop kind=blocked");
+        board::log(&mut s.conn, "r", "ci=0", &[], at).unwrap();
+        let line = metrics(&s.conn, "r", "2026-10-04T12:00").unwrap();
+        assert!(
+            line.contains(" stops=2 question=1 approval=1 stage=0 blocked=0 "),
+            "{line}"
+        );
     }
 
     #[test]

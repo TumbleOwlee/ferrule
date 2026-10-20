@@ -344,8 +344,8 @@ fn next(args: &NextArgs, out: &mut impl Write) -> io::Result<u8> {
     Ok(exit::OK)
 }
 
-/// The run's worktree specs, spec-diff.md and `spec-delta … added` lines;
-/// `None` when the run has no card.
+/// The run's worktree specs, spec-diff.md and the IDs of its
+/// `spec-delta <ID> added` lines; `None` when the run has no card.
 fn run_texts(slug: &str) -> io::Result<Option<Vec<String>>> {
     let layout = project::Layout::new(project::main_checkout());
     let Some(s) = super::board::card_store(slug)? else {
@@ -362,10 +362,9 @@ fn run_texts(slug: &str) -> io::Result<Option<Vec<String>>> {
     if let Ok(diff) = std::fs::read_to_string(layout.run_dir(slug).join("spec-diff.md")) {
         texts.push(diff);
     }
-    for (_, _, body) in board::run_events(&s.conn, slug).map_err(super::board::sql)? {
-        let mut words = body.split_whitespace();
-        if words.next() == Some("spec-delta") && words.nth(1) == Some("added") {
-            texts.push(body);
+    for e in board::run_events(&s.conn, slug, &["spec-delta"]).map_err(super::board::sql)? {
+        if let (Some(id), Some("added")) = (e.positional(0), e.positional(1)) {
+            texts.push(id.to_owned());
         }
     }
     Ok(Some(texts))

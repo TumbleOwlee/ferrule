@@ -5,7 +5,7 @@
 use rusqlite::Connection;
 
 use crate::artifacts;
-use crate::card::board::{self, State};
+use crate::card::board::{self, Event, State};
 use crate::guide::Topic;
 use crate::project::Layout;
 
@@ -162,14 +162,9 @@ impl Ctx<'_> {
     }
 }
 
-/// A `replan from=…` log body.
-fn is_replan(body: &str) -> bool {
-    let mut w = body.split(' ');
-    w.next() == Some("replan") && w.next().is_some_and(|t| t.starts_with("from="))
-}
-
-fn first_token(body: &str) -> &str {
-    body.split(' ').next().unwrap_or("")
+/// A `replan from=…` line.
+fn is_replan(e: &Event) -> bool {
+    e.name == "replan" && e.arg("from").is_some()
 }
 
 /// Decides the next step; returns the lines to print.
@@ -188,21 +183,14 @@ pub fn next(
     if board::state(conn, slug)?.is_none() {
         return Err(Error::Card);
     }
-    let events = board::events(conn, slug)?;
-    let window: Vec<&str> = if at == At::Gate2 {
-        events.iter().map(|(_, b)| b.as_str()).collect()
+    let events = board::events(conn, slug, &[])?;
+    let window: &[Event] = if at == At::Gate2 {
+        &events
     } else {
-        let from = events
-            .iter()
-            .rposition(|(_, b)| is_replan(b))
-            .map_or(0, |i| i + 1);
-        events[from..].iter().map(|(_, b)| b.as_str()).collect()
+        let from = events.iter().rposition(is_replan).map_or(0, |i| i + 1);
+        &events[from..]
     };
-    let plan_reviews: Vec<&str> = window
-        .iter()
-        .map(|b| first_token(b))
-        .filter(|t| t.starts_with("plan-review="))
-        .collect();
+    let plan_reviews: Vec<&Event> = window.iter().filter(|e| e.name == "plan-review=").collect();
     let round = plan_reviews.len() + 1;
     let count: u64 = status
         .count
@@ -244,7 +232,7 @@ pub fn next(
         (At::Gate2 | At::Replan, "ready") => {
             if plan_reviews
                 .last()
-                .is_some_and(|t| t.starts_with("plan-review=findings"))
+                .is_some_and(|e| e.value.as_deref() == Some("findings"))
             {
                 c.next("follow-up", None);
                 c.act("spawn the plan reviewer again for a follow-up round");
@@ -270,7 +258,7 @@ pub fn next(
         _ => return Err(Error::Unknown(word)),
     }
     if branch_clean {
-        branch_resolved(&mut c, &window)?;
+        branch_resolved(&mut c, window)?;
     }
     Ok(c.out)
 }
@@ -282,7 +270,7 @@ fn plan_review(
     word: &str,
     round: usize,
     count: u64,
-    events: &[(String, String)],
+    events: &[Event],
 ) -> rusqlite::Result<()> {
     let round_kv = format!("round={round}");
     if word == "findings" {
@@ -386,36 +374,28 @@ fn gate2_decision(c: &mut Ctx, word: &str, status: &Status) -> rusqlite::Result<
 
 /// A re-plan asked at gate 4 goes on without stopping when nothing the
 /// user approved moved; else it stops.
-fn replan_decision(c: &mut Ctx, events: &[(String, String)]) -> rusqlite::Result<()> {
+fn replan_decision(c: &mut Ctx, events: &[Event]) -> rusqlite::Result<()> {
     let mut from = String::new();
-    let mut stop_before_replan = String::new();
-    let mut last_stop = String::new();
-    for (_, body) in events {
-        if first_token(body) == "replan" {
-            if let Some(f) = body
-                .split(' ')
-                .filter_map(|t| t.strip_prefix("from="))
-                .next_back()
-            {
-                f.clone_into(&mut from);
-            }
-            if is_replan(body) {
-                stop_before_replan.clone_from(&last_stop);
-            }
+    let mut stop_before_replan: Option<&Event> = None;
+    let mut last_stop: Option<&Event> = None;
+    for e in events {
+        if let Some(f) = e.arg("from").filter(|_| e.name == "replan") {
+            f.clone_into(&mut from);
+            stop_before_replan = last_stop;
         }
-        if first_token(body) == "stop" {
-            last_stop.clone_from(body);
+        if e.name == "stop" {
+            last_stop = Some(e);
         }
     }
     let ar = c
         .layout
         .artifact(c.slug, "architecture.summary.md")
         .and_then(|a| artifacts::rev(&a));
-    let arch_rev: u32 = board::last_token(c.conn, c.slug, "arch-rev")?
+    let arch_rev: u32 = board::last_value(c.conn, c.slug, "arch-rev=")?
         .and_then(|r| r.parse().ok())
         .unwrap_or(0);
     let arch_moved = ar.is_some_and(|ar| ar > arch_rev);
-    let reason = if !stop_before_replan.split(' ').any(|t| t == "gate=gate4") {
+    let reason = if stop_before_replan.and_then(|e| e.arg("gate")) != Some("gate4") {
         Some("not-gate4")
     } else if c.needs_user() {
         Some("needs-user")
@@ -447,19 +427,18 @@ fn replan_decision(c: &mut Ctx, events: &[(String, String)]) -> rusqlite::Result
 
 /// A clean branch review: resolves the findings it followed up, then the
 /// next stage's stop decision, gate 3's stop, or the PR.
-fn branch_resolved(c: &mut Ctx, window: &[&str]) -> rusqlite::Result<()> {
+fn branch_resolved(c: &mut Ctx, window: &[Event]) -> rusqlite::Result<()> {
     let mut first: Option<String> = None;
-    for t in window.iter().map(|b| first_token(b)) {
-        if t == "review=clean"
-            || t.strip_prefix("review=")
-                .and_then(|r| r.strip_suffix("-resolved"))
+    let reviews = window.iter().filter(|e| e.name == "review=");
+    for v in reviews.filter_map(|e| e.value.as_deref()) {
+        if v == "clean"
+            || v.strip_suffix("-resolved")
                 .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
         {
             first = None;
         } else if first.is_none()
-            && let Some(n) = t
-                .strip_prefix("review=")
-                .and_then(|r| r.strip_suffix("-open"))
+            && let Some(n) = v
+                .strip_suffix("-open")
                 .filter(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
         {
             first = Some(n.to_owned());

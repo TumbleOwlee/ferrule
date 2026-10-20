@@ -30,19 +30,10 @@ struct ShowPart<'a> {
 }
 
 impl ShowPart<'_> {
-    /// `text`, a card as `board::show` renders it, cut to this part.
-    fn cut(&self, text: &str) -> String {
-        let mut parts = text.splitn(3, "---\n");
-        let fields = parts.nth(1).unwrap_or("");
-        let mut log: Vec<&str> = parts
-            .next()
-            .unwrap_or("")
-            .lines()
-            .filter(|l| {
-                self.event
-                    .is_none_or(|e| event_of(l) == e.trim_end_matches('='))
-            })
-            .collect();
+    /// `text`, a card as `board::show` renders it, cut to this part; `log`
+    /// is its log as `(at, body)`, already cut to the part's event.
+    fn cut(&self, text: &str, mut log: Vec<(String, String)>) -> String {
+        let fields = text.split("---\n").nth(1).unwrap_or("");
         if let Some(n) = self.last {
             log.drain(..log.len().saturating_sub(n));
         }
@@ -51,19 +42,12 @@ impl ShowPart<'_> {
             let _ = write!(out, "---\n{fields}---\n");
         }
         if self.log {
-            for line in log {
-                let _ = writeln!(out, "{line}");
+            for (at, body) in log {
+                let _ = writeln!(out, "{at} {body}");
             }
         }
         out
     }
-}
-
-/// The event of a log line, `<at> <event>[=<value>] …`, without its value.
-fn event_of(line: &str) -> &str {
-    let body = line.split_once(' ').map_or("", |(_, b)| b);
-    let word = body.split_whitespace().next().unwrap_or("");
-    word.split_once('=').map_or(word, |(name, _)| name)
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -81,9 +65,9 @@ pub enum CardState {
 const EVENTS_AFTER_LONG_HELP: &str = "\
 Output:
   <card> <at> <event> ...    One log line per match across the run's parent
-                             card and all its stage cards, by time (the
-                             parent first within a minute). Nothing when
-                             no line matches.
+                             card and all its stage cards, in the order
+                             they were logged. Nothing when no line
+                             matches.
 Filters: --event <name> keeps that event's lines (`follow-up`, `spec-delta`,
 `commit`, ...); --last <n> the latest n of them.
 Refusals:
@@ -135,9 +119,10 @@ Output:
 Fields:
   <name>                     A frontmatter field (`ferrule guide show board`)
   state                      open, inprogress, inreview or done
-  log:<key>                  The value of the last `<key>=` token in the log;
-                             the event word counts, so `log:commit` is the
-                             last `commit=<sha>`
+  log:<key>                  The value last logged under <key>: a `<key>=`
+                             event's or a `<key>=` on any line, so
+                             `log:commit` is the last `commit=<sha>`; a
+                             line's free text never counts
   pass-sha                   The `sha=` of the last `gauntlet=pass` line
 
 Examples:
@@ -567,7 +552,7 @@ fn field(card: &str, field: &str, out: &mut impl Write) -> io::Result<u8> {
             .map(|st| st.as_str().to_owned()),
         "pass-sha" => board::pass_shas(&s.conn, card).map_err(sql)?.pop(),
         f => match f.strip_prefix("log:") {
-            Some(key) => board::last_token(&s.conn, card, key).map_err(sql)?,
+            Some(key) => board::last_logged(&s.conn, card, key).map_err(sql)?,
             None => board::field(&s.conn, card, f).map_err(sql)?,
         },
     };
@@ -637,11 +622,17 @@ fn move_card(card: &str, to: State, out: &mut impl Write) -> io::Result<u8> {
 
 fn show(card: &str, part: &ShowPart, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
     let shown = match store(false)? {
-        Some(s) => board::show(&s.conn, card).map_err(sql)?,
+        Some(s) => match board::show(&s.conn, card).map_err(sql)? {
+            Some(text) => Some((
+                text,
+                board::log_lines(&s.conn, card, part.event).map_err(sql)?,
+            )),
+            None => None,
+        },
         None => None,
     };
-    if let Some(text) = shown {
-        let text = part.cut(&text);
+    if let Some((text, log)) = shown {
+        let text = part.cut(&text, log);
         match style {
             Some(s) if part.fields => write!(out, "{}", styled_card(&text, s))?,
             Some(s) => write!(out, "{}", styled_card(&format!("---\n---\n{text}"), s))?,
@@ -690,15 +681,10 @@ fn events(
         writeln!(out, "events=card hint={HINT_CARD}")?;
         return Ok(exit::REFUSED);
     };
-    let mut lines: Vec<String> = board::run_events(&s.conn, slug)
+    let mut lines: Vec<String> = board::run_log_lines(&s.conn, slug, event)
         .map_err(sql)?
         .into_iter()
         .map(|(card, at, body)| format!("{card} {at} {body}"))
-        .filter(|l| {
-            event.is_none_or(|e| {
-                event_of(l.split_once(' ').map_or("", |(_, r)| r)) == e.trim_end_matches('=')
-            })
-        })
         .collect();
     if let Some(n) = last {
         lines.drain(..lines.len().saturating_sub(n));

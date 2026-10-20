@@ -469,7 +469,7 @@ impl Run<'_> {
         };
         let mut stage = None;
         for (n, id, _) in board::stages(self.conn, self.slug)? {
-            if let Some(c) = board::last_token(self.conn, &id, "commit")?
+            if let Some(c) = board::last_value(self.conn, &id, "commit=")?
                 && head.starts_with(&c)
             {
                 stage = Some(n);
@@ -666,10 +666,7 @@ impl Run<'_> {
                     if !item.head.ends_with("[OPEN]") {
                         differ.push(format!("issue #{n} is not open"));
                     }
-                    let kept = board::events(self.conn, self.slug)?
-                        .iter()
-                        .filter(|(_, b)| b.split(' ').any(|w| w.starts_with("spec-keep=")))
-                        .count();
+                    let kept = board::events(self.conn, self.slug, &["spec-keep="])?.len();
                     if item.comments.len() < kept {
                         differ.push(format!(
                             "issue #{n} has {} comments for {kept} kept spec changes",
@@ -681,9 +678,9 @@ impl Run<'_> {
             }
         }
         if let Some(&n) = numbers(self.field("pr")?.as_deref()).first() {
-            let ready = board::events(self.conn, self.slug)?
+            let ready = board::events(self.conn, self.slug, &["pr="])?
                 .iter()
-                .any(|(_, b)| b == "pr=ready");
+                .any(|e| e.is("pr=", "ready"));
             match remote::pr_status(self.config.backend.ci, n, self.root) {
                 Ok((state, draft, current)) => {
                     if state != "open" {

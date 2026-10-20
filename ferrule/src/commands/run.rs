@@ -157,7 +157,7 @@ Output, local only (no host call):
                                  path=<path>` when it is not there.
   gauntlet=<pass|fail> ...       The parent's last gauntlet line, `-` if none.
   ci=<code|->                    The parent's last `ci=`.
-  last=<card> <at> <event> ...   The run's latest log line; left out when
+  last=<card> <at> <event> ...   The run's last logged line; left out when
                                  the run has logged nothing.
 Refusals (exit 1):
   status=refused reason=card hint=check the slug with `ferrule board list`
@@ -582,13 +582,10 @@ fn status(slug: &str, out: &mut impl Write) -> io::Result<u8> {
         return Ok(exit::REFUSED);
     };
     let c = &s.conn;
-    let events = board::events(c, slug).map_err(sql)?;
-    // the event itself, not a token: a note's text may carry `pr=` too
-    let last_event = |prefix: &str| {
-        events
-            .iter()
-            .rev()
-            .find_map(|(_, body)| body.strip_prefix(prefix))
+    let last_value = |name: &str| -> io::Result<String> {
+        Ok(board::last_value(c, slug, name)
+            .map_err(sql)?
+            .unwrap_or_else(|| "-".to_owned()))
     };
     let field = |card: &str, key: &str| -> io::Result<String> {
         Ok(board::field(c, card, key)
@@ -611,7 +608,7 @@ fn status(slug: &str, out: &mut impl Write) -> io::Result<u8> {
         field(slug, "branch")?,
         field(slug, "issue")?,
         field(slug, "pr")?,
-        last_event("pr=").unwrap_or("-"),
+        last_value("pr=")?,
         if gates.is_empty() {
             "-".to_owned()
         } else {
@@ -619,7 +616,7 @@ fn status(slug: &str, out: &mut impl Write) -> io::Result<u8> {
         }
     )?;
     for (n, id, st) in &board::stages(c, slug).map_err(sql)? {
-        let commit = board::last_token(c, id, "commit").map_err(sql)?;
+        let commit = board::last_value(c, id, "commit=").map_err(sql)?;
         writeln!(
             out,
             "stage=s{n} state={} commit={} title={}",
@@ -649,9 +646,13 @@ fn status(slug: &str, out: &mut impl Write) -> io::Result<u8> {
     } else {
         writeln!(out, "worktree=missing path={shown}")?;
     }
-    writeln!(out, "gauntlet={}", last_event("gauntlet=").unwrap_or("-"))?;
-    writeln!(out, "ci={}", last_event("ci=").unwrap_or("-"))?;
-    if let Some((card, at, body)) = board::run_events(c, slug).map_err(sql)?.pop() {
+    let gauntlet = board::log_lines(c, slug, Some("gauntlet=")).map_err(sql)?;
+    let gauntlet = gauntlet
+        .last()
+        .and_then(|(_, body)| body.strip_prefix("gauntlet="));
+    writeln!(out, "gauntlet={}", gauntlet.unwrap_or("-"))?;
+    writeln!(out, "ci={}", last_value("ci=")?)?;
+    if let Some((card, at, body)) = board::run_log_lines(c, slug, None).map_err(sql)?.pop() {
         writeln!(out, "last={card} {at} {body}")?;
     }
     Ok(exit::OK)

@@ -450,33 +450,14 @@ struct Delta {
     text: String,
 }
 
-fn delta(body: &str) -> Option<Delta> {
-    let rest = body.strip_prefix("spec-delta ")?;
-    let (id, rest) = rest.split_once(' ')?;
-    let (kind, mut rest) = rest.split_once(' ').unwrap_or((rest, ""));
-    let (mut origin, mut quote) = (String::new(), String::new());
-    loop {
-        rest = rest.trim_start_matches(' ');
-        let (key, value) = if let Some(v) = rest.strip_prefix("origin=") {
-            (&mut origin, v)
-        } else if let Some(v) = rest.strip_prefix("quote=") {
-            (&mut quote, v)
-        } else {
-            break;
-        };
-        let (val, after) = match value.strip_prefix('"') {
-            Some(q) => q.split_once('"').unwrap_or((q, "")),
-            None => value.split_once(' ').unwrap_or((value, "")),
-        };
-        val.clone_into(key);
-        rest = after;
-    }
+fn delta(e: &board::Event) -> Option<Delta> {
+    let owned = |v: Option<&str>| v.unwrap_or_default().to_owned();
     Some(Delta {
-        id: id.to_owned(),
-        kind: kind.to_owned(),
-        origin,
-        quote,
-        text: rest.to_owned(),
+        id: e.positional(0)?.to_owned(),
+        kind: owned(e.positional(1)),
+        origin: owned(e.arg("origin")),
+        quote: owned(e.arg("quote")),
+        text: e.text.clone().unwrap_or_default(),
     })
 }
 
@@ -617,9 +598,9 @@ pub fn pr(
         slug,
     };
     let issue = c.need("issue.md")?;
-    let deltas: Vec<Delta> = board::run_events(conn, slug)?
+    let deltas: Vec<Delta> = board::run_events(conn, slug, &["spec-delta"])?
         .iter()
-        .filter_map(|(_, _, b)| delta(b))
+        .filter_map(delta)
         .collect();
     let mut out = match form {
         Form::Draft => draft(&c, &issue, &deltas, &layout.root, main_branch)?,
@@ -766,7 +747,7 @@ fn stages(c: &Ctx, summary: &str, out: &mut String) -> Result<(), Error> {
         let (state, commit, blocked) = match card {
             Some((_, id, st)) => (
                 Some(*st),
-                board::last_token(c.conn, id, "commit")?,
+                board::last_value(c.conn, id, "commit=")?,
                 board::field(c.conn, id, "blocked-by")?.unwrap_or_default(),
             ),
             None => (None, None, String::new()),
@@ -922,10 +903,10 @@ fn full(c: &Ctx, issue: &str, deltas: &[Delta]) -> Result<String, Error> {
             );
         }
     }
-    if let Some(cov) = board::last_token(c.conn, c.slug, "cov")? {
+    if let Some(cov) = board::last_arg(c.conn, c.slug, "gauntlet=", "cov")? {
         let _ = write!(status, " · coverage {cov}");
     }
-    if let Some(review) = board::last_token(c.conn, c.slug, "review")? {
+    if let Some(review) = board::last_value(c.conn, c.slug, "review=")? {
         let _ = write!(status, " · review {review}");
     }
     if let Some(split) = c.field("split")? {
@@ -987,8 +968,11 @@ mod tests {
 
     #[test]
     fn ut_delta_lines() {
+        let e = board::Event::parsed(
+            "spec-delta MB-R-1 changed quote=\"a b\" origin=user popup on Esc",
+        );
         assert_eq!(
-            delta("spec-delta MB-R-1 changed quote=\"a b\" origin=user popup on Esc"),
+            delta(&e),
             Some(Delta {
                 id: "MB-R-1".into(),
                 kind: "changed".into(),

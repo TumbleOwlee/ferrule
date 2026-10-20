@@ -89,7 +89,7 @@ pub fn sha_check(
     if !on_branch {
         return Ok(Err(Mismatch::OffBranch));
     }
-    let logged = board::last_token(conn, &card, "commit")?;
+    let logged = board::last_value(conn, &card, "commit=")?;
     if logged.and_then(|l| git::commit(&wt, &l)).as_deref() != Some(full.as_str()) {
         return Ok(Err(Mismatch::CardCommit));
     }
@@ -153,7 +153,7 @@ pub fn reconcile(conn: &Connection, layout: &Layout, slug: &str) -> Result<Recon
     };
     let mut next = None;
     for (n, id, state) in board::stages(conn, slug)? {
-        match board::last_token(conn, &id, "commit")? {
+        match board::last_value(conn, &id, "commit=")? {
             Some(sha) => {
                 if git::commit(root, &sha).is_none() {
                     differ.push(format!("commit s{n} {sha} does not exist"));
@@ -279,7 +279,7 @@ fn decide(
     let wt = worktree(conn, layout, slug, &card)?;
     let mut base = None;
     for (_, id, _) in stages.iter().rev().filter(|(n, _, _)| *n < me) {
-        base = board::last_token(conn, id, "commit")?;
+        base = board::last_value(conn, id, "commit=")?;
         if base.is_some() {
             break;
         }
@@ -294,15 +294,8 @@ fn decide(
     }
     let mut run = 0;
     for (_, id, _) in stages.iter().filter(|(n, _, _)| (1..me).contains(n)) {
-        let last = board::events(conn, id)?
-            .into_iter()
-            .rev()
-            .find_map(|(_, body)| {
-                let name = body.split(' ').next().unwrap_or("").to_owned();
-                (name.starts_with("auto=") || name.starts_with("stop=")).then_some(name)
-            });
-        match last.as_deref() {
-            Some(n) if n.starts_with("auto=") => run += 1,
+        match board::last_event(conn, id, &["auto=", "stop="])? {
+            Some(e) if e.name == "auto=" => run += 1,
             Some(_) => run = 0,
             None => {}
         }

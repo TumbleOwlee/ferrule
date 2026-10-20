@@ -209,14 +209,15 @@ fn context(layout: &Layout, args: &ShowArgs) -> io::Result<Context> {
                 }
                 ctx.done.push(format!("{k}={v}"));
             }
-            for (_, body) in board::events(&s.conn, &slug).map_err(sql)? {
-                let tokens = body.split(" -- ").next().unwrap_or("");
-                ctx.done.extend(
-                    tokens
-                        .split_whitespace()
-                        .filter(|t| t.contains('='))
-                        .map(str::to_owned),
-                );
+            for e in board::events(&s.conn, &slug, &[]).map_err(sql)? {
+                if let Some(v) = &e.value {
+                    ctx.done.push(format!("{}{v}", e.name));
+                }
+                for (k, v) in &e.args {
+                    if let Some(k) = k {
+                        ctx.done.push(format!("{k}={v}"));
+                    }
+                }
             }
         }
         ctx.vars.push(("slug", slug));

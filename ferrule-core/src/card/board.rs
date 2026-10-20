@@ -188,89 +188,234 @@ pub fn fields(conn: &Connection, id: &str) -> rusqlite::Result<Vec<(String, Stri
         .collect()
 }
 
-/// A card's log lines as `(at, body)`, oldest first.
-pub fn events(conn: &Connection, id: &str) -> rusqlite::Result<Vec<(String, String)>> {
-    let mut st = conn.prepare("SELECT at, body FROM events WHERE card = ?1 ORDER BY id")?;
-    st.query_map([id], |r| Ok((r.get(0)?, r.get(1)?)))?
-        .collect()
+/// One log line as stored: its event name (through `=` when valued), the
+/// value after that `=`, its args and its free text. Readers decide from
+/// these, never from the rendered body, where a note's text could pass
+/// for an event.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Event {
+    pub id: i64,
+    pub card: String,
+    pub at: String,
+    pub name: String,
+    pub value: Option<String>,
+    /// `(key, value)` in logged order; a positional has no key.
+    pub args: Vec<(Option<String>, String)>,
+    pub text: Option<String>,
 }
 
-/// Every log line of run `run`'s cards as `(card, at, body)`, by time;
-/// lines at the same minute keep the parent card first, then the stages in
-/// order.
-pub fn run_events(conn: &Connection, run: &str) -> rusqlite::Result<Vec<(String, String, String)>> {
-    let mut st = conn.prepare(
-        "SELECT e.card, e.at, e.body FROM events e JOIN cards c ON c.id = e.card
-         WHERE c.run = ?1
-         ORDER BY e.at, c.stage IS NOT NULL, length(c.stage), c.stage, e.id",
-    )?;
-    st.query_map([run], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
-        .collect()
-}
-
-/// The ID of a `spec-delta <ID> changed` line whose leading key fields
-/// (`origin=`, `quote=`, in any order) include an `origin=`: a requirement
-/// reworded after the issue was filed.
-fn reworded_id(body: &str) -> Option<&str> {
-    let mut words = body.splitn(4, ' ');
-    let (event, id, change) = (words.next()?, words.next()?, words.next()?);
-    if event != "spec-delta" || change != "changed" {
-        return None;
+impl Event {
+    /// The value of the line's last `key=`.
+    #[must_use]
+    pub fn arg(&self, key: &str) -> Option<&str> {
+        self.args
+            .iter()
+            .rev()
+            .find(|(k, _)| k.as_deref() == Some(key))
+            .map(|(_, v)| v.as_str())
     }
-    let mut rest = words.next().unwrap_or("");
-    loop {
-        rest = rest.trim_start_matches(' ');
-        let (key, value) = if let Some(v) = rest.strip_prefix("origin=") {
-            ("origin", v)
-        } else if let Some(v) = rest.strip_prefix("quote=") {
-            ("quote", v)
-        } else {
-            return None;
-        };
-        if key == "origin" {
-            return Some(id);
+
+    /// Positional word `n`.
+    #[must_use]
+    pub fn positional(&self, n: usize) -> Option<&str> {
+        self.args
+            .iter()
+            .filter(|(k, _)| k.is_none())
+            .nth(n)
+            .map(|(_, v)| v.as_str())
+    }
+
+    /// Whether this is valued event `name` (`=` included) at `value`.
+    #[must_use]
+    pub fn is(&self, name: &str, value: &str) -> bool {
+        self.name == name && self.value.as_deref() == Some(value)
+    }
+
+    /// `body` parsed back as a log line of card `r`.
+    #[cfg(test)]
+    pub(crate) fn parsed(body: &str) -> Self {
+        let (name, parts) = vocab::parse(body);
+        Event {
+            id: 0,
+            card: "r".to_owned(),
+            at: "2026-10-04T11:50".to_owned(),
+            name: name.to_owned(),
+            value: parts.value,
+            args: parts
+                .args
+                .into_iter()
+                .map(|a| (a.key.map(str::to_owned), a.value))
+                .collect(),
+            text: parts.text,
         }
-        rest = match value.strip_prefix('"') {
-            Some(quoted) => quoted.split_once('"').map_or("", |(_, after)| after),
-            None => value.split_once(' ').map_or("", |(_, after)| after),
-        };
     }
 }
 
-/// IDs of run `run`'s requirements reworded after filing, from the
-/// `spec-delta … changed origin=…` lines on any of its cards.
-pub fn reworded_ids(conn: &Connection, run: &str) -> rusqlite::Result<HashSet<String>> {
-    Ok(run_events(conn, run)?
-        .iter()
-        .filter_map(|(_, _, b)| reworded_id(b))
-        .map(str::to_owned)
-        .collect())
+/// Whose log lines [`select`] reads.
+enum Of<'a> {
+    Card(&'a str),
+    Run(&'a str),
 }
 
-/// The value of the last `<key>=` token in a card's log; the event word
-/// counts, so `commit` finds `commit=<sha>`.
-pub fn last_token(conn: &Connection, id: &str, key: &str) -> rusqlite::Result<Option<String>> {
-    let prefix = format!("{key}=");
-    Ok(events(conn, id)?
-        .iter()
-        .flat_map(|(_, body)| body.split_whitespace())
-        .filter_map(|t| t.strip_prefix(&prefix))
-        .next_back()
-        .map(str::to_owned))
+/// The log lines of `of` named one of `names` (every line when empty),
+/// in the order they were logged; only the newest when `last`.
+fn select(conn: &Connection, of: &Of, names: &[&str], last: bool) -> rusqlite::Result<Vec<Event>> {
+    let (scope, key) = match of {
+        Of::Card(id) => ("card = ?1", *id),
+        Of::Run(run) => ("card IN (SELECT id FROM cards WHERE run = ?1)", *run),
+    };
+    let id = if last { "max(id)" } else { "id" };
+    let mut filter = format!("SELECT {id} FROM events WHERE {scope}");
+    if !names.is_empty() {
+        let marks: Vec<String> = (2..names.len() + 2).map(|i| format!("?{i}")).collect();
+        let _ = write!(filter, " AND name IN ({})", marks.join(", "));
+    }
+    let mut st = conn.prepare(&format!(
+        "SELECT e.id, e.card, e.at, e.name, e.value, e.text, a.key, a.value
+         FROM events e LEFT JOIN event_args a ON a.event = e.id
+         WHERE e.id IN ({filter})
+         ORDER BY e.id, a.idx"
+    ))?;
+    let params = std::iter::once(key).chain(names.iter().copied());
+    let mut rows = st.query(rusqlite::params_from_iter(params))?;
+    let mut out: Vec<Event> = Vec::new();
+    while let Some(r) = rows.next()? {
+        let id: i64 = r.get(0)?;
+        if out.last().is_none_or(|e| e.id != id) {
+            out.push(Event {
+                id,
+                card: r.get(1)?,
+                at: r.get(2)?,
+                name: r.get(3)?,
+                value: r.get(4)?,
+                args: Vec::new(),
+                text: r.get(5)?,
+            });
+        }
+        if let (Some(e), Some(value)) = (out.last_mut(), r.get::<_, Option<String>>(7)?) {
+            e.args.push((r.get(6)?, value));
+        }
+    }
+    Ok(out)
+}
+
+/// A card's log lines named one of `names` (every line when empty),
+/// oldest first.
+pub fn events(conn: &Connection, id: &str, names: &[&str]) -> rusqlite::Result<Vec<Event>> {
+    select(conn, &Of::Card(id), names, false)
+}
+
+/// The log lines of every card of run `run` named one of `names` (every
+/// line when empty), in the order they were logged.
+pub fn run_events(conn: &Connection, run: &str, names: &[&str]) -> rusqlite::Result<Vec<Event>> {
+    select(conn, &Of::Run(run), names, false)
+}
+
+/// A card's newest log line named one of `names`.
+pub fn last_event(conn: &Connection, id: &str, names: &[&str]) -> rusqlite::Result<Option<Event>> {
+    Ok(select(conn, &Of::Card(id), names, true)?.pop())
+}
+
+/// The value of a card's newest `name` line (`name` with its `=`).
+pub fn last_value(conn: &Connection, id: &str, name: &str) -> rusqlite::Result<Option<String>> {
+    Ok(conn
+        .query_row(
+            "SELECT value FROM events WHERE card = ?1 AND name = ?2 ORDER BY id DESC LIMIT 1",
+            [id, name],
+            |r| r.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten())
+}
+
+/// The newest `key=` on a card's `name` lines.
+pub fn last_arg(
+    conn: &Connection,
+    id: &str,
+    name: &str,
+    key: &str,
+) -> rusqlite::Result<Option<String>> {
+    conn.query_row(
+        "SELECT a.value FROM events e JOIN event_args a ON a.event = e.id
+         WHERE e.card = ?1 AND e.name = ?2 AND a.key = ?3
+         ORDER BY e.id DESC, a.idx DESC LIMIT 1",
+        [id, name, key],
+        |r| r.get(0),
+    )
+    .optional()
+}
+
+/// The value a card last logged under `key`: a `<key>=` event's own value
+/// or a `key=` on any line, whichever is newer; free text never counts.
+pub fn last_logged(conn: &Connection, id: &str, key: &str) -> rusqlite::Result<Option<String>> {
+    conn.query_row(
+        "SELECT v FROM (
+             SELECT id, -1 AS idx, value AS v FROM events
+             WHERE card = ?1 AND name = ?2 || '=' AND value IS NOT NULL
+             UNION ALL
+             SELECT e.id, a.idx, a.value FROM events e JOIN event_args a ON a.event = e.id
+             WHERE e.card = ?1 AND a.key = ?2
+         )
+         ORDER BY id DESC, idx DESC LIMIT 1",
+        [id, key],
+        |r| r.get(0),
+    )
+    .optional()
 }
 
 /// The `sha=` of every `gauntlet=pass` line on a card, oldest first.
 pub fn pass_shas(conn: &Connection, id: &str) -> rusqlite::Result<Vec<String>> {
-    Ok(events(conn, id)?
+    Ok(events(conn, id, &["gauntlet="])?
         .iter()
-        .filter(|(_, body)| body.split_whitespace().any(|t| t == "gauntlet=pass"))
-        .filter_map(|(_, body)| {
-            body.split_whitespace()
-                .filter_map(|t| t.strip_prefix("sha="))
-                .next_back()
-                .map(str::to_owned)
-        })
+        .filter(|e| e.is("gauntlet=", "pass"))
+        .filter_map(|e| e.arg("sha").map(str::to_owned))
         .collect())
+}
+
+/// IDs of run `run`'s requirements reworded after filing, from the
+/// `spec-delta <ID> changed origin=…` lines on any of its cards.
+pub fn reworded_ids(conn: &Connection, run: &str) -> rusqlite::Result<HashSet<String>> {
+    Ok(run_events(conn, run, &["spec-delta"])?
+        .iter()
+        .filter(|e| e.positional(1) == Some("changed") && e.arg("origin").is_some())
+        .filter_map(|e| e.positional(0).map(str::to_owned))
+        .collect())
+}
+
+/// The SQL condition that log line `e` is event `?2`, either written with
+/// or without its `=`; every line when `?2` is null.
+const NAMED: &str = "(?2 IS NULL OR rtrim(e.name, '=') = rtrim(?2, '='))";
+
+/// A card's log lines as `(at, body)` for display, oldest first; `event`
+/// (with or without its `=`) keeps that event's lines.
+pub fn log_lines(
+    conn: &Connection,
+    id: &str,
+    event: Option<&str>,
+) -> rusqlite::Result<Vec<(String, String)>> {
+    let mut st = conn.prepare(&format!(
+        "SELECT e.at, e.body FROM events e WHERE e.card = ?1 AND {NAMED} ORDER BY e.id"
+    ))?;
+    st.query_map(params![id, event], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect()
+}
+
+/// Every log line of run `run`'s cards as `(card, at, body)` for display,
+/// in the order they were logged; `event` (with or without its `=`) keeps
+/// that event's lines.
+pub fn run_log_lines(
+    conn: &Connection,
+    run: &str,
+    event: Option<&str>,
+) -> rusqlite::Result<Vec<(String, String, String)>> {
+    let mut st = conn.prepare(&format!(
+        "SELECT e.card, e.at, e.body FROM events e JOIN cards c ON c.id = e.card
+         WHERE c.run = ?1 AND {NAMED} ORDER BY e.id"
+    ))?;
+    st.query_map(params![run, event], |r| {
+        Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+    })?
+    .collect()
 }
 
 /// The card as markdown: frontmatter (with its state) and the log.
@@ -288,7 +433,7 @@ pub fn show(conn: &Connection, id: &str) -> rusqlite::Result<Option<String>> {
         let _ = writeln!(out, "{k}: {v}");
     }
     out.push_str("---\n");
-    for (at, body) in events(conn, id)? {
+    for (at, body) in log_lines(conn, id, None)? {
         let _ = writeln!(out, "{at} {body}");
     }
     Ok(Some(out))
@@ -597,6 +742,14 @@ fn insert_args(conn: &Connection, event: i64, args: &[vocab::Arg]) -> rusqlite::
     Ok(())
 }
 
+/// Stores `body` on card `id` unchecked, as an import or the backfill
+/// does: parsed back, its keys in the order written.
+#[cfg(test)]
+pub(crate) fn insert_body(conn: &Connection, id: &str, at: &str, body: &str) {
+    let (name, parts) = vocab::parse(body);
+    insert_event(conn, id, at, name, &parts, body).unwrap();
+}
+
 /// Fills the value, args and text of log lines stored before they were
 /// kept apart, by parsing each body back.
 pub(crate) fn backfill_args(conn: &Connection) -> rusqlite::Result<()> {
@@ -763,7 +916,7 @@ fn refusal(
                 blocked.then_some(Refusal::BlockedBy)
             }
             (InProgress, InReview) | (InReview | Done, InProgress) => None,
-            (InReview, Done) => match last_token(conn, card.id, "commit")? {
+            (InReview, Done) => match last_value(conn, card.id, "commit=")? {
                 None => Some(Refusal::Commit),
                 Some(sha) => {
                     let verified = pass_shas(conn, card.run)?
@@ -919,23 +1072,41 @@ pub fn import(conn: &mut Connection, board: &Path, now: &str) -> Result<usize, I
 mod tests {
     use super::*;
 
+    use crate::store::Store;
+
+    fn raw(s: &Store, card: &str, at: &str, body: &str) {
+        insert_body(&s.conn, card, at, body);
+    }
+
     #[test]
     fn ut_reworded_needs_origin_among_leading_keys() {
-        assert_eq!(
-            reworded_id("spec-delta MB-R-294 changed origin=user popup"),
-            Some("MB-R-294")
+        let mut s = store();
+        create(&mut s.conn, "r", State::Open, &[], "t").unwrap();
+        create(&mut s.conn, "r.s1", State::Open, &[], "t").unwrap();
+        raw(
+            &s,
+            "r",
+            "t",
+            "spec-delta MB-R-294 changed origin=user popup",
         );
-        assert_eq!(
-            reworded_id("spec-delta MB-R-301 changed quote=\"a b\" origin=user box"),
-            Some("MB-R-301")
+        raw(
+            &s,
+            "r.s1",
+            "t",
+            "spec-delta MB-R-301 changed quote=\"a b\" origin=user box",
         );
-        assert_eq!(
-            reworded_id("spec-delta MB-R-301 changed popup origin=user"),
-            None
+        raw(
+            &s,
+            "r",
+            "t",
+            "spec-delta MB-R-302 changed popup origin=user",
         );
-        assert_eq!(reworded_id("spec-delta MB-R-301 added origin=user"), None);
+        raw(&s, "r", "t", "spec-delta MB-R-303 added origin=user");
+        raw(&s, "r", "t", "note spec-delta MB-R-304 changed origin=user");
+        let mut ids: Vec<String> = reworded_ids(&s.conn, "r").unwrap().into_iter().collect();
+        ids.sort();
+        assert_eq!(ids, ["MB-R-294", "MB-R-301"]);
     }
-    use crate::store::Store;
 
     #[test]
     fn ut_card_ids() {
@@ -1003,7 +1174,7 @@ mod tests {
         move_card(&mut s.conn, "r", State::InProgress, "t1").unwrap();
         move_card(&mut s.conn, "r.s1", State::InProgress, "t2").unwrap();
         assert_eq!(
-            events(&s.conn, "r.s1").unwrap(),
+            log_lines(&s.conn, "r.s1", None).unwrap(),
             [("t2".into(), "moved=inprogress".into())]
         );
         let err = move_card(&mut s.conn, "r.s1", State::Done, "t3").unwrap_err();
@@ -1015,7 +1186,7 @@ mod tests {
             }
         ));
         assert_eq!(state(&s.conn, "r.s1").unwrap(), Some(State::InProgress));
-        assert_eq!(events(&s.conn, "r.s1").unwrap().len(), 1);
+        assert_eq!(events(&s.conn, "r.s1", &[]).unwrap().len(), 1);
     }
 
     #[test]
@@ -1061,6 +1232,101 @@ mod tests {
     }
 
     #[test]
+    fn ut_note_text_is_no_evidence() {
+        let mut s = store();
+        let gate2 = [("gate2".to_owned(), "2026-10-03".to_owned())];
+        create(&mut s.conn, "r", State::InProgress, &gate2, "t").unwrap();
+        create(&mut s.conn, "r.s1", State::InReview, &[], "t").unwrap();
+        let a = |s: &str| s.split(' ').map(str::to_owned).collect::<Vec<_>>();
+        log(&mut s.conn, "r.s1", "commit=abc", &[], "t").unwrap();
+        log(
+            &mut s.conn,
+            "r",
+            "note",
+            &a("-- saw gauntlet=pass sha=abc"),
+            "t",
+        )
+        .unwrap();
+        log(&mut s.conn, "r.s1", "note", &a("-- then commit=zzz"), "t").unwrap();
+
+        assert!(pass_shas(&s.conn, "r").unwrap().is_empty());
+        assert_eq!(
+            last_logged(&s.conn, "r.s1", "commit").unwrap().as_deref(),
+            Some("abc")
+        );
+        assert!(matches!(
+            move_card(&mut s.conn, "r.s1", State::Done, "t"),
+            Err(MoveError::Refused {
+                reason: Refusal::Unverified,
+                ..
+            })
+        ));
+        log(&mut s.conn, "r", "gauntlet=pass", &a("sha=abc"), "t").unwrap();
+        assert_eq!(pass_shas(&s.conn, "r").unwrap(), ["abc"]);
+        move_card(&mut s.conn, "r.s1", State::Done, "t").unwrap();
+    }
+
+    #[test]
+    fn ut_readers_take_args_by_key_unquoted() {
+        let mut s = store();
+        create(&mut s.conn, "r", State::Open, &[], "t").unwrap();
+        create(&mut s.conn, "r.s1", State::Open, &[], "t").unwrap();
+        let reason = vec!["reason=a b".to_owned(), "user=dl".to_owned()];
+        log(&mut s.conn, "r.s1", "files+=src/x.rs", &reason, "t").unwrap();
+        raw(&s, "r", "t", "stop gate=gate4 kind=approval");
+
+        assert_eq!(
+            last_logged(&s.conn, "r.s1", "reason").unwrap().as_deref(),
+            Some("a b")
+        );
+        assert_eq!(
+            last_arg(&s.conn, "r.s1", "files+=", "user")
+                .unwrap()
+                .as_deref(),
+            Some("dl")
+        );
+        assert_eq!(
+            last_value(&s.conn, "r.s1", "files+=").unwrap().as_deref(),
+            Some("src/x.rs")
+        );
+        let stop = last_event(&s.conn, "r", &["stop"]).unwrap().unwrap();
+        assert_eq!(
+            (stop.arg("kind"), stop.arg("gate")),
+            (Some("approval"), Some("gate4"))
+        );
+        assert_eq!(last_event(&s.conn, "r", &["replan="]).unwrap(), None);
+    }
+
+    #[test]
+    fn ut_latest_in_a_minute_is_the_last_logged() {
+        let mut s = store();
+        create(&mut s.conn, "r", State::Open, &[], "t").unwrap();
+        create(&mut s.conn, "r.s1", State::Open, &[], "t").unwrap();
+        let note = |t: &str| vec!["--".to_owned(), t.to_owned()];
+        let at = "2026-10-04T11:50";
+        log(&mut s.conn, "r.s1", "note", &note("first"), at).unwrap();
+        log(&mut s.conn, "r", "note", &note("second"), at).unwrap();
+        log(&mut s.conn, "r", "ci=1", &[], at).unwrap();
+        log(&mut s.conn, "r", "ci=0", &[], at).unwrap();
+
+        let run: Vec<String> = run_events(&s.conn, "r", &["note"])
+            .unwrap()
+            .into_iter()
+            .filter_map(|e| e.text)
+            .collect();
+        assert_eq!(run, ["first", "second"]);
+        assert_eq!(
+            run_log_lines(&s.conn, "r", None).unwrap().pop().unwrap().2,
+            "ci=0"
+        );
+        assert_eq!(
+            last_value(&s.conn, "r", "ci=").unwrap().as_deref(),
+            Some("0")
+        );
+        assert_eq!(log_lines(&s.conn, "r", Some("ci")).unwrap().len(), 2);
+    }
+
+    #[test]
     fn ut_two_writers_at_once_lose_nothing() {
         let dir = tempfile::tempdir().unwrap();
         let mut s = Store::open(dir.path(), true).unwrap();
@@ -1080,6 +1346,6 @@ mod tests {
         for w in writers {
             w.join().unwrap();
         }
-        assert_eq!(events(&s.conn, "r").unwrap().len(), 100);
+        assert_eq!(events(&s.conn, "r", &[]).unwrap().len(), 100);
     }
 }
