@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::tracker::{Found, IssueTracker};
+use super::tracker::{Found, IssueTracker, SearchState};
 use super::{Comment, Error, Item, ItemRef, MAX_PAGES, creds, curl, json};
 
 /// An Atlassian document as plain text, one line per paragraph, heading,
@@ -191,7 +191,7 @@ impl IssueTracker for Jira {
         Err(self.unsupported("issue search"))
     }
 
-    fn search(&self, _: &[String], _: &str, _: usize) -> Result<Vec<Found>, Error> {
+    fn search(&self, _: &[String], _: SearchState, _: usize) -> Result<Vec<Found>, Error> {
         Err(self.unsupported("issue search"))
     }
 }

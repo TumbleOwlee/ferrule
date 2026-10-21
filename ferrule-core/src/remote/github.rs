@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-use super::host::{CodeHost, PrStatus, comment_id};
-use super::tracker::{FIND_LIMIT, Found, IssueTracker, title_query};
+use super::host::{Checks, CodeHost, PrState, PrStatus, comment_id};
+use super::tracker::{FIND_LIMIT, Found, IssueTracker, SearchState, title_query};
 use super::{
     Error, GH_FIELDS, GhItem, Item, ItemRef, Query, json, number_of, pick_job, run, run_bounded,
 };
@@ -159,7 +159,7 @@ impl CodeHost for Gh {
         let out = self.gh(&["pr", "view", &n, "--json", "state,isDraft,body"], None)?;
         let p: Pr = json(&out, "gh pr view")?;
         Ok(PrStatus {
-            state: p.state.to_ascii_lowercase(),
+            state: PrState::parse(&p.state),
             draft: p.is_draft,
             body: p.body.unwrap_or_default(),
         })
@@ -168,7 +168,7 @@ impl CodeHost for Gh {
     /// The checks' exit code and table. gh fails the same way for a red
     /// check and for a call that never read any (auth, a missing PR): only
     /// output holding check rows is a result.
-    fn checks_watch(&self, pr: &ItemRef) -> Result<(i32, String), Error> {
+    fn checks_watch(&self, pr: &ItemRef) -> Result<Checks, Error> {
         pr.pr_number()?;
         let n = pr.to_string();
         let (code, stdout, stderr) = run_bounded(
@@ -189,7 +189,11 @@ impl CodeHost for Gh {
                 why.to_owned()
             }));
         }
-        Ok((code, text))
+        Ok(Checks {
+            code,
+            failed: super::failed_checks(&text),
+            raw: text,
+        })
     }
 
     fn threads(&self, pr: &ItemRef) -> Result<Fetched, Error> {
@@ -414,7 +418,12 @@ impl IssueTracker for Gh {
             .map(|f| ItemRef::Number(f.number)))
     }
 
-    fn search(&self, keywords: &[String], state: &str, limit: usize) -> Result<Vec<Found>, Error> {
+    fn search(
+        &self,
+        keywords: &[String],
+        state: SearchState,
+        limit: usize,
+    ) -> Result<Vec<Found>, Error> {
         let words: Vec<String> = keywords
             .iter()
             .map(|k| {
@@ -432,7 +441,7 @@ impl IssueTracker for Gh {
                 "issue",
                 "list",
                 "--state",
-                state,
+                state.as_str(),
                 "--search",
                 &query,
                 "--limit",

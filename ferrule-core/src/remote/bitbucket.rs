@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::host::{CodeHost, PrStatus, comment_id};
+use super::host::{Checks, CodeHost, PrState, PrStatus, comment_id};
 use super::{
     Comment, Error, Item, ItemRef, Query, creds, curl, follow_next, json, non_empty, pick_job,
 };
@@ -123,13 +123,8 @@ fn root_of<'a>(values: &[&'a Value], v: &'a Value) -> &'a Value {
 /// A Bitbucket pull request's state (`open`, `merged`; declined and
 /// superseded are `closed`), draft flag and description.
 fn status(pr: &Value) -> PrStatus {
-    let state = match pr["state"].as_str().unwrap_or("") {
-        "OPEN" => "open",
-        "MERGED" => "merged",
-        _ => "closed",
-    };
     PrStatus {
-        state: state.to_owned(),
+        state: PrState::parse(pr["state"].as_str().unwrap_or("")),
         draft: pr["draft"].as_bool().unwrap_or(false),
         body: pr["description"].as_str().unwrap_or("").to_owned(),
     }
@@ -215,7 +210,7 @@ impl CodeHost for Bitbucket {
         Ok(status(&self.get(&self.pr_api(pr)?)?))
     }
 
-    fn checks_watch(&self, _pr: &ItemRef) -> Result<(i32, String), Error> {
+    fn checks_watch(&self, _pr: &ItemRef) -> Result<Checks, Error> {
         Err(self.unsupported("pr checks"))
     }
 
@@ -359,13 +354,13 @@ mod tests {
         assert_eq!(
             st("OPEN"),
             PrStatus {
-                state: "open".to_owned(),
+                state: PrState::Open,
                 draft: true,
                 body: "d".to_owned()
             }
         );
-        assert_eq!(st("MERGED").state, "merged");
-        assert_eq!(st("DECLINED").state, "closed");
+        assert_eq!(st("MERGED").state, PrState::Merged);
+        assert_eq!(st("DECLINED").state, PrState::Closed);
     }
 
     #[test]

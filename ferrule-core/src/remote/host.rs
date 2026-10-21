@@ -7,16 +7,64 @@ use std::path::Path;
 use super::bitbucket::Bitbucket;
 use super::github::Gh;
 use super::{Error, Item, ItemRef, Query, error_lines};
-use crate::config::{Ci, Config};
+use crate::config::{Config, Host};
 use crate::pr::feedback::Fetched;
+
+/// Where a pull request is in its life; a declined or superseded one is
+/// closed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrState {
+    Open,
+    Merged,
+    Closed,
+}
+
+impl PrState {
+    /// A host's state word, in any case: `OPEN`, `merged`; anything else
+    /// is closed.
+    #[must_use]
+    pub fn parse(s: &str) -> Self {
+        match s.to_ascii_lowercase().as_str() {
+            "open" => PrState::Open,
+            "merged" => PrState::Merged,
+            _ => PrState::Closed,
+        }
+    }
+
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PrState::Open => "open",
+            PrState::Merged => "merged",
+            PrState::Closed => "closed",
+        }
+    }
+}
 
 /// A pull request's state as `pr_status` reads it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrStatus {
-    /// `open`, `merged` or `closed`.
-    pub state: String,
+    pub state: PrState,
     pub draft: bool,
     pub body: String,
+}
+
+/// What a pull request's checks came to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Checks {
+    /// The host's exit code: 0 when every check passed.
+    pub code: i32,
+    /// The names of the failed checks.
+    pub failed: Vec<String>,
+    /// The host's output, for the run's ci.log.
+    pub raw: String,
+}
+
+impl Checks {
+    #[must_use]
+    pub fn green(&self) -> bool {
+        self.code == 0
+    }
 }
 
 /// The pull request operations of a code host.
@@ -46,9 +94,8 @@ pub trait CodeHost {
 
     fn status(&self, pr: &ItemRef) -> Result<PrStatus, Error>;
 
-    /// Waits for a pull request's checks; their exit code (0 green) and
-    /// the output, which names the failed checks.
-    fn checks_watch(&self, pr: &ItemRef) -> Result<(i32, String), Error>;
+    /// Waits for a pull request's checks and what they came to.
+    fn checks_watch(&self, pr: &ItemRef) -> Result<Checks, Error>;
 
     /// The pull request's unresolved inline review threads.
     fn threads(&self, pr: &ItemRef) -> Result<Fetched, Error>;
@@ -78,9 +125,9 @@ pub trait CodeHost {
 /// are read on the first call that needs them, then kept.
 #[must_use]
 pub fn code_host(config: &Config, root: &Path) -> Box<dyn CodeHost> {
-    match config.backend.ci {
-        Ci::Github => Box::new(Gh::new(root).waiting(config.thresholds.ci_wait)),
-        Ci::Bitbucket => Box::new(Bitbucket::new(root)),
+    match config.backend.host {
+        Host::Github => Box::new(Gh::new(root).waiting(config.thresholds.ci_wait)),
+        Host::Bitbucket => Box::new(Bitbucket::new(root)),
     }
 }
 

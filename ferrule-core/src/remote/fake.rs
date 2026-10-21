@@ -4,7 +4,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use super::host::{CodeHost, PrStatus};
+use super::host::{Checks, CodeHost, PrStatus};
 use super::tracker::{Found, IssueTracker};
 use super::{Error, Item, ItemRef, Query};
 use crate::pr::feedback::{Fetched, Thread};
@@ -105,15 +105,19 @@ impl CodeHost for FakeHost {
         self.call(format!("status {pr}"));
         let s = self.0.borrow();
         Ok(PrStatus {
-            state: s.state.clone(),
+            state: super::host::PrState::parse(&s.state),
             draft: s.draft,
             body: s.body.clone(),
         })
     }
 
-    fn checks_watch(&self, pr: &ItemRef) -> Result<(i32, String), Error> {
+    fn checks_watch(&self, pr: &ItemRef) -> Result<Checks, Error> {
         self.call(format!("checks_watch {pr}"));
-        Ok((0, String::new()))
+        Ok(Checks {
+            code: 0,
+            failed: Vec::new(),
+            raw: String::new(),
+        })
     }
 
     fn threads(&self, pr: &ItemRef) -> Result<Fetched, Error> {
@@ -244,10 +248,15 @@ impl IssueTracker for FakeTracker {
             .map(|(n, _)| ItemRef::Number(*n)))
     }
 
-    fn search(&self, keywords: &[String], state: &str, _limit: usize) -> Result<Vec<Found>, Error> {
+    fn search(
+        &self,
+        keywords: &[String],
+        state: super::SearchState,
+        _limit: usize,
+    ) -> Result<Vec<Found>, Error> {
         self.write(
             "issue search",
-            format!("search {} {state}", keywords.join(" ")),
+            format!("search {} {}", keywords.join(" "), state.as_str()),
         )?;
         Ok(Vec::new())
     }

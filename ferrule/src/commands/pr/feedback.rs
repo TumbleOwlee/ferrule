@@ -38,7 +38,7 @@ Refusals (stdout, exit 1):
       The board refused moving a stage back; nothing is logged or moved.
 Errors (stderr, exit 1): the CI host's error.
 Exit codes: 0 ok, 1 refused, 4 internal error.
-Backend: reads threads from the configured CI host.
+Backend: reads threads from the configured code host.
 See: ferrule guide show feedback";
 
 const FB_FETCH_AFTER_LONG_HELP: &str = "\
@@ -50,7 +50,7 @@ Output:
       lowercase (`open`).
 Errors (stderr, exit 1): `pr feedback: <the host's error>`.
 Exit codes: 0 ok, 1 refused, 4 internal error.
-Backend: reads the threads from the configured CI host.
+Backend: reads the threads from the configured code host.
 See: ferrule guide show feedback";
 
 const FB_REPLY_AFTER_LONG_HELP: &str = "\
@@ -73,7 +73,7 @@ Errors (stderr):
   pr feedback: a 'reply: fixed' thread needs <stage> <sha> (the pushed head)
       exit 2. Fix: give the stage and the pushed commit.
 Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
-Backend: posts to the configured CI host.
+Backend: posts to the configured code host.
 See: ferrule guide show feedback";
 
 #[derive(Debug, Subcommand)]

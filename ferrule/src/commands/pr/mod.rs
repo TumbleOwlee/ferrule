@@ -76,7 +76,7 @@ Refusals (stdout, exit 1):
 Errors (stderr, exit 1): `pr view: <the host's error>` for an unknown PR, a
 missing credential or a failing `gh`/`curl`.
 Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
-Backend: reads from the configured CI host (`backend` in ferrule.toml).";
+Backend: reads from the configured code host (`backend` in ferrule.toml).";
 
 const PR_BODY_AFTER_LONG_HELP: &str = "\
 Output (stdout): the body, line 1 `# <title>`, ending `Closes #<issue>`; posts
@@ -109,11 +109,11 @@ Refusals (stdout, exit 1):
   open=refused reason=stage-ref stage-ref=<token> hint=reword the source text so it names no stage or agent
       The draft body names a stage or an agent. Exit 3. Fix: see `pr body`.
   open=refused reason=unsupported host=<host> hint=<op> is not implemented for <host> yet; do it on <host> by hand
-      The configured CI host cannot open a PR (Bitbucket). Fix: open it on
+      The configured code host cannot open a PR (Bitbucket). Fix: open it on
       the host by hand.
 Errors (stderr, exit 1): `body: missing <path>`; the CI host's error.
 Exit codes: 0 ok, 1 refused, 3 content, 4 internal error.
-Backend: opens the PR on the configured CI host.
+Backend: opens the PR on the configured code host.
 See: ferrule guide show stages";
 
 const PR_PUSH_AFTER_LONG_HELP: &str = "\
@@ -159,7 +159,7 @@ Refusals (stdout, exit 1):
       No card for the slug.
 Errors (stderr, exit 1): `missing <path>`; the CI host's error.
 Exit codes: 0 ok, 1 refused, 4 internal error.
-Backend: pushes to origin; updates the PR on the configured CI host.
+Backend: pushes to origin; updates the PR on the configured code host.
 See: ferrule guide show stages";
 
 const PR_PUBLISH_AFTER_LONG_HELP: &str = "\
@@ -195,7 +195,7 @@ Refusals (stdout, exit 1 unless noted):
       the follow-ups. Fix: do it on the host by hand.
 Errors (stderr, exit 1): `body: missing <path>` (pr.md); the host's error.
 Exit codes: 0 ok, 1 refused, 3 content, 4 internal error.
-Backend: edits and readies the PR on the configured CI host; files the
+Backend: edits and readies the PR on the configured code host; files the
 follow-ups on the tracker.
 See: ferrule guide show gate4";
 

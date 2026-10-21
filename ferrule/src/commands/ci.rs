@@ -69,7 +69,7 @@ followed by `--context` lines; nothing when the log has none. Exit 0.
 Errors (stderr, exit 1): `ci failed: <error>` when there is no failed run, no
 failing job matching `--job`, or the host call fails.
 Exit codes: 0 ok, 1 refused, 4 internal error.
-Backend: reads the run's logs from the configured CI host (`gh run view` on
+Backend: reads the run's logs from the configured code host (`gh run view` on
 GitHub, pipelines on Bitbucket).
 On GitHub only a run of the branch's head commit counts: `No failed run found
 for branch '<b>' at <sha>` when only an older commit failed.
@@ -180,7 +180,7 @@ fn wait(slug: &str, out: &mut impl Write) -> io::Result<u8> {
     // `ci=` is stamped when the checks finished, not when the wait began.
     let now = board::now();
     let (code, failed) = match waited {
-        Ok(r) => r,
+        Ok(c) => (c.code, c.failed),
         Err(publish::Error::NoPr) => {
             let r = Refusal::new("ci", "no-pr").hint(format!(
                 "no PR is recorded for this run; open it with `ferrule pr open {slug}`"

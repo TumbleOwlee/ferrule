@@ -50,8 +50,10 @@ impl Default for Config {
 pub struct Backend {
     /// Where issues live.
     pub tracker: Tracker,
-    /// Where CI runs and pull requests live.
-    pub ci: Ci,
+    /// Where pull requests and their CI live; `ci`, its former name, is
+    /// still read.
+    #[serde(alias = "ci")]
+    pub host: Host,
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
@@ -66,7 +68,7 @@ pub enum Tracker {
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
-pub enum Ci {
+pub enum Host {
     /// Through `gh`.
     #[default]
     Github,
@@ -257,7 +259,7 @@ stack = "rust"
 
 [backend]
 tracker = "github"
-ci = "github"
+host = "github"
 
 [[gauntlet.step]]
 name = "fmt"
@@ -293,6 +295,8 @@ ci_wait = "45m"
         assert_eq!(c.hook.readonly.mutating.len(), 4);
         assert_eq!(c.hook.readonly.allow, ["make check"]);
         assert_eq!(c.backend.tracker, Tracker::Github);
+        let old: Config = toml::from_str("[backend]\nci = \"bitbucket\"\n").unwrap();
+        assert_eq!(old.backend.host, Host::Bitbucket, "ci is still read");
         assert_eq!(c.thresholds.ci_wait, Duration::from_mins(45));
         assert_eq!(Thresholds::default().ci_wait, Duration::from_hours(2));
     }

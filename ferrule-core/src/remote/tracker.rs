@@ -22,6 +22,26 @@ pub fn title_query(title: &str) -> String {
     format!("\"{}\" in:title", title.replace('"', "").trim())
 }
 
+/// Which issues [`IssueTracker::search`] covers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchState {
+    Open,
+    Closed,
+    All,
+}
+
+impl SearchState {
+    /// The word `gh issue list --state` takes.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SearchState::Open => "open",
+            SearchState::Closed => "closed",
+            SearchState::All => "all",
+        }
+    }
+}
+
 /// One hit of [`IssueTracker::search`].
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Found {
@@ -53,7 +73,12 @@ pub trait IssueTracker {
     /// Issues whose title or body mention every keyword (one with a space
     /// as a phrase), in `state` (`open`, `closed` or `all`); at most
     /// `limit` of them, newest first.
-    fn search(&self, keywords: &[String], state: &str, limit: usize) -> Result<Vec<Found>, Error>;
+    fn search(
+        &self,
+        keywords: &[String],
+        state: SearchState,
+        limit: usize,
+    ) -> Result<Vec<Found>, Error>;
 }
 
 /// The configured issue tracker, running its programs in `root`.

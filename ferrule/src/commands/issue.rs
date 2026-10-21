@@ -321,9 +321,9 @@ fn search(keywords: &[String], state: SearchState, out: &mut impl Write) -> io::
     let config = config()?;
     let max = config.thresholds.search_max;
     let state = match state {
-        SearchState::Open => "open",
-        SearchState::Closed => "closed",
-        SearchState::All => "all",
+        SearchState::Open => remote::SearchState::Open,
+        SearchState::Closed => remote::SearchState::Closed,
+        SearchState::All => remote::SearchState::All,
     };
     match remote::issue_tracker(&config, &project::main_checkout()).search(keywords, state, max + 1)
     {

@@ -801,7 +801,7 @@ impl Run<'_> {
         // follow-ups still to file.
         let ready = logged && {
             let s = self.host.status(&pr_ref)?;
-            s.state != "open" || !s.draft
+            s.state != remote::PrState::Open || !s.draft
         };
         if !ready {
             self.host.edit(&pr_ref, Some(&title), &body)?;
@@ -827,9 +827,9 @@ impl Run<'_> {
         Ok(Ok((pr, filed)))
     }
 
-    /// Waits for the PR's checks; the exit code, the failed checks and the
-    /// output, also written to the run's ci.log.
-    pub fn wait_ci(&self) -> Result<(i32, Vec<String>), Error> {
+    /// Waits for the PR's checks and what they came to; their output is
+    /// written to the run's ci.log.
+    pub fn wait_ci(&self) -> Result<remote::Checks, Error> {
         if board::state(self.conn, self.slug)?.is_none() {
             return Err(Error::Card);
         }
@@ -837,10 +837,10 @@ impl Run<'_> {
             .first()
             .copied()
             .ok_or(Error::NoPr)?;
-        let (code, output) = self.host.checks_watch(&ItemRef::Number(pr))?;
-        std::fs::write(self.layout.run_dir(self.slug).join("ci.log"), &output)
+        let checks = self.host.checks_watch(&ItemRef::Number(pr))?;
+        std::fs::write(self.layout.run_dir(self.slug).join("ci.log"), &checks.raw)
             .map_err(|e| Error::Remote(remote::Error::Command(e.to_string())))?;
-        Ok((code, remote::failed_checks(&output)))
+        Ok(checks)
     }
 }
 
@@ -959,8 +959,8 @@ impl Run<'_> {
                     draft,
                     body: current,
                 }) => {
-                    if state != "open" {
-                        differ.push(format!("pr #{n} is {state}"));
+                    if state != remote::PrState::Open {
+                        differ.push(format!("pr #{n} is {}", state.as_str()));
                     } else if ready && draft {
                         differ.push(format!("pr #{n} is a draft but pr=ready is logged"));
                     } else if !ready
