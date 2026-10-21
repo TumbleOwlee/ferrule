@@ -28,7 +28,8 @@ pub fn over_cap(path: &Path, text: &str, t: &Thresholds) -> Option<(usize, usize
     if !(name.ends_with(".summary.md") || name.ends_with(".verdict.md")) {
         return None;
     }
-    let lines = text.bytes().filter(|&b| b == b'\n').count();
+    // Lines as an editor shows them: a last line without a newline counts.
+    let lines = text.lines().count();
     let bytes = text.len();
     (lines > t.summary_max_lines || bytes > t.summary_max_bytes).then_some((lines, bytes))
 }
@@ -86,5 +87,8 @@ mod tests {
         );
         assert_eq!(over_cap(Path::new("plan.md"), &long, &t), None);
         assert_eq!(over_cap(Path::new("review.verdict.md"), "ok\n", &t), None);
+        // One line over the cap, the last without a newline.
+        let over = "- line\n".repeat(t.summary_max_lines) + "- last";
+        assert!(over_cap(Path::new("a.summary.md"), &over, &t).is_some());
     }
 }

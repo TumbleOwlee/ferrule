@@ -614,7 +614,7 @@ fn ensure_claude_md(root: &Path, lock: &mut Lock, report: &mut Report) -> std::i
     let text = std::fs::read_to_string(&path).unwrap_or_default();
     if text
         .lines()
-        .any(|l| l.trim() == "@AGENTS.md" || l.contains("@./AGENTS.md"))
+        .any(|l| matches!(l.trim(), "@AGENTS.md" | "@./AGENTS.md"))
     {
         return Ok(());
     }
@@ -1029,14 +1029,18 @@ pub fn version_mismatch(root: &Path) -> Option<Mismatch> {
 #[must_use]
 pub fn is_update(command: &str) -> bool {
     let words: Vec<&str> = command.split_whitespace().collect();
+    // `ferrule` or a path to it, never a word that only ends in it.
+    let is_ferrule = |w: &str| w == "ferrule" || w.ends_with("/ferrule");
     let ferrule_install = words
         .windows(2)
-        .any(|w| w[0].ends_with("ferrule") && w[1] == "install")
+        .any(|w| is_ferrule(w[0]) && w[1] == "install")
         || words
             .windows(3)
-            .any(|w| w[0].ends_with("ferrule") && w[1] == "setup" && w[2] == "install");
+            .any(|w| is_ferrule(w[0]) && w[1] == "setup" && w[2] == "install");
     let cargo_install = words.windows(2).any(|w| w == ["cargo", "install"])
-        && words.iter().any(|w| w.contains("ferrule"));
+        && words
+            .iter()
+            .any(|w| is_ferrule(w.trim_end_matches(".git")) || w.starts_with("ferrule@"));
     ferrule_install || cargo_install
 }
 
@@ -1071,6 +1075,12 @@ mod tests {
         ));
         assert!(!is_update("ferrule board list"));
         assert!(!is_update("cargo install ripgrep"));
+        assert!(!is_update("notferrule install"));
+        assert!(!is_update("cargo install ripgrep-ferrule-fork"));
+        assert!(is_update("cargo install --path ferrule"));
+        assert!(is_update(
+            "cargo install --git https://github.com/o/ferrule.git"
+        ));
     }
 
     #[test]
