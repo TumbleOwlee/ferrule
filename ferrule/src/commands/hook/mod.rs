@@ -30,8 +30,11 @@ Refuses:
                        to the guard's own settings (.ferrule/ferrule.toml,
                        .claude/settings.json, .claude/settings.local.json),
                        by any glob, brace or case form, and removing or
-                       moving .ferrule itself; git clean -x over it; setting
-                       core.hooksPath
+                       moving .ferrule itself or a tree holding it (rm -rf .,
+                       \"$PWD\", find -delete); git clean -x over it from
+                       anywhere, git stash --all; setting core.hooksPath;
+                       after cd - or popd the guard takes the directory as
+                       .ferrule
   a flood: whole-file cat of a .md or large file, unfiltered git diff/show,
                        unfiltered find -type, a raw CI log
   a git or gh call a ferrule command replaces; the reason names it

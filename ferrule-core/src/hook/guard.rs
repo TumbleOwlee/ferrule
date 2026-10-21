@@ -382,6 +382,9 @@ pub fn shell(command: &str, cwd: &Path, policy: Policy) -> Option<String> {
     guard_list(&shell::parse(command), &mut cwd, policy, 0)
 }
 
+/// Where the guard takes a session to stand after `cd -` or `popd`.
+const UNKNOWN_CWD: &str = "/.ferrule";
+
 /// How deep `sh -c` and `eval` strings are followed; deeper is refused.
 const MAX_DEPTH: usize = 8;
 
@@ -437,6 +440,16 @@ fn guard_list(
             }
             None => (name, args),
         };
+        // A directory the guard cannot follow is taken as `.ferrule`, the
+        // strictest place a relative path can be checked from.
+        if matches!(name, "popd") || (name == "cd" && args.iter().any(|a| a == "-")) {
+            *cwd = PathBuf::from(UNKNOWN_CWD);
+            continue;
+        }
+        if name == "cd" && cd_word(args).is_none() {
+            *cwd = std::env::home_dir().unwrap_or_else(|| PathBuf::from(UNKNOWN_CWD));
+            continue;
+        }
         if matches!(name, "cd" | "pushd") {
             if let Some(t) = cd_word(args).filter(|t| globbed(t)) {
                 return Some(format!(
@@ -452,6 +465,8 @@ fn guard_list(
             .or_else(|| fed_shell(c, name, args))
             .or_else(|| owned_edit(c, name, args, cwd))
             .or_else(|| owned_clean(name, args, cwd))
+            .or_else(|| owned_removal(name, args, cwd))
+            .or_else(|| stash_all(name, args))
             .or_else(|| git_config(name, args))
             .or_else(|| flood(c, name, args, cwd))
             .or_else(|| hidden(&c.words, name, args, policy))
@@ -596,8 +611,88 @@ fn replaced_as(name: &str, args: &[String], policy: Policy) -> Option<String> {
     }
 }
 
+/// Whether directory `dir` holds `.ferrule` or sits inside one.
+fn holds_ferrule(dir: &Path) -> bool {
+    dir.join(".ferrule").exists()
+        || dir
+            .components()
+            .any(|c| c.as_os_str().eq_ignore_ascii_case(".ferrule"))
+}
+
+/// Whether `word`, from `cwd`, names a directory holding `.ferrule` (one
+/// inside it does not), a glob that matches `.ferrule` itself, or the
+/// current directory through
+/// a variable or substitution the guard cannot read (`"$PWD"`).
+fn reaches_ferrule(cwd: &Path, word: &str) -> bool {
+    if matches!(word, "$PWD" | "${PWD}" | "$(…)" | "`…`") {
+        return true;
+    }
+    braces(word).iter().any(|w| {
+        let path = resolve(cwd, w);
+        let (parent, file) = match (path.parent(), path.file_name().and_then(|f| f.to_str())) {
+            (Some(p), Some(f)) => (p.to_path_buf(), f.to_owned()),
+            _ => (path.clone(), String::new()),
+        };
+        path.join(".ferrule").exists()
+            || (globbed(&file) && glob(&file, ".ferrule") && parent.join(".ferrule").exists())
+    })
+}
+
+/// A program that deletes or moves whole trees run on one holding
+/// `.ferrule` (`rm -rf .`, `rm -rf "$PWD"`), or `find -delete`/`-exec`
+/// under one with no name test, or one an owned file matches.
+fn owned_removal(name: &str, args: &[String], cwd: &Path) -> Option<String> {
+    let hit = match name {
+        "rm" | "rmdir" | "mv" | "shred" => args
+            .iter()
+            .skip_while(|a| a.as_str() != "--" && a.starts_with('-') && a.len() > 1)
+            .filter(|a| a.as_str() != "--")
+            .any(|a| reaches_ferrule(cwd, a)),
+        "find" if has(args, &["-delete", "-exec", "-execdir", "-ok", "-okdir"]) => {
+            let roots: Vec<&String> = args.iter().take_while(|a| !a.starts_with('-')).collect();
+            let roots_hold = if roots.is_empty() {
+                holds_ferrule(cwd)
+            } else {
+                roots.iter().any(|r| holds_ferrule(&resolve(cwd, r)))
+            };
+            let tests: Vec<&String> = args
+                .windows(2)
+                .filter(|w| {
+                    matches!(
+                        w[0].as_str(),
+                        "-name" | "-iname" | "-path" | "-ipath" | "-wholename"
+                    )
+                })
+                .map(|w| &w[1])
+                .collect();
+            let names_one = |t: &str| {
+                let last = t.rsplit('/').next().unwrap_or(t);
+                OWNED.iter().any(|(d, f)| glob(last, f) || glob(last, d))
+            };
+            roots_hold && (tests.is_empty() || tests.iter().any(|t| names_one(t)))
+        }
+        _ => false,
+    };
+    hit.then(|| format!("{OWNED_REASON} This removes or moves a tree holding .ferrule/, the board among it: name the paths inside it to remove instead."))
+}
+
+/// `git stash --all`: it stashes ignored files too, the board among them,
+/// and removes them from the checkout.
+fn stash_all(name: &str, args: &[String]) -> Option<String> {
+    if name != "git" {
+        return None;
+    }
+    let g = shell::git(args)?;
+    let all = g.sub == "stash"
+        && g.args.iter().any(|a| {
+            a == "--all" || (a.starts_with('-') && !a.starts_with("--") && a.contains('a'))
+        });
+    all.then(|| format!("{OWNED_REASON} git stash --all stashes ignored files, .ferrule/state.db among them, and removes them: use git stash -u for untracked files."))
+}
+
 /// `git clean -x` where it would delete ferrule's ignored files: run in or
-/// above `.ferrule`, on no pathspec or one that reaches it, and without
+/// above `.ferrule`, on no pathspec or one that reaches it (resolved from
+/// `-C` and the current directory, `:/` from the top), and without
 /// `-e .ferrule`.
 fn owned_clean(name: &str, args: &[String], cwd: &Path) -> Option<String> {
     if name != "git" {
@@ -627,16 +722,21 @@ fn owned_clean(name: &str, args: &[String], cwd: &Path) -> Option<String> {
         }
         i += 1;
     }
-    let reaches = paths.is_empty()
-        || paths
-            .iter()
-            .any(|p| matches!(*p, "." | "./" | ":/" | "*") || p.contains(".ferrule"));
     let dir = g.dir.map_or_else(|| cwd.to_path_buf(), |d| resolve(cwd, d));
-    let holds = dir.join(".ferrule").exists()
-        || dir
-            .components()
-            .any(|c| c.as_os_str().eq_ignore_ascii_case(".ferrule"));
-    (ignored && !excluded && reaches && holds).then(|| {
+    let reach = |p: &str| {
+        if p.starts_with(":/") || p.starts_with(":(top)") {
+            return dir.ancestors().any(holds_ferrule);
+        }
+        matches!(p, "*" | "." | "./") && holds_ferrule(&dir)
+            || p.contains(".ferrule")
+            || reaches_ferrule(&dir, p)
+    };
+    let reaches = if paths.is_empty() {
+        holds_ferrule(&dir)
+    } else {
+        paths.iter().any(|p| reach(p))
+    };
+    (ignored && !excluded && reaches).then(|| {
         format!("{OWNED_REASON} git clean -x deletes ignored files, .ferrule/state.db among them: add -e .ferrule.")
     })
 }

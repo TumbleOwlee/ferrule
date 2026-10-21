@@ -649,3 +649,47 @@ fn it_session_start_names_unfinished_cards() {
         "{text}"
     );
 }
+
+#[test]
+fn it_shell_guard_refuses_removing_the_tree_that_holds_the_board() {
+    let p = project();
+    std::fs::create_dir_all(p.path().join(".ferrule")).unwrap();
+    std::fs::write(p.path().join(".ferrule/state.db"), "").unwrap();
+    std::fs::create_dir_all(p.path().join("sub/deeper")).unwrap();
+    let sub = p.path().join("sub");
+    check(
+        "shell",
+        p.path(),
+        &[
+            ("rm -rf .", "deny"),
+            ("rm -rf \"$PWD\"", "deny"),
+            ("rm -rf $(pwd)", "deny"),
+            ("rm -rf .*", "deny"),
+            ("rm -rf sub", "allow"),
+            ("rm big.txt", "allow"),
+            ("mv . ../elsewhere", "deny"),
+            ("find . -name state.db -delete", "deny"),
+            ("find . -delete", "deny"),
+            ("find . -name '*.tmp' -delete", "allow"),
+            ("find sub -delete", "allow"),
+            ("git stash --all", "deny"),
+            ("git stash push -a", "deny"),
+            ("git stash -u", "allow"),
+            ("git stash list", "allow"),
+            ("cd - && rm state.db", "deny"),
+            ("cd sub && popd && rm -rf state.db", "deny"),
+            ("cd sub && rm -rf ..", "deny"),
+        ],
+    );
+    check(
+        "shell",
+        &sub,
+        &[
+            ("git clean -fdx ..", "deny"),
+            ("git clean -fdx :/", "deny"),
+            ("git -C deeper clean -fdx :/", "deny"),
+            ("git clean -fdx", "allow"),
+            ("git clean -fdx deeper", "allow"),
+        ],
+    );
+}
