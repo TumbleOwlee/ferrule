@@ -872,7 +872,7 @@ impl Run<'_> {
         if let Some(&n) = numbers(self.field("issue")?.as_deref()).first() {
             match remote::issue(self.config.backend.tracker, &n.to_string(), self.root) {
                 Ok(item) => {
-                    if !item.head.ends_with("[OPEN]") {
+                    if !item.open {
                         differ.push(format!("issue #{n} is not open"));
                     }
                     let kept = board::events(self.conn, self.slug, &[Name::SpecKeep])?.len();

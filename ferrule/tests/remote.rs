@@ -107,7 +107,7 @@ const THREADS: &str = r#"{"data":{"repository":{"pullRequest":{"state":"OPEN","i
 fn it_feedback_fetches_threads_and_replies() {
     let gh = FakeGh::new();
     let p = tempfile::tempdir().unwrap();
-    let query = "query=query($owner: String!, $repo: String!, $pr: Int!) {\n  repository(owner: $owner, name: $repo) {";
+    let query = "query=query($owner: String!, $repo: String!, $pr: Int!, $after: String) {\n  repository(owner: $owner, name: $repo) {";
     gh.serve(
         &[
             "api",
@@ -178,12 +178,25 @@ fn it_feedback_fetches_threads_and_replies() {
 fn it_failed_prints_the_error_lines() {
     let gh = FakeGh::new();
     let p = tempfile::tempdir().unwrap();
+    for (branch, sha) in [("feat/x", "abc1234def"), ("feat/none", "0000000aaa")] {
+        gh.serve(
+            &[
+                "api",
+                &format!("repos/{{owner}}/{{repo}}/commits/{branch}"),
+                "--jq",
+                ".sha",
+            ],
+            &format!("{sha}\n"),
+        );
+    }
     gh.serve(
         &[
             "run",
             "list",
             "--branch",
             "feat/x",
+            "--commit",
+            "abc1234def",
             "--status",
             "failure",
             "--limit",
@@ -205,6 +218,7 @@ fn it_failed_prints_the_error_lines() {
         ferrule(&gh, p.path(), &["ci", "failed", "feat/x"]).text(),
         "test\terror[E0308]: mismatched types\ntest\ttest a ... FAILED\nexit=0"
     );
+    assert!(gh.log().contains("--branch feat/x --commit abc1234def"));
     assert_eq!(
         ferrule(&gh, p.path(), &["ci", "failed", "feat/none"]).text(),
         "exit=1"

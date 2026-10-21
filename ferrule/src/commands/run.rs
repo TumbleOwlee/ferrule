@@ -52,6 +52,7 @@ then a summary:
     gauntlet <sha> not on <b>      The last gauntlet=pass is not on the branch
     issue #<n> ..., pr #<n> ...    The issue is not open or lacks comments, the
                                    PR is closed, merged or behind the board
+                                   (Jira: a status of the `done` category is closed)
     host unreadable: <error>       The host could not be read
   reconcile=clean next=<s<n>|none>
                                    Nothing differs; `next` is the first stage
@@ -1176,6 +1177,12 @@ pub(super) fn ci(slug: &str, out: &mut impl Write) -> io::Result<u8> {
         Err(publish::Error::NoPr) => {
             let r = Refusal::new("ci", "no-pr").hint(format!(
                 "no PR is recorded for this run; open it with `ferrule pr open {slug}`"
+            ));
+            return refuse(out, &r);
+        }
+        Err(publish::Error::Remote(ferrule_core::remote::Error::NoChecks(_))) => {
+            let r = Refusal::new("ci", "no-checks").hint(format!(
+                "the PR reports no checks yet; rerun `ferrule ci wait {slug}` once CI has started"
             ));
             return refuse(out, &r);
         }

@@ -168,7 +168,7 @@ fn threads(path: &str) -> String {
 
 const NO_THREADS: &str = r#"{"data":{"repository":{"pullRequest":{"state":"OPEN","isDraft":true,"reviewThreads":{"nodes":[]}}}}}"#;
 
-const THREADS_QUERY: &str = "query=query($owner: String!, $repo: String!, $pr: Int!) {\n  repository(owner: $owner, name: $repo) {";
+const THREADS_QUERY: &str = "query=query($owner: String!, $repo: String!, $pr: Int!, $after: String) {\n  repository(owner: $owner, name: $repo) {";
 
 fn graphql(pr: &str) -> Vec<String> {
     [
@@ -438,6 +438,22 @@ fn first_stage(p: &Project) {
     assert!(p.run_dir().join("pr-feedback.md").is_file());
 }
 
+/// A PR without checks is refused, not logged as a red `ci=1`.
+fn no_checks_refused(p: &Project) {
+    let gh = &p.gh;
+    gh.serve_exit(
+        &["pr", "checks", "34", "--watch"],
+        "no checks reported on the 'feat/demo' branch\n",
+        1,
+    );
+    assert_eq!(
+        p.ferrule(&["ci", "wait", "demo"]).text(),
+        "ci=refused reason=no-checks hint=the PR reports no checks yet; \
+         rerun `ferrule ci wait demo` once CI has started\nexit=1"
+    );
+    assert!(!p.ok(&["board", "show", "demo"]).contains("ci=none"));
+}
+
 /// Gate 4 published, then CI red and green.
 fn publish_and_ci(p: &Project) {
     let gh = &p.gh;
@@ -506,26 +522,21 @@ fn publish_and_ci(p: &Project) {
 
     gh.serve_exit(
         &["pr", "checks", "34", "--watch"],
-        "test\tfail\t1m\thttps://x\n",
+        "test\tfail\t1m\thttps://x\ntest\tfail\t2m\thttps://x\n",
         1,
     );
     gh.serve(
         &[
-            "run",
-            "list",
-            "--branch",
-            "feat/demo",
-            "--status",
-            "failure",
-            "--limit",
-            "1",
-            "--json",
-            "databaseId",
+            "api",
+            "repos/{owner}/{repo}/commits/feat/demo",
+            "--jq",
+            ".sha",
         ],
-        "[]",
+        "feedbee\n",
     );
     let red = p.ok(&["ci", "wait", "demo"]);
     assert!(red.starts_with("ci=1 failed=test\n"), "{red}");
+    no_checks_refused(p);
     gh.serve(
         &["pr", "checks", "34", "--watch"],
         "test\tpass\t1m\thttps://x\n",
@@ -557,6 +568,20 @@ fn it_publish_refuses_threads_and_stage_refs() {
     );
     p.ok(&["board", "set", "demo", "gate4=2026-10-05"]);
     serve(&p.gh, &graphql("34"), &threads("src/x.rs"));
+    assert_eq!(
+        p.ferrule(&["pr", "publish", "demo"]).text(),
+        "publish=refused reason=threads threads=1 \
+         hint=resolve the open threads: ferrule guide show feedback\nexit=1"
+    );
+    // An unresolved thread on the second page still blocks the publish.
+    serve(
+        &p.gh,
+        &graphql("34"),
+        r#"{"data":{"repository":{"pullRequest":{"state":"OPEN","isDraft":true,"reviewThreads":{"pageInfo":{"hasNextPage":true,"endCursor":"C1"},"nodes":[]}}}}}"#,
+    );
+    let mut second = graphql("34");
+    second.splice(8..8, ["-f".to_owned(), "after=C1".to_owned()]);
+    serve(&p.gh, &second, &threads("src/x.rs"));
     assert_eq!(
         p.ferrule(&["pr", "publish", "demo"]).text(),
         "publish=refused reason=threads threads=1 \

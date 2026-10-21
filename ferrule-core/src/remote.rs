@@ -27,14 +27,18 @@ pub enum Error {
     Unsupported(&'static str),
     /// The number names a pull request, not an issue (GitHub serves both).
     PullRequest(String),
+    /// The pull request has no checks: `gh pr checks`' own words.
+    NoChecks(String),
 }
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::Command(e) | Error::Credentials(e) | Error::Shape(e) | Error::NotFound(e) => {
-                f.write_str(e)
-            }
+            Error::Command(e)
+            | Error::Credentials(e)
+            | Error::Shape(e)
+            | Error::NotFound(e)
+            | Error::NoChecks(e) => f.write_str(e),
             Error::Unsupported(what) => write!(f, "{what} is only implemented for GitHub yet"),
             Error::PullRequest(n) => {
                 write!(
@@ -100,6 +104,9 @@ pub struct Item {
     /// `#7 Title [OPEN]` or `KEY-1 Summary [In Progress]`.
     pub head: String,
     pub url: Option<String>,
+    /// Not closed: `OPEN` on GitHub and Bitbucket, any status outside the
+    /// `done` category on Jira.
+    pub open: bool,
     pub by: String,
     pub body: String,
     pub comments: Vec<Comment>,
@@ -236,6 +243,7 @@ impl From<GhItem> for Item {
         Item {
             head: format!("#{} {} [{}]", g.number, g.title, g.state),
             url: Some(g.url),
+            open: g.state == "OPEN",
             by: login(g.author.as_ref()),
             body: non_empty(g.body.as_deref(), "(no body)"),
             comments: g
@@ -309,6 +317,55 @@ fn curl(user: &str, pass: &str, args: &[&str], root: &Path) -> Result<String, Er
     run("curl", &all, Some(&config), root)
 }
 
+/// Whether a Jira status is not closed: its category is not `done`, whatever
+/// the project names its statuses.
+fn jira_open(status: &Value) -> bool {
+    status["statusCategory"]["key"] != "done"
+}
+
+/// The most pages of a listing read before giving up: a host that never
+/// stops paging must not hang a command.
+const MAX_PAGES: usize = 200;
+
+/// Every comment of a Jira issue: `get(start)` fetches the page from
+/// `startAt=start`; pages follow until `total` is reached.
+fn jira_comments(mut get: impl FnMut(usize) -> Result<Value, Error>) -> Result<Vec<Value>, Error> {
+    let mut out: Vec<Value> = Vec::new();
+    for _ in 0..MAX_PAGES {
+        let page = get(out.len())?;
+        let got = page["comments"].as_array().map_or(0, Vec::len);
+        out.extend(page["comments"].as_array().into_iter().flatten().cloned());
+        let total = page["total"].as_u64().unwrap_or(0);
+        if got == 0 || out.len() as u64 >= total {
+            return Ok(out);
+        }
+    }
+    Err(Error::Shape(format!(
+        "jira: more than {MAX_PAGES} pages of comments"
+    )))
+}
+
+/// Every `values` entry of a paged Bitbucket listing, following `next`
+/// from `first`; `get(url)` fetches one page.
+pub(crate) fn follow_next(
+    first: &str,
+    mut get: impl FnMut(&str) -> Result<String, Error>,
+) -> Result<Vec<Value>, Error> {
+    let mut out = Vec::new();
+    let mut url = first.to_owned();
+    for _ in 0..MAX_PAGES {
+        let page: Value = json(&get(&url)?, "bitbucket")?;
+        out.extend(page["values"].as_array().into_iter().flatten().cloned());
+        match page["next"].as_str() {
+            Some(next) if next != url => next.clone_into(&mut url),
+            _ => return Ok(out),
+        }
+    }
+    Err(Error::Shape(format!(
+        "bitbucket: more than {MAX_PAGES} pages of {first}"
+    )))
+}
+
 struct Jira {
     c: JiraCreds,
 }
@@ -327,7 +384,12 @@ impl Jira {
             &format!("issue/{key}?fields=summary,status,reporter,description"),
             root,
         )?;
-        let c = self.get(&format!("issue/{key}/comment?orderBy=created"), root)?;
+        let comments = jira_comments(|start| {
+            self.get(
+                &format!("issue/{key}/comment?orderBy=created&startAt={start}&maxResults=100"),
+                root,
+            )
+        })?;
         let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
         let f = &i["fields"];
         Ok(Item {
@@ -338,23 +400,20 @@ impl Jira {
                 s(&f["status"]["name"])
             ),
             url: None,
+            open: jira_open(&f["status"]),
             by: f["reporter"]["displayName"]
                 .as_str()
                 .unwrap_or("unknown")
                 .to_owned(),
             body: adf_text(&f["description"]),
-            comments: c["comments"]
-                .as_array()
-                .map(|a| {
-                    a.iter()
-                        .map(|c| Comment {
-                            author: s(&c["author"]["displayName"]),
-                            at: s(&c["created"]),
-                            body: adf_text(&c["body"]),
-                        })
-                        .collect()
+            comments: comments
+                .iter()
+                .map(|c| Comment {
+                    author: s(&c["author"]["displayName"]),
+                    at: s(&c["created"]),
+                    body: adf_text(&c["body"]),
                 })
-                .unwrap_or_default(),
+                .collect(),
         })
     }
 }
@@ -381,16 +440,19 @@ impl Bitbucket {
         curl(&self.c.username, &self.c.app_password, args, root)
     }
 
+    /// Every entry of a paged listing, all pages.
+    pub(crate) fn values(&self, url: &str, root: &Path) -> Result<Vec<Value>, Error> {
+        follow_next(url, |u| self.call(&[u], root))
+    }
+
     fn pr(&self, n: &str, root: &Path) -> Result<Item, Error> {
         let api = self.api(&format!("pullrequests/{n}"));
         let pr: Value = json(&self.call(&[&api], root)?, "bitbucket")?;
         let comments_url = format!("{api}/comments?pagelen=50");
-        let cs: Value = json(&self.call(&[&comments_url], root)?, "bitbucket")?;
+        let cs = self.values(&comments_url, root)?;
         let s = |v: &Value, d: &str| v.as_str().unwrap_or(d).to_owned();
-        let comments: Vec<Comment> = cs["values"]
-            .as_array()
-            .into_iter()
-            .flatten()
+        let comments: Vec<Comment> = cs
+            .iter()
             .filter(|c| c["deleted"] != Value::Bool(true))
             .map(|c| Comment {
                 author: s(&c["user"]["display_name"], "unknown"),
@@ -406,6 +468,7 @@ impl Bitbucket {
                 s(&pr["state"], "")
             ),
             url: pr["links"]["html"]["href"].as_str().map(str::to_owned),
+            open: pr["state"] == "OPEN",
             by: s(&pr["author"]["display_name"], "unknown"),
             body: non_empty(pr["description"].as_str(), "(no body)"),
             comments,
@@ -729,7 +792,14 @@ pub fn pr_status(ci: Ci, n: u64, root: &Path) -> Result<(String, bool, String), 
         is_draft: bool,
         body: Option<String>,
     }
-    github_ci(ci, "pr status")?;
+    if ci == Ci::Bitbucket {
+        let bb = Bitbucket::load(root)?;
+        let pr: Value = json(
+            &bb.call(&[&bb.api(&format!("pullrequests/{n}"))], root)?,
+            "bitbucket",
+        )?;
+        return Ok(bitbucket_status(&pr));
+    }
     let out = run(
         "gh",
         &["pr", "view", &n.to_string(), "--json", "state,isDraft,body"],
@@ -742,6 +812,21 @@ pub fn pr_status(ci: Ci, n: u64, root: &Path) -> Result<(String, bool, String), 
         p.is_draft,
         p.body.unwrap_or_default(),
     ))
+}
+
+/// A Bitbucket pull request's state (`open`, `merged`; declined and
+/// superseded are `closed`), draft flag and description.
+fn bitbucket_status(pr: &Value) -> (String, bool, String) {
+    let state = match pr["state"].as_str().unwrap_or("") {
+        "OPEN" => "open",
+        "MERGED" => "merged",
+        _ => "closed",
+    };
+    (
+        state.to_owned(),
+        pr["draft"].as_bool().unwrap_or(false),
+        pr["description"].as_str().unwrap_or("").to_owned(),
+    )
 }
 
 /// Waits for a pull request's checks; their exit code (0 green) and the
@@ -760,21 +845,35 @@ pub fn pr_checks_watch(ci: Ci, n: u64, root: &Path) -> Result<(i32, String), Err
         .map_err(|e| Error::Command(format!("gh: {e}")))?;
     let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
     text.push_str(&String::from_utf8_lossy(&out.stderr));
-    Ok((out.status.code().unwrap_or(1), text))
+    let code = out.status.code().unwrap_or(1);
+    if code != 0 && no_checks(&text) {
+        return Err(Error::NoChecks(text.trim().to_owned()));
+    }
+    Ok((code, text))
 }
 
-/// The names of the failed checks in `gh pr checks` output.
+/// Whether `gh pr checks` output says the pull request has no checks (it
+/// exits 1 then, as for a red check).
+fn no_checks(output: &str) -> bool {
+    output.contains("no checks reported")
+}
+
+/// The names of the failed checks in `gh pr checks` output, each once:
+/// `--watch` prints a check again on every refresh.
 #[must_use]
 pub fn failed_checks(output: &str) -> Vec<String> {
-    output
-        .lines()
-        .filter_map(|l| {
-            let mut cells = l.split('\t');
-            let name = cells.next()?.trim();
-            let state = cells.next()?.trim();
-            (state == "fail" && !name.is_empty()).then(|| name.to_owned())
-        })
-        .collect()
+    let mut names: Vec<String> = Vec::new();
+    for l in output.lines() {
+        let mut cells = l.split('\t');
+        let (Some(name), Some(state)) = (cells.next(), cells.next()) else {
+            continue;
+        };
+        let name = name.trim();
+        if state.trim() == "fail" && !name.is_empty() && !names.iter().any(|n| n == name) {
+            names.push(name.to_owned());
+        }
+    }
+    names
 }
 
 fn names_an_error(line: &str) -> bool {
@@ -879,6 +978,20 @@ fn github_failed_log(branch: &str, query: Query, root: &Path) -> Result<String, 
     let id = if let Some(given) = query.run {
         given.to_owned()
     } else {
+        // The branch's head: an older commit's failure is not this one's.
+        let sha = run(
+            "gh",
+            &[
+                "api",
+                &format!("repos/{{owner}}/{{repo}}/commits/{branch}"),
+                "--jq",
+                ".sha",
+            ],
+            None,
+            root,
+        )?
+        .trim()
+        .to_owned();
         let runs: Vec<Run> = json(
             &run(
                 "gh",
@@ -887,6 +1000,8 @@ fn github_failed_log(branch: &str, query: Query, root: &Path) -> Result<String, 
                     "list",
                     "--branch",
                     branch,
+                    "--commit",
+                    &sha,
                     "--status",
                     "failure",
                     "--limit",
@@ -901,7 +1016,8 @@ fn github_failed_log(branch: &str, query: Query, root: &Path) -> Result<String, 
         )?;
         let Some(r) = runs.first() else {
             return Err(Error::NotFound(format!(
-                "No failed run found for branch '{branch}'"
+                "No failed run found for branch '{branch}' at {}",
+                sha.get(..7).unwrap_or(&sha)
             )));
         };
         r.database_id.to_string()
@@ -990,6 +1106,68 @@ fn bitbucket_failed_log(branch: &str, query: Query, root: &Path) -> Result<Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ut_failed_checks_once_each_and_no_checks() {
+        let out =
+            "build\tfail\t1m\nlint\tpass\t3s\nbuild\tpending\t\nbuild\tfail\t2m\ntest\tfail\t5s\n";
+        assert_eq!(failed_checks(out), ["build", "test"]);
+        assert!(no_checks("no checks reported on the 'feat/x' branch\n"));
+        assert!(!no_checks(out));
+    }
+
+    #[test]
+    fn ut_jira_comments_follow_start_at_until_total() {
+        let mut starts = Vec::new();
+        let got = jira_comments(|start| {
+            starts.push(start);
+            let all = ["a", "b", "c"];
+            let page: Vec<Value> = all
+                .iter()
+                .skip(start)
+                .take(2)
+                .map(|b| serde_json::json!({ "body": b }))
+                .collect();
+            Ok(serde_json::json!({ "comments": page, "total": 3 }))
+        })
+        .unwrap();
+        assert_eq!(got.len(), 3);
+        assert_eq!(starts, [0, 2]);
+    }
+
+    #[test]
+    fn ut_bitbucket_pages_follow_next() {
+        let mut asked = Vec::new();
+        let got = follow_next("u1", |u| {
+            asked.push(u.to_owned());
+            Ok(match u {
+                "u1" => r#"{"values":[1,2],"next":"u2"}"#,
+                _ => r#"{"values":[3]}"#,
+            }
+            .to_owned())
+        })
+        .unwrap();
+        assert_eq!(got.len(), 3);
+        assert_eq!(asked, ["u1", "u2"]);
+    }
+
+    #[test]
+    fn ut_jira_closed_by_status_category() {
+        let st = |c: &str| serde_json::json!({ "name": "Shipped", "statusCategory": { "key": c } });
+        assert!(!jira_open(&st("done")));
+        assert!(jira_open(&st("indeterminate")));
+        assert!(jira_open(&st("new")));
+    }
+
+    #[test]
+    fn ut_bitbucket_pr_states() {
+        let st = |s: &str| {
+            bitbucket_status(&serde_json::json!({ "state": s, "draft": true, "description": "d" }))
+        };
+        assert_eq!(st("OPEN"), ("open".to_owned(), true, "d".to_owned()));
+        assert_eq!(st("MERGED").0, "merged");
+        assert_eq!(st("DECLINED").0, "closed");
+    }
 
     #[test]
     fn ut_github_item_as_text() {

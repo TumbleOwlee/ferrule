@@ -47,6 +47,9 @@ Refusals:
                                    `ferrule board list`
   ci=refused reason=no-pr          The run has no PR recorded; open it with
                                    `ferrule pr open <slug>`
+  ci=refused reason=no-checks      The PR reports no checks (CI has not started
+                                   or the repo has none); nothing is logged,
+                                   rerun once checks appear
   (stderr: the host's error)       The checks could not be read (exit 1)
 The ci=refused lines end in ` hint=<fix>`.
 Exit codes: 0 ok, 1 refused, 4 internal error.
@@ -60,6 +63,8 @@ failing job matching `--job`, or the host call fails.
 Exit codes: 0 ok, 1 refused, 4 internal error.
 Backend: reads the run's logs from the configured CI host (`gh run view` on
 GitHub, pipelines on Bitbucket).
+On GitHub only a run of the branch's head commit counts: `No failed run found
+for branch '<b>' at <sha>` when only an older commit failed.
 See: ferrule guide show gate4";
 
 #[derive(Debug, Subcommand)]
@@ -86,8 +91,9 @@ pub enum CiCommand {
     },
     /// Print the error lines of a failed CI run.
     ///
-    /// The branch's latest failed run and its first failing job unless
-    /// `--run` and `--job` name others. `ci wait` prints the same lines when
+    /// The failed run of the branch's head commit (an older commit's
+    /// failure is not shown) and its first failing job unless `--run` and
+    /// `--job` name others. `ci wait` prints the same lines when
     /// it waits for a run's checks.
     #[command(after_long_help = FAILED_AFTER_LONG_HELP)]
     Failed {

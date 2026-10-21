@@ -22,5 +22,6 @@ ferrule pr publish {slug} [--follow-ups <k>,<k> | --follow-ups none]
 <!-- done: ci=0 -->
 - **CI** — `ferrule ci wait {slug}` waits for the PR's checks (the output in `{run_dir}/ci.log`), logs `ci=` and prints `ci=<code> [failed=<jobs>]`, the failed run's error lines, then the next step:
   - `ci=0` → `ferrule guide show cleanup`, which records the metrics.
+  - `ci=refused reason=no-checks` → the PR has no checks yet (nothing is logged): wait a minute and `ferrule ci wait {slug}` again; if the repo has no CI, tell the user rather than waiving.
   - otherwise → implicated stage card → `inprogress`, resume or spawn the implementer to fix, `ferrule pr push {slug}`, `ferrule ci wait {slug}` again. No stop unless a fix needs a user decision.
   - A failure the user rules unrelated to the run (e.g. also red on `{main}`), on the user's word only → `ferrule board log {slug} ci-waived -- <why>`, then `ferrule guide show cleanup`.

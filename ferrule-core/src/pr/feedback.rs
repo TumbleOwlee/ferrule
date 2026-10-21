@@ -96,8 +96,46 @@ struct GqlPr {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Nodes<T> {
     nodes: Vec<T>,
+    #[serde(default)]
+    page_info: PageInfo,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct PageInfo {
+    has_next_page: bool,
+    end_cursor: Option<String>,
+}
+
+impl PageInfo {
+    /// The cursor of the next page, if there is one.
+    fn next(&self) -> Result<Option<&str>, Error> {
+        match (self.has_next_page, self.end_cursor.as_deref()) {
+            (false, _) => Ok(None),
+            (true, Some(c)) => Ok(Some(c)),
+            (true, None) => Err(Error::Shape(
+                "gh api graphql: no cursor for next page".into(),
+            )),
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct GqlNodeRoot {
+    data: GqlNode,
+}
+
+#[derive(Deserialize)]
+struct GqlNode {
+    node: GqlThreadComments,
+}
+
+#[derive(Deserialize)]
+struct GqlThreadComments {
+    comments: Nodes<GqlComment>,
 }
 
 #[derive(Deserialize)]
@@ -125,44 +163,130 @@ struct GqlAuthor {
     login: Option<String>,
 }
 
-const THREADS_QUERY: &str = "query($owner: String!, $repo: String!, $pr: Int!) {
+const THREADS_QUERY: &str = "query($owner: String!, $repo: String!, $pr: Int!, $after: String) {
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $pr) {
       state isDraft
-      reviewThreads(first: 100) {
+      reviewThreads(first: 100, after: $after) {
+        pageInfo { hasNextPage endCursor }
         nodes {
           id isResolved path line originalLine
-          comments(first: 50) { nodes { databaseId author { login } createdAt body } }
+          comments(first: 50) {
+            pageInfo { hasNextPage endCursor }
+            nodes { databaseId author { login } createdAt body }
+          }
         }
       }
     }
   }
 }";
 
-fn github_fetch(pr: &str, root: &Path) -> Result<Fetched, Error> {
-    let out = remote::run(
+/// The rest of one thread's comments, from `$after`.
+const COMMENTS_QUERY: &str = "query($id: ID!, $after: String) {
+  node(id: $id) {
+    ... on PullRequestReviewThread {
+      comments(first: 50, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        nodes { databaseId author { login } createdAt body }
+      }
+    }
+  }
+}";
+
+/// The gh call for one page: `after` is the cursor of the page before.
+fn threads_page(pr: &str, after: Option<&str>, root: &Path) -> Result<String, Error> {
+    let (pr, query) = (format!("pr={pr}"), format!("query={THREADS_QUERY}"));
+    let mut args = vec![
+        "api",
+        "graphql",
+        "-F",
+        "owner={owner}",
+        "-F",
+        "repo={repo}",
+        "-F",
+        &pr,
+    ];
+    let cursor = after.map(|c| format!("after={c}"));
+    if let Some(c) = &cursor {
+        args.extend(["-f", c]);
+    }
+    args.extend(["-f", &query]);
+    remote::run("gh", &args, None, root)
+}
+
+/// The comments of thread `id` after the cursor `after`.
+fn comments_page(id: &str, after: &str, root: &Path) -> Result<String, Error> {
+    remote::run(
         "gh",
         &[
             "api",
             "graphql",
-            "-F",
-            "owner={owner}",
-            "-F",
-            "repo={repo}",
-            "-F",
-            &format!("pr={pr}"),
             "-f",
-            &format!("query={THREADS_QUERY}"),
+            &format!("id={id}"),
+            "-f",
+            &format!("after={after}"),
+            "-f",
+            &format!("query={COMMENTS_QUERY}"),
         ],
         None,
         root,
+    )
+}
+
+/// The most pages of threads or of one thread's comments read.
+const MAX_PAGES: usize = 200;
+
+/// Every review thread of the PR and, in each, every comment: pages are
+/// followed while `pageInfo` says more. `threads(after)` and
+/// `comments(thread, after)` fetch one page each.
+fn github_threads(
+    mut threads: impl FnMut(Option<&str>) -> Result<String, Error>,
+    mut comments: impl FnMut(&str, &str) -> Result<String, Error>,
+) -> Result<(String, bool, Vec<GqlThread>), Error> {
+    let shape = |e: serde_json::Error| Error::Shape(format!("gh api graphql: {e}"));
+    let mut cursor: Option<String> = None;
+    let mut all: Vec<GqlThread> = Vec::new();
+    let mut head = None;
+    for _ in 0..MAX_PAGES {
+        let g: GqlRoot = serde_json::from_str(&threads(cursor.as_deref())?).map_err(shape)?;
+        let p = g.data.repository.pull_request;
+        head.get_or_insert((p.state, p.is_draft));
+        let next = p.review_threads.page_info.next()?.map(str::to_owned);
+        all.extend(p.review_threads.nodes);
+        if next.is_none() {
+            let (state, draft) = head.unwrap_or_default();
+            for t in &mut all {
+                let mut more = t.comments.page_info.next()?.map(str::to_owned);
+                for _ in 0..MAX_PAGES {
+                    let Some(after) = more else { break };
+                    let n: GqlNodeRoot =
+                        serde_json::from_str(&comments(&t.id, &after)?).map_err(shape)?;
+                    let page = n.data.node.comments;
+                    more = page.page_info.next()?.map(str::to_owned);
+                    t.comments.nodes.extend(page.nodes);
+                }
+                if more.is_some() {
+                    return Err(Error::Shape(format!(
+                        "gh api graphql: more than {MAX_PAGES} pages of comments on {}",
+                        t.id
+                    )));
+                }
+            }
+            return Ok((state, draft, all));
+        }
+        cursor = next;
+    }
+    Err(Error::Shape(format!(
+        "gh api graphql: more than {MAX_PAGES} pages of review threads"
+    )))
+}
+
+fn github_fetch(pr: &str, root: &Path) -> Result<Fetched, Error> {
+    let (state, draft, all) = github_threads(
+        |after| threads_page(pr, after, root),
+        |id, after| comments_page(id, after, root),
     )?;
-    let g: GqlRoot =
-        serde_json::from_str(&out).map_err(|e| Error::Shape(format!("gh api graphql: {e}")))?;
-    let p = g.data.repository.pull_request;
-    let threads = p
-        .review_threads
-        .nodes
+    let threads = all
         .into_iter()
         .filter(|t| !t.is_resolved)
         .map(|t| Thread {
@@ -200,8 +324,8 @@ fn github_fetch(pr: &str, root: &Path) -> Result<Fetched, Error> {
         })
         .collect();
     Ok(Fetched {
-        state: p.state.to_ascii_lowercase(),
-        draft: p.is_draft,
+        state: state.to_ascii_lowercase(),
+        draft,
         threads,
     })
 }
@@ -211,9 +335,8 @@ fn bitbucket_fetch(pr: &str, root: &Path) -> Result<Fetched, Error> {
     let api = bb.api(&format!("pullrequests/{pr}"));
     let shape = |e: serde_json::Error| Error::Shape(format!("bitbucket: {e}"));
     let p: Value = serde_json::from_str(&bb.call(&[&api], root)?).map_err(shape)?;
-    let c: Value = serde_json::from_str(&bb.call(&[&format!("{api}/comments?pagelen=100")], root)?)
-        .map_err(shape)?;
-    let values: Vec<&Value> = c["values"].as_array().into_iter().flatten().collect();
+    let all = bb.values(&format!("{api}/comments?pagelen=100"), root)?;
+    let values: Vec<&Value> = all.iter().collect();
     let s = |v: &Value, d: &str| v.as_str().unwrap_or(d).to_owned();
     let comment = |v: &Value| {
         (
@@ -497,6 +620,66 @@ pub fn resolve(ci: Ci, pr: &str, reply: &Reply, root: &Path) -> Result<(), Error
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn thread(id: &str, resolved: bool, n: usize, more: Option<&str>) -> String {
+        let comments: Vec<String> = (0..n)
+            .map(|i| format!(r#"{{"databaseId":{i},"author":null,"createdAt":"t","body":"c{i}"}}"#))
+            .collect();
+        let info = more.map_or(
+            r#"{"hasNextPage":false,"endCursor":null}"#.to_owned(),
+            |c| format!(r#"{{"hasNextPage":true,"endCursor":"{c}"}}"#),
+        );
+        format!(
+            r#"{{"id":"{id}","isResolved":{resolved},"path":"a.rs","line":1,"originalLine":1,"comments":{{"pageInfo":{info},"nodes":[{}]}}}}"#,
+            comments.join(",")
+        )
+    }
+
+    fn page(threads: &[String], next: Option<&str>) -> String {
+        let info = next.map_or(
+            r#"{"hasNextPage":false,"endCursor":null}"#.to_owned(),
+            |c| format!(r#"{{"hasNextPage":true,"endCursor":"{c}"}}"#),
+        );
+        format!(
+            r#"{{"data":{{"repository":{{"pullRequest":{{"state":"OPEN","isDraft":true,"reviewThreads":{{"pageInfo":{info},"nodes":[{}]}}}}}}}}}}"#,
+            threads.join(",")
+        )
+    }
+
+    #[test]
+    fn ut_github_threads_follow_both_cursors() {
+        let mut thread_calls = Vec::new();
+        let mut comment_calls = Vec::new();
+        let (state, draft, all) = github_threads(
+            |after| {
+                thread_calls.push(after.map(str::to_owned));
+                Ok(match after {
+                    None => page(&[thread("T1", true, 1, Some("K1"))], Some("P1")),
+                    _ => page(&[thread("T2", false, 1, None)], None),
+                })
+            },
+            |id, after| {
+                comment_calls.push((id.to_owned(), after.to_owned()));
+                Ok(r#"{"data":{"node":{"comments":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[{"databaseId":9,"author":null,"createdAt":"t","body":"late"}]}}}}"#.to_owned())
+            },
+        )
+        .unwrap();
+        assert_eq!((state.as_str(), draft), ("OPEN", true));
+        assert_eq!(
+            all.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),
+            ["T1", "T2"]
+        );
+        assert_eq!(all[0].comments.nodes.len(), 2);
+        assert_eq!(thread_calls, [None, Some("P1".to_owned())]);
+        assert_eq!(comment_calls, [("T1".to_owned(), "K1".to_owned())]);
+    }
+
+    #[test]
+    fn ut_github_threads_refuse_a_missing_cursor() {
+        let bad = r#"{"data":{"repository":{"pullRequest":{"state":"OPEN","isDraft":false,"reviewThreads":{"pageInfo":{"hasNextPage":true,"endCursor":null},"nodes":[]}}}}}"#;
+        let e = github_threads(|_| Ok(bad.to_owned()), |_, _| unreachable!());
+        assert!(matches!(e, Err(Error::Shape(_))));
+    }
 
     const FILE: &str = "# PR feedback — fetched 2026-01-02T14:02
 ## thread T1
