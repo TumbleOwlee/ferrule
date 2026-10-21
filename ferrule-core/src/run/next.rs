@@ -438,10 +438,7 @@ fn gate2_decision(c: &mut Ctx, word: &str, status: &Status) -> rusqlite::Result<
     let issue = status.issue.as_deref().unwrap_or("new");
     let reason = if c.field("lane")?.as_deref() != Some("fast") {
         Some("lane")
-    } else if !c.field("arch")?.is_some_and(|a| {
-        let b = a.as_bytes();
-        b.len() >= 5 && b[..4].iter().all(u8::is_ascii_digit) && b[4] == b'-'
-    }) {
+    } else if !board::is_date(c.field("arch")?.as_deref()) {
         Some("no-arch-stop")
     } else if c.needs_user() {
         Some("needs-user")

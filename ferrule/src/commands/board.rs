@@ -791,21 +791,32 @@ fn import(board_dir: &Path, out: &mut impl Write) -> io::Result<u8> {
     }
 }
 
-/// After a move, the run's draft PR body re-rendered and pushed when the
-/// run has a PR. A failure to reach the host does not undo the move.
-pub(crate) fn sync_draft(s: &mut Store, card: &str, out: &mut impl Write) -> io::Result<()> {
+/// `f` on the publish run for `slug`, over the open board `s`.
+pub(crate) fn run_on<T>(
+    s: &mut Store,
+    config: &Config,
+    slug: &str,
+    f: impl FnOnce(&mut publish::Run) -> T,
+) -> T {
     let layout = ferrule_core::project::Layout::new(project::main_checkout());
-    let config = Config::load(&layout.root).map_err(internal)?;
     let now = board::now();
     let mut run = publish::Run {
         conn: &mut s.conn,
         layout: &layout,
-        config: &config,
+        config,
         root: &layout.root,
-        slug: publish::run_of(card),
+        slug,
         now: &now,
     };
-    match run.sync_draft() {
+    f(&mut run)
+}
+
+/// After a move, the run's draft PR body re-rendered and pushed when the
+/// run has a PR. A failure to reach the host does not undo the move.
+#[allow(clippy::redundant_closure_for_method_calls)]
+pub(crate) fn sync_draft(s: &mut Store, card: &str, out: &mut impl Write) -> io::Result<()> {
+    let config = Config::load(&project::main_checkout()).map_err(internal)?;
+    match run_on(s, &config, publish::run_of(card), |r| r.sync_draft()) {
         Ok(Some(sync)) => writeln!(out, "{sync}"),
         Ok(None) => Ok(()),
         Err(e) => {

@@ -5,7 +5,6 @@ use std::path::Path;
 
 use clap::{Subcommand, ValueEnum};
 use ferrule_core::body::{self, Form};
-use ferrule_core::card::board;
 use ferrule_core::config::Config;
 use ferrule_core::pr::publish;
 use ferrule_core::project::{self, Layout};
@@ -13,7 +12,7 @@ use ferrule_core::refusal::Refusal;
 use ferrule_core::term::Style;
 use ferrule_core::{git, remote};
 
-use super::board::store;
+use super::board::{run_on, store};
 use super::exit;
 use super::issue::{post_failed, print_body};
 use super::{internal, refuse};
@@ -294,21 +293,12 @@ pub(crate) fn failed(
     }
 }
 
+#[allow(clippy::redundant_closure_for_method_calls)]
 fn open(config: &Config, slug: &str, out: &mut impl Write) -> io::Result<u8> {
-    let layout = Layout::new(project::main_checkout());
-    let Some(mut s) = store(false)? else {
+    let Some(opened) = with_run(config, slug, |r| r.open_pr())? else {
         return refuse(out, &Refusal::card("open"));
     };
-    let now = board::now();
-    let mut run = publish::Run {
-        conn: &mut s.conn,
-        layout: &layout,
-        config,
-        root: &layout.root,
-        slug,
-        now: &now,
-    };
-    match run.open_pr() {
+    match opened {
         Ok((n, _)) => {
             writeln!(out, "pr={n} state=draft")?;
             Ok(exit::OK)
@@ -322,41 +312,12 @@ fn with_run<T>(
     slug: &str,
     f: impl FnOnce(&mut publish::Run) -> T,
 ) -> io::Result<Option<T>> {
-    let layout = Layout::new(project::main_checkout());
-    let Some(mut s) = store(false)? else {
-        return Ok(None);
-    };
-    let now = board::now();
-    let mut run = publish::Run {
-        conn: &mut s.conn,
-        layout: &layout,
-        config,
-        root: &layout.root,
-        slug,
-        now: &now,
-    };
-    Ok(Some(f(&mut run)))
+    Ok(store(false)?.map(|mut s| run_on(&mut s, config, slug, f)))
 }
 
+#[allow(clippy::redundant_closure_for_method_calls)]
 fn push(config: &Config, slug: &str, out: &mut impl Write) -> io::Result<u8> {
-    let layout = Layout::new(project::main_checkout());
-    let pushed = match store(false)? {
-        None => None,
-        Some(mut s) => {
-            let now = board::now();
-            Some(
-                publish::Run {
-                    conn: &mut s.conn,
-                    layout: &layout,
-                    config,
-                    root: &layout.root,
-                    slug,
-                    now: &now,
-                }
-                .push(),
-            )
-        }
-    };
+    let pushed = with_run(config, slug, |r| r.push())?;
     match pushed {
         None | Some(Err(publish::Error::Card)) => refuse(out, &Refusal::card("push")),
         Some(Ok(Ok(p))) => {

@@ -204,6 +204,15 @@ pub fn state(conn: &Connection, id: &str) -> rusqlite::Result<Option<State>> {
     Ok(s.and_then(|s| State::parse(&s)))
 }
 
+/// Whether `v` starts with a `YYYY-` date.
+#[must_use]
+pub fn is_date(v: Option<&str>) -> bool {
+    v.is_some_and(|v| {
+        let b = v.as_bytes();
+        b.len() >= 5 && b[..4].iter().all(u8::is_ascii_digit) && b[4] == b'-'
+    })
+}
+
 /// One frontmatter field of a card.
 pub fn field(conn: &Connection, id: &str, key: &str) -> rusqlite::Result<Option<String>> {
     conn.query_row(

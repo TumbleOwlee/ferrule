@@ -12,7 +12,7 @@ use ferrule_core::run::next::{self, At, Status};
 use ferrule_core::run::{self as core_run};
 use ferrule_core::{project, remote};
 
-use super::board::store;
+use super::board::{run_on, store};
 use super::{exit, internal, layout, refuse};
 
 /// Shown after `ferrule ci gauntlet --help`.
@@ -172,15 +172,7 @@ fn wait(slug: &str, out: &mut impl Write) -> io::Result<u8> {
         return refuse(out, &Refusal::card("ci"));
     };
     let now = board::now();
-    let waited = publish::Run {
-        conn: &mut s.conn,
-        layout: &layout,
-        config: &config,
-        root: &layout.root,
-        slug,
-        now: &now,
-    }
-    .wait_ci();
+    let waited = run_on(&mut s, &config, slug, |r| r.wait_ci());
     let (code, failed) = match waited {
         Ok(r) => r,
         Err(publish::Error::NoPr) => {

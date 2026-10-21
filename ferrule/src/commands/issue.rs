@@ -2,7 +2,6 @@ use std::io::{self, Write};
 
 use clap::{Args, Subcommand};
 use ferrule_core::body;
-use ferrule_core::card::board;
 use ferrule_core::config::Config;
 use ferrule_core::issue::request::{self, Part};
 use ferrule_core::pr::publish::{self, Target};
@@ -11,7 +10,7 @@ use ferrule_core::refusal::Refusal;
 use ferrule_core::remote;
 use ferrule_core::term::{self, Style};
 
-use super::board::store;
+use super::board::{run_on, store};
 use super::exit;
 use super::{internal, refuse};
 
@@ -493,21 +492,11 @@ fn file(slug: &str, t: FileTarget, reuse: Option<u64>, out: &mut impl Write) -> 
         (.., true) => Target::Comment,
         _ => Target::Run,
     };
-    let layout = Layout::new(project::main_checkout());
     let config = config()?;
     let Some(mut s) = store(false)? else {
         return refuse(out, &Refusal::card("post"));
     };
-    let now = board::now();
-    let mut run = publish::Run {
-        conn: &mut s.conn,
-        layout: &layout,
-        config: &config,
-        root: &layout.root,
-        slug,
-        now: &now,
-    };
-    match run.file(target, reuse) {
+    match run_on(&mut s, &config, slug, |r| r.file(target, reuse)) {
         Ok((n, action)) => {
             writeln!(out, "issue={n} action={}", action.as_str())?;
             Ok(exit::OK)

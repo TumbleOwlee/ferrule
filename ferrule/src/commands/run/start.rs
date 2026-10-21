@@ -6,11 +6,10 @@ use std::path::PathBuf;
 
 use ferrule_core::card::board;
 use ferrule_core::config::Config;
-use ferrule_core::pr::publish;
 use ferrule_core::remote::{self, Item};
 use ferrule_core::run::{self as core_run, Error, gate, rebuild};
 
-use crate::commands::board::store;
+use crate::commands::board::{run_on, store};
 use crate::commands::{exit, internal, layout, refuse};
 
 pub(super) fn init(slug: &str, issue: Option<&str>, out: &mut impl Write) -> io::Result<u8> {
@@ -49,16 +48,7 @@ pub(super) fn reconcile(slug: &str, local: bool, out: &mut impl Write) -> io::Re
     };
     if !local && let Some(s) = store.as_mut() {
         let config = Config::load(&layout.root).map_err(internal)?;
-        let now = board::now();
-        let run = publish::Run {
-            conn: &mut s.conn,
-            layout: &layout,
-            config: &config,
-            root: &layout.root,
-            slug,
-            now: &now,
-        };
-        match run.reconcile_remote() {
+        match run_on(s, &config, slug, |r| r.reconcile_remote()) {
             Ok(rows) => r.differ.extend(rows),
             Err(e) => r.differ.push(format!("host unreadable: {e}")),
         }

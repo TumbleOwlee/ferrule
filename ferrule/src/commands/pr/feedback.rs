@@ -5,12 +5,10 @@ use clap::Subcommand;
 use ferrule_core::card::board;
 use ferrule_core::config::Config;
 use ferrule_core::pr::feedback::{self, Kind, Posted};
-use ferrule_core::pr::publish;
-use ferrule_core::project::{self, Layout};
+use ferrule_core::project;
 use ferrule_core::refusal::Refusal;
 
 use crate::cli::stage_name;
-use crate::commands::board::store;
 use crate::commands::exit;
 use crate::commands::issue::post_failed;
 use crate::commands::refuse;
@@ -207,25 +205,9 @@ fn reply(
     Ok(exit::OK)
 }
 
+#[allow(clippy::redundant_closure_for_method_calls)]
 fn route(config: &Config, slug: &str, out: &mut impl Write) -> io::Result<u8> {
-    let layout = Layout::new(project::main_checkout());
-    let routed = match store(false)? {
-        None => None,
-        Some(mut s) => {
-            let now = board::now();
-            Some(
-                publish::Run {
-                    conn: &mut s.conn,
-                    layout: &layout,
-                    config,
-                    root: &layout.root,
-                    slug,
-                    now: &now,
-                }
-                .route_feedback(),
-            )
-        }
-    };
+    let routed = super::with_run(config, slug, |r| r.route_feedback())?;
     match routed {
         None => refuse(out, &Refusal::card("route")),
         Some(Ok((pr, threads, stages, sync))) => {

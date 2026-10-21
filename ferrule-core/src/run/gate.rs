@@ -290,22 +290,6 @@ pub enum Gate {
 
 impl Gate {
     #[must_use]
-    pub fn parse(s: &str) -> Option<Self> {
-        Some(match s {
-            "gate1" => Gate::Gate1,
-            "arch" => Gate::Arch,
-            "epic" => Gate::Epic,
-            "gate2" => Gate::Gate2,
-            "stage" => Gate::Stage,
-            "replan" => Gate::Replan,
-            "delta" => Gate::Delta,
-            "gate3" => Gate::Gate3,
-            "gate4" => Gate::Gate4,
-            _ => return None,
-        })
-    }
-
-    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Gate::Gate1 => "gate1",
@@ -468,7 +452,8 @@ pub fn stage_cards(slug: &str, stages: &[PlanStage], stops: &[u32], branch: &str
 }
 
 /// `stops=s1,s3`.
-fn stop_arg(v: Option<&str>) -> Vec<u32> {
+#[must_use]
+pub fn stop_arg(v: Option<&str>) -> Vec<u32> {
     v.unwrap_or("")
         .split(',')
         .filter_map(|s| s.trim().strip_prefix('s')?.parse().ok())
@@ -485,10 +470,6 @@ pub struct Approved {
     pub stages: Option<usize>,
     /// The gate was approved already: its date is kept.
     pub recorded: bool,
-}
-
-fn is_date(v: Option<&str>) -> bool {
-    v.is_some_and(|v| v.len() >= 5 && v.as_bytes()[..4].iter().all(u8::is_ascii_digit))
 }
 
 fn set_all(conn: &mut Connection, slug: &str, fields: &[(String, String)]) -> Result<(), Error> {
@@ -513,6 +494,7 @@ fn arg<'a>(args: &'a [(String, String)], key: &str) -> Option<&'a str> {
 /// and branch (both idempotent), then one board transaction: the dates,
 /// branch and lane, the parent moved, the stage cards created. A refused
 /// move leaves no gate 2 field and no stage card.
+#[allow(clippy::too_many_arguments)]
 fn approve_gate2(
     conn: &mut Connection,
     layout: &Layout,
@@ -520,10 +502,10 @@ fn approve_gate2(
     slug: &str,
     args: &[(String, String)],
     now: &str,
+    gate1_pending: bool,
     out: &mut Approved,
 ) -> Result<(), Error> {
     let today = now.get(..10).unwrap_or(now);
-    let gate1_pending = !is_date(board::field(conn, slug, "gate1")?.as_deref());
     let plan = std::fs::read_to_string(layout.run_dir(slug).join("plan.md"))
         .map_err(|_| Error::Refused(GateRefusal::NoPlan))?;
     let stages = plan_stages(&plan);
@@ -616,10 +598,10 @@ pub fn approve(
         return Err(Error::Refused(GateRefusal::State { gate, state }));
     }
     let today = now.get(..10).unwrap_or(now);
-    let gate1_pending = !is_date(board::field(conn, slug, "gate1")?.as_deref());
+    let gate1_pending = !board::is_date(board::field(conn, slug, "gate1")?.as_deref());
     let mut out = Approved {
         recorded: match gate.field() {
-            Some(f) => is_date(board::field(conn, slug, f)?.as_deref()),
+            Some(f) => board::is_date(board::field(conn, slug, f)?.as_deref()),
             None => false,
         },
         ..Approved::default()
@@ -648,7 +630,16 @@ pub fn approve(
         fields.push(("lane".to_owned(), String::new()));
     }
     if gate == Gate::Gate2 {
-        approve_gate2(conn, layout, config, slug, args, now, &mut out)?;
+        approve_gate2(
+            conn,
+            layout,
+            config,
+            slug,
+            args,
+            now,
+            gate1_pending,
+            &mut out,
+        )?;
     } else {
         if let Some(lane) = arg(args, "lane") {
             fields.push(("lane".to_owned(), lane.to_owned()));

@@ -270,11 +270,7 @@ fn replan(
         ReplanStep::Start => gate::replan_start(&mut s.conn, &layout, slug, &now)
             .map(|from| format!("replan=started from=s{from}")),
         ReplanStep::Approve => {
-            let stops: Vec<u32> = stops
-                .unwrap_or("")
-                .split(',')
-                .filter_map(|x| x.trim().strip_prefix('s')?.parse().ok())
-                .collect();
+            let stops = gate::stop_arg(stops);
             gate::replan_approve(&mut s.conn, &layout, slug, &stops, &now)
                 .map(|(from, n)| format!("replan=approved from=s{from} stages={n}"))
         }

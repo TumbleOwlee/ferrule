@@ -122,13 +122,6 @@ fn arg<'a>(args: &'a [(String, String)], key: &str) -> Option<&'a str> {
         .map(|(_, v)| v.as_str())
 }
 
-fn is_date(v: Option<&str>) -> bool {
-    v.is_some_and(|v| {
-        let b = v.as_bytes();
-        b.len() >= 5 && b[..4].iter().all(u8::is_ascii_digit) && b[4] == b'-'
-    })
-}
-
 fn rev_of(path: &Path) -> Option<u32> {
     std::fs::read_to_string(path)
         .ok()
@@ -339,7 +332,7 @@ fn issue_word(args: &[(String, String)]) -> String {
 impl Run<'_> {
     fn facts(&self) -> rusqlite::Result<Facts> {
         let spec = self.art("spec-diff.md");
-        let brief_pending = !is_date(self.field("gate1")?.as_deref()) && spec.is_file();
+        let brief_pending = !board::is_date(self.field("gate1")?.as_deref()) && spec.is_file();
         let since: u32 = if brief_pending {
             0
         } else {
