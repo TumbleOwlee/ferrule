@@ -6,6 +6,7 @@ pub mod archive;
 pub mod commit;
 pub mod gate;
 pub mod gauntlet;
+pub mod ids;
 pub mod inspect;
 pub mod next;
 pub mod push;

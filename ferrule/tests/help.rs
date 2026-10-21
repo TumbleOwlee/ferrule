@@ -93,6 +93,7 @@ const SOURCES: &[(&str, &[&str])] = &[
         &["run init", "gate approve", "stage replan"],
     ),
     ("ferrule-core/src/run/commit.rs", &["stage commit"]),
+    ("ferrule-core/src/run/ids.rs", &["spec next"]),
     ("ferrule-core/src/run/gauntlet.rs", &["ci gauntlet"]),
     (
         "ferrule-core/src/run/inspect.rs",

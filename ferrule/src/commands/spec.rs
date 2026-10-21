@@ -3,7 +3,6 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use clap::{Args, Subcommand, ValueEnum};
-use ferrule_core::card::typed::{Change, Name, Typed};
 use ferrule_core::config::Config;
 use ferrule_core::markdown::{self, Match};
 use ferrule_core::refusal::{Exit, Refusal};
@@ -285,95 +284,30 @@ pub fn run(command: &SpecCommand, style: Option<Style>, out: &mut impl Write) ->
 }
 
 fn next(args: &NextArgs, out: &mut impl Write) -> io::Result<u8> {
-    let prefix = &args.prefix;
-    if prefix.len() != 2 || !prefix.bytes().all(|b| b.is_ascii_uppercase()) {
-        let r = Refusal::new("next", "prefix").hint("a prefix is two capital letters, e.g. MB");
-        return refuse(out, &r);
-    }
-    let series = if args.edge { 'E' } else { 'R' };
+    use ferrule_core::run::ids;
     let root = project::main_checkout();
     let config = Config::load(&root).map_err(super::internal)?;
+    let layout = project::Layout::new(root.clone());
     let reference = args.r#ref.clone().unwrap_or(config.main_branch);
-    if git::commit(&root, &reference).is_none() {
-        return refuse(
-            out,
-            &Refusal::new("next", "ref").hint("fetch REF or pass --ref"),
-        );
-    }
-    // whole lines: `highest` checks the word boundaries
-    let needle = format!("{prefix}-{series}-");
-    let Some(on_ref) = git::grep(
-        &root,
-        &["-hF", "-e", &needle, &reference, "--", "docs/specs"],
-    ) else {
-        let r = Refusal::new("next", "grep").hint("git grep failed on REF; report it to the user");
-        return refuse(out, &r);
+    let db = super::board::store()?;
+    let ask = ids::Ask {
+        prefix: &args.prefix,
+        edge: args.edge,
+        count: args.count,
+        reference: &reference,
+        run: args.run.as_deref(),
     };
-    let mut texts = vec![on_ref];
-    if let Some(slug) = &args.run {
-        let Some(found) = run_texts(slug)? else {
-            return refuse(out, &Refusal::card("next"));
-        };
-        texts.extend(found);
+    match ids::next(db.as_ref(), &layout, &root, &ask)? {
+        Ok(got) => {
+            writeln!(out, "next={} last={}", got.next.join(","), got.last)?;
+            Ok(exit::OK)
+        }
+        Err(r) => refuse(out, &r.refusal()),
     }
-    let best = texts
-        .iter()
-        .filter_map(|t| spec::highest(prefix, series, t))
-        .max_by_key(|(n, _)| *n);
-    let width = best.map_or(3, |(_, w)| w.max(3));
-    let id = |n: u32| format!("{prefix}-{series}-{n:0width$}");
-    let first = best.map_or(Some(1), |(n, _)| n.checked_add(1));
-    let Some((first, end)) = first.and_then(|f| Some((f, f.checked_add(args.count)?))) else {
-        let r = Refusal::new("next", "range").hint(format!(
-            "lower --count; the numbers would pass {}",
-            u32::MAX
-        ));
-        return refuse(out, &r);
-    };
-    let ids: Vec<String> = (first..end).map(id).collect();
-    let last = best.map_or_else(|| "-".to_owned(), |(n, _)| id(n));
-    writeln!(out, "next={} last={last}", ids.join(","))?;
-    Ok(exit::OK)
 }
 
 /// The run's worktree specs, spec-diff.md and the IDs of its
 /// `spec-delta <ID> added` lines; `None` when the run has no card.
-fn run_texts(slug: &str) -> io::Result<Option<Vec<String>>> {
-    let layout = project::Layout::new(project::main_checkout());
-    let Some(s) = super::board::card_store(slug)? else {
-        return Ok(None);
-    };
-    let mut texts = Vec::new();
-    let (wt, deltas) = s
-        .read(|r| {
-            Ok::<_, ferrule_core::store::Error>((
-                r.worktree(&layout, slug, slug)?,
-                r.run_events(slug, &[Name::SpecDelta])?,
-            ))
-        })
-        .map_err(super::internal)?;
-    let specs = wt.join("docs/specs");
-    if specs.is_dir() {
-        for path in spec::markdown_files(&specs)? {
-            texts.push(std::fs::read_to_string(path)?);
-        }
-    }
-    if let Ok(diff) = std::fs::read_to_string(layout.run_dir(slug).join("spec-diff.md")) {
-        texts.push(diff);
-    }
-    for e in deltas {
-        if let Typed::SpecDelta {
-            id,
-            change: Some(Change::Added),
-            ..
-        } = e.typed()
-        {
-            texts.push(id.to_owned());
-        }
-    }
-    Ok(Some(texts))
-}
-
 fn refs(args: &RefsArgs, out: &mut impl Write) -> io::Result<u8> {
     if let Some(bad) = args.ids.iter().find(|id| !spec::is_fixed_id(id)) {
         let r = Refusal::new("refs", "id")
