@@ -108,6 +108,11 @@ impl Project {
             .cwd(&self.root)
     }
 
+    /// `ferrule` run with the clock at `now`.
+    fn at(&self, now: &str, args: &[&str]) -> String {
+        self.ferrule(args).env("FERRULE_NOW", now).text()
+    }
+
     fn ok(&self, args: &[&str]) -> String {
         let got = self.ferrule(args).text();
         assert!(got.ends_with("exit=0"), "{args:?}: {got}");
@@ -187,6 +192,27 @@ fn serve(gh: &FakeGh, args: &[String], text: &str) {
     gh.serve(&args, text);
 }
 
+/// Gates approved out of order are refused and write nothing.
+fn out_of_order(p: &Project) {
+    assert_eq!(
+        p.ferrule(&["gate", "approve", "demo", "gate4"]).text(),
+        "approve=refused reason=order missing=gate2 \
+         hint=approve gate2 first: ferrule gate approve demo gate2\nexit=1"
+    );
+    assert_eq!(
+        p.ferrule(&["gate", "approve", "demo", "gate2", "--issue", "new"])
+            .text(),
+        "approve=refused reason=order missing=arch \
+         hint=approve arch first: ferrule gate approve demo arch\nexit=1"
+    );
+    assert_eq!(
+        p.ferrule(&["gate", "approve", "demo", "epic"]).text(),
+        "approve=refused reason=order missing=gate1 \
+         hint=approve gate1 first: ferrule gate approve demo gate1 --epic\nexit=1"
+    );
+    assert!(!p.ok(&["board", "show", "demo"]).contains("gate"));
+}
+
 /// Init, the brief and the architecture approved, then gate 2.
 fn through_gate2(p: &Project) {
     let gh = &p.gh;
@@ -215,6 +241,8 @@ fn through_gate2(p: &Project) {
     );
     p.artifacts();
 
+    out_of_order(p);
+
     p.ok(&["prompt", "render", "demo", "gate1"]);
     let gate1 = p.ok(&["gate", "approve", "demo", "gate1", "--lane", "full"]);
     assert!(
@@ -223,7 +251,22 @@ fn through_gate2(p: &Project) {
     );
     assert_eq!(p.field("demo", "gate1"), "2026-10-05");
     assert_eq!(p.field("demo", "lane"), "full");
+    // Approved again a day later: the date stands.
+    let again = p.at("2026-10-06T09:00", &["gate", "approve", "demo", "gate1"]);
+    assert!(
+        again.starts_with("approve=done gate=gate1 action=recorded"),
+        "{again}"
+    );
+    assert_eq!(p.field("demo", "gate1"), "2026-10-05");
     p.ok(&["gate", "approve", "demo", "arch"]);
+    assert_eq!(
+        p.ferrule(&["gate", "approve", "demo", "gate1", "--epic"])
+            .text(),
+        "approve=refused reason=epic hint=the run is past gate 1 (arch or gate2 \
+         recorded, or stage cards exist); an epic is chosen at gate 1 only; see \
+         `ferrule run status demo`\nexit=1"
+    );
+    assert_eq!(p.field("demo", "lane"), "full");
 
     gh.serve(
         &[
@@ -269,6 +312,13 @@ fn through_gate2(p: &Project) {
             .contains("issue create --title Reconnect dropped Modbus clients --body-file -")
     );
 
+    gate2_again(p);
+}
+
+/// Gate 2 approved again: what is missing is redone, nothing twice; the
+/// recorded branch and the started run hold.
+fn gate2_again(p: &Project) {
+    let gh = &p.gh;
     // The worktree directory lost: approving again recreates it on the
     // existing branch and files nothing twice.
     std::fs::remove_dir_all(p.worktree()).unwrap();
@@ -279,9 +329,35 @@ fn through_gate2(p: &Project) {
         ),
         "{again}"
     );
+    assert!(again.contains(" action=recorded"), "{again}");
     assert!(p.worktree().join("docs").is_dir());
     assert_eq!(p.field("demo", "issue"), "12");
     assert_eq!(gh.log().matches("issue create").count(), 1);
+
+    // The recorded branch: the same --branch is fine, another one refused.
+    let same = p.at(
+        "2026-10-06T09:00",
+        &["gate", "approve", "demo", "gate2", "--branch", "feat/demo"],
+    );
+    assert!(same.contains(" action=recorded"), "{same}");
+    assert_eq!(p.field("demo", "gate2"), "2026-10-05");
+    assert_eq!(
+        p.ferrule(&["gate", "approve", "demo", "gate2", "--branch", "fix/demo"])
+            .text(),
+        "approve=refused reason=branch branch=feat/demo hint=the run's branch is \
+         feat/demo; drop --branch or pass --branch feat/demo\nexit=1"
+    );
+    assert_eq!(p.field("demo", "branch"), "feat/demo");
+
+    // Started: gate 1 and the epic are behind the run.
+    assert_eq!(
+        p.ferrule(&["gate", "approve", "demo", "gate1", "--epic"])
+            .text(),
+        "approve=refused reason=state state=inprogress hint=gate1 is approved only \
+         while the parent card is open; see `ferrule run status demo`\nexit=1"
+    );
+    assert_eq!(p.field("demo", "kind"), "");
+    assert_eq!(p.field("demo", "lane"), "full");
 }
 
 /// s0 lands: the first push opens the draft PR, a move re-renders it, a
@@ -378,6 +454,15 @@ fn publish_and_ci(p: &Project) {
         ],
         r#"[{"number":40,"title":"Share the backoff helper with the RTU client"}]"#,
     );
+    assert_eq!(
+        p.ferrule(&["pr", "publish", "demo"]).text(),
+        "publish=refused reason=gate4 \
+         hint=approve gate4 first: ferrule gate approve <slug> gate4\nexit=1"
+    );
+    assert!(!gh.log().contains("pr ready"), "{}", gh.log());
+    let gate4 = p.ok(&["gate", "approve", "demo", "gate4"]);
+    assert!(gate4.starts_with("approve=done gate=gate4"), "{gate4}");
+    assert_eq!(p.field("demo", "gate4"), "2026-10-05");
     let published = p.ok(&["pr", "publish", "demo"]);
     assert_eq!(published, "publish=done pr=34 follow-ups=#40");
     assert!(
@@ -436,6 +521,12 @@ fn it_publish_refuses_threads_and_stage_refs() {
     p.ok(&["run", "init", "demo"]);
     p.artifacts();
     p.ok(&["board", "set", "demo", "pr=34", "branch=feat/demo"]);
+    assert_eq!(
+        p.ferrule(&["pr", "publish", "demo"]).text(),
+        "publish=refused reason=gate4 \
+         hint=approve gate4 first: ferrule gate approve <slug> gate4\nexit=1"
+    );
+    p.ok(&["board", "set", "demo", "gate4=2026-10-05"]);
     serve(&p.gh, &graphql("34"), &threads("src/x.rs"));
     assert_eq!(
         p.ferrule(&["pr", "publish", "demo"]).text(),
@@ -513,6 +604,7 @@ fn it_replan_swaps_the_uncommitted_stages() {
     let p = Project::new();
     p.ok(&["run", "init", "demo"]);
     p.artifacts();
+    p.ok(&["board", "set", "demo", "lane=fast", "arch=skipped"]);
     p.gh.serve(
         &[
             "issue",
@@ -528,6 +620,7 @@ fn it_replan_swaps_the_uncommitted_stages() {
     );
     let gate2 = p.ok(&["gate", "approve", "demo", "gate2"]);
     assert!(gate2.contains("issue=12 "), "adopted: {gate2}");
+    assert_eq!(p.field("demo", "gate1"), "2026-10-05", "pending: dated");
     let sha0 = p.land("s0", "docs/specs/modbus/requirements.md");
     seed_log(
         &p.root,
@@ -549,9 +642,15 @@ fn it_replan_swaps_the_uncommitted_stages() {
         "a new one",
     ]);
 
+    p.ok(&["gate", "approve", "demo", "gate4"]);
     assert_eq!(
         p.ok(&["stage", "replan", "demo", "start"]),
         "replan=started from=s1"
+    );
+    assert_eq!(
+        p.field("demo", "gate4"),
+        "",
+        "approved anew after a re-plan"
     );
     assert!(p.run_dir().join("plan.prev.md").is_file());
     std::fs::write(
@@ -582,6 +681,7 @@ fn it_replan_approve_is_refused_twice() {
     let p = Project::new();
     p.ok(&["run", "init", "demo"]);
     p.artifacts();
+    p.ok(&["board", "set", "demo", "lane=fast", "arch=skipped"]);
     p.gh.serve(
         &[
             "issue",

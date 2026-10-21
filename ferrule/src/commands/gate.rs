@@ -9,13 +9,44 @@ use super::run::{self, ApproveArgs, NextAt};
 /// Shown after `ferrule gate approve --help`.
 const APPROVE_AFTER_LONG_HELP: &str = "\
 Output:
-  approve=done gate=<gate> [issue=<n>] [worktree=<path>] [stages=<n>] [<record>]
+  approve=done gate=<gate> [issue=<n>] [worktree=<path>] [stages=<n>] [action=recorded] [<record>]
       The approval is recorded. `<record>` is what the last stop showed:
       `spec-rev=<n>`, `arch-rev=<n>` and `decisions-seen=<lines>`, also logged
       on the card. `issue=`, `worktree=` and `stages=` appear for gate2 only.
+      `action=recorded`: the gate was approved already; its date is kept
+      (gate2 still does whatever is missing: worktree, stage cards).
+Gates, the parent card field each dates, what must come first and the
+parent states each is approved in:
+  gate1    gate1   -                         open
+  arch     arch    -                         open
+  epic     arch    kind: epic (gate1 --epic) open
+  gate2    gate2   arch (date, no-arch or    open, inprogress
+                   skipped)
+  stage    -       gate2                     inprogress
+  replan   -       gate2                     inprogress, inreview
+  delta    -       gate2                     inprogress, inreview
+  gate3    gate3   gate2                     inprogress, inreview
+  gate4    gate4   gate2                     inprogress, inreview
+  arch and epic also date gate1 while it is pending; gate2 does too.
+  `--epic` records `kind: epic` and removes `lane`. `stage replan start`
+  removes gate3 and gate4: the run is approved there anew.
+  gate2 files the issue and adds the worktree first, then writes its
+  fields, the parent's move and the stage cards in one transaction: a
+  refused move leaves none of them.
 Refusals:
   approve=refused reason=card      No such run; check the slug with
                                    `ferrule board list`
+  approve=refused reason=order missing=<gate>
+                                   A gate it follows is not approved; the hint
+                                   names the approval to run first
+  approve=refused reason=state state=<state>
+                                   The parent card is in a state the gate is
+                                   not approved in (table above)
+  approve=refused reason=epic      gate1 --epic on a run past gate 1: arch or
+                                   gate2 recorded, or stage cards exist
+  approve=refused reason=branch branch=<branch>
+                                   gate2: --branch differs from the branch the
+                                   card records
   approve=refused reason=no-plan   gate2: plan.md is missing from the run dir
   approve=refused reason=no-stages gate2: plan.md has no `## Shared` stage table
   approve=refused reason=usage     gate2: --issue is neither `new` nor a number

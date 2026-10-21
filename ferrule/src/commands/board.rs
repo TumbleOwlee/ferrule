@@ -153,10 +153,11 @@ Fields (`ferrule board set` takes the same):
                                  blocked-by, files, branch and stop itself.
   parent card <slug>             kind, epic, slices, issue, pr, branch, lane,
                                  gate1, with-arch, with-plan, skipped, arch,
-                                 no-arch, gate2, split, upstream, artifacts,
-                                 worktree. The workflow sets these itself, so
-                                 do not set them by hand: gate1, arch, gate2
-                                 and lane (`ferrule gate approve`), branch
+                                 no-arch, gate2, gate3, gate4, split,
+                                 upstream, artifacts, worktree. The workflow
+                                 sets these itself, so do not set them by
+                                 hand: gate1, arch, gate2, gate3, gate4 and
+                                 lane (`ferrule gate approve`), branch
                                  (approve gate2), kind and epic (`run init`
                                  of a slice, `gate approve gate1 --epic`),
                                  issue, slices and split (`ferrule issue
@@ -177,9 +178,10 @@ Refusals:
                                  hint lists the allowed ones, also under
                                  Fields in `ferrule board new --help` (do not
                                  hand-set the ones the workflow commands
-                                 write: gate1, arch, gate2, lane, branch,
-                                 issue, pr, slices, split); every key is
-                                 checked first, so nothing is written
+                                 write: gate1, arch, gate2, gate3, gate4,
+                                 lane, branch, issue, pr, slices, split);
+                                 every key is checked first, so nothing is
+                                 written
   card-set=reject reason=arg arg=<a>
                                  A field argument without `=`; write key=value;
                                  nothing is written

@@ -135,6 +135,8 @@ Output:
       `pr=ready`). <list> is the filed follow-up issues, `#12,#13`, or
       `none`; they are logged as `follow-ups=[...]`.
 Refusals (stdout, exit 1 unless noted):
+  publish=refused reason=gate4 hint=approve gate4 first: ferrule gate approve <slug> gate4
+      The parent card has no `gate4` date. Fix: approve gate 4 first.
   publish=refused reason=threads threads=<n> hint=resolve the open threads: ferrule guide show feedback
       <n> review threads are unresolved. Fix: `ferrule guide show feedback`.
   publish=refused reason=collide ids=<ids> hint=renumber the colliding IDs on the branch, push, publish again
@@ -198,7 +200,8 @@ pub enum PrCommand {
     },
     /// Publish the PR once gate 4 is approved.
     ///
-    /// Refuses open threads and colliding IDs; writes the full body, marks
+    /// Refuses without gate 4's `gate4` date, open threads and colliding
+    /// IDs; writes the full body, marks
     /// the PR ready and files the kept follow-ups.
     #[command(after_long_help = PR_PUBLISH_AFTER_LONG_HELP)]
     Publish {

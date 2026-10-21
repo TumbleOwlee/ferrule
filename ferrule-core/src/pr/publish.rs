@@ -482,6 +482,8 @@ impl std::fmt::Display for Pushed {
 /// Why `pr publish` did not mark the PR ready.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PublishRefused {
+    /// Gate 4 is not approved: the parent card has no `gate4` date.
+    Gate4,
     /// Unresolved review threads: their count.
     Threads(usize),
     /// Fixed IDs another run landed on main meanwhile.
@@ -497,6 +499,8 @@ impl PublishRefused {
     #[must_use]
     pub fn refusal(&self) -> Refusal {
         match self {
+            PublishRefused::Gate4 => Refusal::new("publish", "gate4")
+                .hint("approve gate4 first: ferrule gate approve <slug> gate4"),
             PublishRefused::Threads(n) => Refusal::new("publish", "threads")
                 .field("threads", n)
                 .hint("resolve the open threads: ferrule guide show feedback"),
@@ -598,15 +602,19 @@ impl Run<'_> {
         Ok(Ok(Pushed { sha, cached, body }))
     }
 
-    /// Gate 4 approved: checks the threads and the fixed IDs, replaces the
-    /// draft's title and body with the full form, marks it ready, logs
-    /// `pr=ready` and files the kept follow-ups (`None`: all of them).
+    /// Gate 4 approved (refused without its `gate4` date): checks the
+    /// threads and the fixed IDs, replaces the draft's title and body with
+    /// the full form, marks it ready, logs `pr=ready` and files the kept
+    /// follow-ups (`None`: all of them).
     pub fn publish(
         &mut self,
         keep: Option<&[u32]>,
     ) -> Result<Result<(u64, Vec<u64>), PublishRefused>, Error> {
         if board::state(self.conn, self.slug)?.is_none() {
             return Err(Error::Card);
+        }
+        if self.field("gate4")?.is_none() {
+            return Ok(Err(PublishRefused::Gate4));
         }
         let ci = self.config.backend.ci;
         let pr = match numbers(self.field("pr")?.as_deref()).first() {

@@ -6,7 +6,7 @@
 
 - **Board:** `ferrule run init {slug} [--issue <n>]` before spawning: the parent card and `{run_dir}/`; with a named issue also its body (`request.md`) and the brief it may already carry (`issue-spec.md`). `init=done … kind=slice epic=<e>` → the issue is a slice: `ferrule guide show epic` first.
 - `status=question` → relay question and answer without comment.
-- `status=ready size=epic` → always a stop, whatever the lane would be: `ferrule prompt render {slug} gate1 --epic --reason <the author's reason>`. Option 1 (epic) → `ferrule gate approve {slug} gate1 --epic`; `ferrule guide show epic`. Option 2 or 3 (single run) → as below, with that lane.
+- `status=ready size=epic` → always a stop, whatever the lane would be: `ferrule prompt render {slug} gate1 --epic --reason <the author's reason>`. Option 1 (epic) → `ferrule gate approve {slug} gate1 --epic` (records `kind: epic`, removes `lane`; refused once the run is past gate 1); `ferrule guide show epic`. Option 2 or 3 (single run) → as below, with that lane.
 - `status=ready` or `status=no-diff` (spec already covers the goal; the file names the violated requirements) → recommend the lane by `count=` (`ferrule guide show lanes`):
   - **full** recommended → `ferrule prompt render {slug} gate1`: approval **and lane** in one prompt. Change requested → relay to the same agent. Approved → `ferrule gate approve {slug} gate1 --lane <the lane>`.
   - **fast** recommended → no stop: `ferrule board set {slug} lane=fast gate1=with-arch`; at most 1 entry or `no-diff`: `ferrule board set {slug} lane=fast gate1=with-plan arch=skipped`, then `ferrule guide show gate2`. Else the brief is approved at the architecture stop.

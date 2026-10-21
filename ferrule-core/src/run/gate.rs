@@ -48,6 +48,19 @@ pub enum GateRefusal {
     Move,
     /// No replan was started since the last approval.
     NoReplan,
+    /// A gate approved before the one it follows: the missing gate and
+    /// the flags its approval takes.
+    Order {
+        missing: &'static str,
+        flags: &'static str,
+    },
+    /// A gate approved while the parent card is in a state it is not
+    /// approved in.
+    State { gate: Gate, state: State },
+    /// `gate1 --epic` on a run past gate 1.
+    Epic,
+    /// gate2's `--branch` differs from the branch the card records.
+    Branch(String),
 }
 
 impl GateRefusal {
@@ -63,6 +76,10 @@ impl GateRefusal {
             GateRefusal::Worktree(_) => "worktree",
             GateRefusal::Move => "move",
             GateRefusal::NoReplan => "no-replan",
+            GateRefusal::Order { .. } => "order",
+            GateRefusal::State { .. } => "state",
+            GateRefusal::Epic => "epic",
+            GateRefusal::Branch(_) => "branch",
         }
     }
 
@@ -86,6 +103,24 @@ impl GateRefusal {
             )),
             GateRefusal::NoReplan => r.hint(format!(
                 "no replan is pending; start one: ferrule stage replan {slug} start"
+            )),
+            GateRefusal::Order { missing, flags } => r.field("missing", missing).hint(format!(
+                "approve {missing} first: ferrule gate approve {slug} {missing}{flags}"
+            )),
+            GateRefusal::State { gate, state } => {
+                let states: Vec<&str> = gate.states().iter().map(|s| s.as_str()).collect();
+                r.field("state", state).hint(format!(
+                    "{} is approved only while the parent card is {}; see `ferrule run status {slug}`",
+                    gate.as_str(),
+                    states.join(" or ")
+                ))
+            }
+            GateRefusal::Epic => r.hint(format!(
+                "the run is past gate 1 (arch or gate2 recorded, or stage cards exist); \
+                 an epic is chosen at gate 1 only; see `ferrule run status {slug}`"
+            )),
+            GateRefusal::Branch(card) => r.field("branch", card).hint(format!(
+                "the run's branch is {card}; drop --branch or pass --branch {card}"
             )),
         }
     }
@@ -243,9 +278,14 @@ pub enum Gate {
     Arch,
     Epic,
     Gate2,
-    /// A stage, re-plan, delta, gate 3 or gate 4 stop: only what was shown
-    /// is recorded.
-    Other,
+    /// A stage stop: only what was shown is recorded.
+    Stage,
+    /// A re-plan stop: only what was shown is recorded.
+    Replan,
+    /// A meaningful spec change: only what was shown is recorded.
+    Delta,
+    Gate3,
+    Gate4,
 }
 
 impl Gate {
@@ -256,10 +296,82 @@ impl Gate {
             "arch" => Gate::Arch,
             "epic" => Gate::Epic,
             "gate2" => Gate::Gate2,
-            "stage" | "replan" | "delta" | "gate3" | "gate4" => Gate::Other,
+            "stage" => Gate::Stage,
+            "replan" => Gate::Replan,
+            "delta" => Gate::Delta,
+            "gate3" => Gate::Gate3,
+            "gate4" => Gate::Gate4,
             _ => return None,
         })
     }
+
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Gate::Gate1 => "gate1",
+            Gate::Arch => "arch",
+            Gate::Epic => "epic",
+            Gate::Gate2 => "gate2",
+            Gate::Stage => "stage",
+            Gate::Replan => "replan",
+            Gate::Delta => "delta",
+            Gate::Gate3 => "gate3",
+            Gate::Gate4 => "gate4",
+        }
+    }
+
+    /// The parent card field the approval dates; `None` for the stops
+    /// that recur.
+    #[must_use]
+    pub fn field(self) -> Option<&'static str> {
+        match self {
+            Gate::Gate1 => Some("gate1"),
+            Gate::Arch | Gate::Epic => Some("arch"),
+            Gate::Gate2 => Some("gate2"),
+            Gate::Gate3 => Some("gate3"),
+            Gate::Gate4 => Some("gate4"),
+            Gate::Stage | Gate::Replan | Gate::Delta => None,
+        }
+    }
+
+    /// The parent card states the gate is approved in.
+    #[must_use]
+    pub fn states(self) -> &'static [State] {
+        match self {
+            Gate::Gate1 | Gate::Arch | Gate::Epic => &[State::Open],
+            // Re-approving gate2 resumes a run that died after it.
+            Gate::Gate2 => &[State::Open, State::InProgress],
+            Gate::Stage => &[State::InProgress],
+            Gate::Replan | Gate::Delta | Gate::Gate3 | Gate::Gate4 => {
+                &[State::InProgress, State::InReview]
+            }
+        }
+    }
+}
+
+/// Whether `v` holds something: a date, or `no-arch`/`skipped`.
+fn has(v: Option<&str>) -> bool {
+    v.is_some_and(|v| !v.trim().is_empty())
+}
+
+/// The gate `gate` follows when it is not approved yet, and the flags its
+/// approval takes: `epic` needs `kind: epic` (gate1 --epic), gate2 an
+/// `arch` (a date, `no-arch` or `skipped`), every later gate `gate2`.
+/// gate1 and arch have none: a non-behavior run starts at arch.
+fn missing(
+    conn: &Connection,
+    slug: &str,
+    gate: Gate,
+) -> rusqlite::Result<Option<(&'static str, &'static str)>> {
+    let field = |k: &str| board::field(conn, slug, k);
+    Ok(match gate {
+        Gate::Gate1 | Gate::Arch => None,
+        Gate::Epic => (field("kind")?.as_deref() != Some("epic")).then_some(("gate1", " --epic")),
+        Gate::Gate2 => (!has(field("arch")?.as_deref())).then_some(("arch", "")),
+        Gate::Stage | Gate::Replan | Gate::Delta | Gate::Gate3 | Gate::Gate4 => {
+            (!has(field("gate2")?.as_deref())).then_some(("gate2", ""))
+        }
+    })
 }
 
 /// One row of the `## Shared` stage table.
@@ -371,14 +483,19 @@ pub struct Approved {
     pub issue: Option<u64>,
     pub worktree: Option<String>,
     pub stages: Option<usize>,
+    /// The gate was approved already: its date is kept.
+    pub recorded: bool,
 }
 
 fn is_date(v: Option<&str>) -> bool {
     v.is_some_and(|v| v.len() >= 5 && v.as_bytes()[..4].iter().all(u8::is_ascii_digit))
 }
 
-fn set(conn: &mut Connection, slug: &str, key: &str, value: &str) -> Result<(), Error> {
-    board::set(conn, slug, key, value).map_err(|e| match e {
+fn set_all(conn: &mut Connection, slug: &str, fields: &[(String, String)]) -> Result<(), Error> {
+    if fields.is_empty() {
+        return Ok(());
+    }
+    board::set_all(conn, slug, fields).map_err(|e| match e {
         board::CardError::Sql(e) => Error::Sql(e),
         _ => Error::Refused(GateRefusal::Card),
     })
@@ -392,8 +509,10 @@ fn arg<'a>(args: &'a [(String, String)], key: &str) -> Option<&'a str> {
         .map(|(_, v)| v.as_str())
 }
 
-/// Gate 2's work, in order: the issue filed or rewritten, the worktree and
-/// branch, the dates and lane, the parent moved, the stage cards created.
+/// Gate 2's work, in order: the issue filed or rewritten and the worktree
+/// and branch (both idempotent), then one board transaction: the dates,
+/// branch and lane, the parent moved, the stage cards created. A refused
+/// move leaves no gate 2 field and no stage card.
 fn approve_gate2(
     conn: &mut Connection,
     layout: &Layout,
@@ -415,6 +534,15 @@ fn approve_gate2(
         None | Some("" | "new") => None,
         Some(n) => Some(n.parse().map_err(|_| Error::Refused(GateRefusal::Usage))?),
     };
+    let recorded = board::field(conn, slug, "branch")?.filter(|b| !b.is_empty());
+    if let (Some(card), Some(asked)) = (&recorded, arg(args, "branch"))
+        && card != asked
+    {
+        return Err(Error::Refused(GateRefusal::Branch(card.clone())));
+    }
+    let branch = recorded
+        .or_else(|| arg(args, "branch").map(str::to_owned))
+        .unwrap_or_else(|| format!("feat/{slug}"));
     let root = layout.root.clone();
     let mut run = publish::Run {
         conn,
@@ -425,10 +553,6 @@ fn approve_gate2(
         now,
     };
     out.issue = Some(run.file(Target::Run, reuse)?.0);
-    let branch = board::field(conn, slug, "branch")?
-        .filter(|b| !b.is_empty())
-        .or_else(|| arg(args, "branch").map(str::to_owned))
-        .unwrap_or_else(|| format!("feat/{slug}"));
     let wt = super::worktree(conn, layout, slug, slug)?;
     super::ensure_worktree(layout, &wt, &branch, &config.main_branch)
         .map_err(|e| Error::Refused(GateRefusal::Worktree(e)))?;
@@ -438,18 +562,15 @@ fn approve_gate2(
             .display()
             .to_string(),
     );
-    set(conn, slug, "branch", &branch)?;
+    let mut fields = vec![("branch".to_owned(), branch.clone())];
     if gate1_pending {
-        set(conn, slug, "gate1", today)?;
+        fields.push(("gate1".to_owned(), today.to_owned()));
     }
-    set(conn, slug, "gate2", today)?;
+    if !out.recorded {
+        fields.push(("gate2".to_owned(), today.to_owned()));
+    }
     if let Some(lane) = arg(args, "lane") {
-        set(conn, slug, "lane", lane)?;
-    }
-    match board::move_card(conn, slug, State::InProgress, now) {
-        Ok(()) => {}
-        Err(board::MoveError::Sql(e)) => return Err(Error::Sql(e)),
-        Err(_) => return Err(Error::Refused(GateRefusal::Move)),
+        fields.push(("lane".to_owned(), lane.to_owned()));
     }
     let summary =
         std::fs::read_to_string(layout.run_dir(slug).join("plan.summary.md")).unwrap_or_default();
@@ -460,15 +581,22 @@ fn approve_gate2(
         .into_iter()
         .filter(|s| !existing.iter().any(|(n, _, _)| *n == s.n))
         .collect();
-    board::create_all(conn, &stage_cards(slug, &fresh, &stops, &branch), now)
-        .map_err(Error::Board)?;
+    let cards = stage_cards(slug, &fresh, &stops, &branch);
+    match board::set_move_create(conn, slug, &fields, State::InProgress, &cards, now) {
+        Ok(()) => {}
+        Err(board::BatchError::Move(_, board::MoveError::Sql(e))) => return Err(Error::Sql(e)),
+        Err(board::BatchError::Move(..)) => return Err(Error::Refused(GateRefusal::Move)),
+        Err(e) => return Err(Error::Board(e)),
+    }
     out.stages = Some(board::stages(conn, slug)?.len());
     Ok(())
 }
 
 /// Records the approval of `gate`: its date and lane, what was shown, and
 /// at gate 2 the issue, the worktree, the parent's move and the stage
-/// cards.
+/// cards. Refused before anything is written when a gate it follows is
+/// not approved or the parent card is in a state the gate is not approved
+/// in. Approving a gate again keeps its date (`recorded`).
 pub fn approve(
     conn: &mut Connection,
     layout: &Layout,
@@ -478,33 +606,54 @@ pub fn approve(
     args: &[(String, String)],
     now: &str,
 ) -> Result<Approved, Error> {
-    if board::state(conn, slug)?.is_none() {
+    let Some(state) = board::state(conn, slug)? else {
         return Err(Error::Refused(GateRefusal::Card));
+    };
+    if let Some((missing, flags)) = missing(conn, slug, gate)? {
+        return Err(Error::Refused(GateRefusal::Order { missing, flags }));
+    }
+    if !gate.states().contains(&state) {
+        return Err(Error::Refused(GateRefusal::State { gate, state }));
     }
     let today = now.get(..10).unwrap_or(now);
     let gate1_pending = !is_date(board::field(conn, slug, "gate1")?.as_deref());
-    let mut out = Approved::default();
-    match gate {
-        Gate::Gate2 => approve_gate2(conn, layout, config, slug, args, now, &mut out)?,
-        Gate::Gate1 => {
-            set(conn, slug, "gate1", today)?;
-            if arg(args, "kind") == Some("epic") {
-                set(conn, slug, "kind", "epic")?;
-                set(conn, slug, "lane", "")?;
-            }
-        }
-        Gate::Arch | Gate::Epic => {
-            if gate1_pending {
-                set(conn, slug, "gate1", today)?;
-            }
-            set(conn, slug, "arch", today)?;
-        }
-        Gate::Other => {}
+    let mut out = Approved {
+        recorded: match gate.field() {
+            Some(f) => is_date(board::field(conn, slug, f)?.as_deref()),
+            None => false,
+        },
+        ..Approved::default()
+    };
+    let mut fields = Vec::new();
+    if gate1_pending && matches!(gate, Gate::Arch | Gate::Epic) {
+        fields.push(("gate1".to_owned(), today.to_owned()));
     }
-    if gate != Gate::Gate2
-        && let Some(lane) = arg(args, "lane")
+    if let Some(f) = gate.field()
+        && !out.recorded
+        && gate != Gate::Gate2
     {
-        set(conn, slug, "lane", lane)?;
+        fields.push((f.to_owned(), today.to_owned()));
+    }
+    if gate == Gate::Gate1
+        && arg(args, "kind") == Some("epic")
+        && board::field(conn, slug, "kind")?.as_deref() != Some("epic")
+    {
+        let past = has(board::field(conn, slug, "arch")?.as_deref())
+            || has(board::field(conn, slug, "gate2")?.as_deref())
+            || !board::stages(conn, slug)?.is_empty();
+        if past {
+            return Err(Error::Refused(GateRefusal::Epic));
+        }
+        fields.push(("kind".to_owned(), "epic".to_owned()));
+        fields.push(("lane".to_owned(), String::new()));
+    }
+    if gate == Gate::Gate2 {
+        approve_gate2(conn, layout, config, slug, args, now, &mut out)?;
+    } else {
+        if let Some(lane) = arg(args, "lane") {
+            fields.push(("lane".to_owned(), lane.to_owned()));
+        }
+        set_all(conn, slug, &fields)?;
     }
     let mut no_view = |_: &[std::path::PathBuf]| Ok(Viewed::Opened);
     let record = prompt::render::render(conn, layout, Kind::Approved, slug, &[], now, &mut no_view)
@@ -545,6 +694,15 @@ pub fn replan_start(
         return Err(Error::Refused(GateRefusal::Card));
     };
     let from = replan_from(conn, slug)?;
+    // The run rejoins at gate 3 and gate 4: both are approved anew.
+    set_all(
+        conn,
+        slug,
+        &[
+            ("gate3".to_owned(), String::new()),
+            ("gate4".to_owned(), String::new()),
+        ],
+    )?;
     if st != State::InProgress {
         match board::move_card(conn, slug, State::InProgress, now) {
             Ok(()) => {}

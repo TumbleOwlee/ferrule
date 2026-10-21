@@ -14,9 +14,8 @@ Every status line of the gate (planner, plan reviewer, the author's issue answer
 
 <!-- done: gate2 -->
 **On approval:** `ferrule gate approve {slug} gate2 --issue <new | n> [--stops s1,s3] [--lane <lane>] [--branch <type>/{slug}]` does, in order:
-1. Files or rewrites the issue (`ferrule guide show issue`) and records `issue`; records `gate1` too while it is pending (fast lane without an architecture stop).
-2. Adds the worktree `{worktree}` on a new branch off `{main}` (`branch=` names it; default `feat/{slug}`).
-3. Records `gate2` (and `lane=`, for a non-behavior change with `no-arch`), moves the parent → `inprogress`.
-4. Creates one stage card per row of `plan.md`'s `## Shared` stage table (`s0` only when the plan has one): `title`, `files` and `blocked-by` from the table, `stop: yes` for every stage `plan.summary.md`'s `Stop` column marks and every stage `stops=` names (the user's ticks at the stop). Stage ids match plan ids. It prints `approve=done gate=gate2 issue=<n> worktree=… stages=<count>`; `approve=refused reason=no-stages` (every `approve=refused` line ends in `hint=<fix>`) → the planner's table is missing or malformed: resume the planner.
+1. Files or rewrites the issue (`ferrule guide show issue`) and records `issue`.
+2. Adds the worktree `{worktree}` on a new branch off `{main}` (`--branch` names it; default `feat/{slug}`).
+3. In one board transaction: records `branch`, `gate2`, `gate1` while it is pending (fast lane without an architecture stop) (and `lane=`, for a non-behavior change with `no-arch`), moves the parent → `inprogress` and creates one stage card per row of `plan.md`'s `## Shared` stage table (`s0` only when the plan has one): `title`, `files` and `blocked-by` from the table, `stop: yes` for every stage `plan.summary.md`'s `Stop` column marks and every stage `stops=` names (the user's ticks at the stop). Stage ids match plan ids. A refused move (`reason=move`) writes none of step 3. Approved again (resuming): the date is kept and only what is missing is done (`action=recorded`); a `--branch` other than the card's `branch` is refused (`reason=branch`). It prints `approve=done gate=gate2 issue=<n> worktree=… stages=<count>`; `approve=refused reason=no-stages` (every `approve=refused` line ends in `hint=<fix>`) → the planner's table is missing or malformed: resume the planner.
 
 Then spawn the implementer, its brief naming the lane (`ferrule guide show stages`).

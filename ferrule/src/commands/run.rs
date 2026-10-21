@@ -381,8 +381,8 @@ pub struct ApproveArgs {
     /// The lane the user settled on, recorded on the card.
     #[arg(long, value_parser = ["fast", "full"])]
     pub lane: Option<String>,
-    /// gate1: the run is an epic.
-    #[arg(long)]
+    /// gate1: the run is an epic; records `kind: epic` and removes `lane`.
+    #[arg(long, conflicts_with = "lane")]
     pub epic: bool,
     /// gate2: `new`, or the number of an issue the run reuses.
     #[arg(long)]
@@ -1055,17 +1055,18 @@ fn init(slug: &str, issue: Option<&str>, out: &mut impl Write) -> io::Result<u8>
 }
 
 pub(super) fn approve(args: &ApproveArgs, out: &mut impl Write) -> io::Result<u8> {
-    let (g, gate_name) = match args.gate {
-        GateName::Gate1 => (Gate::Gate1, "gate1"),
-        GateName::Arch => (Gate::Arch, "arch"),
-        GateName::Epic => (Gate::Epic, "epic"),
-        GateName::Gate2 => (Gate::Gate2, "gate2"),
-        GateName::Stage => (Gate::Other, "stage"),
-        GateName::Replan => (Gate::Other, "replan"),
-        GateName::Delta => (Gate::Other, "delta"),
-        GateName::Gate3 => (Gate::Other, "gate3"),
-        GateName::Gate4 => (Gate::Other, "gate4"),
+    let g = match args.gate {
+        GateName::Gate1 => Gate::Gate1,
+        GateName::Arch => Gate::Arch,
+        GateName::Epic => Gate::Epic,
+        GateName::Gate2 => Gate::Gate2,
+        GateName::Stage => Gate::Stage,
+        GateName::Replan => Gate::Replan,
+        GateName::Delta => Gate::Delta,
+        GateName::Gate3 => Gate::Gate3,
+        GateName::Gate4 => Gate::Gate4,
     };
+    let gate_name = g.as_str();
     let slug = args.slug.as_str();
     let mut pairs = Vec::new();
     let mut pair = |k: &str, v: Option<&String>| {
@@ -1104,6 +1105,9 @@ pub(super) fn approve(args: &ApproveArgs, out: &mut impl Write) -> io::Result<u8
             }
             if let Some(n) = a.stages {
                 write!(out, " stages={n}")?;
+            }
+            if a.recorded {
+                write!(out, " action=recorded")?;
             }
             if !a.record.is_empty() {
                 write!(out, " {}", a.record)?;

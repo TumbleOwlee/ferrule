@@ -333,7 +333,7 @@ fn it_new_and_set_validate_fields() {
     );
     assert_eq!(
         run(&["board", "set", "r", "issue=9", "color=red"]),
-        "card-set=reject reason=key key=color hint=a parent card takes only kind, epic, slices, issue, pr, branch, lane, gate1, with-arch, with-plan, skipped, arch, no-arch, gate2, split, upstream, artifacts, worktree\nexit=2"
+        "card-set=reject reason=key key=color hint=a parent card takes only kind, epic, slices, issue, pr, branch, lane, gate1, with-arch, with-plan, skipped, arch, no-arch, gate2, gate3, gate4, split, upstream, artifacts, worktree\nexit=2"
     );
     assert_eq!(run(&["board", "field", "r", "issue"]), "exit=0");
     assert_eq!(run(&["board", "set", "r", "lane="]), "exit=0");

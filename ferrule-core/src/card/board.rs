@@ -92,6 +92,8 @@ pub const PARENT_FIELDS: &[&str] = &[
     "arch",
     "no-arch",
     "gate2",
+    "gate3",
+    "gate4",
     "split",
     "upstream",
     "artifacts",
@@ -564,6 +566,7 @@ pub struct NewCard {
 pub enum BatchError {
     Card(String, CardError),
     Log(String, LogError),
+    Move(String, MoveError),
 }
 
 impl fmt::Display for BatchError {
@@ -572,6 +575,7 @@ impl fmt::Display for BatchError {
             BatchError::Card(id, e) if id.is_empty() => write!(f, "{e}"),
             BatchError::Card(id, e) => write!(f, "card {id}: {e}"),
             BatchError::Log(id, e) => write!(f, "card {id}: {e}"),
+            BatchError::Move(id, e) => write!(f, "card {id}: {e}"),
         }
     }
 }
@@ -581,6 +585,7 @@ impl std::error::Error for BatchError {
         match self {
             BatchError::Card(_, e) => Some(e),
             BatchError::Log(_, e) => Some(e),
+            BatchError::Move(_, e) => Some(e),
         }
     }
 }
@@ -591,15 +596,41 @@ pub fn create_all(conn: &mut Connection, cards: &[NewCard], now: &str) -> Result
     let tx = conn
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(sql)?;
+    insert_all(&tx, cards, now)?;
+    tx.commit().map_err(sql)
+}
+
+/// Sets `fields` on `id`, moves it to `to` (refused as `move_card` refuses)
+/// and creates `create`, all or nothing: a refused move writes no field
+/// and no card.
+pub fn set_move_create(
+    conn: &mut Connection,
+    id: &str,
+    fields: &[(String, String)],
+    to: State,
+    create: &[NewCard],
+    now: &str,
+) -> Result<(), BatchError> {
+    let sql = |e: rusqlite::Error| BatchError::Card(String::new(), CardError::Sql(e));
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(sql)?;
+    set_in(&tx, id, fields).map_err(|e| BatchError::Card(id.to_owned(), e))?;
+    move_in(&tx, id, to, now).map_err(|e| BatchError::Move(id.to_owned(), e))?;
+    insert_all(&tx, create, now)?;
+    tx.commit().map_err(sql)
+}
+
+fn insert_all(conn: &Connection, cards: &[NewCard], now: &str) -> Result<(), BatchError> {
     for c in cards {
-        insert(&tx, &c.id, c.state, &c.fields, now)
+        insert(conn, &c.id, c.state, &c.fields, now)
             .map_err(|e| BatchError::Card(c.id.clone(), e))?;
         for (event, args) in &c.log {
-            append(&tx, &c.id, event, args, now, vocab::READ_BUDGET, false)
+            append(conn, &c.id, event, args, now, vocab::READ_BUDGET, false)
                 .map_err(|e| BatchError::Log(c.id.clone(), e))?;
         }
     }
-    tx.commit().map_err(sql)
+    Ok(())
 }
 
 /// Deletes `delete`, logs `parent_log` on `parent` and creates `create`,
@@ -624,14 +655,7 @@ pub fn replace_cards(
         tx.execute("DELETE FROM cards WHERE id = ?1", [id])
             .map_err(sql)?;
     }
-    for c in create {
-        insert(&tx, &c.id, c.state, &c.fields, now)
-            .map_err(|e| BatchError::Card(c.id.clone(), e))?;
-        for (event, args) in &c.log {
-            append(&tx, &c.id, event, args, now, vocab::READ_BUDGET, false)
-                .map_err(|e| BatchError::Log(c.id.clone(), e))?;
-        }
-    }
+    insert_all(&tx, create, now)?;
     tx.commit().map_err(sql)
 }
 
@@ -675,12 +699,18 @@ pub fn set_all(
     id: &str,
     fields: &[(String, String)],
 ) -> Result<(), CardError> {
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    set_in(&tx, id, fields)?;
+    tx.commit()?;
+    Ok(())
+}
+
+fn set_in(tx: &Connection, id: &str, fields: &[(String, String)]) -> Result<(), CardError> {
     let card = CardId::parse(id);
     if let Some((k, _)) = fields.iter().find(|(k, _)| !allowed(&card, k)) {
         return Err(CardError::Field(k.clone()));
     }
-    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    if state(&tx, id)?.is_none() {
+    if state(tx, id)?.is_none() {
         return Err(CardError::Card);
     }
     for (key, value) in fields {
@@ -698,7 +728,6 @@ pub fn set_all(
             )?;
         }
     }
-    tx.commit()?;
     Ok(())
 }
 
@@ -990,13 +1019,19 @@ impl From<rusqlite::Error> for MoveError {
 /// a no-op.
 pub fn move_card(conn: &mut Connection, id: &str, to: State, now: &str) -> Result<(), MoveError> {
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    let Some(from) = state(&tx, id)? else {
+    move_in(&tx, id, to, now)?;
+    tx.commit()?;
+    Ok(())
+}
+
+fn move_in(tx: &Connection, id: &str, to: State, now: &str) -> Result<(), MoveError> {
+    let Some(from) = state(tx, id)? else {
         return Err(MoveError::Card);
     };
     if from == to {
         return Ok(());
     }
-    if let Some(reason) = refusal(&tx, &CardId::parse(id), from, to)? {
+    if let Some(reason) = refusal(tx, &CardId::parse(id), from, to)? {
         return Err(MoveError::Refused { from, reason });
     }
     tx.execute(
@@ -1004,7 +1039,7 @@ pub fn move_card(conn: &mut Connection, id: &str, to: State, now: &str) -> Resul
         [to.as_str(), id],
     )?;
     match append(
-        &tx,
+        tx,
         id,
         &format!("moved={to}"),
         &[],
@@ -1017,7 +1052,6 @@ pub fn move_card(conn: &mut Connection, id: &str, to: State, now: &str) -> Resul
         Err(LogError::Card) => return Err(MoveError::Card),
         Err(LogError::Reject(r)) => return Err(MoveError::Log(r)),
     }
-    tx.commit()?;
     Ok(())
 }
 
@@ -1330,6 +1364,56 @@ mod tests {
         ));
         assert_eq!(state(&s.conn, "r.s1").unwrap(), Some(State::InProgress));
         assert_eq!(events(&s.conn, "r.s1", &[]).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn ut_a_refused_move_writes_no_field_and_no_card() {
+        let mut s = store();
+        let f = |k: &str, v: &str| (k.to_owned(), v.to_owned());
+        create(&mut s.conn, "r", State::Done, &[f("lane", "full")], "t").unwrap();
+        let card = NewCard {
+            id: "r.s0".to_owned(),
+            state: State::Open,
+            fields: vec![f("title", "Land spec")],
+            log: Vec::new(),
+        };
+        let set = [f("gate2", "2026-10-03"), f("branch", "feat/r")];
+        let err = set_move_create(
+            &mut s.conn,
+            "r",
+            &set,
+            State::InProgress,
+            std::slice::from_ref(&card),
+            "t1",
+        )
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            BatchError::Move(
+                _,
+                MoveError::Refused {
+                    reason: Refusal::Transition,
+                    ..
+                }
+            )
+        ));
+        assert_eq!(fields(&s.conn, "r").unwrap(), [f("lane", "full")]);
+        assert!(stages(&s.conn, "r").unwrap().is_empty());
+        assert!(events(&s.conn, "r", &[]).unwrap().is_empty());
+
+        // From open, the gate2 written in the same transaction lets it move.
+        create(&mut s.conn, "q", State::Open, &[], "t").unwrap();
+        let card = NewCard {
+            id: "q.s0".to_owned(),
+            ..card
+        };
+        set_move_create(&mut s.conn, "q", &set, State::InProgress, &[card], "t1").unwrap();
+        assert_eq!(state(&s.conn, "q").unwrap(), Some(State::InProgress));
+        assert_eq!(
+            field(&s.conn, "q", "gate2").unwrap().as_deref(),
+            Some("2026-10-03")
+        );
+        assert_eq!(stages(&s.conn, "q").unwrap().len(), 1);
     }
 
     #[test]
