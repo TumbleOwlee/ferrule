@@ -664,7 +664,7 @@ fn styled_card(text: &str, s: Style) -> String {
         let v = if k == "state" {
             term::state(v, s)
         } else {
-            v.to_owned()
+            term::sanitize(v)
         };
         let _ = writeln!(out, "{}  {v}", term::strong(&format!("{k:<w$}"), s));
     }
@@ -673,7 +673,7 @@ fn styled_card(text: &str, s: Style) -> String {
     }
     for line in log.lines() {
         let (at, body) = line.split_once(' ').unwrap_or((line, ""));
-        let _ = writeln!(out, "{}  {body}", term::faint(at, s));
+        let _ = writeln!(out, "{}  {}", term::faint(at, s), term::sanitize(body));
     }
     out
 }

@@ -32,11 +32,14 @@ const MAGENTA: &str = "\x1b[35m";
 const CYAN: &str = "\x1b[36m";
 
 impl Style {
+    /// `text` in `codes`, its own control sequences dropped first: what
+    /// is painted may come from a card, a log line or a host.
     fn paint(self, codes: &str, text: &str) -> String {
+        let text = sanitize(text);
         if self.color && !text.is_empty() {
             format!("{codes}{text}{RESET}")
         } else {
-            text.to_owned()
+            text
         }
     }
 }
@@ -71,7 +74,8 @@ fn width(s: &str) -> usize {
 /// escape sequences (CSI, OSC, and two-character ones). A carriage return
 /// becomes a newline, or nothing before one. Text from a host must not
 /// reach the terminal with sequences of its own.
-fn sanitize(s: &str) -> String {
+#[must_use]
+pub fn sanitize(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {
@@ -608,6 +612,7 @@ pub fn outline(headings: &[(usize, &str)], style: Style) -> String {
             style.paint(BOLD, text)
         } else {
             let branch = if last_child(i) { "└─ " } else { "├─ " };
+            let text = sanitize(text);
             format!("{}{text}", style.paint(DIM, &format!("{line}{branch}")))
         };
         out.push_str(&line);
@@ -666,6 +671,18 @@ pub fn faint(text: &str, style: Style) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ut_painted_text_loses_its_own_sequences() {
+        let s = Style {
+            color: true,
+            width: 80,
+        };
+        let title = "x\x1b]0;pwned\x07y\x1b[2Jz";
+        assert_eq!(strong(title, s), format!("{BOLD}xyz{RESET}"));
+        assert_eq!(faint(title, PLAIN), "xyz");
+        assert_eq!(outline(&[(1, "a"), (2, title)], PLAIN), "a\n└─ xyz\n");
+    }
 
     const PLAIN: Style = Style {
         color: false,
