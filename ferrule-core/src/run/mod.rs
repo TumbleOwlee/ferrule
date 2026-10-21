@@ -5,6 +5,7 @@
 pub mod archive;
 pub mod gate;
 pub mod gauntlet;
+pub mod inspect;
 pub mod next;
 pub mod rebuild;
 

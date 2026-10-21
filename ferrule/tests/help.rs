@@ -39,6 +39,10 @@ const SOURCES: &[(&str, &[&str])] = &[
         &["run init", "gate approve", "stage replan"],
     ),
     ("ferrule-core/src/run/gauntlet.rs", &["ci gauntlet"]),
+    (
+        "ferrule-core/src/run/inspect.rs",
+        &["run status", "run diff", "run log", "run plan-diff"],
+    ),
     ("ferrule-core/src/run/mod.rs", &["stage stop"]),
     ("ferrule-core/src/run/next.rs", &["gate next"]),
     ("ferrule-core/src/run/rebuild.rs", &["run rebuild"]),
@@ -104,7 +108,7 @@ const SOURCES: &[(&str, &[&str])] = &[
         &["pr open", "pr push", "pr publish", "ci failed"],
     ),
     (
-        "ferrule/src/commands/run.rs",
+        "ferrule/src/commands/run/mod.rs",
         &[
             "run cleanup",
             "run diff",
@@ -116,14 +120,19 @@ const SOURCES: &[(&str, &[&str])] = &[
             "run rebuild",
             "run reconcile",
             "run status",
-            "gate approve",
-            "gate next",
-            "stage verify",
-            "stage stop",
-            "stage replan",
-            "ci gauntlet",
-            "ci wait",
         ],
+    ),
+    (
+        "ferrule/src/commands/run/finish.rs",
+        &["run cleanup", "run export", "run metrics"],
+    ),
+    (
+        "ferrule/src/commands/run/inspect.rs",
+        &["run status", "run diff", "run log", "run plan-diff"],
+    ),
+    (
+        "ferrule/src/commands/run/start.rs",
+        &["run init", "run reconcile", "run rebuild"],
     ),
     (
         "ferrule/src/commands/stage.rs",

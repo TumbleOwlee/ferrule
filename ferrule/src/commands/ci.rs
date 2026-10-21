@@ -3,11 +3,17 @@
 use std::io::{self, Write};
 
 use clap::Subcommand;
+use ferrule_core::card::board;
 use ferrule_core::config::Config;
+use ferrule_core::pr::publish;
+use ferrule_core::refusal::Refusal;
+use ferrule_core::run::gauntlet::{self, Outcome};
+use ferrule_core::run::next::{self, At, Status};
+use ferrule_core::run::{self as core_run};
 use ferrule_core::{project, remote};
 
-use super::internal;
-use super::run;
+use super::board::store;
+use super::{exit, internal, layout, refuse};
 
 /// Shown after `ferrule ci gauntlet --help`.
 const GAUNTLET_AFTER_LONG_HELP: &str = "\
@@ -114,8 +120,8 @@ pub enum CiCommand {
 
 pub fn run(command: &CiCommand, out: &mut impl Write) -> io::Result<u8> {
     match command {
-        CiCommand::Gauntlet { slug, force } => run::gauntlet(slug, *force, out),
-        CiCommand::Wait { slug } => run::ci(slug, out),
+        CiCommand::Gauntlet { slug, force } => run_gauntlet(slug, *force, out),
+        CiCommand::Wait { slug } => wait(slug, out),
         CiCommand::Failed {
             branch,
             run,
@@ -130,5 +136,95 @@ pub fn run(command: &CiCommand, out: &mut impl Write) -> io::Result<u8> {
             };
             super::pr::failed(&config, branch.as_deref(), query, out)
         }
+    }
+}
+
+fn run_gauntlet(slug: &str, force: bool, out: &mut impl Write) -> io::Result<u8> {
+    let layout = layout();
+    let config = Config::load(&layout.root).map_err(internal)?;
+    let Some(s) = store(true)? else {
+        unreachable!("store(true) creates the database");
+    };
+    let wt = core_run::worktree(&s.conn, &layout, slug, slug).map_err(internal)?;
+    let log = layout.run_dir(slug).join("gauntlet.log");
+    let outcome = gauntlet::run(
+        &s.conn,
+        slug,
+        &wt,
+        &log,
+        &config.gauntlet.step,
+        force,
+        &board::now(),
+    )
+    .map_err(internal)?;
+    writeln!(out, "{outcome}")?;
+    Ok(if matches!(outcome, Outcome::Pass { .. }) {
+        exit::OK
+    } else {
+        exit::REFUSED
+    })
+}
+
+fn wait(slug: &str, out: &mut impl Write) -> io::Result<u8> {
+    let layout = layout();
+    let config = Config::load(&layout.root).map_err(internal)?;
+    let Some(mut s) = store(false)? else {
+        return refuse(out, &Refusal::card("ci"));
+    };
+    let now = board::now();
+    let waited = publish::Run {
+        conn: &mut s.conn,
+        layout: &layout,
+        config: &config,
+        root: &layout.root,
+        slug,
+        now: &now,
+    }
+    .wait_ci();
+    let (code, failed) = match waited {
+        Ok(r) => r,
+        Err(publish::Error::NoPr) => {
+            let r = Refusal::new("ci", "no-pr").hint(format!(
+                "no PR is recorded for this run; open it with `ferrule pr open {slug}`"
+            ));
+            return refuse(out, &r);
+        }
+        Err(publish::Error::Remote(remote::Error::NoChecks(_))) => {
+            let r = Refusal::new("ci", "no-checks").hint(format!(
+                "the PR reports no checks yet; rerun `ferrule ci wait {slug}` once CI has started"
+            ));
+            return refuse(out, &r);
+        }
+        Err(e) => return super::issue::post_failed(e, "ci", out),
+    };
+    write!(out, "ci={code}")?;
+    if !failed.is_empty() {
+        write!(out, " failed={}", failed.join(","))?;
+    }
+    writeln!(out)?;
+    if code != 0 {
+        let branch = board::field(&s.conn, slug, "branch")
+            .map_err(internal)?
+            .unwrap_or_default();
+        if let Ok(lines) = remote::failed(
+            config.backend.ci,
+            &branch,
+            remote::Query::default(),
+            &layout.root,
+        ) {
+            for l in lines {
+                writeln!(out, "{l}")?;
+            }
+        }
+    }
+    let status = Status::parse(&[format!("ci={code}")]);
+    match next::next(&mut s.conn, &layout, slug, At::Ci, &status, &now) {
+        Ok(lines) => {
+            for l in lines {
+                writeln!(out, "{l}")?;
+            }
+            Ok(exit::OK)
+        }
+        Err(e) => Err(internal(e)),
     }
 }

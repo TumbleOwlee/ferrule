@@ -2,9 +2,15 @@
 
 use std::io::{self, Write};
 
-use clap::Subcommand;
+use clap::{Args, Subcommand, ValueEnum};
+use ferrule_core::card::board;
+use ferrule_core::config::Config;
+use ferrule_core::refusal::Refusal;
+use ferrule_core::run::gate::{self, Gate};
+use ferrule_core::run::next::{self, At, Status};
 
-use super::run::{self, ApproveArgs, NextAt};
+use super::board::store;
+use super::{exit, internal, layout, refuse};
 
 /// Shown after `ferrule gate approve --help`.
 const APPROVE_AFTER_LONG_HELP: &str = "\
@@ -164,13 +170,190 @@ pub enum GateCommand {
     },
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum GateName {
+    /// The brief.
+    Gate1,
+    /// The architecture.
+    Arch,
+    /// An epic's slices.
+    Epic,
+    /// The plan and the tracking issue.
+    Gate2,
+    /// A stage stop.
+    Stage,
+    /// A re-plan.
+    Replan,
+    /// A meaningful spec change.
+    Delta,
+    /// The branch review.
+    Gate3,
+    /// The pull request.
+    Gate4,
+}
+
+#[derive(Debug, Args)]
+pub struct ApproveArgs {
+    /// The run's slug.
+    pub slug: String,
+    /// The gate the user approved.
+    pub gate: GateName,
+    /// The lane the user settled on, recorded on the card.
+    #[arg(long, value_parser = ["fast", "full"])]
+    pub lane: Option<String>,
+    /// gate1: the run is an epic; records `kind: epic` and removes `lane`.
+    #[arg(long, conflicts_with = "lane")]
+    pub epic: bool,
+    /// gate2: `new`, or the number of an issue the run reuses.
+    #[arg(long)]
+    pub issue: Option<String>,
+    /// gate2: the branch [default: feat/<slug>].
+    #[arg(long)]
+    pub branch: Option<String>,
+    /// gate2: stages that stop for approval beyond the plan's, e.g. `s1,s3`.
+    #[arg(long)]
+    pub stops: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum NextAt {
+    /// Planner, plan reviewer, the spec author's issue answer.
+    Gate2,
+    /// A re-plan's planner and plan reviewer.
+    Replan,
+    /// The branch review.
+    Gate3,
+    /// The spec author's PR body.
+    Gate4,
+    /// `ci=<exit code of gh pr checks>`.
+    Ci,
+}
+
 pub fn run(command: &GateCommand, out: &mut impl Write) -> io::Result<u8> {
     match command {
-        GateCommand::Approve(args) => run::approve(args, out),
+        GateCommand::Approve(args) => approve(args, out),
         GateCommand::Next {
             slug,
             position,
             status,
-        } => run::next_step(slug, *position, status, out),
+        } => next_step(slug, *position, status, out),
+    }
+}
+
+/// Prints how a gate operation (`verb`) failed and answers its exit code.
+pub(super) fn failed(
+    e: gate::Error,
+    verb: &'static str,
+    slug: &str,
+    out: &mut impl Write,
+) -> io::Result<u8> {
+    match e {
+        gate::Error::Refused(r) => refuse(out, &r.refusal(verb, slug)),
+        gate::Error::Publish(e) => super::issue::post_failed(e, verb, out),
+        gate::Error::Remote(e) => {
+            eprintln!("{verb}: {e}");
+            Ok(exit::REFUSED)
+        }
+        gate::Error::Board(e) => Err(internal(e)),
+        gate::Error::Io(e) => Err(e),
+        gate::Error::Sql(e) => Err(internal(e)),
+    }
+}
+
+fn approve(args: &ApproveArgs, out: &mut impl Write) -> io::Result<u8> {
+    let g = match args.gate {
+        GateName::Gate1 => Gate::Gate1,
+        GateName::Arch => Gate::Arch,
+        GateName::Epic => Gate::Epic,
+        GateName::Gate2 => Gate::Gate2,
+        GateName::Stage => Gate::Stage,
+        GateName::Replan => Gate::Replan,
+        GateName::Delta => Gate::Delta,
+        GateName::Gate3 => Gate::Gate3,
+        GateName::Gate4 => Gate::Gate4,
+    };
+    let gate_name = g.as_str();
+    let slug = args.slug.as_str();
+    let mut pairs = Vec::new();
+    let mut pair = |k: &str, v: Option<&String>| {
+        if let Some(v) = v {
+            pairs.push((k.to_owned(), v.clone()));
+        }
+    };
+    pair("lane", args.lane.as_ref());
+    pair("issue", args.issue.as_ref());
+    pair("branch", args.branch.as_ref());
+    pair("stops", args.stops.as_ref());
+    if args.epic {
+        pairs.push(("kind".to_owned(), "epic".to_owned()));
+    }
+    let layout = layout();
+    let config = Config::load(&layout.root).map_err(internal)?;
+    let Some(mut s) = store(false)? else {
+        return refuse(out, &Refusal::card("approve"));
+    };
+    match gate::approve(
+        &mut s.conn,
+        &layout,
+        &config,
+        g,
+        slug,
+        &pairs,
+        &board::now(),
+    ) {
+        Ok(a) => {
+            write!(out, "approve=done gate={gate_name}")?;
+            if let Some(i) = a.issue {
+                write!(out, " issue={i}")?;
+            }
+            if let Some(w) = &a.worktree {
+                write!(out, " worktree={w}")?;
+            }
+            if let Some(n) = a.stages {
+                write!(out, " stages={n}")?;
+            }
+            if a.recorded {
+                write!(out, " action=recorded")?;
+            }
+            if !a.record.is_empty() {
+                write!(out, " {}", a.record)?;
+            }
+            writeln!(out)?;
+            Ok(exit::OK)
+        }
+        Err(e) => failed(e, "approve", slug, out),
+    }
+}
+
+fn next_step(slug: &str, at: NextAt, status: &[String], out: &mut impl Write) -> io::Result<u8> {
+    let at = match at {
+        NextAt::Gate2 => At::Gate2,
+        NextAt::Replan => At::Replan,
+        NextAt::Gate3 => At::Gate3,
+        NextAt::Gate4 => At::Gate4,
+        NextAt::Ci => At::Ci,
+    };
+    let status = Status::parse(status);
+    let Some(mut s) = store(false)? else {
+        return refuse(out, &Refusal::card("run-next"));
+    };
+    match next::next(&mut s.conn, &layout(), slug, at, &status, &board::now()) {
+        Ok(lines) => {
+            for l in lines {
+                writeln!(out, "{l}")?;
+            }
+            Ok(exit::OK)
+        }
+        Err(next::Error::Usage) => {
+            eprintln!(
+                "usage: ferrule gate next <slug> {} status=<word>…",
+                at.as_str()
+            );
+            Ok(exit::USAGE)
+        }
+        Err(e) => match e.refusal(at) {
+            Some(r) => refuse(out, &r),
+            None => Err(internal(e)),
+        },
     }
 }

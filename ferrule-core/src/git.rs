@@ -42,6 +42,20 @@ impl std::error::Error for GitError {}
 /// # Errors
 /// [`GitError`] when git did not start or exited non-zero.
 pub fn run<S: AsRef<OsStr>>(dir: &Path, args: &[S]) -> Result<String, GitError> {
+    let o = bytes(dir, args, &[])?;
+    Ok(String::from_utf8_lossy(&o).trim_end().to_owned())
+}
+
+/// Stdout, byte for byte, of a git command that succeeded or exited with
+/// one of `also_ok` (`diff --no-index` exits 1 when the files differ).
+///
+/// # Errors
+/// [`GitError`] when git did not start or exited with another code.
+pub fn bytes<S: AsRef<OsStr>>(
+    dir: &Path,
+    args: &[S],
+    also_ok: &[i32],
+) -> Result<Vec<u8>, GitError> {
     let fail = |code, stderr: String| GitError {
         args: args
             .iter()
@@ -53,8 +67,8 @@ pub fn run<S: AsRef<OsStr>>(dir: &Path, args: &[S]) -> Result<String, GitError> 
     let o = command(dir, args)
         .output()
         .map_err(|e| fail(None, e.to_string()))?;
-    if o.status.success() {
-        Ok(String::from_utf8_lossy(&o.stdout).trim_end().to_owned())
+    if o.status.success() || o.status.code().is_some_and(|c| also_ok.contains(&c)) {
+        Ok(o.stdout)
     } else {
         Err(fail(
             o.status.code(),

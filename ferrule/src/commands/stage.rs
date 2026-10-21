@@ -2,9 +2,14 @@
 
 use std::io::{self, Write};
 
-use clap::Subcommand;
+use clap::{Subcommand, ValueEnum};
+use ferrule_core::card::board;
+use ferrule_core::config::Config;
+use ferrule_core::refusal::{CARD_HINT, Refusal};
+use ferrule_core::run::{self as core_run, Error, gate};
 
-use super::run::{self, ReplanStep};
+use super::board::store;
+use super::{exit, internal, layout, refuse};
 use crate::cli::stage_id;
 
 const COMMIT_AFTER_LONG_HELP: &str = "\
@@ -172,14 +177,116 @@ pub fn run(command: &StageCommand, out: &mut impl Write) -> io::Result<u8> {
         StageCommand::Commit { card, message, .. } => {
             super::board::commit(card.as_deref(), message, out)
         }
-        StageCommand::Verify { slug, stage, sha } => run::sha_check(slug, *stage, sha, out),
+        StageCommand::Verify { slug, stage, sha } => sha_check(slug, *stage, sha, out),
         StageCommand::Stop {
             slug,
             stage,
             threads,
-        } => run::stage_stop(slug, *stage, *threads, out),
-        StageCommand::Replan { slug, step, stops } => {
-            run::replan(slug, *step, stops.as_deref(), out)
+        } => stage_stop(slug, *stage, *threads, out),
+        StageCommand::Replan { slug, step, stops } => replan(slug, *step, stops.as_deref(), out),
+    }
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum ReplanStep {
+    /// Log `replan from=` and snapshot the plan.
+    Start,
+    /// Swap the stage cards from `from` on for the new plan's.
+    Approve,
+}
+
+/// The fix for a reported commit the run refuses.
+fn sha_hint(m: core_run::Mismatch, slug: &str, stage: u32) -> String {
+    match m {
+        core_run::Mismatch::Card => CARD_HINT.to_owned(),
+        core_run::Mismatch::Missing => {
+            "the worktree has no such commit; ask the implementer for the real sha".to_owned()
         }
+        core_run::Mismatch::OffBranch => {
+            "the run's branch lacks the commit; it must be committed on that branch".to_owned()
+        }
+        core_run::Mismatch::CardCommit => {
+            format!(
+                "commit through `ferrule stage commit {slug}.s{stage}` so the card logs commit="
+            )
+        }
+    }
+}
+
+fn sha_check(slug: &str, stage: u32, sha: &str, out: &mut impl Write) -> io::Result<u8> {
+    let verdict = match store(false)? {
+        Some(s) => core_run::sha_check(&s.conn, &layout(), slug, &format!("s{stage}"), sha)
+            .map_err(internal)?,
+        None => Err(core_run::Mismatch::Card),
+    };
+    match verdict {
+        Ok(()) => {
+            writeln!(out, "sha=ok")?;
+            Ok(exit::OK)
+        }
+        Err(m) => {
+            let hint = sha_hint(m, slug, stage);
+            writeln!(out, "sha=mismatch reason={} hint={hint}", m.as_str())?;
+            Ok(exit::REFUSED)
+        }
+    }
+}
+
+fn stage_stop(slug: &str, stage: u32, threads: u32, out: &mut impl Write) -> io::Result<u8> {
+    let layout = layout();
+    let config = Config::load(&layout.root).map_err(internal)?;
+    let Some(mut s) = store(false)? else {
+        return refuse(out, &Refusal::card("stage-stop"));
+    };
+    match core_run::stage_stop(
+        &mut s.conn,
+        &layout,
+        &config,
+        slug,
+        stage,
+        threads,
+        &board::now(),
+    ) {
+        Ok(Some(stop)) => writeln!(out, "{stop}")?,
+        Ok(None) => writeln!(out, "auto")?,
+        Err(Error::Card) => return refuse(out, &Refusal::card("stage-stop")),
+        Err(Error::Sql(e)) => return Err(internal(e)),
+    }
+    Ok(exit::OK)
+}
+
+fn replan(
+    slug: &str,
+    step: ReplanStep,
+    stops: Option<&str>,
+    out: &mut impl Write,
+) -> io::Result<u8> {
+    let layout = layout();
+    let Some(mut s) = store(false)? else {
+        return refuse(out, &Refusal::card("replan"));
+    };
+    let now = board::now();
+    let result = match step {
+        ReplanStep::Start => gate::replan_start(&mut s.conn, &layout, slug, &now)
+            .map(|from| format!("replan=started from=s{from}")),
+        ReplanStep::Approve => {
+            let stops: Vec<u32> = stops
+                .unwrap_or("")
+                .split(',')
+                .filter_map(|x| x.trim().strip_prefix('s')?.parse().ok())
+                .collect();
+            gate::replan_approve(&mut s.conn, &layout, slug, &stops, &now)
+                .map(|(from, n)| format!("replan=approved from=s{from} stages={n}"))
+        }
+    };
+    match result {
+        Ok(line) => {
+            writeln!(out, "{line}")?;
+            if matches!(step, ReplanStep::Approve) {
+                super::board::sync_draft(&mut s, slug, out)?;
+            }
+            Ok(exit::OK)
+        }
+        Err(e) => super::gate::failed(e, "replan", slug, out),
     }
 }

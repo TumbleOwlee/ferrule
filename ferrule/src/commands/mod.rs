@@ -15,8 +15,14 @@ pub mod uninstall;
 
 use std::io::{self, Write};
 
+use ferrule_core::project::{self, Layout};
 use ferrule_core::refusal::Refusal;
 use ferrule_core::term::{self, Style};
+
+/// The project's layout, rooted at the main checkout.
+pub fn layout() -> Layout {
+    Layout::new(project::main_checkout())
+}
 
 /// Prints a markdown document: as stored, or styled for the terminal.
 pub fn doc(out: &mut impl Write, style: Option<Style>, md: &str) -> io::Result<()> {
