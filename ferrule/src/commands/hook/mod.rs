@@ -46,7 +46,13 @@ Refuses:
                        eval strings, by absolute path, behind gh -R, and
                        in git -c / git config / gh alias definitions, and in
                        interpreter code (python -c, perl -e, node -e, awk
-                       system(), sed e, a heredoc fed to one)
+                       system(), sed e, a heredoc fed to one); in the
+                       command lines git settings hand to git (-c and git
+                       config values, GIT_SSH_COMMAND and the other command
+                       variables, rebase -x, bisect run, submodule foreach)
+                       and in aliases of the git configuration
+  git settings from the environment (GIT_CONFIG_*, --config-env),
+                       help.autocorrect, git pull without --ff-only
   what the guard cannot follow: ANSI-C quoting $'...', arithmetic ((...)),
                        a substitution inside ${...} or $((...)), a script
                        piped, heredoc'd, here-string'd or redirected from

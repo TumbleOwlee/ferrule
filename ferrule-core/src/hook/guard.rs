@@ -471,6 +471,7 @@ fn guard_list(
             .or_else(|| owned_removal(name, args, cwd))
             .or_else(|| stash_all(name, args))
             .or_else(|| git_config(name, args))
+            .or_else(|| git_settings(c, name, args, cwd, policy, depth))
             .or_else(|| flood(c, name, args, cwd))
             .or_else(|| hidden(&c.words, name, args, policy))
             .or_else(|| replaced(name, args, policy))
@@ -902,6 +903,155 @@ fn git_config(name: &str, args: &[String]) -> Option<String> {
     hit.then(|| {
         "Setting core.hooksPath turns off the git hooks that keep commits and pushes off the main branch. Leave it unset; ask the user if a hook is in the way.".to_owned()
     })
+}
+
+/// Environment variables whose value is a command git or a pager runs.
+const RUNS_ENV: &[&str] = &[
+    "GIT_SSH_COMMAND",
+    "GIT_SSH",
+    "GIT_PAGER",
+    "PAGER",
+    "GIT_EXTERNAL_DIFF",
+    "GIT_EDITOR",
+    "GIT_SEQUENCE_EDITOR",
+    "EDITOR",
+    "VISUAL",
+    "GIT_ASKPASS",
+    "SSH_ASKPASS",
+];
+
+const CONFIG_ENV_REASON: &str = "Git settings from the environment (GIT_CONFIG_PARAMETERS, GIT_CONFIG_COUNT/KEY/VALUE, GIT_CONFIG_GLOBAL) can define aliases and commands the guard cannot see. Run the git command without them.";
+
+const AUTOCORRECT_REASON: &str = "help.autocorrect runs the git command a typo resembles, which the guard cannot tell. Spell the command out.";
+
+const PULL_REASON: &str = "git pull without --ff-only can make a merge commit or rebase, which is ferrule's to land. Use git pull --ff-only, or git fetch and ferrule's commands.";
+
+/// What the guard says about `code` run as a command line of its own.
+fn guard_code(code: &str, cwd: &Path, policy: Policy, depth: usize) -> Option<String> {
+    let mut cwd = cwd.to_path_buf();
+    guard_list(&shell::parse(code), &mut cwd, policy, depth + 1)
+}
+
+/// The command lines git settings and variables hand to git, checked as
+/// commands of their own: `GIT_SSH_COMMAND=…`, `-c core.pager=…`,
+/// `git config diff.external …`, `rebase -x`, `bisect run`, `submodule
+/// foreach`; settings from the environment and `help.autocorrect` are
+/// refused, `git pull` without `--ff-only`, and an alias from the git
+/// configuration that runs a shell or a replaced call.
+fn git_settings(
+    c: &Command,
+    name: &str,
+    args: &[String],
+    cwd: &Path,
+    policy: Policy,
+    depth: usize,
+) -> Option<String> {
+    fn assignment(w: &str) -> Option<(&str, &str)> {
+        w.split_once('=').filter(|(k, _)| {
+            !k.is_empty()
+                && k.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                && !k.as_bytes()[0].is_ascii_digit()
+        })
+    }
+    let exported = matches!(
+        name,
+        "export" | "declare" | "typeset" | "readonly" | "local"
+    );
+    let before = c.words.len().saturating_sub(args.len() + 1);
+    let assigned = c.words[..before]
+        .iter()
+        .chain(args.iter().filter(|_| exported))
+        .filter_map(|w| assignment(w));
+    for (k, v) in assigned {
+        if k.starts_with("GIT_CONFIG") {
+            return Some(CONFIG_ENV_REASON.to_owned());
+        }
+        if RUNS_ENV.contains(&k)
+            && let Some(r) = guard_code(v, cwd, policy, depth)
+        {
+            return Some(r);
+        }
+    }
+    if name != "git" {
+        return None;
+    }
+    let g = shell::git(args)?;
+    let globals = &args[..args.len() - g.args.len() - 1];
+    let mut settings: Vec<(String, &str)> = Vec::new();
+    for (i, w) in globals.iter().enumerate() {
+        if w == "-c"
+            && let Some((k, v)) = globals.get(i + 1).and_then(|kv| kv.split_once('='))
+        {
+            settings.push((k.to_ascii_lowercase(), v));
+        }
+        if w == "--config-env" || w.starts_with("--config-env=") {
+            return Some(CONFIG_ENV_REASON.to_owned());
+        }
+    }
+    if g.sub == "config" {
+        let words: Vec<&String> = g.args.iter().filter(|a| !a.starts_with('-')).collect();
+        let words = match words.first().map(|w| w.as_str()) {
+            Some("set") => &words[1..],
+            _ => &words[..],
+        };
+        if let [k, v, ..] = words {
+            settings.push((k.to_ascii_lowercase(), v.as_str()));
+        }
+    }
+    for (k, v) in &settings {
+        if k == "help.autocorrect" && !matches!(*v, "0" | "never" | "false") {
+            return Some(AUTOCORRECT_REASON.to_owned());
+        }
+        if let Some(r) = guard_code(v.trim_start_matches('!'), cwd, policy, depth) {
+            return Some(r);
+        }
+    }
+    let after = |flag: &str| {
+        g.args.iter().enumerate().find_map(|(i, a)| {
+            if a == flag {
+                g.args.get(i + 1).map(String::as_str)
+            } else {
+                a.strip_prefix(&format!("{flag}="))
+            }
+        })
+    };
+    let code: Option<String> = match g.sub {
+        "rebase" => after("-x").or_else(|| after("--exec")).map(str::to_owned),
+        "bisect" if g.args.first().is_some_and(|a| a == "run") => Some(g.args[1..].join(" ")),
+        "submodule" if g.args.first().is_some_and(|a| a == "foreach") => {
+            g.args.iter().skip(1).find(|a| !a.starts_with('-')).cloned()
+        }
+        "pull" if !g.args.iter().any(|a| a == "--ff-only") => {
+            return Some(PULL_REASON.to_owned());
+        }
+        _ => None,
+    };
+    if let Some(r) = code.and_then(|code| guard_code(&code, cwd, policy, depth)) {
+        return Some(r);
+    }
+    let dir = g.dir.map_or_else(|| cwd.to_path_buf(), |d| resolve(cwd, d));
+    config_alias(g.sub, g.args, &dir, policy)
+}
+
+/// A git alias the configuration defines for `sub`: one running a shell
+/// (`!…`) is refused, another is checked expanded.
+fn config_alias(sub: &str, args: &[String], dir: &Path, policy: Policy) -> Option<String> {
+    if !dir.is_dir() || sub.starts_with('-') {
+        return None;
+    }
+    let value = crate::git::out(dir, &["config", "--get", &format!("alias.{sub}")])?;
+    if value.trim_start().starts_with('!') {
+        return Some(ALIAS_REASON.to_owned());
+    }
+    let full: Vec<String> = shell::parse(&value)
+        .into_iter()
+        .next()
+        .map(|c| c.words)
+        .unwrap_or_default()
+        .into_iter()
+        .chain(args.iter().cloned())
+        .collect();
+    replaced("git", &full, policy).map(|_| ALIAS_REASON.to_owned())
 }
 
 /// Output that would land whole in the context: only when nothing captures

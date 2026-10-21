@@ -737,3 +737,65 @@ fn it_shell_guard_reads_interpreter_code_and_scripts_it_wrote() {
         ],
     );
 }
+
+#[test]
+fn it_shell_guard_reads_commands_git_settings_hand_to_git() {
+    let p = project();
+    Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(p.path())
+        .status()
+        .unwrap();
+    Command::new("git")
+        .args(["config", "alias.ci", "commit"])
+        .current_dir(p.path())
+        .status()
+        .unwrap();
+    Command::new("git")
+        .args(["config", "alias.sh", "!git push"])
+        .current_dir(p.path())
+        .status()
+        .unwrap();
+    check(
+        "shell",
+        p.path(),
+        &[
+            (
+                "GIT_CONFIG_PARAMETERS='alias.ci=commit' git ci -m x",
+                "deny",
+            ),
+            (
+                "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.p GIT_CONFIG_VALUE_0=push git p",
+                "deny",
+            ),
+            ("env GIT_CONFIG_COUNT=1 git status", "deny"),
+            ("export GIT_CONFIG_GLOBAL=/tmp/x", "deny"),
+            ("git -c help.autocorrect=immediate pus origin main", "deny"),
+            ("git config help.autocorrect 1", "deny"),
+            ("git -c diff.external='git push' diff -- a", "deny"),
+            ("git -c core.sshCommand='git push' fetch", "deny"),
+            ("git -c core.pager='sh -c \"git push\"' log", "deny"),
+            ("git config core.pager 'git push'", "deny"),
+            ("GIT_SSH_COMMAND='git push' git fetch", "deny"),
+            ("GIT_PAGER='git commit -m x' git log", "deny"),
+            ("git --config-env=core.pager=X log", "deny"),
+            ("git rebase -x 'git push' HEAD~1", "deny"),
+            ("git rebase --exec='git commit --amend' HEAD~1", "deny"),
+            ("git bisect run git push", "deny"),
+            ("git submodule foreach 'git push'", "deny"),
+            ("git pull", "deny"),
+            ("git pull --rebase", "deny"),
+            ("git ci -m x", "deny"),
+            ("git sh", "deny"),
+            ("git pull --ff-only", "allow"),
+            (
+                "git -c user.name=t -c user.email=t@t log -1 --stat",
+                "allow",
+            ),
+            ("git config user.name 'A B'", "allow"),
+            ("git rebase -x 'cargo test' HEAD~2", "allow"),
+            ("GIT_PAGER=cat git log --stat", "allow"),
+            ("git status", "allow"),
+        ],
+    );
+}
