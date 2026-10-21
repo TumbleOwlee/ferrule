@@ -265,7 +265,15 @@ impl Lexer {
             RedirectKind::Read
         };
         self.blanks();
-        let target = self.word(inner);
+        // `< <(…)`: the substitution is the target.
+        let target = if matches!(self.peek(), Some('<' | '>')) && self.peek_at(1) == Some('(') {
+            let c = self.peek().unwrap_or('<');
+            self.pos += 2;
+            inner.extend(substituted(self.list(true)));
+            format!("{c}(…)")
+        } else {
+            self.word(inner)
+        };
         let kind = match kind {
             RedirectKind::Dup if !target.chars().all(|c| c.is_ascii_digit() || c == '-') => {
                 RedirectKind::Write

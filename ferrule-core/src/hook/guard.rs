@@ -419,6 +419,9 @@ fn guard_list(
     if depth > MAX_DEPTH {
         return Some(DEEP_REASON.to_owned());
     }
+    if let Some(reason) = written_then_run(commands, cwd) {
+        return Some(reason);
+    }
     for c in commands {
         if let Some(o) = c.opaque {
             return Some(opaque_reason(o).to_owned());
@@ -472,6 +475,7 @@ fn guard_list(
             .or_else(|| hidden(&c.words, name, args, policy))
             .or_else(|| replaced(name, args, policy))
             .or_else(|| behind(name, args, policy))
+            .or_else(|| interpreted(c, name, args, policy))
             .or_else(|| nested(name, args, cwd, policy, depth));
         if reason.is_some() {
             return reason;
@@ -504,16 +508,137 @@ fn nested(
     guard_list(&execs, cwd, policy, depth + 1)
 }
 
-/// A shell, `source` or `eval` reading its script from stdin (a heredoc, a
-/// here-string, a pipe) or from a substitution (`<(…)`, `/dev/stdin`).
-fn fed_shell(c: &Command, name: &str, args: &[String]) -> Option<String> {
-    let fed = c.fed
-        || c.redirects
+/// Programs that run code given in their words, a heredoc or a file:
+/// the guard reads that code for the git and gh calls it replaces.
+const INTERPRETERS: &[&str] = &[
+    "python",
+    "python2",
+    "python3",
+    "perl",
+    "node",
+    "nodejs",
+    "ruby",
+    "php",
+    "lua",
+    "deno",
+    "bun",
+    "awk",
+    "gawk",
+    "mawk",
+    "nawk",
+    "sed",
+    "Rscript",
+    "tclsh",
+    "pwsh",
+    "osascript",
+];
+
+fn interpreter(name: &str) -> bool {
+    INTERPRETERS.contains(&name)
+        || name
+            .strip_prefix("python")
+            .is_some_and(|v| v.bytes().all(|b| b.is_ascii_digit() || b == b'.'))
+}
+
+/// The words of interpreter code as the guard reads it: runs of
+/// characters a command word holds, split at quotes, commas, brackets and
+/// the other punctuation code wraps a command in (`os.system("git push")`,
+/// `["git", "push"]`).
+fn code_words(code: &str) -> Vec<String> {
+    code.split(|c: char| {
+        !(c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/' | '=' | ':' | '@' | '+'))
+    })
+    .filter(|w| !w.is_empty())
+    .map(str::to_owned)
+    .collect()
+}
+
+/// A replaced git or gh call inside an interpreter's code: its inline code
+/// (`-c`, `-e`, a script operand), a heredoc or a here-string it reads.
+/// `sed 'e git push'` and `awk 'BEGIN{system("git push")}'` count.
+fn interpreted(c: &Command, name: &str, args: &[String], policy: Policy) -> Option<String> {
+    if !interpreter(name) {
+        return None;
+    }
+    let bodies = c.redirects.iter().filter_map(|r| match r.kind {
+        RedirectKind::HereDoc => r.body.as_deref(),
+        RedirectKind::HereString => Some(r.target.as_str()),
+        _ => None,
+    });
+    args.iter()
+        .map(String::as_str)
+        .chain(bodies)
+        .find_map(|code| {
+            let words = code_words(code);
+            (0..words.len()).find_map(|i| {
+                let w = shell::base(&words[i]);
+                let rest = &words[i + 1..words.len().min(i + 24)];
+                (w == "git" || w == "gh" || w.starts_with("git-"))
+                    .then(|| replaced_as(w, rest, policy))
+                    .flatten()
+            })
+        })
+}
+
+/// A file this command list writes (`>`, `>>`, `tee`) and then runs: as
+/// a program by path, a shell's or an interpreter's script, or `source`.
+/// The guard never sees what the file holds.
+fn written_then_run(commands: &[Command], cwd: &Path) -> Option<String> {
+    let mut written: Vec<&str> = Vec::new();
+    for c in commands {
+        written.extend(
+            c.redirects
+                .iter()
+                .filter(|r| matches!(r.kind, RedirectKind::Write | RedirectKind::Append))
+                .map(|r| r.target.as_str()),
+        );
+        if let Some(("tee", args)) = shell::program(&c.words) {
+            written.extend(tee_targets(args).1);
+        }
+    }
+    let same = |w: &str| {
+        written
             .iter()
-            .any(|r| matches!(r.kind, RedirectKind::HereDoc | RedirectKind::HereString));
+            .any(|t| *t == w || resolve(cwd, t) == resolve(cwd, w))
+    };
+    let runs = commands.iter().any(|c| {
+        let Some((name, args)) = shell::program(&c.words) else {
+            return false;
+        };
+        let by_path = c
+            .words
+            .iter()
+            .find(|w| shell::base(w) == name)
+            .is_some_and(|w| w.contains('/') && same(w));
+        let operand = || args.iter().any(|a| !a.starts_with('-') && same(a));
+        by_path
+            || match name {
+                "source" | "." => args.first().is_some_and(|a| same(a)),
+                s if shell::SHELLS.contains(&s) => {
+                    matches!(shell::shell_script(args), Script::File(f) if same(f))
+                }
+                n if interpreter(n) => operand(),
+                _ => false,
+            }
+    });
+    (!written.is_empty() && runs).then(|| WRITTEN_REASON.to_owned())
+}
+
+const WRITTEN_REASON: &str = "A file written and then run in one call hides what it runs from the guard. Run the commands themselves; for the git and gh calls ferrule replaces, the guard names the ferrule command to run.";
+
+/// A shell, `source` or `eval` reading its script from stdin (a heredoc, a
+/// here-string, a pipe, a redirect from a substitution) or from a
+/// substitution (`<(…)`, `/dev/stdin`).
+fn fed_shell(c: &Command, name: &str, args: &[String]) -> Option<String> {
     let streamed = |w: &str| {
         w.starts_with("<(") || w.starts_with("/dev/stdin") || w.starts_with("/dev/fd/") || w == "-"
     };
+    let fed = c.fed
+        || c.redirects.iter().any(|r| match r.kind {
+            RedirectKind::HereDoc | RedirectKind::HereString => true,
+            RedirectKind::Read => streamed(&r.target),
+            _ => false,
+        });
     let hit = match name {
         "eval" => fed || args.iter().any(|a| streamed(a)),
         "source" | "." => args.first().is_some_and(|a| streamed(a)),

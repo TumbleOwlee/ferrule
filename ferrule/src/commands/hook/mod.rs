@@ -44,10 +44,14 @@ Refuses:
                        branch. Seen behind wrappers (timeout, nice, env,
                        sudo, exec, xargs, find -exec, ...), in sh -c and
                        eval strings, by absolute path, behind gh -R, and
-                       in git -c / git config / gh alias definitions
+                       in git -c / git config / gh alias definitions, and in
+                       interpreter code (python -c, perl -e, node -e, awk
+                       system(), sed e, a heredoc fed to one)
   what the guard cannot follow: ANSI-C quoting $'...', arithmetic ((...)),
                        a substitution inside ${...} or $((...)), a script
-                       piped, heredoc'd or here-string'd into a shell,
+                       piped, heredoc'd, here-string'd or redirected from
+                       <(...) into a shell, a file written and then run in
+                       the same call,
                        source or eval, a variable or substitution where the
                        program or a git/gh subcommand goes, cd into a glob
   every call but `ferrule setup install` while the binary and the project's pin

@@ -693,3 +693,47 @@ fn it_shell_guard_refuses_removing_the_tree_that_holds_the_board() {
         ],
     );
 }
+
+#[test]
+fn it_shell_guard_reads_interpreter_code_and_scripts_it_wrote() {
+    let p = project();
+    check(
+        "shell",
+        p.path(),
+        &[
+            ("python3 -c 'import os; os.system(\"git push\")'", "deny"),
+            (
+                "python3 -c 'import subprocess; subprocess.run([\"git\", \"push\"])'",
+                "deny",
+            ),
+            ("perl -e 'system(\"git push\")'", "deny"),
+            (
+                "node -e 'require(\"child_process\").execSync(\"gh pr create\")'",
+                "deny",
+            ),
+            ("ruby -e '`git commit -m x`'", "deny"),
+            ("awk 'BEGIN{system(\"git push\")}'", "deny"),
+            ("sed '1e git push' big.txt", "deny"),
+            (
+                "python3 <<'EOF'\nimport os\nos.system('git push')\nEOF",
+                "deny",
+            ),
+            (
+                "python3.12 -c 'import os; os.system(\"git push origin x\")'",
+                "deny",
+            ),
+            ("echo 'git push' > s.sh && bash s.sh", "deny"),
+            ("printf 'git push\\n' > s.sh; chmod +x s.sh; ./s.sh", "deny"),
+            ("echo x | tee s.py && python3 s.py", "deny"),
+            ("echo 'git push' > s.sh && source s.sh", "deny"),
+            ("bash -s < <(echo 'git push')", "deny"),
+            ("bash < /dev/stdin", "deny"),
+            ("python3 -c 'print(1)'", "allow"),
+            ("python3 tools/gen.py > out.txt", "allow"),
+            ("awk '{print $1}' big.txt", "allow"),
+            ("sed -n '/git push/p' big.txt", "allow"),
+            ("echo x > out.txt && cat out.txt | head -1", "allow"),
+            ("diff <(sort a) <(sort b)", "allow"),
+        ],
+    );
+}
