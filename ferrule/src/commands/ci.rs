@@ -200,12 +200,9 @@ fn wait(slug: &str, out: &mut impl Write) -> io::Result<u8> {
             .read(|r| r.field(slug, "branch"))
             .map_err(internal)?
             .unwrap_or_default();
-        if let Ok(lines) = remote::failed(
-            config.backend.ci,
-            &branch,
-            remote::Query::default(),
-            &layout.root,
-        ) {
+        if let Ok(lines) =
+            remote::code_host(&config, &layout.root).failed(&branch, remote::Query::default())
+        {
             for l in lines {
                 writeln!(out, "{l}")?;
             }

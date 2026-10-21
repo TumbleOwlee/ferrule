@@ -6,13 +6,13 @@ use std::path::PathBuf;
 
 use ferrule_core::card::board;
 use ferrule_core::config::Config;
-use ferrule_core::remote::{self, Item};
+use ferrule_core::remote::{self, CodeHost, Item, ItemRef};
 use ferrule_core::run::{self as core_run, Error, gate, rebuild};
 
 use crate::commands::board::{run_on, store};
 use crate::commands::{exit, internal, layout, refuse};
 
-pub(super) fn init(slug: &str, issue: Option<&str>, out: &mut impl Write) -> io::Result<u8> {
+pub(super) fn init(slug: &str, issue: Option<&ItemRef>, out: &mut impl Write) -> io::Result<u8> {
     let layout = layout();
     let config = Config::load(&layout.root).map_err(internal)?;
     let Some(mut s) = store(true)? else {
@@ -69,18 +69,19 @@ pub(super) fn reconcile(slug: &str, local: bool, out: &mut impl Write) -> io::Re
 /// The remote host behind `run rebuild`.
 struct Remote {
     config: Config,
-    pr: String,
-    issue: String,
+    host: Box<dyn CodeHost>,
+    pr: ItemRef,
+    issue: ItemRef,
     root: PathBuf,
 }
 
 impl rebuild::Source for Remote {
     fn pr(&self) -> Option<Item> {
-        remote::pr(self.config.backend.ci, &self.pr, &self.root).ok()
+        self.host.view(&self.pr).ok()
     }
 
     fn branch(&self) -> Option<String> {
-        remote::pr_branch(self.config.backend.ci, &self.pr, &self.root).ok()
+        self.host.branch(&self.pr).ok()
     }
 
     fn issue(&self) -> Option<Item> {
@@ -88,20 +89,22 @@ impl rebuild::Source for Remote {
     }
 }
 
-pub(super) fn rebuild(issue: &str, pr: &str, out: &mut impl Write) -> io::Result<u8> {
+pub(super) fn rebuild(issue: &ItemRef, pr: &ItemRef, out: &mut impl Write) -> io::Result<u8> {
     let layout = layout();
     let config = Config::load(&layout.root).map_err(internal)?;
     let main = config.main_branch.clone();
     let source = Remote {
+        host: remote::code_host(&config, &layout.root),
         config,
-        pr: pr.to_owned(),
-        issue: issue.to_owned(),
+        pr: pr.clone(),
+        issue: issue.clone(),
         root: layout.root.clone(),
     };
     let Some(mut s) = store(true)? else {
         return Ok(exit::REFUSED);
     };
-    match rebuild::rebuild(&mut s, &layout, &main, issue, pr, &source, &board::now()) {
+    let (issue, pr) = (issue.to_string(), pr.to_string());
+    match rebuild::rebuild(&mut s, &layout, &main, &issue, &pr, &source, &board::now()) {
         Ok((slug, n, next)) => {
             writeln!(
                 out,

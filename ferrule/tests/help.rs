@@ -184,7 +184,15 @@ const IGNORED: &[(&str, &str)] = &[
         "the root help's own description of status lines and refusals",
     ),
     (
-        "ferrule-core/src/remote.rs",
+        "ferrule-core/src/remote/bitbucket.rs",
+        "query strings of the code host's API calls",
+    ),
+    (
+        "ferrule-core/src/remote/github.rs",
+        "gh api arguments and GraphQL variables",
+    ),
+    (
+        "ferrule-core/src/remote/mod.rs",
         "query strings of the issue host's API calls",
     ),
     (

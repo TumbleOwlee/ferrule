@@ -6,12 +6,13 @@ use std::path::Path;
 use clap::{Subcommand, ValueEnum};
 use ferrule_core::body::{self, Form};
 use ferrule_core::config::Config;
+use ferrule_core::git;
 use ferrule_core::pr::publish;
 use ferrule_core::project::{self, Layout};
 use ferrule_core::refusal::Refusal;
+use ferrule_core::remote::{self, ItemRef};
 use ferrule_core::store::Board;
 use ferrule_core::term::Style;
-use ferrule_core::{git, remote};
 
 use super::board::{run_on, store};
 use super::exit;
@@ -171,7 +172,7 @@ pub enum PrCommand {
     #[command(after_long_help = PR_VIEW_AFTER_LONG_HELP)]
     View {
         /// The PR number or URL.
-        pr: String,
+        pr: ItemRef,
         #[command(flatten)]
         view: super::issue::ViewArgs,
     },
@@ -226,7 +227,8 @@ pub enum PrCommand {
 pub fn run(command: &PrCommand, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
     let config = Config::load(&project::main_checkout()).map_err(internal)?;
     match command {
-        PrCommand::View { pr, view } => match remote::pr(config.backend.ci, pr, &project::root()) {
+        PrCommand::View { pr, view } => match remote::code_host(&config, &project::root()).view(pr)
+        {
             Ok(item) => {
                 super::issue::print_item(&item, &view.select(), style, out)?;
                 Ok(exit::OK)
@@ -280,7 +282,7 @@ pub(crate) fn failed(
         || git::out(dir, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_default(),
         str::to_owned,
     );
-    match remote::failed(config.backend.ci, &branch, query, &root) {
+    match remote::code_host(config, &root).failed(&branch, query) {
         Ok(lines) => {
             for l in lines {
                 writeln!(out, "{l}")?;

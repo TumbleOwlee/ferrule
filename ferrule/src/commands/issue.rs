@@ -7,7 +7,7 @@ use ferrule_core::issue::request::{self, Part};
 use ferrule_core::pr::publish::{self, Target};
 use ferrule_core::project::{self, Layout};
 use ferrule_core::refusal::Refusal;
-use ferrule_core::remote;
+use ferrule_core::remote::{self, ItemRef};
 use ferrule_core::term::{self, Style};
 
 use super::board::{run_on, store};
@@ -183,7 +183,7 @@ pub enum IssueCommand {
     #[command(after_long_help = ISSUE_VIEW_AFTER_LONG_HELP)]
     View {
         /// A GitHub number or URL, or a Jira key.
-        issue: String,
+        issue: ItemRef,
         #[command(flatten)]
         view: ViewArgs,
     },
@@ -193,7 +193,7 @@ pub enum IssueCommand {
     #[command(after_long_help = ISSUE_REQUEST_AFTER_LONG_HELP)]
     Request {
         /// A GitHub number or URL, or a Jira key.
-        issue: String,
+        issue: ItemRef,
         #[command(flatten)]
         part: RequestPart,
     },
@@ -360,7 +360,7 @@ pub fn print_item(
 }
 
 fn view(
-    issue: &str,
+    issue: &ItemRef,
     view: &ViewArgs,
     style: Option<Style>,
     out: &mut impl Write,
@@ -382,7 +382,7 @@ fn view(
 }
 
 fn request(
-    issue: &str,
+    issue: &ItemRef,
     part: RequestPart,
     style: Option<Style>,
     out: &mut impl Write,

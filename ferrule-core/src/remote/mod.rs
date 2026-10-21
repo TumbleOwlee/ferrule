@@ -1,6 +1,18 @@
 //! The tracker and CI hosts: issues, pull requests and failed CI runs,
 //! through `gh` for GitHub and `curl` for Jira and Bitbucket. Everything is
 //! returned as an [`Item`] so the commands above never see a host's JSON.
+//! Pull requests go through a [`CodeHost`] built once from the
+//! configuration; issues and pull requests are named by an [`ItemRef`].
+
+mod bitbucket;
+mod github;
+mod host;
+mod item_ref;
+
+pub use bitbucket::Bitbucket;
+pub use github::Gh;
+pub use host::{CodeHost, PrStatus, code_host};
+pub use item_ref::ItemRef;
 
 use std::fmt::Write as _;
 use std::io::Write as _;
@@ -10,7 +22,7 @@ use std::process::{Command, Stdio};
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::config::{Ci, Tracker};
+use crate::config::Tracker;
 use crate::store::DIR;
 
 #[derive(Debug)]
@@ -23,8 +35,14 @@ pub enum Error {
     Shape(String),
     /// Nothing matched (no failed run, no failing job).
     NotFound(String),
-    /// The configured host has no implementation of this write yet.
-    Unsupported(&'static str),
+    /// The configured host has no implementation of this operation yet.
+    Unsupported {
+        host: &'static str,
+        op: &'static str,
+    },
+    /// Input that is no issue or PR reference, or a reference of the
+    /// wrong kind (a Jira key for a pull request).
+    Ref(String),
     /// The number names a pull request, not an issue (GitHub serves both).
     PullRequest(String),
     /// The pull request has no checks: `gh pr checks`' own words.
@@ -38,8 +56,9 @@ impl std::fmt::Display for Error {
             | Error::Credentials(e)
             | Error::Shape(e)
             | Error::NotFound(e)
-            | Error::NoChecks(e) => f.write_str(e),
-            Error::Unsupported(what) => write!(f, "{what} is only implemented for GitHub yet"),
+            | Error::NoChecks(e)
+            | Error::Ref(e) => f.write_str(e),
+            Error::Unsupported { op, .. } => write!(f, "{op} is only implemented for GitHub yet"),
             Error::PullRequest(n) => {
                 write!(
                     f,
@@ -87,7 +106,7 @@ pub fn run(program: &str, args: &[&str], stdin: Option<&str>, cwd: &Path) -> Res
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-fn json<T: for<'de> Deserialize<'de>>(text: &str, what: &str) -> Result<T, Error> {
+pub(crate) fn json<T: for<'de> Deserialize<'de>>(text: &str, what: &str) -> Result<T, Error> {
     serde_json::from_str(text).map_err(|e| Error::Shape(format!("{what}: {e}")))
 }
 
@@ -218,7 +237,7 @@ struct GhComment {
 }
 
 #[derive(Deserialize)]
-struct GhItem {
+pub(crate) struct GhItem {
     number: u64,
     title: String,
     state: String,
@@ -234,7 +253,7 @@ fn login(a: Option<&GhAuthor>) -> String {
         .unwrap_or_else(|| "unknown".to_owned())
 }
 
-fn non_empty(s: Option<&str>, empty: &str) -> String {
+pub(crate) fn non_empty(s: Option<&str>, empty: &str) -> String {
     s.filter(|b| !b.is_empty()).unwrap_or(empty).to_owned()
 }
 
@@ -259,7 +278,7 @@ impl From<GhItem> for Item {
     }
 }
 
-const GH_FIELDS: &str = "number,title,state,url,author,body,comments";
+pub(crate) const GH_FIELDS: &str = "number,title,state,url,author,body,comments";
 
 /// Every `text` leaf of an Atlassian document, joined by spaces.
 fn adf_text(v: &Value) -> String {
@@ -292,16 +311,7 @@ struct JiraCreds {
     api_token: String,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct BitbucketCreds {
-    workspace: String,
-    repo_slug: String,
-    username: String,
-    app_password: String,
-}
-
-fn creds<T: for<'de> Deserialize<'de>>(root: &Path, file: &str) -> Result<T, Error> {
+pub(crate) fn creds<T: for<'de> Deserialize<'de>>(root: &Path, file: &str) -> Result<T, Error> {
     let path = root.join(DIR).join(file);
     let text = std::fs::read_to_string(&path)
         .map_err(|e| Error::Credentials(format!("{}: {e}", path.display())))?;
@@ -309,7 +319,7 @@ fn creds<T: for<'de> Deserialize<'de>>(root: &Path, file: &str) -> Result<T, Err
 }
 
 /// `curl` with the credentials on stdin (`--config -`), never in argv.
-fn curl(user: &str, pass: &str, args: &[&str], root: &Path) -> Result<String, Error> {
+pub(crate) fn curl(user: &str, pass: &str, args: &[&str], root: &Path) -> Result<String, Error> {
     let quote = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
     let config = format!("user = \"{}:{}\"\n", quote(user), quote(pass));
     let mut all = vec!["-sf", "--config", "-"];
@@ -379,7 +389,8 @@ impl Jira {
         )
     }
 
-    fn issue(&self, key: &str, root: &Path) -> Result<Item, Error> {
+    fn issue(&self, id: &ItemRef, root: &Path) -> Result<Item, Error> {
+        let key = id.segment();
         let i = self.get(
             &format!("issue/{key}?fields=summary,status,reporter,description"),
             root,
@@ -418,72 +429,14 @@ impl Jira {
     }
 }
 
-pub(crate) struct Bitbucket {
-    c: BitbucketCreds,
-}
-
-impl Bitbucket {
-    pub(crate) fn load(root: &Path) -> Result<Self, Error> {
-        Ok(Bitbucket {
-            c: creds(root, "bitbucket.local.json")?,
-        })
-    }
-
-    pub(crate) fn api(&self, path: &str) -> String {
-        format!(
-            "https://api.bitbucket.org/2.0/repositories/{}/{}/{path}",
-            self.c.workspace, self.c.repo_slug
-        )
-    }
-
-    pub(crate) fn call(&self, args: &[&str], root: &Path) -> Result<String, Error> {
-        curl(&self.c.username, &self.c.app_password, args, root)
-    }
-
-    /// Every entry of a paged listing, all pages.
-    pub(crate) fn values(&self, url: &str, root: &Path) -> Result<Vec<Value>, Error> {
-        follow_next(url, |u| self.call(&[u], root))
-    }
-
-    fn pr(&self, n: &str, root: &Path) -> Result<Item, Error> {
-        let api = self.api(&format!("pullrequests/{n}"));
-        let pr: Value = json(&self.call(&[&api], root)?, "bitbucket")?;
-        let comments_url = format!("{api}/comments?pagelen=50");
-        let cs = self.values(&comments_url, root)?;
-        let s = |v: &Value, d: &str| v.as_str().unwrap_or(d).to_owned();
-        let comments: Vec<Comment> = cs
-            .iter()
-            .filter(|c| c["deleted"] != Value::Bool(true))
-            .map(|c| Comment {
-                author: s(&c["user"]["display_name"], "unknown"),
-                at: s(&c["created_on"], ""),
-                body: s(&c["content"]["raw"], "(empty)"),
-            })
-            .collect();
-        Ok(Item {
-            head: format!(
-                "#{} {} [{}]",
-                pr["id"],
-                s(&pr["title"], ""),
-                s(&pr["state"], "")
-            ),
-            url: pr["links"]["html"]["href"].as_str().map(str::to_owned),
-            open: pr["state"] == "OPEN",
-            by: s(&pr["author"]["display_name"], "unknown"),
-            body: non_empty(pr["description"].as_str(), "(no body)"),
-            comments,
-        })
-    }
-}
-
 /// An issue from the configured tracker: a GitHub number or URL, or a Jira
 /// key.
-pub fn issue(tracker: Tracker, id: &str, root: &Path) -> Result<Item, Error> {
+pub fn issue(tracker: Tracker, id: &ItemRef, root: &Path) -> Result<Item, Error> {
     match tracker {
         Tracker::Github => {
             let out = run(
                 "gh",
-                &["issue", "view", id, "--json", GH_FIELDS],
+                &["issue", "view", &id.to_string(), "--json", GH_FIELDS],
                 None,
                 root,
             )?;
@@ -500,56 +453,8 @@ pub fn issue(tracker: Tracker, id: &str, root: &Path) -> Result<Item, Error> {
     }
 }
 
-/// A pull request from the configured host. On GitHub the explicit field
-/// list keeps `gh` off the deprecated Projects-Classic query.
-pub fn pr(ci: Ci, n: &str, root: &Path) -> Result<Item, Error> {
-    match ci {
-        Ci::Github => {
-            let out = run("gh", &["pr", "view", n, "--json", GH_FIELDS], None, root)?;
-            Ok(json::<GhItem>(&out, "gh pr view")?.into())
-        }
-        Ci::Bitbucket => Bitbucket::load(root)?.pr(n, root),
-    }
-}
-
-/// A pull request's head branch.
-pub fn pr_branch(ci: Ci, n: &str, root: &Path) -> Result<String, Error> {
-    let branch = match ci {
-        Ci::Github => run(
-            "gh",
-            &[
-                "api",
-                &format!("repos/{{owner}}/{{repo}}/pulls/{n}"),
-                "--jq",
-                ".head.ref",
-            ],
-            None,
-            root,
-        )?
-        .trim()
-        .to_owned(),
-        Ci::Bitbucket => {
-            let bb = Bitbucket::load(root)?;
-            let pr: Value = json(
-                &bb.call(&[&bb.api(&format!("pullrequests/{n}"))], root)?,
-                "bitbucket",
-            )?;
-            pr["source"]["branch"]["name"]
-                .as_str()
-                .unwrap_or("")
-                .to_owned()
-        }
-    };
-    if branch.is_empty() {
-        return Err(Error::NotFound(format!(
-            "pull request {n} has no head branch"
-        )));
-    }
-    Ok(branch)
-}
-
 /// The number at the end of the URL `gh … create` prints.
-fn number_of(url: &str) -> Result<u64, Error> {
+pub(crate) fn number_of(url: &str) -> Result<u64, Error> {
     url.trim()
         .rsplit('/')
         .next()
@@ -560,14 +465,10 @@ fn number_of(url: &str) -> Result<u64, Error> {
 fn github_tracker(tracker: Tracker, what: &'static str) -> Result<(), Error> {
     match tracker {
         Tracker::Github => Ok(()),
-        Tracker::Jira => Err(Error::Unsupported(what)),
-    }
-}
-
-fn github_ci(ci: Ci, what: &'static str) -> Result<(), Error> {
-    match ci {
-        Ci::Github => Ok(()),
-        Ci::Bitbucket => Err(Error::Unsupported(what)),
+        Tracker::Jira => Err(Error::Unsupported {
+            host: "Jira",
+            op: what,
+        }),
     }
 }
 
@@ -715,149 +616,6 @@ pub fn issue_search(
     json(&out, "gh issue list")
 }
 
-/// Opens a draft pull request of `branch` into `base`; its number.
-pub fn pr_create_draft(
-    ci: Ci,
-    branch: &str,
-    base: &str,
-    title: &str,
-    body: &str,
-    root: &Path,
-) -> Result<u64, Error> {
-    github_ci(ci, "pr create")?;
-    let url = run(
-        "gh",
-        &[
-            "pr",
-            "create",
-            "--draft",
-            "--head",
-            branch,
-            "--base",
-            base,
-            "--title",
-            title,
-            "--body-file",
-            "-",
-        ],
-        Some(body),
-        root,
-    )?;
-    number_of(&url)
-}
-
-/// The open pull request whose head is `branch`, if one exists: the one
-/// a crash between opening it and recording it left behind.
-pub fn pr_find_open(ci: Ci, branch: &str, root: &Path) -> Result<Option<u64>, Error> {
-    #[derive(Deserialize)]
-    struct Found {
-        number: u64,
-    }
-    github_ci(ci, "pr list")?;
-    let out = run(
-        "gh",
-        &[
-            "pr", "list", "--head", branch, "--state", "open", "--json", "number",
-        ],
-        None,
-        root,
-    )?;
-    let found: Vec<Found> = json(&out, "gh pr list")?;
-    Ok(found.first().map(|f| f.number))
-}
-
-/// Replaces a pull request's body, and its title when given.
-pub fn pr_edit(ci: Ci, n: u64, title: Option<&str>, body: &str, root: &Path) -> Result<(), Error> {
-    github_ci(ci, "pr edit")?;
-    let n = n.to_string();
-    let mut args = vec!["pr", "edit", n.as_str(), "--body-file", "-"];
-    if let Some(t) = title {
-        args.extend(["--title", t]);
-    }
-    run("gh", &args, Some(body), root).map(drop)
-}
-
-pub fn pr_ready(ci: Ci, n: u64, root: &Path) -> Result<(), Error> {
-    github_ci(ci, "pr ready")?;
-    run("gh", &["pr", "ready", &n.to_string()], None, root).map(drop)
-}
-
-/// A pull request's state (`open`, `merged`, `closed`), whether it is a
-/// draft, and its body.
-pub fn pr_status(ci: Ci, n: u64, root: &Path) -> Result<(String, bool, String), Error> {
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Pr {
-        state: String,
-        is_draft: bool,
-        body: Option<String>,
-    }
-    if ci == Ci::Bitbucket {
-        let bb = Bitbucket::load(root)?;
-        let pr: Value = json(
-            &bb.call(&[&bb.api(&format!("pullrequests/{n}"))], root)?,
-            "bitbucket",
-        )?;
-        return Ok(bitbucket_status(&pr));
-    }
-    let out = run(
-        "gh",
-        &["pr", "view", &n.to_string(), "--json", "state,isDraft,body"],
-        None,
-        root,
-    )?;
-    let p: Pr = json(&out, "gh pr view")?;
-    Ok((
-        p.state.to_ascii_lowercase(),
-        p.is_draft,
-        p.body.unwrap_or_default(),
-    ))
-}
-
-/// A Bitbucket pull request's state (`open`, `merged`; declined and
-/// superseded are `closed`), draft flag and description.
-fn bitbucket_status(pr: &Value) -> (String, bool, String) {
-    let state = match pr["state"].as_str().unwrap_or("") {
-        "OPEN" => "open",
-        "MERGED" => "merged",
-        _ => "closed",
-    };
-    (
-        state.to_owned(),
-        pr["draft"].as_bool().unwrap_or(false),
-        pr["description"].as_str().unwrap_or("").to_owned(),
-    )
-}
-
-/// Waits for a pull request's checks; their exit code (0 green) and the
-/// output, which names the failed checks.
-pub fn pr_checks_watch(ci: Ci, n: u64, root: &Path) -> Result<(i32, String), Error> {
-    github_ci(ci, "pr checks")?;
-    let out = Command::new("gh")
-        .args(["pr", "checks", &n.to_string(), "--watch"])
-        .current_dir(if root.as_os_str().is_empty() {
-            Path::new(".")
-        } else {
-            root
-        })
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|e| Error::Command(format!("gh: {e}")))?;
-    let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
-    text.push_str(&String::from_utf8_lossy(&out.stderr));
-    let code = out.status.code().unwrap_or(1);
-    if code != 0 && no_checks(&text) {
-        return Err(Error::NoChecks(text.trim().to_owned()));
-    }
-    Ok((code, text))
-}
-
-/// Whether `gh pr checks` output says the pull request has no checks (it
-/// exits 1 then, as for a red check).
-fn no_checks(output: &str) -> bool {
-    output.contains("no checks reported")
-}
-
 /// The names of the failed checks in `gh pr checks` output, each once:
 /// `--watch` prints a check again on every refresh.
 #[must_use]
@@ -921,21 +679,12 @@ pub struct Query<'a> {
     pub context: usize,
 }
 
-/// The error lines of a failed CI run: the latest on `branch` unless the
-/// query names one.
-pub fn failed(ci: Ci, branch: &str, query: Query, root: &Path) -> Result<Vec<String>, Error> {
-    let log = match ci {
-        Ci::Github => github_failed_log(branch, query, root)?,
-        Ci::Bitbucket => bitbucket_failed_log(branch, query, root)?,
-    };
-    Ok(error_lines(&log, query.context)
-        .into_iter()
-        .map(str::to_owned)
-        .collect())
-}
-
 /// The failing job `query` picks among `(name, id)` pairs, or why none.
-fn pick_job<'a>(failing: &[(&'a str, &'a str)], query: Query, run: &str) -> Result<&'a str, Error> {
+pub(crate) fn pick_job<'a>(
+    failing: &[(&'a str, &'a str)],
+    query: Query,
+    run: &str,
+) -> Result<&'a str, Error> {
     let found = match query.job {
         Some(want) => {
             let want = want.to_lowercase();
@@ -957,163 +706,18 @@ fn pick_job<'a>(failing: &[(&'a str, &'a str)], query: Query, run: &str) -> Resu
     })
 }
 
-fn github_failed_log(branch: &str, query: Query, root: &Path) -> Result<String, Error> {
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Run {
-        database_id: u64,
-    }
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Job {
-        database_id: u64,
-        #[serde(default)]
-        name: String,
-        conclusion: Option<String>,
-    }
-    #[derive(Deserialize)]
-    struct Jobs {
-        jobs: Vec<Job>,
-    }
-    let id = if let Some(given) = query.run {
-        given.to_owned()
-    } else {
-        // The branch's head: an older commit's failure is not this one's.
-        let sha = run(
-            "gh",
-            &[
-                "api",
-                &format!("repos/{{owner}}/{{repo}}/commits/{branch}"),
-                "--jq",
-                ".sha",
-            ],
-            None,
-            root,
-        )?
-        .trim()
-        .to_owned();
-        let runs: Vec<Run> = json(
-            &run(
-                "gh",
-                &[
-                    "run",
-                    "list",
-                    "--branch",
-                    branch,
-                    "--commit",
-                    &sha,
-                    "--status",
-                    "failure",
-                    "--limit",
-                    "1",
-                    "--json",
-                    "databaseId",
-                ],
-                None,
-                root,
-            )?,
-            "gh run list",
-        )?;
-        let Some(r) = runs.first() else {
-            return Err(Error::NotFound(format!(
-                "No failed run found for branch '{branch}' at {}",
-                sha.get(..7).unwrap_or(&sha)
-            )));
-        };
-        r.database_id.to_string()
-    };
-    let jobs: Jobs = json(
-        &run("gh", &["run", "view", &id, "--json", "jobs"], None, root)?,
-        "gh run view",
-    )?;
-    let ids: Vec<String> = jobs
-        .jobs
-        .iter()
-        .map(|j| j.database_id.to_string())
-        .collect();
-    let failing: Vec<(&str, &str)> = jobs
-        .jobs
-        .iter()
-        .zip(&ids)
-        .filter(|(j, _)| j.conclusion.as_deref() == Some("failure"))
-        .map(|(j, id)| (j.name.as_str(), id.as_str()))
-        .collect();
-    let job = pick_job(&failing, query, &id)?.to_owned();
-    match run(
-        "gh",
-        &["run", "view", &id, "--job", &job, "--log-failed"],
-        None,
-        root,
-    ) {
-        Ok(log) if !log.trim().is_empty() => Ok(log),
-        _ => run(
-            "gh",
-            &[
-                "api",
-                &format!("repos/{{owner}}/{{repo}}/actions/jobs/{job}/logs"),
-            ],
-            None,
-            root,
-        ),
-    }
-}
-
-fn bitbucket_failed_log(branch: &str, query: Query, root: &Path) -> Result<String, Error> {
-    let bb = Bitbucket::load(root)?;
-    let api = bb.api("pipelines/");
-    let uuid = if let Some(given) = query.run {
-        given.to_owned()
-    } else {
-        let q = format!("target.ref_name=\"{branch}\" AND state.result.name=\"FAILED\"");
-        let pipelines: Value = json(
-            &bb.call(
-                &[
-                    "-G",
-                    &api,
-                    "--data-urlencode",
-                    "sort=-created_on",
-                    "--data-urlencode",
-                    "pagelen=1",
-                    "--data-urlencode",
-                    &format!("q={q}"),
-                ],
-                root,
-            )?,
-            "bitbucket",
-        )?;
-        let Some(uuid) = pipelines["values"][0]["uuid"].as_str().map(str::to_owned) else {
-            return Err(Error::NotFound(format!(
-                "No failed pipeline found for branch '{branch}'"
-            )));
-        };
-        uuid
-    };
-    let steps: Value = json(
-        &bb.call(&["-g", &format!("{api}{uuid}/steps/")], root)?,
-        "bitbucket",
-    )?;
-    let failing: Vec<(&str, &str)> = steps["values"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|s| s["state"]["result"]["name"] == "FAILED")
-        .filter_map(|s| Some((s["name"].as_str().unwrap_or(""), s["uuid"].as_str()?)))
-        .collect();
-    let step = pick_job(&failing, query, &uuid)?;
-    bb.call(&["-g", &format!("{api}{uuid}/steps/{step}/log")], root)
-}
+#[cfg(test)]
+pub(crate) mod fake;
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn ut_failed_checks_once_each_and_no_checks() {
+    fn ut_failed_checks_once_each() {
         let out =
             "build\tfail\t1m\nlint\tpass\t3s\nbuild\tpending\t\nbuild\tfail\t2m\ntest\tfail\t5s\n";
         assert_eq!(failed_checks(out), ["build", "test"]);
-        assert!(no_checks("no checks reported on the 'feat/x' branch\n"));
-        assert!(!no_checks(out));
     }
 
     #[test]
@@ -1157,16 +761,6 @@ mod tests {
         assert!(!jira_open(&st("done")));
         assert!(jira_open(&st("indeterminate")));
         assert!(jira_open(&st("new")));
-    }
-
-    #[test]
-    fn ut_bitbucket_pr_states() {
-        let st = |s: &str| {
-            bitbucket_status(&serde_json::json!({ "state": s, "draft": true, "description": "d" }))
-        };
-        assert_eq!(st("OPEN"), ("open".to_owned(), true, "d".to_owned()));
-        assert_eq!(st("MERGED").0, "merged");
-        assert_eq!(st("DECLINED").0, "closed");
     }
 
     #[test]

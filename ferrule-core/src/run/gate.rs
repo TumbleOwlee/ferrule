@@ -27,7 +27,7 @@ use crate::prompt::{
     render::{Kind, Viewed},
 };
 use crate::refusal::Refusal;
-use crate::remote::{self, Item};
+use crate::remote::{self, Item, ItemRef};
 use crate::store::Board;
 
 /// Why `run init`, `gate approve` or `stage replan` refused.
@@ -211,7 +211,7 @@ pub fn init(
     layout: &Layout,
     config: &Config,
     slug: &str,
-    issue: Option<&str>,
+    issue: Option<&ItemRef>,
     now: &str,
 ) -> Result<Option<String>, Error> {
     let conn = db.conn_mut();
@@ -226,7 +226,7 @@ pub fn init(
         .and_then(|i| request::part(&i.body, Part::Epic).into_iter().next());
     let epic_item = epic
         .as_deref()
-        .map(|e| remote::issue(tracker, e, root))
+        .map(|e| ItemRef::parse(e).and_then(|e| remote::issue(tracker, &e, root)))
         .transpose()?;
     let mut fields = Vec::new();
     if let Some(e) = &epic {
@@ -535,6 +535,7 @@ fn approve_gate2(
         root: &root,
         slug,
         now,
+        host: remote::code_host(config, &root),
     };
     out.issue = Some(run.file(Target::Run, reuse)?.0);
     let wt = super::worktree(conn, layout, slug, slug)?;

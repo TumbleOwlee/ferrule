@@ -8,6 +8,7 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 
 use clap::Subcommand;
+use ferrule_core::remote::ItemRef;
 
 /// Shown after `ferrule run init --help`.
 const INIT_AFTER_LONG_HELP: &str = "\
@@ -233,7 +234,7 @@ pub enum RunCommand {
         slug: String,
         /// The issue the user named: a GitHub number or URL, or a Jira key.
         #[arg(long)]
-        issue: Option<String>,
+        issue: Option<ItemRef>,
     },
     /// Reconcile a run's cards with git and the host before resuming.
     ///
@@ -252,9 +253,9 @@ pub enum RunCommand {
     #[command(after_long_help = REBUILD_AFTER_LONG_HELP)]
     Rebuild {
         /// The tracking issue: a GitHub number or URL, or a Jira key.
-        issue: String,
+        issue: ItemRef,
         /// The run's draft PR: a number or URL.
-        pr: String,
+        pr: ItemRef,
     },
     /// Clean up a finished run.
     ///
@@ -340,7 +341,7 @@ pub enum RunCommand {
 
 pub fn run(command: &RunCommand, out: &mut impl Write) -> io::Result<u8> {
     match command {
-        RunCommand::Init { slug, issue } => start::init(slug, issue.as_deref(), out),
+        RunCommand::Init { slug, issue } => start::init(slug, issue.as_ref(), out),
         RunCommand::Reconcile { slug, local } => start::reconcile(slug, *local, out),
         RunCommand::Rebuild { issue, pr } => start::rebuild(issue, pr, out),
         RunCommand::Cleanup { slug } => finish::cleanup(slug, out),

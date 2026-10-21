@@ -7,6 +7,7 @@ use ferrule_core::config::Config;
 use ferrule_core::pr::feedback::{self, Kind, Posted};
 use ferrule_core::project;
 use ferrule_core::refusal::Refusal;
+use ferrule_core::remote::{self, ItemRef};
 
 use crate::cli::stage_name;
 use crate::commands::exit;
@@ -82,7 +83,7 @@ pub enum FeedbackCommand {
     #[command(after_long_help = FB_FETCH_AFTER_LONG_HELP)]
     Fetch {
         /// The PR number or URL.
-        pr: String,
+        pr: ItemRef,
         /// The file to write.
         out: PathBuf,
     },
@@ -93,7 +94,7 @@ pub enum FeedbackCommand {
     #[command(after_long_help = FB_REPLY_AFTER_LONG_HELP)]
     Reply {
         /// The PR number or URL.
-        pr: String,
+        pr: ItemRef,
         /// The feedback file.
         file: PathBuf,
         /// The stage that fixed the threads, `s<n>`; needed for a `fixed`
@@ -118,8 +119,8 @@ pub fn run(config: &Config, command: &FeedbackCommand, out: &mut impl Write) -> 
     }
 }
 
-fn fetch(config: &Config, pr: &str, file: &Path, out: &mut impl Write) -> io::Result<u8> {
-    let f = match feedback::fetch(config.backend.ci, pr, &project::root()) {
+fn fetch(config: &Config, pr: &ItemRef, file: &Path, out: &mut impl Write) -> io::Result<u8> {
+    let f = match remote::code_host(config, &project::root()).threads(pr) {
         Ok(f) => f,
         Err(e) => {
             eprintln!("pr feedback: {e}");
@@ -140,7 +141,7 @@ fn fetch(config: &Config, pr: &str, file: &Path, out: &mut impl Write) -> io::Re
 
 fn reply(
     config: &Config,
-    pr: &str,
+    pr: &ItemRef,
     file: &Path,
     stage: Option<&str>,
     sha: Option<&str>,
@@ -163,23 +164,20 @@ fn reply(
         _ => ("", ""),
     };
     let (mut fixed, mut declined) = (0, 0);
-    let ci = config.backend.ci;
-    let root = project::root();
+    let host = remote::code_host(config, &project::root());
     let mut text = text;
     for r in &replies {
-        let mut step = || -> Result<(), ferrule_core::remote::Error> {
+        let mut step = || -> Result<(), remote::Error> {
             if r.posted.is_none() {
                 let body = feedback::reply_text(r, stage, sha);
-                feedback::post(ci, pr, r, &body, &root)?;
+                host.reply(pr, &r.comment, &body)?;
                 text = feedback::mark(&text, &r.thread, Posted::Replied);
-                std::fs::write(file, &text)
-                    .map_err(|e| ferrule_core::remote::Error::Command(e.to_string()))?;
+                std::fs::write(file, &text).map_err(|e| remote::Error::Command(e.to_string()))?;
             }
             if r.kind == Kind::Fixed && r.posted != Some(Posted::Resolved) {
-                feedback::resolve(ci, pr, r, &root)?;
+                host.resolve(pr, &r.thread, &r.comment)?;
                 text = feedback::mark(&text, &r.thread, Posted::Resolved);
-                std::fs::write(file, &text)
-                    .map_err(|e| ferrule_core::remote::Error::Command(e.to_string()))?;
+                std::fs::write(file, &text).map_err(|e| remote::Error::Command(e.to_string()))?;
             }
             Ok(())
         };

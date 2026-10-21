@@ -18,9 +18,9 @@ use crate::card::board::{self, CardId};
 use crate::card::typed::{Name, PrState, Typed};
 use crate::config::Config;
 use crate::hook::attribution;
-use crate::pr::feedback;
 use crate::project::Layout;
 use crate::refusal::{Exit, Refusal};
+use crate::remote::{CodeHost, ItemRef, PrStatus};
 use crate::run::gauntlet::{self, Outcome};
 use crate::store::{Board, Reader, snapshot};
 use crate::{git, remote, run, spec};
@@ -219,10 +219,13 @@ pub struct Run<'a> {
     pub root: &'a Path,
     pub slug: &'a str,
     pub now: &'a str,
+    /// The configured code host, the PR's.
+    pub host: Box<dyn CodeHost>,
 }
 
 impl<'a> Run<'a> {
-    /// The publish run for `slug` over the board `db`.
+    /// The publish run for `slug` over the board `db`, on the configured
+    /// code host.
     pub fn new(
         db: &'a mut Board,
         layout: &'a Layout,
@@ -238,6 +241,7 @@ impl<'a> Run<'a> {
             root,
             slug,
             now,
+            host: crate::remote::code_host(config, root),
         }
     }
 }
@@ -462,18 +466,12 @@ impl Run<'_> {
             )
         })?;
         let (title, body) = split_title(&rendered);
-        let ci = self.config.backend.ci;
-        let adopted = remote::pr_find_open(ci, &branch, self.root)?;
+        let adopted = self.host.find_open(&branch)?;
         let n = match adopted {
             Some(n) => n,
-            None => remote::pr_create_draft(
-                ci,
-                &branch,
-                &self.config.main_branch,
-                &title,
-                &body,
-                self.root,
-            )?,
+            None => self
+                .host
+                .create_draft(&branch, &self.config.main_branch, &title, &body)?,
         };
         self.set("pr", &n.to_string())?;
         if !board::events(self.conn, self.slug, &[Name::Pr])?
@@ -508,12 +506,12 @@ impl Run<'_> {
             Err(e) => return Err(e.into()),
         };
         let (_, body) = split_title(&rendered);
-        let ci = self.config.backend.ci;
-        let (_, _, current) = remote::pr_status(ci, n, self.root)?;
+        let pr = ItemRef::Number(n);
+        let current = self.host.status(&pr)?.body;
         if current.trim_end() == body.trim_end() {
             return Ok(Some(Sync::Unchanged));
         }
-        remote::pr_edit(ci, n, None, &body, self.root)?;
+        self.host.edit(&pr, None, &body)?;
         Ok(Some(Sync::Pushed))
     }
 }
@@ -751,14 +749,12 @@ impl Run<'_> {
         if self.field("gate4")?.is_none() {
             return Ok(Err(PublishRefused::Gate4));
         }
-        let ci = self.config.backend.ci;
         let pr = match numbers(self.field("pr")?.as_deref()).first() {
             Some(&n) => n,
             None => self.open_pr()?.0,
         };
-        let threads = feedback::fetch(ci, &pr.to_string(), self.root)?
-            .threads
-            .len();
+        let pr_ref = ItemRef::Number(pr);
+        let threads = self.host.threads(&pr_ref)?.threads.len();
         if threads > 0 {
             return Ok(Err(PublishRefused::Threads(threads)));
         }
@@ -784,12 +780,12 @@ impl Run<'_> {
             .iter()
             .any(|e| e.typed() == Typed::Pr(PrState::Ready));
         let ready = logged && {
-            let (state, draft, _) = remote::pr_status(ci, pr, self.root)?;
-            state == "open" && !draft
+            let s = self.host.status(&pr_ref)?;
+            s.state == "open" && !s.draft
         };
         if !ready {
-            remote::pr_edit(ci, pr, Some(&title), &body, self.root)?;
-            remote::pr_ready(ci, pr, self.root)?;
+            self.host.edit(&pr_ref, Some(&title), &body)?;
+            self.host.ready(&pr_ref)?;
         }
         if !logged {
             self.log("pr=ready", &[])?;
@@ -821,7 +817,7 @@ impl Run<'_> {
             .first()
             .copied()
             .ok_or(Error::NoPr)?;
-        let (code, output) = remote::pr_checks_watch(self.config.backend.ci, pr, self.root)?;
+        let (code, output) = self.host.checks_watch(&ItemRef::Number(pr))?;
         std::fs::write(self.layout.run_dir(self.slug).join("ci.log"), &output)
             .map_err(|e| Error::Remote(remote::Error::Command(e.to_string())))?;
         Ok((code, remote::failed_checks(&output)))
@@ -842,7 +838,7 @@ impl Run<'_> {
             .first()
             .copied()
             .ok_or(Error::NoPr)?;
-        let fetched = feedback::fetch(self.config.backend.ci, &pr.to_string(), self.root)?;
+        let fetched = self.host.threads(&ItemRef::Number(pr))?;
         let file = self.layout.run_dir(self.slug).join("pr-feedback.md");
         std::fs::write(&file, fetched.file(self.now))
             .map_err(|e| Error::Remote(remote::Error::Command(e.to_string())))?;
@@ -900,7 +896,7 @@ impl Run<'_> {
     pub fn reconcile_remote(&self) -> Result<Vec<String>, Error> {
         let mut differ = Vec::new();
         if let Some(&n) = numbers(self.field("issue")?.as_deref()).first() {
-            match remote::issue(self.config.backend.tracker, &n.to_string(), self.root) {
+            match remote::issue(self.config.backend.tracker, &ItemRef::Number(n), self.root) {
                 Ok(item) => {
                     if !item.open {
                         differ.push(format!("issue #{n} is not open"));
@@ -920,8 +916,12 @@ impl Run<'_> {
             let ready = board::events(self.conn, self.slug, &[Name::Pr])?
                 .iter()
                 .any(|e| e.typed() == Typed::Pr(PrState::Ready));
-            match remote::pr_status(self.config.backend.ci, n, self.root) {
-                Ok((state, draft, current)) => {
+            match self.host.status(&ItemRef::Number(n)) {
+                Ok(PrStatus {
+                    state,
+                    draft,
+                    body: current,
+                }) => {
                     if state != "open" {
                         differ.push(format!("pr #{n} is {state}"));
                     } else if ready && draft {
@@ -1003,6 +1003,104 @@ pub fn run_of(card: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pr::feedback::Thread;
+    use crate::remote::fake::FakeHost;
+
+    /// A board holding the parent card `r` with `fields`, a run directory
+    /// with issue.md, and a fake host shared with the caller.
+    fn setup(fields: &[(&str, &str)]) -> (tempfile::TempDir, Board, Layout, FakeHost) {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = Layout::new(dir.path().to_owned());
+        std::fs::create_dir_all(layout.run_dir("r")).unwrap();
+        std::fs::write(
+            layout.run_dir("r").join("issue.md"),
+            "# Retry clients\n\n## Goal\nReconnect.\n",
+        )
+        .unwrap();
+        let mut db = Board::memory().unwrap();
+        let fields: Vec<(String, String)> = fields
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect();
+        board::create(
+            db.conn_mut(),
+            "r",
+            board::State::InProgress,
+            &fields,
+            "2026-01-02T03:04",
+        )
+        .unwrap();
+        (dir, db, layout, FakeHost::default())
+    }
+
+    fn run_on<'a>(
+        db: &'a mut Board,
+        layout: &'a Layout,
+        config: &'a Config,
+        host: &FakeHost,
+    ) -> Run<'a> {
+        let mut run = Run::new(db, layout, config, &layout.root, "r", "2026-01-02T03:04");
+        run.host = Box::new(host.clone());
+        run
+    }
+
+    #[test]
+    fn ut_publish_refuses_with_unresolved_threads() {
+        let (_dir, mut db, layout, host) = setup(&[("gate4", "2026-01-02"), ("pr", "5")]);
+        host.0.borrow_mut().threads = vec![Thread {
+            id: "T1".into(),
+            comment: "11".into(),
+            path: "a.rs:3".into(),
+            comments: vec![("al".into(), "t".into(), "fix".into())],
+        }];
+        let config = Config::default();
+        let got = run_on(&mut db, &layout, &config, &host)
+            .publish(None)
+            .unwrap();
+        assert_eq!(got, Err(PublishRefused::Threads(1)));
+        assert_eq!(host.calls(), ["threads 5"]);
+    }
+
+    #[test]
+    fn ut_open_pr_adopts_the_branch_open_pr() {
+        let (_dir, mut db, layout, host) = setup(&[("branch", "feat/r")]);
+        {
+            let mut s = host.0.borrow_mut();
+            s.open = Some(41);
+            "open".clone_into(&mut s.state);
+            s.draft = true;
+        }
+        let config = Config::default();
+        let mut run = run_on(&mut db, &layout, &config, &host);
+        assert_eq!(run.open_pr().unwrap(), (41, true));
+        assert_eq!(run.open_pr().unwrap(), (41, false));
+        assert_eq!(
+            host.calls(),
+            ["find_open feat/r", "status 41", "edit 41"],
+            "adopted, its body synced, never opened"
+        );
+        assert!(host.0.borrow().body.starts_with("Draft"));
+        assert_eq!(
+            board::field(db.conn_mut(), "r", "pr").unwrap().as_deref(),
+            Some("41")
+        );
+    }
+
+    #[test]
+    fn ut_open_pr_opens_one_when_none_is_open() {
+        let (_dir, mut db, layout, host) = setup(&[("branch", "feat/r")]);
+        host.0.borrow_mut().next = 7;
+        let config = Config::default();
+        let mut run = run_on(&mut db, &layout, &config, &host);
+        assert_eq!(run.open_pr().unwrap(), (7, true));
+        assert_eq!(
+            host.calls(),
+            [
+                "find_open feat/r".to_owned(),
+                format!("create_draft feat/r {}", config.main_branch)
+            ]
+        );
+    }
 
     #[test]
     fn ut_title_and_body() {
