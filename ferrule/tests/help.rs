@@ -20,6 +20,10 @@ const SOURCES: &[(&str, &[&str])] = &[
         &["setup install", "setup check"],
     ),
     (
+        "ferrule-core/src/install/version.rs",
+        &["setup install", "setup check"],
+    ),
+    (
         "ferrule-core/src/pr/publish/gate4.rs",
         &[
             "issue post",
@@ -566,6 +570,10 @@ const REFUSAL_SOURCES: &[(&str, &[&str])] = &[
     (
         "ferrule-core/src/install/mod.rs",
         &["hook shell", "hook reviewer"],
+    ),
+    (
+        "ferrule-core/src/install/version.rs",
+        &["hook shell", "hook reviewer", "setup install"],
     ),
     ("ferrule-core/src/pr/publish/mod.rs", &["gate approve"]),
     ("ferrule-core/src/pr/publish/post.rs", &["gate approve"]),
