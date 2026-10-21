@@ -5,9 +5,11 @@
 
 use std::path::Path;
 
-use crate::hook::guard::{
-    cd_target, has, has_prefix, is_artifact, opaque_reason, readonly_git, tee_targets,
+use crate::hook::classify::{
+    awk_reads, flags, has, has_prefix, long, readonly_git, sed_reads, short,
 };
+use crate::hook::guard::opaque_reason;
+use crate::hook::paths::{cd_target, is_artifact, tee_targets};
 use crate::hook::shell::{self, RedirectKind};
 
 /// Programs that read and never write, whatever their arguments; shell
@@ -65,146 +67,6 @@ const GIT_GLOBAL: &[&str] = &[
     "--no-optional-locks",
     "--literal-pathspecs",
 ];
-
-/// The flags of a program's arguments before any `--`.
-fn flags(args: &[String]) -> impl Iterator<Item = &str> {
-    args.iter()
-        .map(String::as_str)
-        .take_while(|a| *a != "--")
-        .filter(|a| a.starts_with('-') && a.len() > 1)
-}
-
-/// Whether a short option `c` sits in a flag, alone or grouped (`-no`).
-fn short(args: &[String], c: char) -> bool {
-    flags(args).any(|a| !a.starts_with("--") && a.contains(c))
-}
-
-/// Whether a flag is `--name` or an abbreviation of it at least `min`
-/// characters long (`--ou` for `--output`), with or without `=value`.
-fn long(args: &[String], name: &str, min: usize) -> bool {
-    flags(args).any(|a| {
-        let a = a.split('=').next().unwrap_or(a);
-        a.len() >= min && name.starts_with(a)
-    })
-}
-
-/// A sed script's commands that write or run: `w`, `W`, `e`, and the `w`
-/// and `e` flags of `s`.
-fn sed_writes(script: &str) -> bool {
-    let c: Vec<char> = script.chars().collect();
-    let mut i = 0;
-    // Past the delimited field starting after `i`.
-    let field = |i: &mut usize, d: char| {
-        while *i < c.len() && c[*i] != d {
-            *i += if c[*i] == '\\' { 2 } else { 1 };
-        }
-        *i += 1;
-    };
-    let to_eol = |i: &mut usize| {
-        while *i < c.len() && c[*i] != '\n' {
-            *i += 1;
-        }
-    };
-    while i < c.len() {
-        match c[i] {
-            ' ' | '\t' | '\n' | ';' | '{' | '}' | '!' | ',' | '~' | '+' | '$' => i += 1,
-            d if d.is_ascii_digit() => i += 1,
-            '/' => {
-                i += 1;
-                field(&mut i, '/');
-            }
-            '\\' => {
-                let Some(&d) = c.get(i + 1) else { return true };
-                i += 2;
-                field(&mut i, d);
-            }
-            'w' | 'W' | 'e' => return true,
-            's' | 'y' => {
-                let Some(&d) = c.get(i + 1) else { return true };
-                let sub = c[i] == 's';
-                i += 2;
-                field(&mut i, d);
-                field(&mut i, d);
-                while sub && i < c.len() && !matches!(c[i], ';' | '\n' | '}' | ' ' | '#') {
-                    if matches!(c[i], 'w' | 'e') {
-                        return true;
-                    }
-                    i += 1;
-                }
-            }
-            '#' | 'a' | 'i' | 'c' | 'r' | 'R' => to_eol(&mut i),
-            ':' | 'b' | 't' | 'T' => {
-                while i < c.len() && !matches!(c[i], ';' | '\n') {
-                    i += 1;
-                }
-            }
-            _ => i += 1,
-        }
-    }
-    false
-}
-
-/// `sed -n` with a script that only prints.
-fn sed_reads(args: &[String]) -> bool {
-    let quiet = short(args, 'n') || long(args, "--quiet", 3) || long(args, "--silent", 3);
-    if !quiet
-        || short(args, 'i')
-        || short(args, 'f')
-        || long(args, "--in-place", 4)
-        || long(args, "--file", 3)
-    {
-        return false;
-    }
-    let mut scripts: Vec<&str> = Vec::new();
-    let mut positional = None;
-    let mut i = 0;
-    while let Some(a) = args.get(i) {
-        if a == "--" {
-            positional = positional.or(args.get(i + 1));
-            break;
-        } else if a == "--expression"
-            || (!a.starts_with("--") && a.starts_with('-') && a.ends_with('e'))
-        {
-            scripts.extend(args.get(i + 1).map(String::as_str));
-            i += 1;
-        } else if let Some(s) = a.strip_prefix("--expression=") {
-            scripts.push(s);
-        } else if !a.starts_with('-') {
-            positional = positional.or(Some(a));
-        }
-        i += 1;
-    }
-    if scripts.is_empty() {
-        scripts.extend(positional.map(String::as_str));
-    }
-    !scripts.iter().any(|s| sed_writes(s))
-}
-
-/// An awk program that writes a file, runs a command or loads code.
-fn awk_reads(args: &[String]) -> bool {
-    if short(args, 'f')
-        || short(args, 'i')
-        || short(args, 'l')
-        || long(args, "--file", 3)
-        || long(args, "--include", 3)
-        || long(args, "--load", 3)
-    {
-        return false;
-    }
-    !args.iter().any(|a| {
-        let squeezed: String = a.chars().filter(|c| !c.is_whitespace()).collect();
-        squeezed.contains("system(")
-            || squeezed.contains("|getline")
-            || squeezed.contains("|&")
-            || squeezed.contains("@include")
-            || squeezed.contains("@load")
-            || a.match_indices("print").any(|(at, _)| {
-                let rest = &a[at + 5..];
-                let rest = rest.split([';', '}', '\n']).next().unwrap_or(rest);
-                rest.contains(['>', '|'])
-            })
-    })
-}
 
 /// `uniq [INPUT [OUTPUT]]`: an output file is the second operand.
 fn uniq_reads(args: &[String]) -> bool {
@@ -289,7 +151,7 @@ fn writable(cwd: &Path, target: &str, append: bool) -> bool {
     if target == "/dev/null" {
         return true;
     }
-    let path = crate::hook::guard::resolve(cwd, target);
+    let path = crate::hook::paths::resolve(cwd, target);
     let path = path.to_string_lossy();
     is_artifact(&path, "review.verdict.md") || (append && is_artifact(&path, "review.md"))
 }
