@@ -1,4 +1,5 @@
 $ gate next ns replan status=ready file=.claude/tasks/artifacts/ns/plan.md summary=.claude/tasks/artifacts/ns/plan.summary.md
+logged: spawn agent=plan-reviewer
 next=review
 do: spawn the plan reviewer
 guide: ferrule guide show replan --slug ns
@@ -15,6 +16,7 @@ log:
 2026-10-05T09:00 plan-review=findings count=2 round=1
 2026-10-05T09:00 stop kind=approval gate=gate4
 2026-10-05T09:00 replan from=s3
+2026-10-05T09:00 spawn agent=plan-reviewer
 2026-10-05T09:00 plan-review=clean round=1
 2026-10-05T09:00 replan=pre-authorized
 $ gate next ns replan status=clean file=.claude/tasks/artifacts/ns/review.md

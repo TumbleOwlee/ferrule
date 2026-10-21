@@ -49,7 +49,12 @@ Output, in order:
                                    `plan-review=clean round=<r>`,
                                    `review=<n>-open scope=branch`,
                                    `review=<n>-resolved`, `review=clean`,
-                                   `replan=pre-authorized` or `ci=<code>`
+                                   `replan=pre-authorized`, `ci=<code>` or
+                                   `spawn agent=plan-reviewer` (gate2, replan:
+                                   ready). A status line that repeats the
+                                   newest event of the run's review cycle is a
+                                   retry: nothing is logged again, no round is
+                                   used up and `next=` is the same.
   next=<word> [reason=<why>]       The one next action:
     relay            question: relay the question file to the user
     arch-gap         spawn the architect, then resume the planner
@@ -89,6 +94,7 @@ Errors:
                                    The status line lacks status= (ci=<code>
                                    at ci)
 The run-next lines end in ` hint=<fix>`.
+A log line the vocabulary rejects is a bug, not a refusal: exit 4.
 Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
 
 Example:

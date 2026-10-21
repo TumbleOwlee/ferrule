@@ -337,3 +337,73 @@ fn it_next_usage() {
     b.next(&["nosuch", "gate2", "status=ready"]);
     b.finish("run-next-usage");
 }
+
+/// The parent card's log, one line per entry.
+fn log_of(b: &Board) -> String {
+    let shown = b.ferrule(&["board", "show", "ns"]).output();
+    let shown = String::from_utf8_lossy(&shown.stdout).into_owned();
+    shown.split("---\n").nth(2).unwrap_or("").to_owned()
+}
+
+#[test]
+fn it_next_retried_status_line_logs_and_counts_once() {
+    let mut b = Board::new();
+    let (review, verdict) = (file("review.md"), summary("review.verdict.md"));
+    b.reset("full", "2026-10-02", 2, "clean");
+    b.ok(&["board", "new", "ns.s1", "--state", "done"]);
+    let g3 = [
+        "gate",
+        "next",
+        "ns",
+        "gate3",
+        "status=findings",
+        &review,
+        &verdict,
+        "count=2",
+        "user=0",
+    ];
+    let first = b.ferrule(&g3).text();
+    let again = b.ferrule(&g3).text();
+    assert!(first.contains("logged: review=2-open"), "{first}");
+    assert_eq!(
+        again,
+        first.replace("logged: review=2-open scope=branch\n", "")
+    );
+    assert_eq!(log_of(&b).matches("review=2-open").count(), 1);
+
+    // gate2: a retried findings is the same round, so round 3 still comes
+    // after two `revise` answers.
+    b.reset("full", "2026-10-02", 2, "clean");
+    let (plan, ps) = (file("plan.md"), summary("plan.summary.md"));
+    let ready = ["gate", "next", "ns", "gate2", "status=ready", &plan, &ps];
+    let find = [
+        "gate",
+        "next",
+        "ns",
+        "gate2",
+        "status=findings",
+        &review,
+        &verdict,
+        "count=1",
+        "user=0",
+    ];
+    let mut said = Vec::new();
+    for _ in 0..2 {
+        b.ferrule(&ready).text();
+        said.push(b.ferrule(&find).text());
+        said.push(b.ferrule(&find).text());
+    }
+    assert!(said.iter().all(|t| t.contains("next=revise")), "{said:?}");
+    b.ferrule(&ready).text();
+    assert!(b.ferrule(&find).text().contains("next=issue"));
+    assert!(b.ferrule(&find).text().contains("next=issue"));
+    let log = log_of(&b);
+    for round in 1..=3 {
+        assert_eq!(
+            log.matches(&format!("plan-review=findings count=1 round={round}"))
+                .count(),
+            1,
+            "{log}"
+        );
+    }
+}

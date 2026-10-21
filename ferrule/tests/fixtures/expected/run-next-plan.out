@@ -1,4 +1,5 @@
 $ gate next ns gate2 status=ready file=.claude/tasks/artifacts/ns/plan.md summary=.claude/tasks/artifacts/ns/plan.summary.md
+logged: spawn agent=plan-reviewer
 next=review
 do: spawn the plan reviewer
 guide: ferrule guide show gate2 --slug ns
@@ -11,6 +12,7 @@ do: resume the planner with the review file
 guide: ferrule guide show gate2 --slug ns
 exit=0
 $ gate next ns gate2 status=ready file=.claude/tasks/artifacts/ns/plan.md summary=.claude/tasks/artifacts/ns/plan.summary.md
+logged: spawn agent=plan-reviewer
 next=follow-up
 do: spawn the plan reviewer again for a follow-up round
 guide: ferrule guide show gate2 --slug ns
@@ -23,6 +25,7 @@ do: resume the planner with the review file
 guide: ferrule guide show gate2 --slug ns
 exit=0
 $ gate next ns gate2 status=ready file=.claude/tasks/artifacts/ns/plan.md summary=.claude/tasks/artifacts/ns/plan.summary.md
+logged: spawn agent=plan-reviewer
 next=follow-up
 do: spawn the plan reviewer again for a follow-up round
 guide: ferrule guide show gate2 --slug ns
@@ -34,8 +37,11 @@ do: ask the spec author for the tracking issue
 guide: ferrule guide show gate2 --slug ns
 exit=0
 log:
+2026-10-05T09:00 spawn agent=plan-reviewer
 2026-10-05T09:00 plan-review=findings count=2 round=1
+2026-10-05T09:00 spawn agent=plan-reviewer
 2026-10-05T09:00 plan-review=findings count=1 round=2
+2026-10-05T09:00 spawn agent=plan-reviewer
 2026-10-05T09:00 plan-review=findings count=1 round=3
 $ gate next ns gate2 status=findings file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md count=0 user=0
 logged: plan-review=findings count=0 round=1

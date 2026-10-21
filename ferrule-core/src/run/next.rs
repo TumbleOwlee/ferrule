@@ -7,6 +7,7 @@ use rusqlite::Connection;
 use crate::artifacts;
 use crate::card::board::{self, Event, State};
 use crate::card::typed::{Name, Typed};
+use crate::card::vocab;
 use crate::guide::Topic;
 use crate::project::Layout;
 use crate::refusal::{Exit, Refusal};
@@ -77,6 +78,9 @@ pub enum Error {
     Card,
     /// A status `at` does not take.
     Unknown(String),
+    /// A log line the vocabulary rejects: the status line cannot cause it,
+    /// so it is a bug here.
+    Rejected(String),
     Sql(rusqlite::Error),
 }
 
@@ -94,7 +98,7 @@ impl Error {
                     .hint("`ferrule gate next --help` lists the statuses each position takes")
                     .exit(Exit::Usage),
             ),
-            Error::Usage | Error::Sql(_) => None,
+            Error::Usage | Error::Rejected(_) | Error::Sql(_) => None,
         }
     }
 }
@@ -105,6 +109,7 @@ impl std::fmt::Display for Error {
             Error::Usage => f.write_str("the status line lacks what this position needs"),
             Error::Card => f.write_str("the run has no card"),
             Error::Unknown(w) => write!(f, "status {w} is not taken here"),
+            Error::Rejected(why) => write!(f, "the log refused its own line: {why}"),
             Error::Sql(e) => write!(f, "state database: {e}"),
         }
     }
@@ -114,7 +119,7 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Error::Sql(e) => Some(e),
-            Error::Usage | Error::Card | Error::Unknown(_) => None,
+            Error::Usage | Error::Card | Error::Unknown(_) | Error::Rejected(_) => None,
         }
     }
 }
@@ -135,13 +140,32 @@ struct Ctx<'a> {
 }
 
 impl Ctx<'_> {
-    fn log(&mut self, words: &[&str]) -> rusqlite::Result<()> {
+    /// Logs the line unless it repeats the newest review-cycle event, as
+    /// a retried status line does: nothing since has moved the run on.
+    fn log(&mut self, words: &[&str]) -> Result<(), Error> {
         let (event, args) = words.split_first().expect("an event");
         let args: Vec<String> = args.iter().map(|&a| a.to_owned()).collect();
+        let line = words.join(" ");
+        let (name, parts) = vocab::parse(&line);
+        if let Some(last) = board::events(self.conn, self.slug, &[])?
+            .into_iter()
+            .rfind(marks)
+            && last.name == name
+            && last.value == parts.value
+            && last.args.len() == parts.args.len()
+            && last
+                .args
+                .iter()
+                .zip(&parts.args)
+                .all(|((k, v), a)| k.as_deref() == a.key && *v == a.value)
+        {
+            return Ok(());
+        }
         match board::log(self.conn, self.slug, event, &args, self.now) {
             Ok(()) => self.out.push(format!("logged: {}", words.join(" "))),
-            Err(board::LogError::Sql(e)) => return Err(e),
-            Err(_) => {}
+            Err(board::LogError::Sql(e)) => return Err(e.into()),
+            Err(board::LogError::Card) => return Err(Error::Card),
+            Err(e @ board::LogError::Reject(_)) => return Err(Error::Rejected(e.to_string())),
         }
         Ok(())
     }
@@ -203,6 +227,26 @@ impl Ctx<'_> {
     }
 }
 
+/// The events that move a run through its reviews and CI.
+const CYCLE: [Name; 9] = [
+    Name::PlanReview,
+    Name::Review,
+    Name::Ci,
+    Name::Replan,
+    Name::ReplanApproved,
+    Name::Commit,
+    Name::Gauntlet,
+    Name::Pr,
+    Name::Stop,
+];
+
+/// An event that marks where the run stands: a status line that repeats the
+/// newest one is a retry, whereas anything of the cycle (or the spawn of the
+/// plan reviewer that `ready` logs) since means the run moved on.
+fn marks(e: &Event) -> bool {
+    e.name == "spawn" || Name::parse(&e.name).is_some_and(|n| CYCLE.contains(&n))
+}
+
 /// A `replan from=…` line.
 fn is_replan(e: &Event) -> bool {
     matches!(e.typed(), Typed::Replan { from: Some(_) })
@@ -238,12 +282,21 @@ pub fn next(
             _ => None,
         })
         .collect();
-    let round = plan_reviews.len() + 1;
+    let mut round = plan_reviews.len() + 1;
     let count: u64 = status
         .count
         .as_deref()
         .and_then(|c| c.parse().ok())
         .unwrap_or(0);
+    // A retried plan review verdict is the same round, not the next.
+    if matches!(at, At::Gate2 | At::Replan)
+        && let Some(last) = events.iter().rfind(|e| marks(e))
+        && matches!(last.typed(), Typed::PlanReview(v) if v == word)
+        && (word == "clean" || last.arg("count").and_then(|c| c.parse().ok()) == Some(count))
+        && let Some(r) = last.arg("round").and_then(|r| r.parse().ok())
+    {
+        round = r;
+    }
     let mut c = Ctx {
         conn,
         layout,
@@ -277,6 +330,7 @@ pub fn next(
             c.guide(Topic::Principles);
         }
         (At::Gate2 | At::Replan, "ready") => {
+            c.log(&["spawn", "agent=plan-reviewer"])?;
             if plan_reviews.last() == Some(&"findings") {
                 c.next("follow-up", None);
                 c.act("spawn the plan reviewer again for a follow-up round");
@@ -315,7 +369,7 @@ fn plan_review(
     round: usize,
     count: u64,
     events: &[Event],
-) -> rusqlite::Result<()> {
+) -> Result<(), Error> {
     let round_kv = format!("round={round}");
     if word == "findings" {
         let count_kv = format!("count={count}");
@@ -339,7 +393,7 @@ fn plan_review(
     }
 }
 
-fn branch_findings(c: &mut Ctx, count: u64) -> rusqlite::Result<()> {
+fn branch_findings(c: &mut Ctx, count: u64) -> Result<(), Error> {
     let open = format!("review={count}-open");
     c.log(&[&open, "scope=branch"])?;
     c.next("fix", None);
@@ -353,7 +407,7 @@ fn branch_findings(c: &mut Ctx, count: u64) -> rusqlite::Result<()> {
     Ok(())
 }
 
-fn ci_result(c: &mut Ctx, ci: &str) -> rusqlite::Result<()> {
+fn ci_result(c: &mut Ctx, ci: &str) -> Result<(), Error> {
     let event = format!("ci={ci}");
     c.log(&[&event])?;
     let slug = c.slug;
@@ -418,7 +472,7 @@ fn gate2_decision(c: &mut Ctx, word: &str, status: &Status) -> rusqlite::Result<
 
 /// A re-plan asked at gate 4 goes on without stopping when nothing the
 /// user approved moved; else it stops.
-fn replan_decision(c: &mut Ctx, events: &[Event]) -> rusqlite::Result<()> {
+fn replan_decision(c: &mut Ctx, events: &[Event]) -> Result<(), Error> {
     let mut from = "";
     let mut gate_before_replan = None;
     let mut last_gate = None;
@@ -472,7 +526,7 @@ fn replan_decision(c: &mut Ctx, events: &[Event]) -> rusqlite::Result<()> {
 
 /// A clean branch review: resolves the findings it followed up, then the
 /// next stage's stop decision, gate 3's stop, or the PR.
-fn branch_resolved(c: &mut Ctx, window: &[Event]) -> rusqlite::Result<()> {
+fn branch_resolved(c: &mut Ctx, window: &[Event]) -> Result<(), Error> {
     let mut first: Option<String> = None;
     let reviews = window.iter().filter_map(|e| match e.typed() {
         Typed::Review(v) => Some(v),
@@ -531,5 +585,38 @@ mod tests {
         assert_eq!(one.status.as_deref(), Some("findings"));
         assert_eq!(one.count, many.count);
         assert_eq!(many.issue, None);
+    }
+
+    #[test]
+    fn ut_a_log_line_the_vocabulary_rejects_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = crate::store::Store::open(dir.path(), true).unwrap();
+        board::create(
+            &mut store.conn,
+            "ns",
+            State::InProgress,
+            &[],
+            "2026-10-05T09:00",
+        )
+        .unwrap();
+        let layout = Layout {
+            root: dir.path().to_owned(),
+        };
+        let mut c = Ctx {
+            conn: &mut store.conn,
+            layout: &layout,
+            slug: "ns",
+            at: At::Gate2,
+            now: "2026-10-05T09:00",
+            out: Vec::new(),
+        };
+        assert!(matches!(
+            c.log(&["no-such-event=x"]),
+            Err(Error::Rejected(_))
+        ));
+        assert!(c.out.is_empty());
+        assert!(c.log(&["plan-review=clean", "round=1"]).is_ok());
+        assert!(c.log(&["plan-review=clean", "round=1"]).is_ok());
+        assert_eq!(c.out, ["logged: plan-review=clean round=1"]);
     }
 }

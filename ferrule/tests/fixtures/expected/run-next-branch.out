@@ -22,7 +22,6 @@ do: show the gate 3 stop with the open Needs user item
 guide: ferrule guide show gate3 --slug ns
 exit=0
 $ gate next ns gate3 status=findings file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md count=0 user=1
-logged: review=clean
 next=pr reason=needs-user
 do: spawn the spec author for the PR body
 guide: ferrule guide show gate4 --slug ns
@@ -30,7 +29,6 @@ exit=0
 log:
 2026-10-05T09:00 review=2-open scope=branch
 2026-10-05T09:00 review=2-resolved
-2026-10-05T09:00 review=clean
 2026-10-05T09:00 review=clean
 $ gate next ns gate3 status=findings file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md count=1 user=0
 logged: review=1-open scope=branch
