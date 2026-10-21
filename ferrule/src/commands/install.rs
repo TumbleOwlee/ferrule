@@ -40,8 +40,12 @@ Refusals (stdout):
       reason=settings: .claude/settings.json is not valid, or its `hooks`
       or `permissions` hold a value of the wrong type (detail=
       \".claude/settings.json: hooks is not an object\"); reason=lock: the
-      lock is not valid; reason=io: a file could not be read or written.
-      Nothing is replaced; the file is left as it was.
+      lock is not valid; reason=config: ferrule.toml does not load;
+      reason=io: a file could not be read or written. All but io are found
+      before anything is written; the file is left as it was.
+  install=refused reason=markers path=<file> detail=\"<what>\" hint=leave one begin and one end marker in the file, then rerun
+      The file's ferrule:begin/ferrule:end markers are unpaired, out of
+      order or repeated; nothing was written.
 Version mismatch (stderr of every other command):
   ferrule=refused reason=version pinned=<v> binary=<v> hint=<fix>
   ferrule=refused reason=version locked=<v> binary=<v> hint=<fix>
@@ -63,8 +67,11 @@ Output (nothing is written):
       settings.json deny rules differ) or version (then pinned=<v> or
       locked=<v>, and binary=<v>).
   install-check=refused reason=<r> detail=\"<error>\" hint=fix the file the detail names, then rerun
-      The lock (reason=lock) or settings file (reason=settings) is not
-      valid, or a file is unreadable (reason=io).
+      The lock (reason=lock), settings file (reason=settings) or
+      ferrule.toml (reason=config) is not valid, or a file is unreadable
+      (reason=io).
+  install-check=refused reason=markers path=<file> detail=\"<what>\" hint=leave one begin and one end marker in the file, then rerun
+      The file's ferrule block markers are unpaired or repeated.
 Exit codes: 0 ok, 1 refused or drift, 2 usage, 4 internal error.";
 
 #[derive(Debug, Subcommand)]

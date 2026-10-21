@@ -27,14 +27,9 @@ fn hooks() -> Vec<(&'static str, Value)> {
 
 /// Whether every hook of the entry is ferrule's.
 fn ours(entry: &Value) -> bool {
-    entry["hooks"].as_array().is_some_and(|hs| {
-        !hs.is_empty()
-            && hs.iter().all(|h| {
-                h["command"]
-                    .as_str()
-                    .is_some_and(|c| c.contains(".ferrule/ferrule hook"))
-            })
-    })
+    entry["hooks"]
+        .as_array()
+        .is_some_and(|hs| !hs.is_empty() && hs.iter().all(our_hook))
 }
 
 fn load(root: &Path) -> Result<Map<String, Value>, Error> {
@@ -81,12 +76,28 @@ fn array<'a>(m: &'a mut Map<String, Value>, key: &str) -> Result<&'a mut Vec<Val
     }
 }
 
-/// Drops ferrule's hook entries and the `old` deny rules; empty
+/// Whether one hook is ferrule's.
+fn our_hook(h: &Value) -> bool {
+    h["command"]
+        .as_str()
+        .is_some_and(|c| c.contains(".ferrule/ferrule hook"))
+}
+
+/// Drops ferrule's hooks, also from an entry shared with the user's own
+/// (the entry stays for theirs), and the `old` deny rules; empty
 /// containers ferrule leaves behind go too.
 fn strip(m: &mut Map<String, Value>, old: &[String]) {
     if let Some(Value::Object(h)) = m.get_mut("hooks") {
         for (_, entries) in h.iter_mut() {
             if let Value::Array(a) = entries {
+                for e in a.iter_mut() {
+                    if let Some(Value::Array(hs)) = e.get_mut("hooks")
+                        && hs.iter().any(our_hook)
+                        && !hs.iter().all(our_hook)
+                    {
+                        hs.retain(|h| !our_hook(h));
+                    }
+                }
                 a.retain(|e| !ours(e));
             }
         }
@@ -109,6 +120,19 @@ fn strip(m: &mut Map<String, Value>, old: &[String]) {
             m.remove("permissions");
         }
     }
+}
+
+/// Refuses a settings file install could not merge into, before anything
+/// else is written: not JSON, or `hooks` or `permissions.deny` of the
+/// wrong shape.
+pub fn validate(root: &Path) -> Result<(), Error> {
+    let mut m = load(root)?;
+    let hooks = object(&mut m, "hooks")?;
+    for (event, _) in self::hooks() {
+        array(hooks, event)?;
+    }
+    array(object(&mut m, "permissions")?, "deny")?;
+    Ok(())
 }
 
 /// Merges ferrule's entries in; `locked` holds the deny rules ferrule added
@@ -173,4 +197,32 @@ pub fn remove(root: &Path, locked: &[String]) -> Result<bool, Error> {
         save(root, &m)?;
     }
     Ok(changed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ut_a_shared_entry_does_not_register_ferrule_twice() {
+        let dir = tempfile::tempdir().unwrap();
+        let shared = json!({"hooks": {"SessionStart": [{"hooks": [
+            {"type": "command", "command": "echo mine"},
+            {"type": "command", "command": format!("{SHIM} session-start")}
+        ]}]}});
+        std::fs::create_dir_all(dir.path().join(".claude")).unwrap();
+        std::fs::write(dir.path().join(PATH), shared.to_string()).unwrap();
+        apply(dir.path(), &[], &mut Vec::new()).unwrap();
+        let text = std::fs::read_to_string(dir.path().join(PATH)).unwrap();
+        assert_eq!(text.matches("session-start").count(), 1, "{text}");
+        assert!(text.contains("echo mine"), "{text}");
+    }
+
+    #[test]
+    fn ut_validate_refuses_a_wrong_shape() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".claude")).unwrap();
+        std::fs::write(dir.path().join(PATH), r#"{"hooks": []}"#).unwrap();
+        assert!(validate(dir.path()).is_err());
+    }
 }

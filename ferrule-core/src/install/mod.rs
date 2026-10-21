@@ -188,6 +188,11 @@ pub enum Error {
     /// `.claude/settings.json` that is not a JSON object.
     Settings(String),
     Lock(String),
+    /// `ferrule.toml` that does not load.
+    Config(String),
+    /// A file whose ferrule block markers are unpaired or repeated: the
+    /// path and what is wrong.
+    Markers(String, String),
 }
 
 impl From<std::io::Error> for Error {
@@ -212,6 +217,13 @@ impl Error {
             Error::Lock(_) => Refusal::new(verb, "lock")
                 .detail(self.to_string())
                 .hint(FIX),
+            Error::Config(_) => Refusal::new(verb, "config")
+                .detail(self.to_string())
+                .hint(FIX),
+            Error::Markers(p, _) => Refusal::new(verb, "markers")
+                .field("path", p)
+                .detail(self.to_string())
+                .hint("leave one begin and one end marker in the file, then rerun"),
             Error::Io(_) => Refusal::new(verb, "io").detail(self.to_string()).hint(FIX),
         }
     }
@@ -224,6 +236,8 @@ impl std::fmt::Display for Error {
             Error::Foreign(p) => write!(f, "{p} exists and ferrule did not write it"),
             Error::Settings(e) => write!(f, ".claude/settings.json: {e}"),
             Error::Lock(e) => write!(f, "{LOCK}: {e}"),
+            Error::Config(e) => write!(f, "{CONFIG}: {e}"),
+            Error::Markers(p, e) => write!(f, "{p}: {e}"),
         }
     }
 }
@@ -232,7 +246,11 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Error::Io(e) => Some(e),
-            Error::Foreign(_) | Error::Settings(_) | Error::Lock(_) => None,
+            Error::Foreign(_)
+            | Error::Settings(_)
+            | Error::Lock(_)
+            | Error::Config(_)
+            | Error::Markers(..) => None,
         }
     }
 }
@@ -374,18 +392,53 @@ impl Item {
     }
 }
 
-/// The byte span of the marked block, end line included.
+/// The byte spans of the lines that are exactly `marker`, `\r\n` or `\n`
+/// endings included.
+fn marker_lines(text: &str, marker: &str) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    let mut at = 0;
+    for line in text.split_inclusive('\n') {
+        if line.trim_end_matches(['\n', '\r']) == marker {
+            out.push((at, at + line.len()));
+        }
+        at += line.len();
+    }
+    out
+}
+
+/// What is wrong with the file's markers, if anything: a block ferrule
+/// cannot place without guessing which lines are its own.
+fn marker_problem(text: &str, begin: &str, end: &str) -> Option<String> {
+    let (b, e) = (marker_lines(text, begin), marker_lines(text, end));
+    match (b.as_slice(), e.as_slice()) {
+        ([], []) => None,
+        ([(s, _)], [(t, _)]) if s < t => None,
+        ([_], [_]) => Some(format!("'{end}' comes before '{begin}'")),
+        ([], _) => Some(format!("'{end}' without '{begin}'")),
+        (_, []) => Some(format!("'{begin}' without '{end}'")),
+        _ => Some(format!("'{begin}' or '{end}' appears more than once")),
+    }
+}
+
+/// The byte span of the marked block, end line included: one begin line
+/// and the first end line after it.
 fn block(text: &str, begin: &str, end: &str) -> Option<(usize, usize)> {
-    let s = text
-        .find(&format!("{begin}\n"))
-        .filter(|&i| i == 0 || text[..i].ends_with('\n'))?;
-    let e = s + text[s..].find(end)? + end.len();
-    let e = if text[e..].starts_with('\n') {
-        e + 1
-    } else {
-        e
-    };
+    let (s, _) = *marker_lines(text, begin).first()?;
+    let (_, e) = *marker_lines(text, end).iter().find(|(t, _)| *t > s)?;
     Some((s, e))
+}
+
+/// Refuses a block item whose file has unpaired or repeated markers.
+fn check_markers(root: &Path, items: &[Item]) -> Result<(), Error> {
+    for item in items {
+        if let Item::Block { begin, end, .. } = item
+            && let Ok(text) = std::fs::read_to_string(root.join(item.path()))
+            && let Some(why) = marker_problem(&text, begin, end)
+        {
+            return Err(Error::Markers(item.path().to_owned(), why));
+        }
+    }
+    Ok(())
 }
 
 fn versioned(t: &str) -> String {
@@ -518,14 +571,49 @@ fn diff_summary(old: &str, new: &str) -> String {
     format!("+{added}/-{removed}")
 }
 
-/// `origin/HEAD`'s branch, else `main`.
+/// `origin/HEAD`'s branch, else git's `init.defaultBranch`, else `main`.
 fn main_branch(root: &Path) -> String {
     git::out(
         root,
         &["symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD"],
     )
     .and_then(|r| r.strip_prefix("origin/").map(str::to_owned))
+    .or_else(|| git::out(root, &["config", "--get", "init.defaultBranch"]))
+    .filter(|b| !b.is_empty())
     .unwrap_or_else(|| "main".to_owned())
+}
+
+/// `text` with its top-level `version` set to `line`, every other line and
+/// line ending as it was: a `version` key inside a table is not the pin.
+fn pin_version(text: &str, line: &str) -> String {
+    let nl = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    let mut out = String::with_capacity(text.len() + line.len());
+    let mut top = true;
+    let mut done = false;
+    for l in text.split_inclusive('\n') {
+        let bare = l.trim_end_matches(['\n', '\r']);
+        let key = bare.trim_start();
+        if key.starts_with('[') {
+            top = false;
+        }
+        let is_pin = top
+            && !done
+            && key
+                .strip_prefix("version")
+                .is_some_and(|r| r.trim_start().starts_with('='));
+        if is_pin {
+            out.push_str(line);
+            out.push_str(&l[bare.len()..]);
+            done = true;
+        } else {
+            out.push_str(l);
+        }
+    }
+    if done {
+        out
+    } else {
+        format!("{line}{nl}{text}")
+    }
 }
 
 fn on_path(program: &str) -> bool {
@@ -579,24 +667,15 @@ fn ensure_config(root: &Path, opts: &Options, report: &mut Report) -> Result<(),
                 .and_then(|c| c.stack.as_deref())
                 .and_then(Stack::parse);
             let has_viewer = text.lines().any(|l| l.trim() == "[viewer]");
-            let line = format!("version = {}", quote(VERSION));
-            let mut new = if text.lines().any(|l| l.starts_with("version =")) {
-                text.lines()
-                    .map(|l| {
-                        if l.starts_with("version =") {
-                            line.clone()
-                        } else {
-                            l.to_owned()
-                        }
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n")
-                    + "\n"
-            } else {
-                format!("{line}\n{text}")
-            };
+            let mut new = pin_version(&text, &format!("version = {}", quote(VERSION)));
             if !has_viewer && glow {
-                new.push_str("\n[viewer]\ncommand = [\"glow\"]\n");
+                let nl = if text.contains("\r\n") { "\r\n" } else { "\n" };
+                if !new.ends_with('\n') {
+                    new.push_str(nl);
+                }
+                for part in [nl, "[viewer]", nl, "command = [\"glow\"]", nl] {
+                    new.push_str(part);
+                }
             }
             report.viewer = has_viewer && parsed.is_some_and(|c| c.viewer.command.is_some())
                 || (!has_viewer && glow);
@@ -699,15 +778,22 @@ fn ensure_git_hooks(root: &Path, report: &mut Report) -> std::io::Result<()> {
     for name in GIT_HOOKS {
         let path = dir.join(name);
         let text = git_hook_text(name);
-        match std::fs::read_to_string(&path) {
-            Ok(old) if old == text => {}
-            Ok(old) if !old.contains(GENERATED) => {
+        // Bytes, not text: a hook of the user's need not be UTF-8, and one
+        // that is not must be kept, not taken for absent.
+        match std::fs::read(&path) {
+            Ok(old) if old == text.as_bytes() => {}
+            Ok(old) if !String::from_utf8_lossy(&old).contains(GENERATED) => {
                 report.hints.push(format!("hint=kept your .git/hooks/{name}; call .ferrule/ferrule hook git {name} \"$@\" from it"));
             }
-            _ => {
+            Ok(_) => {
                 std::fs::write(&path, &text)?;
                 set_exec(&path)?;
             }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                std::fs::write(&path, &text)?;
+                set_exec(&path)?;
+            }
+            Err(e) => return Err(e),
         }
     }
     report.hooks = Some(Hooks::Git);
@@ -721,7 +807,13 @@ fn ensure_git_hooks(root: &Path, report: &mut Report) -> std::io::Result<()> {
 /// holds a file ferrule did not write and `force` is off.
 pub fn install(root: &Path, opts: &Options) -> Result<Report, Error> {
     let mut lock = Lock::load(root)?;
+    // Everything that could refuse is read before anything is written.
+    if root.join(CONFIG).exists() {
+        config::Config::load(root).map_err(|e| Error::Config(e.to_string()))?;
+    }
+    settings::validate(root)?;
     let items = items(root);
+    check_markers(root, &items)?;
     if !opts.force {
         for item in &items {
             if let (Item::File { path, text, .. }, Some(cur)) = (item, item.current(root))
@@ -737,7 +829,7 @@ pub fn install(root: &Path, opts: &Options) -> Result<Report, Error> {
     for item in &items {
         apply(root, item, &mut lock, &mut report)?;
     }
-    let config = config::Config::load(root).unwrap_or_default();
+    let config = config::Config::load(root).map_err(|e| Error::Config(e.to_string()))?;
     if settings::apply(root, &deny_rules(&config.guard.allow), &mut lock.deny)? {
         report.written.push(settings::PATH.to_owned());
     }
@@ -776,6 +868,12 @@ fn apply(root: &Path, item: &Item, lock: &mut Lock, report: &mut Report) -> std:
             write(root, item.path(), &item.render(root), exec)?;
             report.written.push(item.path().to_owned());
         }
+    }
+    // The file is ferrule's version now: a side copy of an earlier one is
+    // stale.
+    let side = root.join(format!("{}.ferrule-new", item.path()));
+    if side.is_file() {
+        std::fs::remove_file(side)?;
     }
     lock.files.insert(key, hash(&new));
     Ok(())
@@ -826,6 +924,7 @@ fn reopened(raw: &str, allow: &[String]) -> bool {
 /// An unreadable lock or settings file.
 pub fn check(root: &Path) -> Result<Vec<String>, Error> {
     let lock = Lock::load(root)?;
+    check_markers(root, &items(root))?;
     let mut drift = Vec::new();
     let pinned = config::Config::load(root).ok().and_then(|c| c.version);
     if pinned.as_deref() != Some(VERSION) {
@@ -865,7 +964,11 @@ pub fn check(root: &Path) -> Result<Vec<String>, Error> {
             drift.push(format!("path={} reason={r}", item.path()));
         }
     }
-    let config = config::Config::load(root).unwrap_or_default();
+    let config = match config::Config::load(root) {
+        Ok(c) => c,
+        Err(_) if !root.join(CONFIG).exists() => config::Config::default(),
+        Err(e) => return Err(Error::Config(e.to_string())),
+    };
     if !settings::in_step(root, &deny_rules(&config.guard.allow), &lock.deny)? {
         drift.push(format!("path={} reason=edited", settings::PATH));
     }
@@ -887,6 +990,14 @@ pub struct Removed {
 pub fn uninstall(root: &Path, purge: bool) -> Result<Removed, Error> {
     let lock = Lock::load(root)?;
     let mut out = Removed::default();
+    for key in lock.files.keys() {
+        let path = key.strip_suffix("#ferrule").unwrap_or(key);
+        let side = root.join(format!("{path}.ferrule-new"));
+        if side.is_file() {
+            std::fs::remove_file(&side)?;
+            out.removed.push(format!("{path}.ferrule-new"));
+        }
+    }
     for (key, h) in &lock.files {
         if let Some(path) = key.strip_suffix("#ferrule") {
             let full = root.join(path);
@@ -1047,6 +1158,35 @@ pub fn is_update(command: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ut_markers_crlf_and_problems() {
+        let crlf = "a\r\n# ferrule:begin\r\nx\r\n# ferrule:end\r\nb\r\n";
+        let (s, e) = block(crlf, "# ferrule:begin", "# ferrule:end").unwrap();
+        assert_eq!(&crlf[s..e], "# ferrule:begin\r\nx\r\n# ferrule:end\r\n");
+        let p = |t| marker_problem(t, "# ferrule:begin", "# ferrule:end");
+        assert_eq!(p(crlf), None);
+        assert!(p("# ferrule:begin\nx\n").is_some());
+        assert!(p("x\n# ferrule:end\n").is_some());
+        assert!(p("# ferrule:end\n# ferrule:begin\n").is_some());
+        assert!(p("# ferrule:begin\n# ferrule:end\n# ferrule:begin\n# ferrule:end\n").is_some());
+    }
+
+    #[test]
+    fn ut_pin_version_touches_the_top_level_key_only() {
+        let v = "version = \"9\"";
+        assert_eq!(
+            pin_version(
+                "version = \"1\"\r\nstack = \"rust\"\r\n[x]\r\nversion = 3\r\n",
+                v
+            ),
+            "version = \"9\"\r\nstack = \"rust\"\r\n[x]\r\nversion = 3\r\n"
+        );
+        assert_eq!(
+            pin_version("stack = \"rust\"\n[x]\nversion = 3\n", v),
+            "version = \"9\"\nstack = \"rust\"\n[x]\nversion = 3\n"
+        );
+    }
 
     #[test]
     fn ut_block_spans_its_markers() {
