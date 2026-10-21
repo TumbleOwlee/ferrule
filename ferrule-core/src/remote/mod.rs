@@ -30,6 +30,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::project::DIR;
+use crate::refusal::{Exit, Refusal};
 
 #[derive(Debug)]
 pub enum Error {
@@ -55,6 +56,39 @@ pub enum Error {
     NoChecks(String),
 }
 
+impl Error {
+    /// The `<verb>=refused` line a command answers this failure with.
+    #[must_use]
+    pub fn refusal(&self, verb: &'static str) -> Refusal {
+        match self {
+            Error::Unsupported { host, op } => Refusal::new(verb, "unsupported")
+                .field("host", host)
+                .hint(format!(
+                    "{op} is not implemented for {host} yet; do it on {host} by hand"
+                )),
+            Error::Credentials(e) => Refusal::new(verb, "credentials").detail(e).hint(
+                "fix the credentials file under .ferrule/ or its FERRULE_*_CREDENTIALS variable",
+            ),
+            Error::NotFound(e) => Refusal::new(verb, "not-found")
+                .detail(e)
+                .hint("check the number, branch or run asked for"),
+            Error::NoChecks(e) => Refusal::new(verb, "no-checks")
+                .detail(e)
+                .hint("the PR reports no checks yet; retry once CI has started"),
+            Error::Ref(e) => Refusal::new(verb, "ref")
+                .detail(e)
+                .hint("name an issue or PR by number, URL or tracker key")
+                .exit(Exit::Usage),
+            Error::PullRequest(n) => Refusal::new(verb, "pull-request")
+                .field("pr", n)
+                .hint(format!("#{n} is a pull request: ferrule pr view {n}")),
+            Error::Command(e) | Error::Shape(e) => Refusal::new(verb, "host")
+                .detail(e)
+                .hint("the host did not answer; check your login and network, then retry"),
+        }
+    }
+}
+
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -64,7 +98,7 @@ impl std::fmt::Display for Error {
             | Error::NotFound(e)
             | Error::NoChecks(e)
             | Error::Ref(e) => f.write_str(e),
-            Error::Unsupported { op, .. } => write!(f, "{op} is only implemented for GitHub yet"),
+            Error::Unsupported { host, op } => write!(f, "{op} is not implemented for {host} yet"),
             Error::PullRequest(n) => {
                 write!(
                     f,

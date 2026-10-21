@@ -55,17 +55,29 @@ Refusals:
   ci=refused reason=no-checks      The PR reports no checks (CI has not started
                                    or the repo has none); nothing is logged,
                                    rerun once checks appear
-  (stderr: the host's error)       The checks could not be read (exit 1)
+  ci=refused reason=host|credentials|not-found|ref detail=\"<error>\"
+                                   The host failed: no answer or an
+                                   unreadable one (host), credentials
+                                   missing or malformed, nothing matched
+                                   (not-found), a bad reference (ref, exit 2)
 The ci=refused lines end in ` hint=<fix>`.
-Exit codes: 0 ok, 1 refused, 4 internal error.
+Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
 See: ferrule guide show gate4";
 
 const FAILED_AFTER_LONG_HELP: &str = "\
 Output (stdout): the error lines of the failed job's log, one per line, each
 followed by `--context` lines; nothing when the log has none. Exit 0.
-Errors (stderr, exit 1): `ci failed: <error>` when there is no failed run, no
-failing job matching `--job`, or the host call fails.
-Exit codes: 0 ok, 1 refused, 4 internal error.
+Refusals (stdout):
+  ci=refused reason=detached hint=HEAD is on no branch; name it: ferrule ci failed <branch>
+      No branch was named and HEAD is detached.
+  ci=refused reason=not-found detail=\"<error>\" hint=check the number, branch or run asked for
+      No failed run, or no failing job matching `--job`.
+  ci=refused reason=host|credentials|not-found|ref detail=\"<error>\" hint=<fix>
+      The host or tracker failed: `host` it did not answer or answered
+      unreadably (auth, network), `credentials` its credentials are
+      missing or malformed, `not-found` nothing matched, `ref` the
+      reference is no issue or PR (exit 2).
+Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
 Backend: reads the run's logs from the configured code host (`gh run view` on
 GitHub, pipelines on Bitbucket).
 On GitHub only a run of the branch's head commit counts: `No failed run found

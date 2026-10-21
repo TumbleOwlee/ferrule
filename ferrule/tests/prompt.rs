@@ -282,7 +282,10 @@ fn it_render_usage() {
     let p = p.path();
     assert_eq!(render(p, &["demo", "nope"]).text(), "exit=2");
     assert_eq!(render(p, &["demo", "gate1", "loose"]).text(), "exit=2");
-    assert_eq!(render(p, &["nosuch", "gate1"]).text(), "exit=2");
+    assert_eq!(
+        render(p, &["nosuch", "gate1"]).text(),
+        "render=refused reason=card hint=check the slug with `ferrule board list`\nexit=1"
+    );
     assert_eq!(render(p, &["demo", "auto"]).text(), "exit=2");
 }
 

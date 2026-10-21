@@ -234,6 +234,10 @@ const IGNORED: &[(&str, &str)] = &[
         "matched in the card log, not printed",
     ),
     (
+        "ferrule-core/src/remote/mod.rs",
+        "host failures; each command reaching a host documents reason=host and its kin",
+    ),
+    (
         "ferrule-core/src/refusal.rs",
         "the refusal renderer's own format; each verb documents its refusals",
     ),
@@ -581,6 +585,25 @@ const REFUSAL_SOURCES: &[(&str, &[&str])] = &[
     ("ferrule-core/src/pr/publish/mod.rs", &["gate approve"]),
     ("ferrule-core/src/pr/publish/post.rs", &["gate approve"]),
     ("ferrule-core/src/run/gauntlet.rs", &["pr push"]),
+    (
+        "ferrule-core/src/remote/mod.rs",
+        &[
+            "ci failed",
+            "ci wait",
+            "gate approve",
+            "issue post",
+            "issue request",
+            "issue search",
+            "issue view",
+            "pr feedback fetch",
+            "pr feedback reply",
+            "pr feedback route",
+            "pr open",
+            "pr publish",
+            "pr push",
+            "pr view",
+        ],
+    ),
 ];
 
 /// `(command, verb, reason)` entries that are documented but built from

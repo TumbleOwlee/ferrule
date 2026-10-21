@@ -51,9 +51,8 @@ pub enum Error {
 
 impl Error {
     /// The `<verb>=refused` line of an error the command answers with a
-    /// refusal, among them an operation the configured host does not
-    /// implement; `None` for the others (a missing artifact, the host's
-    /// own error, the state database).
+    /// refusal, a host failure among them ([`remote::Error::refusal`]);
+    /// `None` for a body the command prints itself and the state database.
     #[must_use]
     pub fn refusal(&self, verb: &'static str) -> Option<Refusal> {
         match self {
@@ -76,14 +75,16 @@ impl Error {
                     .field("stage", format!("s{n}"))
                     .hint(format!("stage s{n} cannot move back to inprogress: {why}")),
             ),
-            Error::Remote(remote::Error::Unsupported { host, op }) => Some(
-                Refusal::new(verb, "unsupported")
-                    .field("host", host)
-                    .hint(format!(
-                        "{op} is not implemented for {host} yet; do it on {host} by hand"
-                    )),
+            Error::Remote(e) => Some(e.refusal(verb)),
+            Error::Missing(p) => Some(
+                Refusal::new(verb, "missing")
+                    .field(
+                        "file",
+                        p.file_name().unwrap_or(p.as_os_str()).to_string_lossy(),
+                    )
+                    .hint("write the run artifact first; `ferrule prompt render` names it"),
             ),
-            Error::Missing(_) | Error::Remote(_) | Error::Sql(_) => None,
+            Error::Sql(_) => None,
         }
     }
 }

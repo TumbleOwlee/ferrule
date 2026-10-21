@@ -67,8 +67,15 @@ Refusals:
                                    issues (Jira)
   approve=refused reason=stage-ref stage-ref=<token>
                                    gate2: the issue body names a stage or an
-                                   agent (exit 3); a host error goes to
-                                   stderr, exit 1
+                                   agent (exit 3)
+  approve=refused reason=missing file=<path>
+                                   gate2: a run file the issue body needs is
+                                   absent
+  approve=refused reason=host|credentials|not-found|ref detail=\"<error>\"
+                                   The host failed: no answer or an
+                                   unreadable one (host), credentials
+                                   missing or malformed, nothing matched
+                                   (not-found), a bad reference (ref, exit 2)
 The approve=refused lines end in ` hint=<fix>`.
 Exit codes: 0 done, 1 refused, 2 usage, 4 internal error.
 See: ferrule guide show approval";
@@ -255,10 +262,7 @@ pub(super) fn failed(
     match e {
         gate::Error::Refused(r) => refuse(out, &r.refusal(verb, slug)),
         gate::Error::Publish(e) => super::issue::post_failed(e, verb, out),
-        gate::Error::Remote(e) => {
-            eprintln!("{verb}: {e}");
-            Ok(exit::REFUSED)
-        }
+        gate::Error::Remote(e) => refuse(out, &e.refusal(verb)),
         gate::Error::Board(e) => Err(internal(e)),
         gate::Error::Io(e) => Err(e),
         gate::Error::Sql(e) => Err(internal(e)),

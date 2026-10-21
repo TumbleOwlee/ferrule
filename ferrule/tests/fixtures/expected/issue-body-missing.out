@@ -1,1 +1,2 @@
+body=refused reason=missing file=issue.md hint=write the run artifact first; `ferrule prompt render` names it
 exit=1

@@ -239,7 +239,10 @@ fn it_sha_check_and_reconcile() {
         first.lines().next().unwrap(),
         format!("differ row=worktree {} missing", s.wt.display())
     );
-    assert_eq!(s.run(&["run", "reconcile", "nosuch"]).text(), "exit=2");
+    assert_eq!(
+        s.run(&["run", "reconcile", "nosuch"]).text(),
+        "reconcile=refused reason=card hint=check the slug with `ferrule board list`\nexit=1"
+    );
 }
 
 #[test]

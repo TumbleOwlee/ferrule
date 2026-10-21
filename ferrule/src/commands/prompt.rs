@@ -8,10 +8,11 @@ use ferrule_core::card::board;
 use ferrule_core::project::{self, Layout};
 use ferrule_core::prompt::render::{Kind, Viewed};
 use ferrule_core::prompt::{self, approval};
+use ferrule_core::refusal::Refusal;
 
 use super::board::store;
 use super::exit;
-use super::internal;
+use super::{internal, refuse};
 use crate::cli::stage_id;
 
 /// Shown after `ferrule prompt render --help`.
@@ -55,8 +56,8 @@ Logged on the card:
                                    approved: the revisions the user saw
 
 Refusals:
-  prompt render: no card for <slug>
-                       exit 2; the run has no card; ferrule run init <slug>
+  render=refused reason=card hint=check the slug with `ferrule board list`
+                       exit 1; the run has no card; ferrule run init <slug>
                        or fix the slug
   prompt render: a flag this kind needs is missing; see --help
                        exit 2; add --stage (auto) or --from (replan-notice)
@@ -414,8 +415,7 @@ fn render(args: &PromptRenderArgs, out: &mut impl Write) -> io::Result<u8> {
     let kind = kind(args.kind);
     let pairs = pairs(args);
     let Some(mut s) = store()? else {
-        eprintln!("prompt render: no card for {slug}");
-        return Ok(exit::USAGE);
+        return refuse(out, &Refusal::card("render"));
     };
     let layout = Layout::new(project::main_checkout());
     let mut view = |files: &[PathBuf]| -> Result<Viewed, u8> {
@@ -465,10 +465,7 @@ fn render(args: &PromptRenderArgs, out: &mut impl Write) -> io::Result<u8> {
             eprintln!("prompt render: a flag this kind needs is missing; see --help");
             Ok(exit::USAGE)
         }
-        Err(prompt::render::Error::Card) => {
-            eprintln!("prompt render: no card for {slug}");
-            Ok(exit::USAGE)
-        }
+        Err(prompt::render::Error::Card) => refuse(out, &Refusal::card("render")),
         Err(prompt::render::Error::Show(code)) => Ok(code),
         Err(prompt::render::Error::Sql(e)) => Err(internal(e)),
     }

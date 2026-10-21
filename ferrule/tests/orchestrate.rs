@@ -1175,9 +1175,9 @@ fn it_slices_keep_their_position() {
     let zero = p.ferrule(&["issue", "post", "lb", "--slice", "0"]).output();
     assert_eq!(zero.status.code(), Some(1));
     assert!(
-        String::from_utf8_lossy(&zero.stderr).contains("body: no slice 0 in slices.md"),
+        String::from_utf8_lossy(&zero.stdout).starts_with("post=refused reason=no-slice slice=0 "),
         "{}",
-        String::from_utf8_lossy(&zero.stderr)
+        String::from_utf8_lossy(&zero.stdout)
     );
     assert_eq!(p.field("lb", "slices"), "[71, 72]");
 }

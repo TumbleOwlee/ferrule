@@ -36,8 +36,9 @@ pub enum Error {
 }
 
 impl Error {
-    /// The `<verb>=refused reason=stage-ref` line (exit 3) of a body that
-    /// names a stage or an agent; `None` for the other errors.
+    /// The `<verb>=refused` line: `stage-ref` (exit 3) for a body that
+    /// names a stage or an agent, `missing` or `no-slice` for an input it
+    /// lacks; `None` for an empty body and the state database.
     #[must_use]
     pub fn refusal(&self, verb: &'static str) -> Option<Refusal> {
         match self {
@@ -47,7 +48,20 @@ impl Error {
                     .hint("reword the source text so it names no stage or agent")
                     .exit(Exit::Content),
             ),
-            _ => None,
+            Error::Missing(p) => Some(
+                Refusal::new(verb, "missing")
+                    .field(
+                        "file",
+                        p.file_name().unwrap_or(p.as_os_str()).to_string_lossy(),
+                    )
+                    .hint("write the run artifact first; `ferrule prompt render` names it"),
+            ),
+            Error::NoSlice(n) => Some(
+                Refusal::new(verb, "no-slice")
+                    .field("slice", n)
+                    .hint("name a slice slices.md lists"),
+            ),
+            Error::Empty | Error::Sql(_) => None,
         }
     }
 }

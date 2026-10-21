@@ -374,7 +374,10 @@ mod tests {
                 op: "pr ready"
             }
         ));
-        assert_eq!(e.to_string(), "pr ready is only implemented for GitHub yet");
+        assert_eq!(
+            e.to_string(),
+            "pr ready is not implemented for Bitbucket yet"
+        );
         assert!(matches!(
             bb.status(&ItemRef::Number(1)),
             Err(Error::Credentials(_))

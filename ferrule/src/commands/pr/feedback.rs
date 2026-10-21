@@ -7,7 +7,7 @@ use ferrule_core::card::board;
 use ferrule_core::config::Config;
 use ferrule_core::pr::feedback::{self, AnswerError};
 use ferrule_core::project;
-use ferrule_core::refusal::Refusal;
+use ferrule_core::refusal::{Exit, Refusal};
 use ferrule_core::remote::{self, ItemRef};
 
 use crate::cli::stage_name;
@@ -36,8 +36,12 @@ Refusals (stdout, exit 1):
       The card has no PR.
   route=refused reason=move stage=s<n> hint=stage s<n> cannot move back to inprogress: <why>
       The board refused moving a stage back; nothing is logged or moved.
-Errors (stderr, exit 1): the CI host's error.
-Exit codes: 0 ok, 1 refused, 4 internal error.
+  route=refused reason=host|credentials|not-found|ref detail=\"<error>\" hint=<fix>
+      The host or tracker failed: `host` it did not answer or answered
+      unreadably (auth, network), `credentials` its credentials are
+      missing or malformed, `not-found` nothing matched, `ref` the
+      reference is no issue or PR (exit 2).
+Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
 Backend: reads threads from the configured code host.
 See: ferrule guide show feedback";
 
@@ -48,8 +52,9 @@ Output:
       `## thread <id>` block with `comment:`, `path:`, the comments (each
       body line quoted with `> `) and an empty `reply:` line. <state> is
       lowercase (`open`).
-Errors (stderr, exit 1): `pr feedback: <the host's error>`.
-Exit codes: 0 ok, 1 refused, 4 internal error.
+  feedback=refused reason=host|credentials|not-found|unsupported|ref detail=\"<error>\"
+      The host could not be read: what it said, and a hint=<fix>.
+Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
 Backend: reads the threads from the configured code host.
 See: ferrule guide show feedback";
 
@@ -64,14 +69,15 @@ Output:
       `posted: replied` (posted) or `posted: resolved` (fixed and resolved);
       a rerun skips what a `posted:` line records and counts it, so nothing
       is posted twice.
-Errors (stderr):
-  pr feedback: no such file: <file>                 exit 1
-  pr feedback: thread <id>: reply '<word>' is neither fixed nor declined
-  pr feedback: thread <id>: a declined reply needs a reason as its first bullet
-      exit 1, before anything is posted. Fix: correct the reply in <file>.
-  pr feedback: thread <id>: <the host's error>      exit 1
-  pr feedback: a 'reply: fixed' thread needs <stage> <sha> (the pushed head)
-      exit 2. Fix: give the stage and the pushed commit.
+  reply=refused reason=missing file=<file> hint=fetch the threads first: ferrule pr feedback fetch <pr> <file>
+  reply=refused reason=replies count=<n> detail=\"thread <id>: <why>; …\" hint=correct the replies in <file>; nothing was posted
+      A reply is neither fixed nor declined, or a declined one has no
+      reason as its first bullet.
+  reply=refused reason=stage hint=a `reply: fixed` thread needs <stage> <sha>, the pushed head
+      exit 2: give the stage and the pushed commit.
+  reply=refused reason=host|credentials|not-found|unsupported|ref thread=<id> detail=\"<error>\"
+      A post failed part way, after the pr= line; the earlier ones stay
+      posted. Ends in hint=<fix>.
 Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
 Backend: posts to the configured code host.
 See: ferrule guide show feedback";
@@ -130,10 +136,7 @@ pub fn run(config: &Config, command: &FeedbackCommand, out: &mut impl Write) -> 
 fn fetch(config: &Config, pr: &ItemRef, file: &Path, out: &mut impl Write) -> io::Result<u8> {
     let f = match remote::code_host(config, &project::main_checkout()).threads(pr) {
         Ok(f) => f,
-        Err(e) => {
-            eprintln!("pr feedback: {e}");
-            return Ok(exit::REFUSED);
-        }
+        Err(e) => return refuse(out, &e.refusal("feedback")),
     };
     std::fs::write(file, f.file(&board::now()))?;
     writeln!(
@@ -165,27 +168,34 @@ fn reply(
     };
     match feedback::answer(host.as_ref(), pr, file, stage_sha) {
         Err(_) => {
-            eprintln!("pr feedback: no such file: {}", file.display());
-            Ok(exit::REFUSED)
+            let r = Refusal::new("reply", "missing")
+                .field("file", file.display())
+                .hint("fetch the threads first: ferrule pr feedback fetch <pr> <file>");
+            refuse(out, &r)
         }
         Ok(Ok(a)) => {
             writeln!(out, "{}", line(a))?;
             Ok(exit::OK)
         }
         Ok(Err(AnswerError::Problems(problems))) => {
-            for p in problems {
-                eprintln!("pr feedback: {p}");
-            }
-            Ok(exit::REFUSED)
+            let r = Refusal::new("reply", "replies")
+                .field("count", problems.len())
+                .detail(problems.join("; "))
+                .hint(format!(
+                    "correct the replies in {}; nothing was posted",
+                    file.display()
+                ));
+            refuse(out, &r)
         }
         Ok(Err(AnswerError::NeedsStage)) => {
-            eprintln!("pr feedback: a 'reply: fixed' thread needs <stage> <sha> (the pushed head)");
-            Ok(exit::USAGE)
+            let r = Refusal::new("reply", "stage")
+                .hint("a `reply: fixed` thread needs <stage> <sha>, the pushed head")
+                .exit(Exit::Usage);
+            refuse(out, &r)
         }
         Ok(Err(AnswerError::Host(a, thread, e))) => {
-            eprintln!("pr feedback: thread {thread}: {e}");
             writeln!(out, "{}", line(a))?;
-            Ok(exit::REFUSED)
+            refuse(out, &e.refusal("reply").field("thread", thread))
         }
     }
 }

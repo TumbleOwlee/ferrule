@@ -72,8 +72,11 @@ Refusals (stdout, exit 1):
                                  comments; drop --comment`). A spec that is
                                  no number or range is a usage error (exit
                                  2).
-Errors (stderr, exit 1): `pr view: <the host's error>` for an unknown PR, a
-missing credential or a failing `gh`/`curl`.
+  pr=refused reason=host|credentials|not-found|ref detail=\"<error>\" hint=<fix>
+      The host or tracker failed: `host` it did not answer or answered
+      unreadably (auth, network), `credentials` its credentials are
+      missing or malformed, `not-found` nothing matched, `ref` the
+      reference is no issue or PR (exit 2).
 Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
 Backend: reads from the configured code host (`backend` in ferrule.toml).";
 
@@ -85,7 +88,7 @@ Refusals:
       The visible text names a stage (`s<n>`) or an agent (`fe-author`, ...);
       only backticked spans holding `.` or `/` are exempt. Exit 3. Fix: have
       the agent that wrote the source file reword it; never edit the body.
-  (no line; stderr `body: missing <path>`)
+  body=refused reason=missing file=<path> hint=write the run artifact first; `ferrule prompt render` names it
       A run file the body needs is absent. Exit 1. Fix: run the step that
       writes it.
   (no line, nothing printed)
@@ -110,8 +113,14 @@ Refusals (stdout, exit 1):
   open=refused reason=unsupported host=<host> hint=<op> is not implemented for <host> yet; do it on <host> by hand
       The configured code host cannot open a PR (Bitbucket). Fix: open it on
       the host by hand.
-Errors (stderr, exit 1): `body: missing <path>`; the CI host's error.
-Exit codes: 0 ok, 1 refused, 3 content, 4 internal error.
+  open=refused reason=missing file=<path> hint=write the run artifact first; `ferrule prompt render` names it
+      A run file the body needs is absent.
+  open=refused reason=host|credentials|not-found|ref detail=\"<error>\" hint=<fix>
+      The host or tracker failed: `host` it did not answer or answered
+      unreadably (auth, network), `credentials` its credentials are
+      missing or malformed, `not-found` nothing matched, `ref` the
+      reference is no issue or PR (exit 2).
+Exit codes: 0 ok, 1 refused, 2 usage, 3 content, 4 internal error.
 Backend: opens the PR on the configured code host.
 See: ferrule guide show stages";
 
@@ -156,8 +165,14 @@ Refusals (stdout, exit 1):
       Opening the PR on the first push failed, as `pr open` refuses it.
   push=refused reason=card hint=check the slug with `ferrule board list`
       No card for the slug.
-Errors (stderr, exit 1): `missing <path>`; the CI host's error.
-Exit codes: 0 ok, 1 refused, 4 internal error.
+  push=refused reason=missing file=<path> hint=write the run artifact first; `ferrule prompt render` names it
+      A run file the body needs is absent.
+  push=refused reason=host|credentials|not-found|ref detail=\"<error>\" hint=<fix>
+      The host or tracker failed: `host` it did not answer or answered
+      unreadably (auth, network), `credentials` its credentials are
+      missing or malformed, `not-found` nothing matched, `ref` the
+      reference is no issue or PR (exit 2).
+Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
 Backend: pushes to origin; updates the PR on the configured code host.
 See: ferrule guide show stages";
 
@@ -192,8 +207,14 @@ Refusals (stdout, exit 1 unless noted):
   publish=refused reason=unsupported host=<host> hint=<op> is not implemented for <host> yet; do it on <host> by hand
       The CI host cannot edit or ready the PR, or the tracker cannot file
       the follow-ups. Fix: do it on the host by hand.
-Errors (stderr, exit 1): `body: missing <path>` (pr.md); the host's error.
-Exit codes: 0 ok, 1 refused, 3 content, 4 internal error.
+  publish=refused reason=missing file=<path> hint=write the run artifact first; `ferrule prompt render` names it
+      A run file the body needs is absent.
+  publish=refused reason=host|credentials|not-found|ref detail=\"<error>\" hint=<fix>
+      The host or tracker failed: `host` it did not answer or answered
+      unreadably (auth, network), `credentials` its credentials are
+      missing or malformed, `not-found` nothing matched, `ref` the
+      reference is no issue or PR (exit 2).
+Exit codes: 0 ok, 1 refused, 2 usage, 3 content, 4 internal error.
 Backend: edits and readies the PR on the configured code host; files the
 follow-ups on the tracker.
 See: ferrule guide show gate4";
@@ -262,10 +283,7 @@ pub fn run(command: &PrCommand, style: Option<Style>, out: &mut impl Write) -> i
         PrCommand::View { pr, view } => {
             match remote::code_host(&config, &project::main_checkout()).view(pr) {
                 Ok(item) => super::issue::print_item(&item, &view.select(), ("pr", pr), style, out),
-                Err(e) => {
-                    eprintln!("pr view: {e}");
-                    Ok(exit::REFUSED)
-                }
+                Err(e) => refuse(out, &e.refusal("pr")),
             }
         }
         PrCommand::Body { slug, form } => {
@@ -311,8 +329,9 @@ pub(crate) fn failed(
         .or_else(current)
         .unwrap_or_default();
     if branch.is_empty() && query.run.is_none() {
-        eprintln!("ci failed: HEAD is on no branch; name it: ferrule ci failed <branch>");
-        return Ok(exit::REFUSED);
+        let r = Refusal::new("ci", "detached")
+            .hint("HEAD is on no branch; name it: ferrule ci failed <branch>");
+        return refuse(out, &r);
     }
     match remote::code_host(config, &project::main_checkout()).failed(&branch, query) {
         Ok(lines) => {
@@ -321,10 +340,7 @@ pub(crate) fn failed(
             }
             Ok(exit::OK)
         }
-        Err(e) => {
-            eprintln!("ci failed: {e}");
-            Ok(exit::REFUSED)
-        }
+        Err(e) => refuse(out, &e.refusal("ci")),
     }
 }
 

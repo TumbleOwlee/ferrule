@@ -67,10 +67,12 @@ fn it_request_reads_back_the_original_request() {
         .text(),
         "exit=2"
     );
-    assert_eq!(
-        ferrule(&gh, p.path(), &["issue", "request", "404"]).text(),
-        "exit=1"
+    let unknown = ferrule(&gh, p.path(), &["issue", "request", "404"]).text();
+    assert!(
+        unknown.starts_with("issue=refused reason=host "),
+        "{unknown}"
     );
+    assert!(unknown.ends_with("\nexit=1"), "{unknown}");
 }
 
 #[test]
@@ -144,7 +146,7 @@ fn it_feedback_fetches_threads_and_replies() {
     std::fs::write(&file, filled).unwrap();
     assert_eq!(
         ferrule(&gh, p.path(), &["pr", "feedback", "reply", "22", f]).text(),
-        "exit=2"
+        "reply=refused reason=stage hint=a `reply: fixed` thread needs <stage> <sha>, the pushed head\nexit=2"
     );
     assert_eq!(
         ferrule(
@@ -218,10 +220,9 @@ fn it_failed_prints_the_error_lines() {
         "test\terror[E0308]: mismatched types\ntest\ttest a ... FAILED\nexit=0"
     );
     assert!(gh.log().contains("--branch=feat/x --commit abc1234def"));
-    assert_eq!(
-        ferrule(&gh, p.path(), &["ci", "failed", "feat/none"]).text(),
-        "exit=1"
-    );
+    let none = ferrule(&gh, p.path(), &["ci", "failed", "feat/none"]).text();
+    assert!(none.starts_with("ci=refused reason=host "), "{none}");
+    assert!(none.ends_with("\nexit=1"), "{none}");
 }
 
 #[test]
@@ -281,7 +282,7 @@ fn it_failed_takes_a_run_a_job_and_context() {
             &["ci", "failed", "--run", "6", "--job", "docs"]
         )
         .text(),
-        "exit=1"
+        "ci=refused reason=not-found detail=\"Run 6 has no failing job matching 'docs'; failing: test, lint (stable)\" hint=check the number, branch or run asked for\nexit=1"
     );
 }
 
@@ -466,14 +467,13 @@ fn it_issue_view_refuses_a_pull_request() {
     );
     assert_eq!(
         ferrule(&gh, p.path(), &["issue", "view", "22"]).text(),
-        "issue=refused reason=pull-request hint=ferrule pr view 22\nexit=1"
+        "issue=refused reason=pull-request pr=22 hint=#22 is a pull request: ferrule pr view 22\nexit=1"
     );
     let req = ferrule(&gh, p.path(), &["issue", "request", "22"]).output();
     assert_eq!(req.status.code(), Some(1));
-    assert!(
-        String::from_utf8_lossy(&req.stderr).contains("#22 is a pull request, not an issue"),
-        "{}",
-        String::from_utf8_lossy(&req.stderr)
+    assert_eq!(
+        String::from_utf8_lossy(&req.stdout),
+        "issue=refused reason=pull-request pr=22 hint=#22 is a pull request: ferrule pr view 22\n"
     );
 }
 
@@ -565,7 +565,7 @@ fn it_feedback_reply_retries_post_nothing_twice() {
     // The reply posts, the resolve fails: the file records the post.
     assert_eq!(
         reply(&["s2", "abc1234"]),
-        "pr=22 fixed=0 declined=0 open=2\nexit=1"
+        "pr=22 fixed=0 declined=0 open=2\nreply=refused reason=host thread=T1 detail=\"gh api failed\" hint=the host did not answer; check your login and network, then retry\nexit=1"
     );
     let text = std::fs::read_to_string(&file).unwrap();
     assert!(

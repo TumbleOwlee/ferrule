@@ -49,10 +49,10 @@ then a summary:
   reconcile=differ n=<rows> next=<s<n>|none>
                                    Fix the rows (or ask the user) before
                                    resuming
-Errors (stderr):
-  reconcile: no card for <slug>    Exit 2; check the slug with
-                                   `ferrule board list`
-Exit codes: 0 clean, 1 differ, 2 usage, 4 internal error.
+Refusals:
+  reconcile=refused reason=card hint=check the slug with `ferrule board list`
+                                   No card for the slug
+Exit codes: 0 clean, 1 differ or refused, 2 usage, 4 internal error.
 See: ferrule guide show resume";
 
 /// Shown after `ferrule run rebuild --help`.
@@ -147,8 +147,7 @@ Refusals:
   metrics=refused reason=no-ci     No ci= logged; run `ferrule ci wait <slug>`
   metrics=refused reason=ci-red    The last ci= is not 0 and no later
                                    ci-waived line exists
-  (stderr) metrics: no card for <slug>
-                                   Exit 1; check the slug with
+  metrics=refused reason=card      No card for the slug; check it with
                                    `ferrule board list`
 The reason lines end in ` hint=<fix>`.
 Exit codes: 0 ok, 1 refused, 4 internal error.

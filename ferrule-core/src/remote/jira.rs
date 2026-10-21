@@ -256,7 +256,7 @@ mod tests {
         ));
         assert_eq!(
             e.to_string(),
-            "issue create is only implemented for GitHub yet"
+            "issue create is not implemented for Jira yet"
         );
         assert!(matches!(
             jira.view(&ItemRef::Key("KEY-1".into())),

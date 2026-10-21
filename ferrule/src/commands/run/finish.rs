@@ -23,9 +23,8 @@ pub(super) fn metrics(
     out: &mut impl Write,
 ) -> io::Result<u8> {
     let Some(mut s) = store()? else {
-        if let Some(slug) = slug {
-            eprintln!("metrics: no card for {slug}");
-            return Ok(exit::REFUSED);
+        if slug.is_some() {
+            return refuse(out, &Refusal::card("metrics"));
         }
         return Ok(exit::OK);
     };
@@ -44,10 +43,7 @@ pub(super) fn metrics(
             writeln!(out, "{line}")?;
             Ok(exit::OK)
         }
-        Err(ArchiveError::Card) => {
-            eprintln!("metrics: no card for {slug}");
-            Ok(exit::REFUSED)
-        }
+        Err(ArchiveError::Card) => refuse(out, &Refusal::card("metrics")),
         Err(ArchiveError::Ci(r)) => refuse(out, &r.refusal("metrics", slug)),
         Err(e) => Err(internal(e)),
     }

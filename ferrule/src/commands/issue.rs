@@ -29,8 +29,14 @@ Refusals:
                                  of ferrule.toml, default 40) match; none is
                                  printed (exit 1). No count=: only max+1 are
                                  fetched.
-Errors (stderr, exit 1): `issue search: <the host's error>`; GitHub only yet.
-Exit codes: 0 ok, 1 none or refused, 4 internal error.
+  issue-search=refused reason=host|credentials|not-found|ref detail=\"<error>\" hint=<fix>
+      The host or tracker failed: `host` it did not answer or answered
+      unreadably (auth, network), `credentials` its credentials are
+      missing or malformed, `not-found` nothing matched, `ref` the
+      reference is no issue or PR (exit 2).
+  issue-search=refused reason=unsupported host=<host> hint=<op> is not implemented for <host> yet; do it on <host> by hand
+      The tracker cannot search issues yet.
+Exit codes: 0 ok, 1 none or refused, 2 usage, 4 internal error.
 Example:
   ferrule issue search --state open modbus timeout
 See: ferrule guide show issue";
@@ -73,17 +79,21 @@ Examples:
   ferrule issue view <n> --comments --last 3
   ferrule issue view <n> --body
 Refusals (stdout, exit 1):
-  issue=refused reason=pull-request hint=ferrule pr view <n>
+  issue=refused reason=pull-request pr=<n> hint=#<n> is a pull request: ferrule pr view <n>
                                  The number names a pull request (GitHub
                                  serves PRs as issues); view it with pr view.
+  issue=refused reason=host|credentials|not-found|ref detail=\"<error>\" hint=<fix>
+      The host or tracker failed: `host` it did not answer or answered
+      unreadably (auth, network), `credentials` its credentials are
+      missing or malformed, `not-found` nothing matched, `ref` the
+      reference is no issue or PR (exit 2).
+
   view=refused reason=comment max=<n> hint=the issue has <n> comment(s); pick from 1-<n>
                                  --comment names a number the issue lacks
                                  (with no comments: `hint=the issue has no
                                  comments; drop --comment`). A spec that is
                                  no number or range is a usage error (exit
                                  2).
-Errors (stderr, exit 1): `issue view: <the host's error>` for an unknown issue, a
-missing credential or a failing `gh`/`curl`.
 Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
 Backend: reads from the configured tracker (`backend` in ferrule.toml).";
 
@@ -91,9 +101,14 @@ const ISSUE_REQUEST_AFTER_LONG_HELP: &str = "\
 Output (stdout): the requested part as plain text, nothing when the issue has
 no such part. With `--comments`, every comment as `[<author> @ <time>]` then
 its text.
-Errors (stderr, exit 1): `issue request: <the tracker's error>` for an unknown
-issue, a missing credential or a failing `gh`/`curl`.
-Exit codes: 0 ok, 1 refused, 4 internal error.
+Refusals (stdout):
+  issue=refused reason=pull-request pr=<n> hint=#<n> is a pull request: ferrule pr view <n>
+  issue=refused reason=host|credentials|not-found|ref detail=\"<error>\" hint=<fix>
+      The host or tracker failed: `host` it did not answer or answered
+      unreadably (auth, network), `credentials` its credentials are
+      missing or malformed, `not-found` nothing matched, `ref` the
+      reference is no issue or PR (exit 2).
+Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
 Backend: reads from the configured tracker.
 See: ferrule guide show epic";
 
@@ -105,10 +120,10 @@ Refusals:
       The visible text names a stage (`s<n>`) or an agent (`fe-author`, ...);
       only backticked spans holding `.` or `/` are exempt. Exit 3. Fix: have
       the agent that wrote the source file reword it; never edit the body.
-  (no line; stderr `body: missing <path>`)
+  body=refused reason=missing file=<path> hint=write the run artifact first; `ferrule prompt render` names it
       A run file the body needs is absent. Exit 1. Fix: run the step that
       writes it.
-  (no line; stderr `body: no slice <n> in slices.md`)
+  body=refused reason=no-slice slice=<n> hint=name a slice slices.md lists
       `--slice` names a slice slices.md does not have. Exit 1.
   (no line, nothing printed)
       The body would be empty. Exit 1.
@@ -151,10 +166,16 @@ Refusals (stdout, exit 1):
   post=refused reason=unsupported host=<host> hint=<op> is not implemented for <host> yet; do it on <host> by hand
       The configured tracker cannot file, search, edit or comment on
       issues (Jira). Fix: do it on the tracker by hand.
-Errors (stderr, exit 1): `missing <path>` for an absent run file;
-`body: no slice <n> in slices.md` for a slice slices.md lacks (or 0); the
-tracker's error when the host call fails.
-Exit codes: 0 ok, 1 refused, 3 content, 4 internal error.
+  post=refused reason=missing file=<path> hint=write the run artifact first; `ferrule prompt render` names it
+      A run file the body or comment needs is absent.
+  post=refused reason=no-slice slice=<n> hint=name a slice slices.md lists
+      `--slice` names a slice slices.md lacks (or 0).
+  post=refused reason=host|credentials|not-found|ref detail=\"<error>\" hint=<fix>
+      The host or tracker failed: `host` it did not answer or answered
+      unreadably (auth, network), `credentials` its credentials are
+      missing or malformed, `not-found` nothing matched, `ref` the
+      reference is no issue or PR (exit 2).
+Exit codes: 0 ok, 1 refused, 2 usage, 3 content, 4 internal error.
 Backend: writes are GitHub-only (`gh`); with another tracker configured the
 command refuses (reason=unsupported).
 See: ferrule guide show issue";
@@ -343,10 +364,7 @@ fn search(keywords: &[String], state: SearchState, out: &mut impl Write) -> io::
             }
             Ok(exit::OK)
         }
-        Err(e) => {
-            eprintln!("issue search: {e}");
-            Ok(exit::REFUSED)
-        }
+        Err(e) => refuse(out, &e.refusal("issue-search")),
     }
 }
 
@@ -437,14 +455,7 @@ fn view(
 ) -> io::Result<u8> {
     match tracker()?.view(issue) {
         Ok(item) => print_item(&item, &view.select(), ("issue", issue), style, out),
-        Err(remote::Error::PullRequest(n)) => refuse(
-            out,
-            &Refusal::new("issue", "pull-request").hint(format!("ferrule pr view {n}")),
-        ),
-        Err(e) => {
-            eprintln!("issue view: {e}");
-            Ok(exit::REFUSED)
-        }
+        Err(e) => refuse(out, &e.refusal("issue")),
     }
 }
 
@@ -456,10 +467,7 @@ fn request(
 ) -> io::Result<u8> {
     let item = match tracker()?.view(issue) {
         Ok(item) => item,
-        Err(e) => {
-            eprintln!("issue request: {e}");
-            return Ok(exit::REFUSED);
-        }
+        Err(e) => return refuse(out, &e.refusal("issue")),
     };
     if part.comments {
         let text = item.text();
@@ -498,16 +506,8 @@ pub fn print_body(
             Ok(exit::OK)
         }
         Err(e) if let Some(r) = e.refusal("body") => refuse(out, &r),
-        Err(body::Error::Missing(p)) => {
-            eprintln!("body: missing {}", p.display());
-            Ok(exit::REFUSED)
-        }
-        Err(body::Error::NoSlice(n)) => {
-            eprintln!("body: no slice {n} in slices.md");
-            Ok(exit::REFUSED)
-        }
-        Err(body::Error::Empty | body::Error::StageRef(_)) => Ok(exit::REFUSED),
         Err(body::Error::Sql(e)) => Err(internal(e)),
+        Err(_) => Ok(exit::REFUSED),
     }
 }
 
@@ -533,22 +533,7 @@ pub fn post_failed(e: publish::Error, verb: &'static str, out: &mut impl Write) 
     }
     match e {
         publish::Error::Body(b) => print_body(Err(b), None, out),
-        publish::Error::Missing(p) => {
-            eprintln!("missing {}", p.display());
-            Ok(exit::REFUSED)
-        }
-        publish::Error::NoIssue
-        | publish::Error::NoBranch
-        | publish::Error::NoPr
-        | publish::Error::Card
-        | publish::Error::Moved(..) => {
-            unreachable!("refusal() answers these")
-        }
-        publish::Error::Remote(e) => {
-            eprintln!("{e}");
-            Ok(exit::REFUSED)
-        }
-        publish::Error::Sql(e) => Err(internal(e)),
+        e => Err(internal(e)),
     }
 }
 

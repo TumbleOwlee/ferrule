@@ -4,6 +4,7 @@
 use std::io::{self, Write};
 
 use ferrule_core::card::board;
+use ferrule_core::refusal::Refusal;
 use ferrule_core::remote::{self, CodeHost, IssueTracker, Item, ItemRef};
 use ferrule_core::run::{self as core_run, Error, gate, rebuild};
 
@@ -36,10 +37,7 @@ pub(super) fn reconcile(slug: &str, local: bool, out: &mut impl Write) -> io::Re
     };
     let mut r = match result {
         Ok(r) => r,
-        Err(Error::Card) => {
-            eprintln!("reconcile: no card for {slug}");
-            return Ok(exit::USAGE);
-        }
+        Err(Error::Card) => return refuse(out, &Refusal::card("reconcile")),
         Err(Error::Sql(e)) => return Err(internal(e)),
     };
     if !local && let Some(s) = store.as_mut() {
