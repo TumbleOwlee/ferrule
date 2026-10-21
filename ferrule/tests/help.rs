@@ -89,6 +89,7 @@ const SOURCES: &[(&str, &[&str])] = &[
             "issue search",
             "issue view",
             "pr body",
+            "pr view",
             "pr open",
             "pr push",
             "pr publish",
@@ -105,7 +106,7 @@ const SOURCES: &[(&str, &[&str])] = &[
     ),
     (
         "ferrule/src/commands/pr/mod.rs",
-        &["pr open", "pr push", "pr publish", "ci failed"],
+        &["pr view", "pr open", "pr push", "pr publish", "ci failed"],
     ),
     (
         "ferrule/src/commands/run/mod.rs",

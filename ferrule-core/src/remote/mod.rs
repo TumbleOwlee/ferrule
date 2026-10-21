@@ -137,87 +137,273 @@ pub struct Item {
     pub comments: Vec<Comment>,
 }
 
-/// The parts of an item `issue view` and `pr view` print.
+/// Comment numbers `--comment` picks: `3`, `2-4`, `5-` or `-2`. Comments
+/// are numbered from 1, oldest first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CommentRange {
+    from: usize,
+    to: Option<usize>,
+}
+
+impl CommentRange {
+    fn contains(self, n: usize) -> bool {
+        n >= self.from && self.to.is_none_or(|t| n <= t)
+    }
+
+    /// Whether every number it names exists among `max` comments.
+    fn fits(self, max: usize) -> bool {
+        self.from >= 1 && self.from <= max && self.to.is_none_or(|t| t <= max)
+    }
+}
+
+impl std::str::FromStr for CommentRange {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let bad = || format!("'{s}' is no comment number or range: give 3, 2-4, 5- or -2");
+        let num = |t: &str| {
+            if t.is_empty() || !t.bytes().all(|b| b.is_ascii_digit()) {
+                return Err(bad());
+            }
+            t.parse::<usize>().map_err(|_| bad())
+        };
+        let t = s.trim();
+        let range = match t.split_once('-') {
+            None => {
+                let n = num(t)?;
+                CommentRange {
+                    from: n,
+                    to: Some(n),
+                }
+            }
+            Some(("", "")) => return Err(bad()),
+            Some(("", to)) => CommentRange {
+                from: 1,
+                to: Some(num(to)?),
+            },
+            Some((from, "")) => CommentRange {
+                from: num(from)?,
+                to: None,
+            },
+            Some((from, to)) => CommentRange {
+                from: num(from)?,
+                to: Some(num(to)?),
+            },
+        };
+        if range.to.is_some_and(|t| t < range.from) {
+            return Err(bad());
+        }
+        Ok(range)
+    }
+}
+
+/// `--comment` named a comment the item does not have.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NoSuchComment {
+    /// How many comments the item has.
+    pub max: usize,
+}
+
+/// The parts of an item `issue view` and `pr view` print. Without a flag:
+/// the body and an index of the comments, one line each.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Select {
-    /// The body; with neither `body` nor `comments`, both print.
+    /// Only the body; with `comments` or `pick`, both.
     pub body: bool,
+    /// Every comment in full.
     pub comments: bool,
-    /// Only the latest n comments.
+    /// Only the latest n of the comments kept.
     pub last: Option<usize>,
     /// Only the comments by this author, ignoring case.
     pub author: Option<String>,
+    /// Only the comments with these numbers.
+    pub pick: Vec<CommentRange>,
 }
 
 impl Select {
+    /// Whether comments print in full (else as an index, or not at all).
+    #[must_use]
+    pub fn full(&self) -> bool {
+        self.asks_comments() || (!self.body && (self.last.is_some() || self.author.is_some()))
+    }
+
+    fn asks_comments(&self) -> bool {
+        self.comments || !self.pick.is_empty()
+    }
+
     #[must_use]
     pub fn shows_body(&self) -> bool {
-        self.body || !self.comments
+        self.body || !self.asks_comments()
     }
 
+    /// Whether the comment index prints: without a flag.
     #[must_use]
-    pub fn shows_comments(&self) -> bool {
-        self.comments || !self.body
+    pub fn shows_index(&self) -> bool {
+        !self.body && !self.full()
     }
 
-    /// The comments of `item` this selection keeps, oldest first.
-    #[must_use]
-    pub fn comments<'a>(&self, item: &'a Item) -> Vec<&'a Comment> {
-        let mut kept: Vec<&Comment> = item
-            .comments
-            .iter()
-            .filter(|c| {
-                self.author
-                    .as_ref()
-                    .is_none_or(|a| c.author.eq_ignore_ascii_case(a))
+    /// The comments of `item` this selection prints in full, oldest first,
+    /// each with its number among all of them.
+    ///
+    /// # Errors
+    ///
+    /// [`NoSuchComment`] when `pick` names a number the item lacks.
+    pub fn comments<'a>(&self, item: &'a Item) -> Result<Vec<(usize, &'a Comment)>, NoSuchComment> {
+        let max = item.comments.len();
+        if self.pick.iter().any(|p| !p.fits(max)) {
+            return Err(NoSuchComment { max });
+        }
+        let mut kept: Vec<(usize, &Comment)> = (1..)
+            .zip(&item.comments)
+            .filter(|(n, c)| {
+                (self.pick.is_empty() || self.pick.iter().any(|p| p.contains(*n)))
+                    && self
+                        .author
+                        .as_ref()
+                        .is_none_or(|a| c.author.eq_ignore_ascii_case(a))
             })
             .collect();
         if let Some(n) = self.last {
             kept.drain(..kept.len().saturating_sub(n));
         }
-        kept
+        Ok(kept)
     }
+}
 
-    /// `<n> comment(s)`, or `<k> of <n> comment(s)` when some were left out.
-    #[must_use]
-    pub fn count(&self, item: &Item) -> String {
-        let (k, n) = (self.comments(item).len(), item.comments.len());
-        if k == n {
-            format!("{n} comment(s)")
-        } else {
-            format!("{k} of {n} comment(s)")
+/// `<n> comment(s)`, or `<k> of <n> comment(s)` when `k` is fewer.
+fn count(k: usize, n: usize) -> String {
+    if k == n {
+        format!("{n} comment(s)")
+    } else {
+        format!("{k} of {n} comment(s)")
+    }
+}
+
+/// `line` without its markdown lead: `#`, `>` and list markers.
+fn unmarked(line: &str) -> &str {
+    let mut l = line.trim();
+    loop {
+        let before = l;
+        l = l.trim_start_matches(['#', '>']).trim_start();
+        for marker in ["- ", "* ", "+ "] {
+            l = l.strip_prefix(marker).unwrap_or(l);
+        }
+        let digits = l.bytes().take_while(u8::is_ascii_digit).count();
+        if digits > 0
+            && let Some(rest) = l[digits..]
+                .strip_prefix(". ")
+                .or_else(|| l[digits..].strip_prefix(") "))
+        {
+            l = rest;
+        }
+        l = l.trim_start();
+        if l == before {
+            return l;
         }
     }
 }
 
 impl Item {
-    /// Title, body and comments as compact plain text.
+    /// Title, body and every comment as compact plain text.
     #[must_use]
     pub fn text(&self) -> String {
-        self.text_for(&Select::default())
+        let mut out = self.head_text();
+        let n = self.comments.len();
+        let _ = writeln!(out, "{}\n\n--- {} ---", self.body, count(n, n));
+        for c in &self.comments {
+            let _ = writeln!(out, "\n[{} @ {}]\n{}", c.author, c.at, c.body);
+        }
+        out
     }
 
-    /// The parts `select` keeps, as compact plain text. The head, URL and
-    /// author always print.
-    #[must_use]
-    pub fn text_for(&self, select: &Select) -> String {
+    /// The head, the URL when there is one and `by <author>`, then a blank
+    /// line.
+    fn head_text(&self) -> String {
         let mut out = format!("{}\n", self.head);
         if let Some(url) = &self.url {
             let _ = writeln!(out, "{url}");
         }
         let _ = writeln!(out, "by {}\n", self.by);
-        if select.shows_body() {
-            let _ = writeln!(out, "{}\n", self.body);
-        }
-        if select.shows_comments() {
-            let _ = writeln!(out, "--- {} ---", select.count(self));
-            for c in select.comments(self) {
-                let _ = writeln!(out, "\n[{} @ {}]\n{}", c.author, c.at, c.body);
-            }
-        }
         out
     }
 
+    /// The comment index's title: `<n> comment(s) (<view> --comment
+    /// <n|a-b>)`, `<view>` being the command that prints one in full.
+    #[must_use]
+    pub fn index_title(&self, view: &str) -> String {
+        let n = self.comments.len();
+        if n == 0 {
+            count(0, 0)
+        } else {
+            format!("{} ({view} --comment <n|a-b>)", count(n, n))
+        }
+    }
+
+    /// One line per comment, at most `width` columns: its number, author
+    /// and time, how many lines it has and its first line with words.
+    #[must_use]
+    pub fn index(&self, width: usize) -> Vec<String> {
+        let w = self.comments.len().to_string().len();
+        (1..)
+            .zip(&self.comments)
+            .map(|(n, c)| {
+                let lines = c.body.lines().count();
+                let unit = if lines == 1 { "line" } else { "lines" };
+                let first = c
+                    .body
+                    .lines()
+                    .map(unmarked)
+                    .find(|l| !l.is_empty())
+                    .unwrap_or("");
+                let line = format!("{n:>w$} [{} @ {}] {lines} {unit}: {first}", c.author, c.at);
+                crate::term::cut(&line, width)
+            })
+            .collect()
+    }
+
+    /// The title above the comments printed in full: `<k> of <n>
+    /// comment(s)`, or `<n> comment(s)` when all are.
+    #[must_use]
+    pub fn full_title(&self, kept: usize) -> String {
+        count(kept, self.comments.len())
+    }
+
+    /// The parts `select` keeps, as compact plain text; `view` and `width`
+    /// as for [`Item::index_title`] and [`Item::index`]. The head, URL and
+    /// author always print.
+    ///
+    /// # Errors
+    ///
+    /// [`NoSuchComment`] when `select` picks a comment the item lacks.
+    pub fn text_for(
+        &self,
+        select: &Select,
+        view: &str,
+        width: usize,
+    ) -> Result<String, NoSuchComment> {
+        let full = if select.full() {
+            Some(select.comments(self)?)
+        } else {
+            None
+        };
+        let mut out = self.head_text();
+        if select.shows_body() {
+            let _ = writeln!(out, "{}\n", self.body);
+        }
+        if select.shows_index() {
+            let _ = writeln!(out, "--- {} ---", self.index_title(view));
+            for l in self.index(width) {
+                let _ = writeln!(out, "{l}");
+            }
+        }
+        if let Some(kept) = full {
+            let _ = writeln!(out, "--- {} ---", self.full_title(kept.len()));
+            for (n, c) in kept {
+                let _ = writeln!(out, "\n[#{n} {} @ {}]\n{}", c.author, c.at, c.body);
+            }
+        }
+        Ok(out)
+    }
     /// The title alone: the head without its number and state.
     #[must_use]
     pub fn title(&self) -> &str {
@@ -468,6 +654,51 @@ mod tests {
             "#7 Retry [OPEN]\nhttps://x/7\nby al\n\n(no body)\n\n--- 1 comment(s) ---\n\n[unknown @ 2026-01-02T03:04:05Z]\nok\n"
         );
         assert_eq!(i.title(), "Retry");
+    }
+
+    #[test]
+    fn ut_comment_ranges_parse_and_fit() {
+        let r = |s: &str| s.parse::<CommentRange>();
+        assert_eq!(
+            r("3"),
+            Ok(CommentRange {
+                from: 3,
+                to: Some(3)
+            })
+        );
+        assert_eq!(r("5-").unwrap().to, None);
+        assert_eq!(r("-2").unwrap().from, 1);
+        for bad in ["", "-", "a", "3-2", "1-b", "+1", "1--2"] {
+            assert!(r(bad).is_err(), "{bad}");
+        }
+        assert!(r("2-4").unwrap().fits(4) && !r("2-4").unwrap().fits(3));
+        assert!(!r("0").unwrap().fits(3) && !r("-1").unwrap().fits(0));
+        assert!(r("3-").unwrap().contains(9) && !r("3-").unwrap().contains(2));
+    }
+
+    #[test]
+    fn ut_index_aligns_numbers_and_drops_markdown_leads() {
+        let comment = |body: &str| Comment {
+            author: "al".to_owned(),
+            at: "t".to_owned(),
+            body: body.to_owned(),
+        };
+        let mut comments: Vec<Comment> = (0..9).map(|_| comment("ok")).collect();
+        comments.push(comment("\n\n  ### > 1. **Done**\nnext"));
+        let item = Item {
+            head: "#1 T [OPEN]".to_owned(),
+            url: None,
+            open: true,
+            by: "al".to_owned(),
+            body: "b".to_owned(),
+            comments,
+        };
+        let index = item.index(100);
+        assert_eq!(index[0], " 1 [al @ t] 1 line: ok");
+        assert_eq!(index[9], "10 [al @ t] 4 lines: **Done**");
+        assert_eq!(unmarked("> - * x"), "x");
+        assert_eq!(unmarked("2) y"), "y");
+        assert_eq!(unmarked("2024 was"), "2024 was");
     }
 
     #[test]

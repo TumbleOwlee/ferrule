@@ -33,22 +33,48 @@ Output (stdout; compact text, styled on a terminal):
   #<n> <title> [<STATE>]         Line 1: the head (`KEY-1 <summary> [<status>]`
                                  for Jira), then the URL when the host has
                                  one and `by <author>`
-  <body>                         The description
-  --- <n> comment(s) ---         Then each comment as `[<author> @ <time>]`
-                                 and its text
+  <body>                         The description, in full
+  --- <n> comment(s) (ferrule pr view <ref> --comment <n|a-b>) ---
+                                 Then an index of the comments, numbered 1..n
+                                 oldest first, one line each:
+  <i> [<author> @ <time>] <k> lines: <first line>
+                                 Its first line with words, without a leading
+                                 `#`, `>` or list marker, the line cut to the
+                                 terminal's width (100 columns piped), `…`
+                                 ending it when cut. No comments: `--- 0
+                                 comment(s) ---`.
 Filters (the head line, URL and author always print):
-  --body                         Only the body
-  --comments                     Only the comments; with --body, both
-  --last <n>                     Only the latest n comments
-  --author <login>               Only the comments by that author, ignoring
-                                 case
-  A filtered count reads `--- <k> of <n> comment(s) ---`.
+  --body                         Only the body, no index
+  --comments                     Every comment in full instead of the index:
+                                 `--- <n> comment(s) ---`, then each as
+                                 `[#<i> <author> @ <time>]` and its text;
+                                 with --body, the body too
+  --comment <spec>               Only these comments in full, as --comments
+                                 prints them: `3`, `2-4`, `5-`, `-2`;
+                                 repeatable and comma-separated (`1,4-5`).
+                                 Numbers are the index's, whatever the other
+                                 filters keep.
+  --last <n>                     The latest n of the comments kept, in full
+  --author <login>               The comments by that author, ignoring case,
+                                 in full
+  Without --comments or --comment, --last and --author print the body too.
+  Filters combine: a comment prints when it passes all of them, --last
+  counting last. A filtered count reads `--- <k> of <n> comment(s) ---`.
 Examples:
+  ferrule pr view <n>
+  ferrule pr view <n> --comment 2-3
   ferrule pr view <n> --comments --last 3
   ferrule pr view <n> --body
+Refusals (stdout, exit 1):
+  view=refused reason=comment max=<n> hint=the pull request has <n> comment(s); pick from 1-<n>
+                                 --comment names a number the PR lacks (with
+                                 no comments: `hint=the pull request has no
+                                 comments; drop --comment`). A spec that is
+                                 no number or range is a usage error (exit
+                                 2).
 Errors (stderr, exit 1): `pr view: <the host's error>` for an unknown PR, a
 missing credential or a failing `gh`/`curl`.
-Exit codes: 0 ok, 1 refused, 4 internal error.
+Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
 Backend: reads from the configured CI host (`backend` in ferrule.toml).";
 
 const PR_BODY_AFTER_LONG_HELP: &str = "\
@@ -174,7 +200,7 @@ See: ferrule guide show gate4";
 
 #[derive(Debug, Subcommand)]
 pub enum PrCommand {
-    /// Print a PR's title, body and comments as compact text.
+    /// Print a PR's title, body and comment index as compact text.
     #[command(after_long_help = PR_VIEW_AFTER_LONG_HELP)]
     View {
         /// The PR number or URL.
@@ -235,10 +261,7 @@ pub fn run(command: &PrCommand, style: Option<Style>, out: &mut impl Write) -> i
     match command {
         PrCommand::View { pr, view } => match remote::code_host(&config, &project::root()).view(pr)
         {
-            Ok(item) => {
-                super::issue::print_item(&item, &view.select(), style, out)?;
-                Ok(exit::OK)
-            }
+            Ok(item) => super::issue::print_item(&item, &view.select(), ("pr", pr), style, out),
             Err(e) => {
                 eprintln!("pr view: {e}");
                 Ok(exit::REFUSED)

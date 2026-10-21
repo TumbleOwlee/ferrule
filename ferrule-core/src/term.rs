@@ -629,6 +629,28 @@ pub fn state(state: &str, style: Style) -> String {
     style.paint(look, state)
 }
 
+/// `s` on one line of at most `max` visible columns, control characters
+/// dropped; `…` ends it when something was cut.
+#[must_use]
+pub fn cut(s: &str, max: usize) -> String {
+    let clean: String = s.chars().filter(|c| !c.is_control()).collect();
+    if width(&clean) <= max {
+        return clean;
+    }
+    let mut out = String::new();
+    let mut used = 0;
+    for c in clean.chars() {
+        let w = c.width().unwrap_or(0);
+        if used + w + 1 > max {
+            break;
+        }
+        used += w;
+        out.push(c);
+    }
+    out.push('…');
+    out
+}
+
 /// `text` bold.
 #[must_use]
 pub fn strong(text: &str, style: Style) -> String {
@@ -732,6 +754,14 @@ mod tests {
             markdown(md, PLAIN),
             "Brief\n  fast  no stop of its own, approved at\n        the architecture stop\n  full  own stop\n"
         );
+    }
+
+    #[test]
+    fn ut_cut_ends_in_an_ellipsis() {
+        assert_eq!(cut("abcdef", 6), "abcdef");
+        assert_eq!(cut("abcdefg", 6), "abcde…");
+        assert_eq!(cut("日本語", 4), "日…");
+        assert_eq!(cut("a\x1b[1mb", 9), "a[1mb");
     }
 
     #[test]

@@ -40,32 +40,57 @@ Output (stdout; compact text, styled on a terminal):
   #<n> <title> [<STATE>]         Line 1: the head (`KEY-1 <summary> [<status>]`
                                  for Jira), then the URL when the host has
                                  one and `by <author>`
-  <body>                         The description
-  --- <n> comment(s) ---         Then each comment as `[<author> @ <time>]`
-                                 and its text
+  <body>                         The description, in full
+  --- <n> comment(s) (ferrule issue view <ref> --comment <n|a-b>) ---
+                                 Then an index of the comments, numbered 1..n
+                                 oldest first, one line each:
+  <i> [<author> @ <time>] <k> lines: <first line>
+                                 Its first line with words, without a leading
+                                 `#`, `>` or list marker, the line cut to the
+                                 terminal's width (100 columns piped), `…`
+                                 ending it when cut. No comments: `--- 0
+                                 comment(s) ---`.
 Filters (the head line, URL and author always print):
-  --body                         Only the body
-  --comments                     Only the comments; with --body, both
-  --last <n>                     Only the latest n comments
-  --author <login>               Only the comments by that author, ignoring
-                                 case
-  A filtered count reads `--- <k> of <n> comment(s) ---`.
+  --body                         Only the body, no index
+  --comments                     Every comment in full instead of the index:
+                                 `--- <n> comment(s) ---`, then each as
+                                 `[#<i> <author> @ <time>]` and its text;
+                                 with --body, the body too
+  --comment <spec>               Only these comments in full, as --comments
+                                 prints them: `3`, `2-4`, `5-`, `-2`;
+                                 repeatable and comma-separated (`1,4-5`).
+                                 Numbers are the index's, whatever the other
+                                 filters keep.
+  --last <n>                     The latest n of the comments kept, in full
+  --author <login>               The comments by that author, ignoring case,
+                                 in full
+  Without --comments or --comment, --last and --author print the body too.
+  Filters combine: a comment prints when it passes all of them, --last
+  counting last. A filtered count reads `--- <k> of <n> comment(s) ---`.
 Examples:
+  ferrule issue view <n>
+  ferrule issue view <n> --comment 2-3
   ferrule issue view <n> --comments --last 3
   ferrule issue view <n> --body
 Refusals (stdout, exit 1):
   issue=refused reason=pull-request hint=ferrule pr view <n>
                                  The number names a pull request (GitHub
                                  serves PRs as issues); view it with pr view.
+  view=refused reason=comment max=<n> hint=the issue has <n> comment(s); pick from 1-<n>
+                                 --comment names a number the issue lacks
+                                 (with no comments: `hint=the issue has no
+                                 comments; drop --comment`). A spec that is
+                                 no number or range is a usage error (exit
+                                 2).
 Errors (stderr, exit 1): `issue view: <the host's error>` for an unknown issue, a
 missing credential or a failing `gh`/`curl`.
-Exit codes: 0 ok, 1 refused, 4 internal error.
+Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
 Backend: reads from the configured tracker (`backend` in ferrule.toml).";
 
 const ISSUE_REQUEST_AFTER_LONG_HELP: &str = "\
 Output (stdout): the requested part as plain text, nothing when the issue has
-no such part. With `--comments`, the comments in the form `issue view` prints
-them (`[<author> @ <time>]` then the text).
+no such part. With `--comments`, every comment as `[<author> @ <time>]` then
+its text.
 Errors (stderr, exit 1): `issue request: <the tracker's error>` for an unknown
 issue, a missing credential or a failing `gh`/`curl`.
 Exit codes: 0 ok, 1 refused, 4 internal error.
@@ -134,20 +159,30 @@ Backend: writes are GitHub-only (`gh`); with another tracker configured the
 command refuses (reason=unsupported).
 See: ferrule guide show issue";
 
-/// What `issue view` and `pr view` print; without a flag, everything.
+/// What `issue view` and `pr view` print; without a flag, the body and an
+/// index of the comments.
 #[derive(Debug, Clone, Args)]
 pub struct ViewArgs {
-    /// Print the body; with `--comments` too, both. The head line, URL and
-    /// author always print.
+    /// Print only the body; with `--comments` or `--comment`, both. The
+    /// head line, URL and author always print.
     #[arg(long)]
     pub body: bool,
-    /// Print the comments.
+    /// Print every comment in full.
     #[arg(long)]
     pub comments: bool,
-    /// Keep only the latest n comments.
+    /// Print these comments in full: `3`, `2-4`, `5-`, `-2`; repeatable
+    /// and comma-separated.
+    #[arg(
+        long,
+        value_name = "N|A-B",
+        value_delimiter = ',',
+        allow_hyphen_values = true
+    )]
+    pub comment: Vec<remote::CommentRange>,
+    /// Print the latest n of the chosen comments in full.
     #[arg(long, value_name = "N")]
     pub last: Option<usize>,
-    /// Keep only the comments by this author, ignoring case.
+    /// Print the comments by this author in full, ignoring case.
     #[arg(long, value_name = "LOGIN")]
     pub author: Option<String>,
 }
@@ -159,6 +194,7 @@ impl ViewArgs {
             comments: self.comments,
             last: self.last,
             author: self.author.clone(),
+            pick: self.comment.clone(),
         }
     }
 }
@@ -182,7 +218,7 @@ pub enum IssueCommand {
         #[arg(long, value_enum, default_value_t = SearchState::All)]
         state: SearchState,
     },
-    /// Print an issue's title, body and comments as compact text.
+    /// Print an issue's title, body and comment index as compact text.
     #[command(after_long_help = ISSUE_VIEW_AFTER_LONG_HELP)]
     View {
         /// A GitHub number or URL, or a Jira key.
@@ -322,16 +358,50 @@ fn tracker() -> io::Result<Box<dyn IssueTracker>> {
     Ok(remote::issue_tracker(&config()?, &project::root()))
 }
 
-/// Prints an issue or PR: compact text, or styled with its body and
-/// comments rendered.
+/// Columns of a comment index line when stdout is no terminal.
+const PIPED_WIDTH: usize = 100;
+
+/// Prints an issue or PR (`kind` `issue` or `pr`, named `at`): compact
+/// text, or styled with its body and comments rendered; or the refusal of
+/// a `--comment` it lacks. Its exit code.
 pub fn print_item(
     item: &remote::Item,
     select: &remote::Select,
+    (kind, at): (&str, &ItemRef),
     style: Option<Style>,
     out: &mut impl Write,
-) -> io::Result<()> {
+) -> io::Result<u8> {
+    let view = format!("ferrule {kind} view {at}");
+    let width = style.map_or(PIPED_WIDTH, |s| s.width);
+    let full = if select.full() {
+        match select.comments(item) {
+            Ok(kept) => Some(kept),
+            Err(remote::NoSuchComment { max }) => {
+                let noun = if kind == "pr" {
+                    "pull request"
+                } else {
+                    "issue"
+                };
+                let fix = if max == 0 {
+                    format!("the {noun} has no comments; drop --comment")
+                } else {
+                    format!("the {noun} has {max} comment(s); pick from 1-{max}")
+                };
+                return refuse(
+                    out,
+                    &Refusal::new("view", "comment").field("max", max).hint(fix),
+                );
+            }
+        }
+    } else {
+        None
+    };
     let Some(s) = style else {
-        return write!(out, "{}", item.text_for(select));
+        let text = item
+            .text_for(select, &view, width)
+            .map_err(|_| internal("comments checked above"))?;
+        write!(out, "{text}")?;
+        return Ok(exit::OK);
     };
     writeln!(out, "{}", term::strong(&item.head, s))?;
     let by = match &item.url {
@@ -342,23 +412,24 @@ pub fn print_item(
     if select.shows_body() {
         write!(out, "{}", term::markdown(&item.body, s))?;
     }
-    if !select.shows_comments() {
-        return Ok(());
+    if select.shows_index() {
+        let title = format!("── {} ──", item.index_title(&view));
+        writeln!(out, "\n{}", term::faint(&title, s))?;
+        for l in item.index(width) {
+            writeln!(out, "{l}")?;
+        }
     }
-    writeln!(
-        out,
-        "\n{}",
-        term::faint(&format!("── {} ──", select.count(item)), s)
-    )?;
-    for c in select.comments(item) {
-        writeln!(
-            out,
-            "\n{}",
-            term::strong(&format!("{} · {}", c.author, c.at), s)
-        )?;
+    let Some(kept) = full else {
+        return Ok(exit::OK);
+    };
+    let title = format!("── {} ──", item.full_title(kept.len()));
+    writeln!(out, "\n{}", term::faint(&title, s))?;
+    for (n, c) in kept {
+        let head = format!("#{n} {} · {}", c.author, c.at);
+        writeln!(out, "\n{}", term::strong(&head, s))?;
         write!(out, "{}", term::markdown(&c.body, s))?;
     }
-    Ok(())
+    Ok(exit::OK)
 }
 
 fn view(
@@ -368,10 +439,7 @@ fn view(
     out: &mut impl Write,
 ) -> io::Result<u8> {
     match tracker()?.view(issue) {
-        Ok(item) => {
-            print_item(&item, &view.select(), style, out)?;
-            Ok(exit::OK)
-        }
+        Ok(item) => print_item(&item, &view.select(), ("issue", issue), style, out),
         Err(remote::Error::PullRequest(n)) => refuse(
             out,
             &Refusal::new("issue", "pull-request").hint(format!("ferrule pr view {n}")),

@@ -48,11 +48,11 @@ Under construction. Implemented so far:
 | `ferrule prompt show [--no-lines] <file>…` | Open files in the `[viewer]` (else stdout) and record the run's approval marker; exit 3 for a summary over its cap |
 | `ferrule prompt render <slug> <kind> [--<flag>…]` | A stop's whole message (approval, question, notice) or the `approved` record; logs the stop |
 | `ferrule issue search [--state open\|closed\|all] <keyword>…` | Issues mentioning every keyword, as `#n [STATE] title`; refused past `search_max` hits |
-| `ferrule issue view <n\|url\|KEY>` | An issue's title, body and comments as compact text |
+| `ferrule issue view <n\|url\|KEY>` | An issue's title, body and a one-line index of its comments; `--comment <n\|a-b>` or `--comments` prints them in full |
 | `ferrule issue request <n> [--spec\|--epic\|--slice-line\|--comments]` | A reused issue's original request, or the part named |
 | `ferrule issue body <slug> [--slice <n>]` | The tracking issue's body from the run's artifacts; exit 3 when it names a stage or an agent |
 | `ferrule issue post <slug> [--slice <n>\|--split\|--follow-up <k>\|--comment] [--reuse <n>]` | Post an issue or comment from the run's files; adopts an open issue with the same title |
-| `ferrule pr view <n>` | A PR's title, body and comments as compact text |
+| `ferrule pr view <n>` | A PR's title, body and a one-line index of its comments; `--comment <n\|a-b>` or `--comments` prints them in full |
 | `ferrule pr body <slug> draft\|full` | The PR body from the run's artifacts and cards; exit 3 when it names a stage or an agent |
 | `ferrule pr open <slug>` | Open the draft PR from the rendered draft body |
 | `ferrule pr push <slug>` | Push a verified, gauntlet-green head; update the draft body (the first push opens the PR) |

@@ -266,35 +266,175 @@ fn it_failed_takes_a_run_a_job_and_context() {
     );
 }
 
-const THREE_COMMENTS: &str = r#"{"number":5,"title":"Retry","state":"OPEN","url":"https://github.com/o/r/issues/5","author":{"login":"al"},"body":"The body.","comments":[
-{"author":{"login":"al"},"createdAt":"2026-10-01T08:00:00Z","body":"first"},
-{"author":{"login":"Bo"},"createdAt":"2026-10-02T08:00:00Z","body":"second"},
-{"author":{"login":"al"},"createdAt":"2026-10-03T08:00:00Z","body":"third"}]}"#;
+/// An item numbered `n` with three comments: the second opens with an
+/// empty line and a quoted heading longer than an index line.
+fn three_comments(n: u32) -> String {
+    let long = "x".repeat(120);
+    format!(
+        r#"{{"number":{n},"title":"Retry","state":"OPEN","url":"https://github.com/o/r/issues/{n}","author":{{"login":"al"}},"body":"The body.","comments":[
+{{"author":{{"login":"al"}},"createdAt":"2026-10-01T08:00:00Z","body":"first"}},
+{{"author":{{"login":"Bo"}},"createdAt":"2026-10-02T08:00:00Z","body":"\n> ## Plan: {long}\nmore"}},
+{{"author":{{"login":"al"}},"createdAt":"2026-10-03T08:00:00Z","body":"- third"}}]}}"#
+    )
+}
+
+const HEAD5: &str = "#5 Retry [OPEN]\nhttps://github.com/o/r/issues/5\nby al\n\n";
+
+/// Comment `n` of [`three_comments`] as `--comment` prints it.
+fn full(n: usize) -> String {
+    let long = "x".repeat(120);
+    match n {
+        1 => "\n[#1 al @ 2026-10-01T08:00:00Z]\nfirst\n".to_owned(),
+        2 => format!("\n[#2 Bo @ 2026-10-02T08:00:00Z]\n\n> ## Plan: {long}\nmore\n"),
+        _ => "\n[#3 al @ 2026-10-03T08:00:00Z]\n- third\n".to_owned(),
+    }
+}
 
 #[test]
-fn it_view_filters_body_and_comments() {
+fn it_view_prints_a_comment_index() {
     let gh = FakeGh::new();
     let p = tempfile::tempdir().unwrap();
-    gh.serve(&["issue", "view", "5", "--json", GH_FIELDS], THREE_COMMENTS);
+    gh.serve(
+        &["issue", "view", "5", "--json", GH_FIELDS],
+        &three_comments(5),
+    );
+    let out = ferrule(&gh, p.path(), &["issue", "view", "5"]).text();
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(
+        lines[..6],
+        [
+            "#5 Retry [OPEN]",
+            "https://github.com/o/r/issues/5",
+            "by al",
+            "",
+            "The body.",
+            ""
+        ],
+        "{out}"
+    );
+    assert_eq!(
+        lines[6],
+        "--- 3 comment(s) (ferrule issue view 5 --comment <n|a-b>) ---"
+    );
+    assert_eq!(lines[7], "1 [al @ 2026-10-01T08:00:00Z] 1 line: first");
+    let cut = lines[8];
+    assert!(
+        cut.starts_with("2 [Bo @ 2026-10-02T08:00:00Z] 3 lines: Plan: xxx"),
+        "{cut}"
+    );
+    assert!(cut.ends_with("x…") && cut.chars().count() == 100, "{cut}");
+    assert_eq!(lines[9], "3 [al @ 2026-10-03T08:00:00Z] 1 line: third");
+    assert_eq!(lines[10], "exit=0");
+    assert!(!out.contains("more"), "{out}");
+}
+
+#[test]
+fn it_view_prints_chosen_comments_in_full() {
+    let gh = FakeGh::new();
+    let p = tempfile::tempdir().unwrap();
+    gh.serve(
+        &["issue", "view", "5", "--json", GH_FIELDS],
+        &three_comments(5),
+    );
     let view = |args: &[&str]| {
         let mut all = vec!["issue", "view", "5"];
         all.extend(args);
         ferrule(&gh, p.path(), &all).text()
     };
-    let head = "#5 Retry [OPEN]\nhttps://github.com/o/r/issues/5\nby al\n\n";
-    assert_eq!(view(&["--body"]), format!("{head}The body.\n\nexit=0"));
-    let comments = view(&["--comments", "--last", "2"]);
+    let shows = |args: &[&str], kept: &[usize]| {
+        let title = if kept.len() == 3 {
+            "--- 3 comment(s) ---".to_owned()
+        } else {
+            format!("--- {} of 3 comment(s) ---", kept.len())
+        };
+        let body: String = kept.iter().map(|&n| full(n)).collect();
+        assert_eq!(
+            view(args),
+            format!("{HEAD5}{title}\n{body}exit=0"),
+            "{args:?}"
+        );
+    };
+    shows(&["--comment", "2"], &[2]);
+    shows(&["--comment", "2-3"], &[2, 3]);
+    shows(&["--comment", "3-"], &[3]);
+    shows(&["--comment", "-1"], &[1]);
+    shows(&["--comment=-1"], &[1]);
+    shows(&["--comment", "1,3"], &[1, 3]);
+    shows(&["--comment", "1", "--comment", "3"], &[1, 3]);
+    shows(&["--comments"], &[1, 2, 3]);
+    // Numbers stay those of the index whatever the other filters keep.
+    shows(&["--comment", "2-", "--author", "AL"], &[3]);
+    shows(&["--comments", "--last", "2"], &[2, 3]);
+    let bo = view(&["--author", "bo"]);
+    assert!(
+        bo.starts_with(&format!(
+            "{HEAD5}The body.\n\n--- 1 of 3 comment(s) ---\n\n[#2 Bo @"
+        )),
+        "{bo}"
+    );
+    assert!(!bo.contains("first") && !bo.contains("third"), "{bo}");
+    let with_body = view(&["--body", "--comment", "1"]);
+    assert!(
+        with_body.starts_with(&format!("{HEAD5}The body.\n\n--- 1 of 3")),
+        "{with_body}"
+    );
+    assert_eq!(view(&["--body"]), format!("{HEAD5}The body.\n\nexit=0"));
+}
+
+#[test]
+fn it_view_refuses_a_comment_it_lacks() {
+    let gh = FakeGh::new();
+    let p = tempfile::tempdir().unwrap();
+    gh.serve(
+        &["issue", "view", "5", "--json", GH_FIELDS],
+        &three_comments(5),
+    );
+    serve_issue(&gh, "7", "issue/plain.txt");
+    let view = |args: &[&str]| ferrule(&gh, p.path(), args).text();
+    let refused =
+        "view=refused reason=comment max=3 hint=the issue has 3 comment(s); pick from 1-3\nexit=1";
+    for spec in ["4", "2-4", "0", "4-", "1,9"] {
+        assert_eq!(view(&["issue", "view", "5", "--comment", spec]), refused);
+    }
     assert_eq!(
-        comments,
+        view(&["issue", "view", "7", "--comment", "1"]),
+        "view=refused reason=comment max=0 hint=the issue has no comments; drop --comment\nexit=1"
+    );
+    for spec in ["x", "3-2", "-", "1-a", ""] {
+        assert_eq!(
+            view(&["issue", "view", "5", "--comment", spec]),
+            "exit=2",
+            "{spec}"
+        );
+    }
+}
+
+#[test]
+fn it_pr_view_prints_a_comment_index() {
+    let gh = FakeGh::new();
+    let p = tempfile::tempdir().unwrap();
+    gh.serve(
+        &["pr", "view", "6", "--json", GH_FIELDS],
+        &three_comments(6),
+    );
+    let out = ferrule(&gh, p.path(), &["pr", "view", "6"]).text();
+    assert!(
+        out.contains(
+            "The body.\n\n--- 3 comment(s) (ferrule pr view 6 --comment <n|a-b>) ---\n1 [al @ 2026-10-01T08:00:00Z] 1 line: first\n"
+        ),
+        "{out}"
+    );
+    assert_eq!(
+        ferrule(&gh, p.path(), &["pr", "view", "6", "--comment", "3"]).text(),
         format!(
-            "{head}--- 2 of 3 comment(s) ---\n\n[Bo @ 2026-10-02T08:00:00Z]\nsecond\n\n[al @ 2026-10-03T08:00:00Z]\nthird\nexit=0"
+            "#6 Retry [OPEN]\nhttps://github.com/o/r/issues/6\nby al\n\n--- 1 of 3 comment(s) ---\n{}exit=0",
+            full(3)
         )
     );
-    let bo = view(&["--author", "bo"]);
-    assert!(bo.contains("The body."), "{bo}");
-    assert!(bo.contains("--- 1 of 3 comment(s) ---\n\n[Bo @"), "{bo}");
-    assert!(!bo.contains("first") && !bo.contains("third"), "{bo}");
-    assert!(view(&[]).contains("--- 3 comment(s) ---"));
+    assert_eq!(
+        ferrule(&gh, p.path(), &["pr", "view", "6", "--comment", "4"]).text(),
+        "view=refused reason=comment max=3 hint=the pull request has 3 comment(s); pick from 1-3\nexit=1"
+    );
 }
 
 #[test]
