@@ -5,9 +5,7 @@
 //! tree passes again without running anything. A worktree with changes
 //! beyond `HEAD` is dirty: its pass is never cached.
 
-use std::collections::hash_map::DefaultHasher;
 use std::fs::File;
-use std::hash::{Hash, Hasher};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -141,11 +139,10 @@ fn differs_from_head(wt: &Path, tree: Option<&str>) -> bool {
 }
 
 /// The cache key: the tree and the steps, so changing `ferrule.toml`'s
-/// steps misses.
+/// steps misses. The hash is ferrule's own, stable across Rust releases,
+/// so a rebuilt binary still finds its cache.
 fn cache_key(tree: &str, steps: &[Step]) -> String {
-    let mut hasher = DefaultHasher::new();
-    format!("{steps:?}").hash(&mut hasher);
-    format!("{tree}:{:016x}", hasher.finish())
+    format!("{tree}:{}", crate::install::hash(&format!("{steps:?}")))
 }
 
 /// A fresh path in the repository's git directory for a scratch index.
@@ -186,7 +183,18 @@ fn kill_group(child: &std::process::Child) {
         .status();
 }
 
-#[cfg(not(unix))]
+/// Kills the step's process tree.
+#[cfg(windows)]
+fn kill_group(child: &std::process::Child) {
+    let _ = Command::new("taskkill")
+        .args(["/T", "/F", "/PID", &child.id().to_string()])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
+#[cfg(not(any(unix, windows)))]
 fn kill_group(_: &std::process::Child) {}
 
 /// Runs one step with its output appended to `log`, killed after its
@@ -197,6 +205,7 @@ fn run_step(wt: &Path, step: &Step, log: &Path) -> std::io::Result<StepResult> {
     let Some((program, args)) = step.cmd.split_first() else {
         return Ok(StepResult::Failed);
     };
+    let mut note = file.try_clone()?;
     let mut command = Command::new(program);
     command
         .args(args)
@@ -207,9 +216,13 @@ fn run_step(wt: &Path, step: &Step, log: &Path) -> std::io::Result<StepResult> {
     // Its own process group, so a timeout reaches what the step spawned.
     #[cfg(unix)]
     std::os::unix::process::CommandExt::process_group(&mut command, 0);
-    let child = command.spawn();
-    let Ok(mut child) = child else {
-        return Ok(StepResult::Failed);
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(e) => {
+            // The log is all the user is pointed at: it says why.
+            writeln!(note, "ferrule: could not start {program}: {e}")?;
+            return Ok(StepResult::Failed);
+        }
     };
     let deadline = Instant::now() + step.timeout;
     loop {
@@ -300,9 +313,10 @@ pub(crate) fn run_in(
             }
         }
         if step.coverage == Some(Coverage::LlvmCov) {
-            let text = std::fs::read_to_string(log)?;
-            let start = usize::try_from(before).unwrap_or(0).min(text.len());
-            cov = coverage(text.get(start..).unwrap_or(&text));
+            // This step's bytes only; its output need not be UTF-8.
+            let bytes = std::fs::read(log)?;
+            let start = usize::try_from(before).unwrap_or(0).min(bytes.len());
+            cov = coverage(&String::from_utf8_lossy(&bytes[start..]));
         }
     }
     let cov = cov.unwrap_or_else(|| "?".to_owned());
@@ -330,6 +344,44 @@ mod tests {
         let out = "Filename  Regions Missed Cover Functions Missed Executed Lines Missed Cover\nTOTAL 100 20 80.00% 10 1 90.00% 500 94 81.20%\n";
         assert_eq!(coverage(out).as_deref(), Some("81.20%"));
         assert_eq!(coverage("nothing\n"), None);
+    }
+
+    #[test]
+    fn ut_a_step_that_cannot_start_says_why_in_the_log() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("gauntlet.log");
+        let step = Step {
+            name: "nope".into(),
+            cmd: vec!["ferrule-no-such-program".into()],
+            timeout: Duration::from_secs(5),
+            coverage: None,
+        };
+        assert!(matches!(
+            run_step(dir.path(), &step, &log).unwrap(),
+            StepResult::Failed
+        ));
+        let text = std::fs::read_to_string(&log).unwrap();
+        assert!(
+            text.contains("could not start ferrule-no-such-program"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn ut_cache_key_is_stable() {
+        let step = Step {
+            name: "t".into(),
+            cmd: vec!["true".into()],
+            timeout: Duration::from_secs(5),
+            coverage: None,
+        };
+        let one = std::slice::from_ref(&step);
+        assert_eq!(cache_key("abc", one), cache_key("abc", one));
+        assert_eq!(
+            cache_key("abc", one),
+            format!("abc:{}", crate::install::hash(&format!("{one:?}")))
+        );
+        assert!(cache_key("abc", &[]).starts_with("abc:"));
     }
 
     #[cfg(unix)]
