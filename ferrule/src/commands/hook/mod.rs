@@ -100,7 +100,11 @@ Refuses:
                        --ext-diff)|status|blame|grep|rev-parse|ls-files|
                        ls-tree|cat-file|merge-base|describe|shortlog, branch
                        and tag only to list; cargo test|check|clippy|tree|
-                       metadata; ferrule. Wrappers (env, timeout, A=b cmd),
+                       metadata; ferrule's read-only commands (board
+                       show|list|field|events|vocab, run status|diff|log|
+                       plan-diff, stage verify, file, spec, issue view|
+                       search|request|body, pr view|body, guide, prompt
+                       lines). Wrappers (env, timeout, A=b cmd),
                        sh -c, eval and $'...' are refused. Output goes to
                        /dev/null, appends to review.md or rewrites
                        review.verdict.md only

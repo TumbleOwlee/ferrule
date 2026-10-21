@@ -14,9 +14,49 @@ use crate::hook::shell::{self, RedirectKind};
 /// control words, whose commands the lexer lists on their own, included.
 const PLAIN: &[&str] = &[
     "ls", "cat", "head", "tail", "wc", "grep", "diff", "cmp", "stat", "pwd", "echo", "printf",
-    "cut", "tr", "nl", "basename", "dirname", "realpath", "jq", "ferrule", "test", "[", "true",
-    "false", "for", "case", "select", "done", "fi", "esac",
+    "cut", "tr", "nl", "basename", "dirname", "realpath", "jq", "test", "[", "true", "false",
+    "for", "case", "select", "done", "fi", "esac",
 ];
+
+/// The ferrule commands that only read: `(group, subcommands)`.
+const FERRULE_READS: &[(&str, &[&str])] = &[
+    ("board", &["show", "list", "field", "events", "vocab"]),
+    ("run", &["status", "diff", "log", "plan-diff"]),
+    ("stage", &["verify"]),
+    ("file", &["headings", "section"]),
+    (
+        "spec",
+        &["id", "related", "next", "refs", "collisions", "render"],
+    ),
+    ("issue", &["view", "search", "request", "body"]),
+    ("pr", &["view", "body"]),
+    ("guide", &["show", "list", "check"]),
+    ("prompt", &["lines"]),
+];
+
+/// A ferrule call that only reads: a subcommand of [`FERRULE_READS`]
+/// after any `--format`, or help.
+fn ferrule_reads(args: &[String]) -> bool {
+    let mut words = args.iter().map(String::as_str).peekable();
+    let mut positional = Vec::new();
+    while let Some(w) = words.next() {
+        match w {
+            "-h" | "--help" | "help" | "--version" | "-V" => return true,
+            "--format" => {
+                words.next();
+            }
+            w if w.starts_with("--format=") => {}
+            w if positional.len() < 2 && !w.starts_with('-') => positional.push(w),
+            _ => {}
+        }
+    }
+    match positional.as_slice() {
+        [group, sub] => FERRULE_READS
+            .iter()
+            .any(|(g, subs)| g == group && subs.contains(sub)),
+        _ => false,
+    }
+}
 
 /// Git's global options that change nothing about what runs.
 const GIT_GLOBAL: &[&str] = &[
@@ -155,6 +195,9 @@ fn awk_reads(args: &[String]) -> bool {
         let squeezed: String = a.chars().filter(|c| !c.is_whitespace()).collect();
         squeezed.contains("system(")
             || squeezed.contains("|getline")
+            || squeezed.contains("|&")
+            || squeezed.contains("@include")
+            || squeezed.contains("@load")
             || a.match_indices("print").any(|(at, _)| {
                 let rest = &a[at + 5..];
                 let rest = rest.split([';', '}', '\n']).next().unwrap_or(rest);
@@ -231,8 +274,11 @@ fn allowed_program(name: &str, args: &[String]) -> bool {
         ),
         "sed" => sed_reads(args),
         "awk" | "gawk" | "mawk" => awk_reads(args),
-        "sort" => !short(args, 'o') && !long(args, "--output", 3) && !long(args, "--compress", 4),
+        "sort" => {
+            !short(args, 'o') && !long(args, "--output", 3) && !long(args, "--compress-program", 4)
+        }
         "uniq" => uniq_reads(args),
+        "ferrule" => ferrule_reads(args),
         "git" => git_reads(args),
         "cargo" => cargo_reads(args),
         _ => false,
@@ -388,6 +434,17 @@ mod tests {
             "ls $(rm x)",
             "python3 -c 1",
             "gh pr view 3",
+            "ferrule pr push s",
+            "ferrule stage commit s.s1 -m x",
+            "ferrule board move s.s1 done",
+            "ferrule board log s.s1 note -- x",
+            "ferrule setup uninstall --purge",
+            "ferrule prompt show f",
+            "ferrule",
+            "gawk 'BEGIN { \"date\" |& getline d }'",
+            "gawk '@include \"x.awk\"' f",
+            "sort --compress-program=sh f",
+            "sort --compress=sh f",
         ] {
             assert!(check(cmd).is_some(), "{cmd}");
         }
@@ -408,6 +465,10 @@ mod tests {
             "cargo test 2>&1 | tail -5",
             "cargo clippy --all-targets -q",
             "ferrule run diff s --specs",
+            "ferrule --format md board show s.s1",
+            "ferrule file section 'S1' f",
+            "ferrule spec refs X-R-001",
+            "ferrule pr push --help",
             "sed -n 1,20p f",
             "sed -n '/web/p;$p' f",
             "sed -n -e 's/a/web/p' f",
