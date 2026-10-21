@@ -328,6 +328,9 @@ fn it_next_usage() {
     b.next(&["nosuch", "gate2", "status=ready"]);
     b.next(&["ns", "ci", "ci=green"]);
     b.next(&["ns", "gate2", "status=new", "issue=1;x"]);
+    // Findings without a count would read as clean.
+    b.next(&["ns", "gate3", "status=findings"]);
+    b.next(&["ns", "gate3", "status=findings", "count=two"]);
     b.finish("run-next-usage");
 }
 

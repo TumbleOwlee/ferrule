@@ -133,8 +133,9 @@ Errors:
                                    (exit 2); the list above has the valid ones
   usage: ferrule gate next <slug> <pos> status=<word>  (stderr, exit 2)
                                    The status line lacks status= (ci=<code>
-                                   at ci), ci= is no exit code, or issue=
-                                   is neither a number nor new
+                                   at ci), ci= is no exit code, issue= is
+                                   neither a number nor new, or findings
+                                   lacks a numeric count=
 The run-next lines end in ` hint=<fix>`.
 A log line the vocabulary rejects is a bug, not a refusal: exit 4.
 Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.

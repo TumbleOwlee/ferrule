@@ -12,4 +12,8 @@ $ gate next ns ci ci=green
 exit=2
 $ gate next ns gate2 status=new issue=1;x
 exit=2
+$ gate next ns gate3 status=findings
+exit=2
+$ gate next ns gate3 status=findings count=two
+exit=2
 exit=0

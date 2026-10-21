@@ -72,9 +72,10 @@ impl Status {
     }
 
     /// The word `at` decides on: `ci=` at `ci`, else `status=`. A missing
-    /// one, a `ci=` that is no exit code or an `issue=` that is neither a
-    /// number nor `new` is a usage error: both reach a command line the
-    /// decision prints.
+    /// one, a `ci=` that is no exit code, an `issue=` that is neither a
+    /// number nor `new` or `status=findings` without a numeric `count=` is
+    /// a usage error: the first reach a command line the decision prints,
+    /// and an unreadable count would read as none.
     fn word(&self, at: At) -> Result<String, Error> {
         let digits = |v: &str| !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit());
         let word = match at {
@@ -85,7 +86,12 @@ impl Status {
             .issue
             .as_deref()
             .is_none_or(|i| i == "new" || digits(i));
-        word.filter(|_| issue_ok).ok_or(Error::Usage)
+        let count_ok = word.as_deref() != Some("findings")
+            || self
+                .count
+                .as_deref()
+                .is_some_and(|c| digits(c) && c.parse::<u64>().is_ok());
+        word.filter(|_| issue_ok && count_ok).ok_or(Error::Usage)
     }
 }
 
