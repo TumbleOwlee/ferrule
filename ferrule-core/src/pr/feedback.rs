@@ -169,6 +169,43 @@ pub fn replies(file: &str) -> (Vec<Reply>, usize) {
     (out, total)
 }
 
+/// The file's header and its `## thread` blocks, each with its id.
+fn blocks(file: &str) -> (String, Vec<(String, String)>) {
+    let mut head = String::new();
+    let mut out: Vec<(String, String)> = Vec::new();
+    for l in file.lines() {
+        if let Some(id) = l.strip_prefix("## thread ") {
+            out.push((id.to_owned(), String::new()));
+        }
+        let into = out.last_mut().map_or(&mut head, |(_, b)| b);
+        into.push_str(l);
+        into.push('\n');
+    }
+    (head, out)
+}
+
+/// A freshly fetched threads file `new` with the work of the file it
+/// replaces kept: a thread still open whose old block holds a filled
+/// reply or a `posted:` line keeps that block, so a rerun neither loses an
+/// answer nor posts one twice. Threads no longer open are dropped.
+#[must_use]
+pub fn carry_over(old: &str, new: &str) -> String {
+    let (_, kept) = blocks(old);
+    let (head, fresh) = blocks(new);
+    let worked = |b: &str| {
+        b.lines()
+            .any(|l| l.starts_with("posted: ") || (l.starts_with("reply: ") && l.len() > 7))
+    };
+    let mut out = head;
+    for (id, block) in fresh {
+        match kept.iter().find(|(k, b)| *k == id && worked(b)) {
+            Some((_, b)) => out.push_str(b),
+            None => out.push_str(&block),
+        }
+    }
+    out
+}
+
 /// `file` with the `posted:` line of `thread`'s reply set to `posted`:
 /// right under the reply's bullets, replacing one already there.
 #[must_use]
@@ -227,6 +264,22 @@ pub fn reply_text(reply: &Reply, stage: &str, sha: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ut_carry_over_keeps_worked_blocks_of_open_threads() {
+        let old = "# PR feedback — fetched a\n## thread T1\ncomment: 1\npath: a:1\n> x\nreply: fixed\n  - done\nposted: replied\n## thread T2\ncomment: 2\npath: b:2\n> y\nreply:\n\n## thread T3\ncomment: 3\npath: c:3\nreply: declined\n  - no\n";
+        let new = "# PR feedback — fetched b\n## thread T1\ncomment: 1\npath: a:1\n> x\nreply:\n\n## thread T2\ncomment: 2\npath: b:2\n> y\n> more\nreply:\n\n## thread T4\ncomment: 4\npath: d:4\nreply:\n\n";
+        let got = carry_over(old, new);
+        assert!(got.starts_with("# PR feedback — fetched b\n"), "{got}");
+        assert!(got.contains("posted: replied"), "T1's work is kept: {got}");
+        assert!(got.contains("> more"), "unworked T2 is refreshed: {got}");
+        assert!(
+            !got.contains("T3"),
+            "a thread no longer open is dropped: {got}"
+        );
+        assert!(got.contains("## thread T4"), "{got}");
+        assert_eq!(replies(&got).1, 3);
+    }
 
     const FILE: &str = "# PR feedback — fetched 2026-01-02T14:02
 ## thread T1

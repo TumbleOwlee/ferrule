@@ -156,6 +156,8 @@ pub(crate) struct Issues {
     pub read_only: bool,
     /// One line per call: the operation and its issue or title.
     pub calls: Vec<String>,
+    /// Comments posted: the issue and the body.
+    pub comments: Vec<(u64, String)>,
 }
 
 /// An in-process [`IssueTracker`]: a handle on shared [`Issues`].
@@ -197,7 +199,16 @@ impl IssueTracker for FakeTracker {
             open: open.is_some(),
             by: "fake".to_owned(),
             body: String::new(),
-            comments: Vec::new(),
+            comments: s
+                .comments
+                .iter()
+                .filter(|(n, _)| issue.number() == Some(*n))
+                .map(|(_, body)| crate::remote::Comment {
+                    author: "fake".to_owned(),
+                    at: String::new(),
+                    body: body.clone(),
+                })
+                .collect(),
         })
     }
 
@@ -214,8 +225,12 @@ impl IssueTracker for FakeTracker {
         self.write("issue edit", format!("edit {issue} {title}"))
     }
 
-    fn comment(&self, issue: &ItemRef, _body: &str) -> Result<(), Error> {
-        self.write("issue comment", format!("comment {issue}"))
+    fn comment(&self, issue: &ItemRef, body: &str) -> Result<(), Error> {
+        self.write("issue comment", format!("comment {issue}"))?;
+        if let Some(n) = issue.number() {
+            self.0.borrow_mut().comments.push((n, body.to_owned()));
+        }
+        Ok(())
     }
 
     fn find_open(&self, title: &str) -> Result<Option<u64>, Error> {

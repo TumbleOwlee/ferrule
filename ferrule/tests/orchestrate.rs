@@ -212,6 +212,16 @@ fn find(title: &str) -> Vec<String> {
     .to_vec()
 }
 
+/// `gh issue view <n>` of an open issue without comments.
+fn no_comments(gh: &FakeGh, n: &str) {
+    gh.serve(
+        &["issue", "view", n, "--json", GH_FIELDS],
+        &gh_json(&format!(
+            "#{n} An issue [OPEN]\nhttps://github.com/o/r/issues/{n}\nby someone\n\nbody\n"
+        )),
+    );
+}
+
 /// `gh issue edit` giving adopted issue `n` the run's title and body.
 fn edit_issue(n: &str, title: &str) -> Vec<String> {
     ["issue", "edit", n, "--title", title, "--body-file", "-"]
@@ -859,6 +869,7 @@ fn it_issue_file_variants() {
     )
     .unwrap();
     gh.serve(&["issue", "comment", "12", "--body-file", "-"], "");
+    no_comments(gh, "12");
     assert_eq!(
         p.ok(&["issue", "post", "demo", "--comment"]),
         "issue=12 action=commented"
@@ -1052,6 +1063,8 @@ fn it_issue_post_retries_post_only_what_is_missing() {
     )
     .unwrap();
     gh.serve(&["issue", "comment", "12", "--body-file", "-"], "");
+    no_comments(gh, "12");
+    no_comments(gh, "70");
     let failed = p.ferrule(&["issue", "post", "demo", "--comment"]).text();
     assert!(failed.ends_with("exit=1"), "{failed}");
     gh.serve(&["issue", "comment", "70", "--body-file", "-"], "");

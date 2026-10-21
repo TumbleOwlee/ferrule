@@ -365,6 +365,10 @@ impl Run<'_> {
             targets.push(epic);
         }
         let done = self.posted("comment")?;
+        // The sum rides along hidden, so a comment posted before a crash kept
+        // its `posted=` line is found on the issue rather than posted again.
+        let marker = format!("<!-- ferrule:comment sum={sum} -->");
+        let body = format!("{}\n\n{marker}\n", text.trim_end());
         let mut action = Action::Recorded;
         for t in targets {
             if done
@@ -373,7 +377,15 @@ impl Run<'_> {
             {
                 continue;
             }
-            self.tracker.comment(&ItemRef::Number(t), &text)?;
+            let on_issue = self
+                .tracker
+                .view(&ItemRef::Number(t))?
+                .comments
+                .iter()
+                .any(|c| c.body.contains(&marker));
+            if !on_issue {
+                self.tracker.comment(&ItemRef::Number(t), &body)?;
+            }
             self.log(
                 "posted=comment",
                 &[format!("issue={t}"), format!("sum={sum}")],
@@ -786,9 +798,11 @@ impl Run<'_> {
         let logged = board::events(self.conn, self.slug, &[Name::Pr])?
             .iter()
             .any(|e| e.typed() == Typed::Pr(PrState::Ready));
+        // Logged and ready, or merged or closed since: nothing to mark, the
+        // follow-ups still to file.
         let ready = logged && {
             let s = self.host.status(&pr_ref)?;
-            s.state == "open" && !s.draft
+            s.state != "open" || !s.draft
         };
         if !ready {
             self.host.edit(&pr_ref, Some(&title), &body)?;
@@ -847,7 +861,11 @@ impl Run<'_> {
             .ok_or(Error::NoPr)?;
         let fetched = self.host.threads(&ItemRef::Number(pr))?;
         let file = self.layout.run_dir(self.slug).join("pr-feedback.md");
-        std::fs::write(&file, fetched.file(self.now))
+        let mut text = fetched.file(self.now);
+        if let Ok(old) = std::fs::read_to_string(&file) {
+            text = crate::pr::feedback::carry_over(&old, &text);
+        }
+        std::fs::write(&file, text)
             .map_err(|e| Error::Remote(remote::Error::Command(e.to_string())))?;
         let count = fetched.threads.len();
         if count == 0 {
@@ -1113,7 +1131,36 @@ mod tests {
             run.file(Target::Comment, None).unwrap(),
             (12, Action::Recorded)
         );
-        assert_eq!(tracker.calls(), ["comment 12", "comment 9"]);
+        assert_eq!(
+            tracker.calls(),
+            ["view 12", "comment 12", "view 9", "comment 9"]
+        );
+    }
+
+    #[test]
+    fn ut_issue_comment_a_crash_left_unlogged_is_not_posted_again() {
+        let (_dir, mut db, layout, host) = setup(&[("issue", "12")]);
+        std::fs::write(layout.run_dir("r").join("issue-comment.md"), "Kept R3.\n").unwrap();
+        let tracker = FakeTracker::default();
+        let config = Config::default();
+        let mut run = run_on(&mut db, &layout, &config, &host);
+        run.tracker = Box::new(tracker.clone());
+        run.file(Target::Comment, None).unwrap();
+        let posted = tracker.0.borrow().comments.clone();
+        assert!(
+            posted[0].1.contains("<!-- ferrule:comment sum="),
+            "{posted:?}"
+        );
+        // The posted= line is lost: the marker on the issue answers instead.
+        let deleted = db
+            .conn_mut()
+            .execute("DELETE FROM events WHERE name LIKE 'posted%'", [])
+            .unwrap();
+        assert_eq!(deleted, 1);
+        let mut run = run_on(&mut db, &layout, &config, &host);
+        run.tracker = Box::new(tracker.clone());
+        run.file(Target::Comment, None).unwrap();
+        assert_eq!(tracker.0.borrow().comments.len(), 1);
     }
 
     #[test]
