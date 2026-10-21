@@ -936,8 +936,16 @@ pub(super) fn commit(
         .stdin(std::process::Stdio::piped())
         .spawn()?;
     if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(text.as_bytes())?;
-        stdin.write_all(b"\n")?;
+        // git quitting before it read the message closes the pipe: its exit
+        // status, not the broken pipe, is the answer.
+        match stdin.write_all(format!("{text}\n").as_bytes()) {
+            Err(e) if e.kind() != io::ErrorKind::BrokenPipe => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(e);
+            }
+            _ => {}
+        }
     }
     if !child.wait()?.success() {
         return refuse(out, &Refusal::new("commit", "git").hint(HINT_GIT));

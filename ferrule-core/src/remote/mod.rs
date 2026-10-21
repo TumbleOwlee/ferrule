@@ -143,13 +143,27 @@ pub fn run(program: &str, args: &[&str], stdin: Option<&str>, cwd: &Path) -> Res
     let mut child = cmd
         .spawn()
         .map_err(|e| Error::Command(format!("{program}: {e}")))?;
-    if let (Some(input), Some(mut pipe)) = (stdin, child.stdin.take()) {
-        pipe.write_all(input.as_bytes())
-            .map_err(|e| Error::Command(format!("{program}: {e}")))?;
-    }
+    // Fed from a thread while the output is read, so a child that writes
+    // before it has read everything cannot stall both sides; one that quits
+    // early closes the pipe, and its exit status tells what happened.
+    let feeder = match (stdin, child.stdin.take()) {
+        (Some(input), Some(mut pipe)) => {
+            let input = input.to_owned();
+            Some(std::thread::spawn(move || {
+                match pipe.write_all(input.as_bytes()) {
+                    Err(e) if e.kind() != std::io::ErrorKind::BrokenPipe => Err(e),
+                    _ => Ok(()),
+                }
+            }))
+        }
+        _ => None,
+    };
     let out = child
         .wait_with_output()
         .map_err(|e| Error::Command(format!("{program}: {e}")))?;
+    if let Some(Ok(Err(e))) = feeder.map(std::thread::JoinHandle::join) {
+        return Err(Error::Command(format!("{program}: {e}")));
+    }
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr).trim().to_owned();
         return Err(Error::Command(if err.is_empty() {
@@ -791,5 +805,37 @@ mod tests {
             error_lines("error: a\n  at 1\n  at 2\nok\nerror: b\nerror: c\nend\n", 1),
             ["error: a", "  at 1", "--", "error: b", "error: c", "end"]
         );
+    }
+}
+
+#[cfg(test)]
+mod run_tests {
+    use super::*;
+
+    #[test]
+    fn ut_run_feeds_stdin_while_reading_a_large_output() {
+        // The child fills its stdout pipe before it reads anything.
+        let input = "x\n".repeat(1 << 20);
+        let out = run(
+            "sh",
+            &["-c", "head -c 2000000 /dev/zero; cat >/dev/null"],
+            Some(&input),
+            Path::new(""),
+        )
+        .unwrap();
+        assert_eq!(out.len(), 2_000_000);
+    }
+
+    #[test]
+    fn ut_run_reports_the_exit_of_a_child_that_ignores_stdin() {
+        let input = "x\n".repeat(1 << 20);
+        let err = run(
+            "sh",
+            &["-c", "echo nope >&2; exit 3"],
+            Some(&input),
+            Path::new(""),
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("nope"), "{err}");
     }
 }
