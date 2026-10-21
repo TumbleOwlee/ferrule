@@ -204,7 +204,7 @@ fn context(layout: &Layout, args: &ShowArgs) -> io::Result<Context> {
             None => slug.to_string(),
         };
         ctx.vars.push(("card", card));
-        let held = match store(false)? {
+        let held = match store()? {
             Some(s) => s
                 .read(|r| match r.state(&slug)? {
                     Some(_) => Ok::<_, ferrule_core::store::Error>(Some((

@@ -36,7 +36,7 @@ pub(super) fn diff(
     out: &mut impl Write,
 ) -> io::Result<u8> {
     let diff = |r: Option<&Reader>| inspect::diff(r, &layout(), slug, pick, uncommitted);
-    let inv = match store(false)? {
+    let inv = match store()? {
         Some(s) => s.read(|r| diff(Some(r))),
         None => diff(None),
     };
@@ -48,7 +48,7 @@ pub(super) fn diff(
 
 pub(super) fn log(slug: &str, pick: &Pick, out: &mut impl Write) -> io::Result<u8> {
     let log = |r: Option<&Reader>| inspect::log(r, &layout(), slug, pick);
-    let inv = match store(false)? {
+    let inv = match store()? {
         Some(s) => s.read(|r| log(Some(r))),
         None => log(None),
     };
@@ -67,7 +67,7 @@ pub(super) fn status(slug: &str, out: &mut impl Write) -> io::Result<u8> {
     let layout = layout();
     let config = Config::load(&layout.root).map_err(internal)?;
     let status = |r: Option<&Reader>| inspect::status(r, &layout, &config.main_branch, slug);
-    let st = match store(false)? {
+    let st = match store()? {
         Some(s) => s.read(|r| status(Some(r))),
         None => status(None),
     };

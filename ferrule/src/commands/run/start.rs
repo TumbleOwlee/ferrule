@@ -8,15 +8,13 @@ use ferrule_core::config::Config;
 use ferrule_core::remote::{self, CodeHost, IssueTracker, Item, ItemRef};
 use ferrule_core::run::{self as core_run, Error, gate, rebuild};
 
-use crate::commands::board::{run_on, store};
+use crate::commands::board::{create_store, run_on, store};
 use crate::commands::{exit, internal, layout, refuse};
 
 pub(super) fn init(slug: &str, issue: Option<&ItemRef>, out: &mut impl Write) -> io::Result<u8> {
     let layout = layout();
     let config = Config::load(&layout.root).map_err(internal)?;
-    let Some(mut s) = store(true)? else {
-        return Ok(exit::REFUSED);
-    };
+    let mut s = create_store()?;
     match gate::init(&mut s, &layout, &config, slug, issue, &board::now()) {
         Ok(epic) => {
             write!(out, "init=done slug={slug}")?;
@@ -32,7 +30,7 @@ pub(super) fn init(slug: &str, issue: Option<&ItemRef>, out: &mut impl Write) ->
 
 pub(super) fn reconcile(slug: &str, local: bool, out: &mut impl Write) -> io::Result<u8> {
     let layout = layout();
-    let mut store = store(false)?;
+    let mut store = store()?;
     let result = match &store {
         Some(s) => s.read(|r| core_run::reconcile(r, &layout, slug)),
         None => Err(Error::Card),
@@ -112,9 +110,7 @@ pub(super) fn rebuild(issue: &ItemRef, pr: &ItemRef, out: &mut impl Write) -> io
         pr: pr.clone(),
         issue: issue.clone(),
     };
-    let Some(mut s) = store(true)? else {
-        return Ok(exit::REFUSED);
-    };
+    let mut s = create_store()?;
     let (issue, pr) = (issue.to_string(), pr.to_string());
     match rebuild::rebuild(&mut s, &layout, &main, &issue, &pr, &source, &board::now()) {
         Ok((slug, n, next)) => {

@@ -295,7 +295,7 @@ fn approve(args: &ApproveArgs, out: &mut impl Write) -> io::Result<u8> {
     }
     let layout = layout();
     let config = Config::load(&layout.root).map_err(internal)?;
-    let Some(mut s) = store(false)? else {
+    let Some(mut s) = store()? else {
         return refuse(out, &Refusal::card("approve"));
     };
     match gate::approve(&mut s, &layout, &config, g, slug, &pairs, &board::now()) {
@@ -332,7 +332,7 @@ fn next_step(slug: &str, at: NextAt, status: &[String], out: &mut impl Write) ->
         NextAt::Ci => At::Ci,
     };
     let status = Status::parse(status);
-    let Some(mut s) = store(false)? else {
+    let Some(mut s) = store()? else {
         return refuse(out, &Refusal::card("run-next"));
     };
     match next::next(&mut s, &layout(), slug, at, &status, &board::now()) {

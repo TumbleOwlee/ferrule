@@ -145,7 +145,7 @@ fn run_gauntlet(slug: &str, force: bool, out: &mut impl Write) -> io::Result<u8>
     let layout = layout();
     let config = Config::load(&layout.root).map_err(internal)?;
     // No board, no run: the gauntlet never creates one.
-    let Some(s) = store(false)? else {
+    let Some(s) = store()? else {
         return refuse(out, &Refusal::card("gauntlet"));
     };
     let wt = s
@@ -173,7 +173,7 @@ fn run_gauntlet(slug: &str, force: bool, out: &mut impl Write) -> io::Result<u8>
 fn wait(slug: &str, out: &mut impl Write) -> io::Result<u8> {
     let layout = layout();
     let config = Config::load(&layout.root).map_err(internal)?;
-    let Some(mut s) = store(false)? else {
+    let Some(mut s) = store()? else {
         return refuse(out, &Refusal::card("ci"));
     };
     let waited = run_on(&mut s, &config, slug, |r| r.wait_ci());

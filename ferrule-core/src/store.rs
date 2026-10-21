@@ -203,14 +203,22 @@ pub struct Board {
 }
 
 impl Board {
-    /// The database under `root/.ferrule/`; `None` when there is none and
-    /// `create` is not set, which reads as an empty board.
-    pub fn open(root: &Path, create: bool) -> Result<Option<Self>, OpenError> {
-        match Store::open(root, create) {
+    /// The database under `root/.ferrule/`; `None` when there is none,
+    /// which reads as an empty board. Never creates one.
+    pub fn open_existing(root: &Path) -> Result<Option<Self>, OpenError> {
+        match Store::open(root, false) {
             Ok(store) => Ok(Some(Board { store })),
             Err(OpenError::Missing(_)) => Ok(None),
             Err(e) => Err(e),
         }
+    }
+
+    /// The database under `root/.ferrule/`, created when there is none:
+    /// for the commands that start a board.
+    pub fn create(root: &Path) -> Result<Self, OpenError> {
+        Ok(Board {
+            store: Store::open(root, true)?,
+        })
     }
 
     /// An empty in-memory board.
@@ -434,9 +442,9 @@ mod tests {
     #[test]
     fn ut_board_open_without_a_database_is_none() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(Board::open(dir.path(), false).unwrap().is_none());
-        assert!(Board::open(dir.path(), true).unwrap().is_some());
-        assert!(Board::open(dir.path(), false).unwrap().is_some());
+        assert!(Board::open_existing(dir.path()).unwrap().is_none());
+        assert!(Board::create(dir.path()).is_ok());
+        assert!(Board::open_existing(dir.path()).unwrap().is_some());
     }
 
     #[test]
@@ -444,8 +452,8 @@ mod tests {
         use crate::card::board::State;
 
         let dir = tempfile::tempdir().unwrap();
-        let board = Board::open(dir.path(), true).unwrap().unwrap();
-        let mut other = Board::open(dir.path(), false).unwrap().unwrap();
+        let board = Board::create(dir.path()).unwrap();
+        let mut other = Board::open_existing(dir.path()).unwrap().unwrap();
         let (before, during) = board
             .read(|r| {
                 let before = r.state("r")?;

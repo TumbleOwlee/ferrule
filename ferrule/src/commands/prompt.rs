@@ -304,7 +304,7 @@ pub fn open(
     }
     // Showing a file records it on the run that owns it; with no board
     // there is none, and showing creates none.
-    let board = if record { store(false)? } else { None };
+    let board = if record { store()? } else { None };
     let runs = match board {
         Some(mut s) => approval::record(&mut s, &layout, &abs, &board::now()).map_err(internal)?,
         None => vec![None; abs.len()],
@@ -414,7 +414,7 @@ fn render(args: &PromptRenderArgs, out: &mut impl Write) -> io::Result<u8> {
     let slug = args.slug.as_str();
     let kind = kind(args.kind);
     let pairs = pairs(args);
-    let Some(mut s) = store(false)? else {
+    let Some(mut s) = store()? else {
         eprintln!("prompt render: no card for {slug}");
         return Ok(exit::USAGE);
     };

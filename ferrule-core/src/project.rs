@@ -7,14 +7,9 @@ use std::sync::OnceLock;
 
 /// `git rev-parse <args>` run in `dir`, its trimmed output.
 fn rev_parse(dir: &Path, args: &[&str]) -> Option<PathBuf> {
-    let dir = if dir.as_os_str().is_empty() {
-        Path::new(".")
-    } else {
-        dir
-    };
     let out = Command::new("git")
         .arg("-C")
-        .arg(dir)
+        .arg(crate::git::at(dir))
         .arg("rev-parse")
         .args(args)
         .output()

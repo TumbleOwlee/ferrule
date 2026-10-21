@@ -523,7 +523,7 @@ fn body(
     out: &mut impl Write,
 ) -> io::Result<u8> {
     let layout = Layout::new(project::main_checkout());
-    let s = match store(false)? {
+    let s = match store()? {
         Some(s) => s,
         None => ferrule_core::store::Board::memory().map_err(internal)?,
     };
@@ -566,7 +566,7 @@ fn file(slug: &str, t: FileTarget, reuse: Option<ItemRef>, out: &mut impl Write)
         _ => Target::Run,
     };
     let config = config()?;
-    let Some(mut s) = store(false)? else {
+    let Some(mut s) = store()? else {
         return refuse(out, &Refusal::card("post"));
     };
     match run_on(&mut s, &config, slug, |r| r.file(target, reuse)) {

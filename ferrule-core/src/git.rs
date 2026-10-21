@@ -4,9 +4,20 @@ use std::ffi::OsStr;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+/// The directory a command runs in: the project root, whose empty path
+/// (the root is the current directory) is `.`.
+#[must_use]
+pub fn at(root: &Path) -> &Path {
+    if root.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        root
+    }
+}
+
 fn command<S: AsRef<OsStr>>(dir: &Path, args: &[S]) -> Command {
     let mut c = Command::new("git");
-    c.arg("-C").arg(dir).args(args).stdin(Stdio::null());
+    c.arg("-C").arg(at(dir)).args(args).stdin(Stdio::null());
     c
 }
 

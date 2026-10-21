@@ -330,7 +330,7 @@ fn session_start(out: &mut impl Write) -> io::Result<u8> {
     if let Some(m) = install::version_mismatch(&project::toplevel()) {
         writeln!(out, "[ferrule] {}", m.message())?;
     }
-    let Ok(Some(s)) = super::board::store(false) else {
+    let Ok(Some(s)) = super::board::store() else {
         return Ok(exit::OK);
     };
     let Ok(cards) = s.read(|r| r.all()) else {

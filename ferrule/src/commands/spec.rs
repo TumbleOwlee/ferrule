@@ -635,7 +635,7 @@ fn render(args: &RenderArgs, style: Option<Style>, out: &mut impl Write) -> io::
             .and_then(Path::file_name)
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default();
-        Some(match super::board::store(false)? {
+        Some(match super::board::store()? {
             Some(s) => s.read(|r| r.reworded_ids(&slug)).map_err(super::internal)?,
             None => HashSet::new(),
         })

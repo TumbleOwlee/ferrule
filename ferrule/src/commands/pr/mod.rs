@@ -2,7 +2,6 @@ mod feedback;
 
 use ferrule_core::card::board::Slug;
 use std::io::{self, Write};
-use std::path::Path;
 
 use clap::{Subcommand, ValueEnum};
 use ferrule_core::body::{self, Form};
@@ -271,7 +270,7 @@ pub fn run(command: &PrCommand, style: Option<Style>, out: &mut impl Write) -> i
         }
         PrCommand::Body { slug, form } => {
             let layout = Layout::new(project::main_checkout());
-            let s = match store(false)? {
+            let s = match store()? {
                 Some(s) => s,
                 None => Board::memory().map_err(internal)?,
             };
@@ -304,11 +303,7 @@ pub(crate) fn failed(
     out: &mut impl Write,
 ) -> io::Result<u8> {
     let root = project::root();
-    let dir = if root.as_os_str().is_empty() {
-        Path::new(".")
-    } else {
-        root.as_path()
-    };
+    let dir = ferrule_core::git::at(&root);
     // A detached HEAD names no branch: `HEAD` would be looked up as one.
     let current = || git::out(dir, &["symbolic-ref", "--short", "-q", "HEAD"]);
     let branch = branch
@@ -352,7 +347,7 @@ fn with_run<T>(
     slug: &str,
     f: impl FnOnce(&mut publish::Run) -> T,
 ) -> io::Result<Option<T>> {
-    Ok(store(false)?.map(|mut s| run_on(&mut s, config, slug, f)))
+    Ok(store()?.map(|mut s| run_on(&mut s, config, slug, f)))
 }
 
 #[allow(clippy::redundant_closure_for_method_calls)]

@@ -22,7 +22,7 @@ pub(super) fn metrics(
     last: Option<usize>,
     out: &mut impl Write,
 ) -> io::Result<u8> {
-    let Some(mut s) = store(false)? else {
+    let Some(mut s) = store()? else {
         if let Some(slug) = slug {
             eprintln!("metrics: no card for {slug}");
             return Ok(exit::REFUSED);
@@ -55,7 +55,7 @@ pub(super) fn metrics(
 
 pub(super) fn cleanup(slug: &str, out: &mut impl Write) -> io::Result<u8> {
     let layout = layout();
-    let Some(mut s) = store(false)? else {
+    let Some(mut s) = store()? else {
         return refuse(out, &Refusal::card("cleanup"));
     };
     let refusal = match archive::cleanup(&mut s, &layout, slug, &board::now()) {
@@ -83,7 +83,7 @@ pub(super) fn export(
     out: &mut impl Write,
 ) -> io::Result<u8> {
     let layout = layout();
-    let Some(s) = store(false)? else {
+    let Some(s) = store()? else {
         return refuse(out, &no_archive());
     };
     let id = match id {

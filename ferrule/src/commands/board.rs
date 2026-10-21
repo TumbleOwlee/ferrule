@@ -471,13 +471,19 @@ pub enum BoardCommand {
 
 /// The board's database; `None` when there is none yet, which reads as an
 /// empty board.
-pub(crate) fn store(create: bool) -> io::Result<Option<Board>> {
-    Board::open(&project::main_checkout(), create).map_err(internal)
+pub(crate) fn store() -> io::Result<Option<Board>> {
+    Board::open_existing(&project::main_checkout()).map_err(internal)
+}
+
+/// The board's database, created when there is none: for the commands
+/// that start a board.
+pub(crate) fn create_store() -> io::Result<Board> {
+    Board::create(&project::main_checkout()).map_err(internal)
 }
 
 /// The board's database when `id` names a card on it; `None` otherwise.
 pub(crate) fn card_store(id: &str) -> io::Result<Option<Board>> {
-    match store(false)? {
+    match store()? {
         Some(s) if s.read(|r| r.state(id)).map_err(internal)?.is_some() => Ok(Some(s)),
         _ => Ok(None),
     }
@@ -575,7 +581,7 @@ pub fn run(command: &BoardCommand, style: Option<Style>, out: &mut impl Write) -
 }
 
 fn field(card: &str, field: &str, out: &mut impl Write) -> io::Result<u8> {
-    let Some(s) = store(false)? else {
+    let Some(s) = store()? else {
         return Ok(exit::OK);
     };
     let value = s
@@ -595,7 +601,7 @@ fn field(card: &str, field: &str, out: &mut impl Write) -> io::Result<u8> {
 }
 
 fn log(card: &str, event: &str, args: &[String], out: &mut impl Write) -> io::Result<u8> {
-    let Some(mut s) = store(false)? else {
+    let Some(mut s) = store()? else {
         return refuse(out, &Refusal::card("card-log"));
     };
     let config = Config::load(&project::main_checkout()).map_err(internal)?;
@@ -617,7 +623,7 @@ fn log(card: &str, event: &str, args: &[String], out: &mut impl Write) -> io::Re
 }
 
 fn move_card(card: &str, to: State, out: &mut impl Write) -> io::Result<u8> {
-    let Some(mut s) = store(false)? else {
+    let Some(mut s) = store()? else {
         return refuse(out, &Refusal::card("card-move"));
     };
     match s.write(|w| w.move_card(card, to, &board::now())) {
@@ -633,7 +639,7 @@ fn move_card(card: &str, to: State, out: &mut impl Write) -> io::Result<u8> {
 }
 
 fn show(card: &str, part: &ShowPart, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
-    let shown = match store(false)? {
+    let shown = match store()? {
         Some(s) => s
             .read(|r| {
                 r.show(card)?
@@ -712,7 +718,7 @@ fn list(
     style: Option<Style>,
     out: &mut impl Write,
 ) -> io::Result<u8> {
-    let Some(s) = store(false)? else {
+    let Some(s) = store()? else {
         return Ok(exit::OK);
     };
     let cards = s
@@ -796,9 +802,7 @@ fn new(card: &str, st: State, fields: &[String], out: &mut impl Write) -> io::Re
             .exit(Exit::Usage);
         return refuse(out, &r);
     }
-    let Some(mut s) = store(true)? else {
-        unreachable!("store(true) creates the database");
-    };
+    let mut s = create_store()?;
     match s.write(|w| w.create(card, st, &fields, &board::now())) {
         Ok(()) => Ok(exit::OK),
         Err(CardError::Exists) => {
@@ -819,7 +823,7 @@ fn set(card: &str, fields: &[String], out: &mut impl Write) -> io::Result<u8> {
     if let Some(r) = owned("card-set", &fields) {
         return refuse(out, &r);
     }
-    let Some(mut s) = store(false)? else {
+    let Some(mut s) = store()? else {
         return refuse(out, &Refusal::card("card-set"));
     };
     match s.write(|w| w.set_all(card, &fields)) {
@@ -832,9 +836,7 @@ fn set(card: &str, fields: &[String], out: &mut impl Write) -> io::Result<u8> {
 }
 
 fn import(board_dir: &Path, out: &mut impl Write) -> io::Result<u8> {
-    let Some(mut s) = store(true)? else {
-        unreachable!("store(true) creates the database");
-    };
+    let mut s = create_store()?;
     match s.import(board_dir, &board::now()) {
         Ok(n) => {
             writeln!(out, "import=ok cards={n}")?;
@@ -899,7 +901,7 @@ pub(super) fn commit(
     }
     let mut store = None;
     if let Some(id) = card {
-        let Some(s) = super::board::store(false)? else {
+        let Some(s) = super::board::store()? else {
             return refuse(out, &Refusal::card("commit"));
         };
         let run = board::CardId::parse(id).run;

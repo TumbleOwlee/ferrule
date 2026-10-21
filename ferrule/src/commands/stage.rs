@@ -219,7 +219,7 @@ fn sha_hint(m: core_run::Mismatch, slug: &str, stage: u32) -> String {
 }
 
 fn sha_check(slug: &str, stage: u32, sha: &str, out: &mut impl Write) -> io::Result<u8> {
-    let verdict = match store(false)? {
+    let verdict = match store()? {
         Some(s) => s
             .read(|r| core_run::sha_check(r, &layout(), slug, &format!("s{stage}"), sha))
             .map_err(internal)?,
@@ -241,7 +241,7 @@ fn sha_check(slug: &str, stage: u32, sha: &str, out: &mut impl Write) -> io::Res
 fn stage_stop(slug: &str, stage: u32, threads: u32, out: &mut impl Write) -> io::Result<u8> {
     let layout = layout();
     let config = Config::load(&layout.root).map_err(internal)?;
-    let Some(mut s) = store(false)? else {
+    let Some(mut s) = store()? else {
         return refuse(out, &Refusal::card("stage-stop"));
     };
     match core_run::stage_stop(
@@ -268,7 +268,7 @@ fn replan(
     out: &mut impl Write,
 ) -> io::Result<u8> {
     let layout = layout();
-    let Some(mut s) = store(false)? else {
+    let Some(mut s) = store()? else {
         return refuse(out, &Refusal::card("replan"));
     };
     let now = board::now();
