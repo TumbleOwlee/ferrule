@@ -83,6 +83,11 @@ pub const REPLACED: &[Replaced] = &[
         why: "title and body come from the run's files; an open issue with the same title is adopted",
     },
     Replaced {
+        raw: "gh issue new",
+        instead: "ferrule issue post <slug> [--slice <n>|--split|--follow-up <k>]",
+        why: "gh's alias of issue create; title and body come from the run's files",
+    },
+    Replaced {
         raw: "gh issue edit",
         instead: "ferrule issue post <slug> --reuse <n>",
         why: "title and body come from the run's files",
@@ -96,6 +101,11 @@ pub const REPLACED: &[Replaced] = &[
         raw: "gh pr create",
         instead: "ferrule pr open <slug>, or the run's first ferrule pr push",
         why: "the body comes from the run state",
+    },
+    Replaced {
+        raw: "gh pr new",
+        instead: "ferrule pr open <slug>, or the run's first ferrule pr push",
+        why: "gh's alias of pr create; the body comes from the run state",
     },
     Replaced {
         raw: "gh pr edit",
@@ -1262,13 +1272,22 @@ fn replaced(name: &str, args: &[String], policy: Policy) -> Option<String> {
         return update_ref(args);
     }
     if words.starts_with(&["gh", "api"]) {
+        // Attached values count: `-XPOST`, `-X=POST`, `-fbody=x`.
+        let method = |m: &str| !m.trim_start_matches('=').eq_ignore_ascii_case("GET");
         let writes = has(args, &["-f", "-F", "--field", "--raw-field", "--input"])
-            || args.windows(2).any(|w| {
-                matches!(w[0].as_str(), "-X" | "--method") && !w[1].eq_ignore_ascii_case("GET")
-            })
+            || args
+                .windows(2)
+                .any(|w| matches!(w[0].as_str(), "-X" | "--method") && method(&w[1]))
             || args.iter().any(|a| {
-                a.strip_prefix("--method=")
-                    .is_some_and(|m| !m.eq_ignore_ascii_case("GET"))
+                a.strip_prefix("--method=").is_some_and(method)
+                    || a.strip_prefix("-X")
+                        .is_some_and(|m| !m.is_empty() && method(m))
+                    || ((a.starts_with("-f") || a.starts_with("-F"))
+                        && a.len() > 2
+                        && !a.starts_with("--"))
+                    || ["--field=", "--raw-field=", "--input="]
+                        .iter()
+                        .any(|p| a.starts_with(p))
             });
         return writes.then(|| {
             "A writing 'gh api' call is ferrule's to run here. Use: ferrule pr feedback reply <pr> <file> [<stage> <sha>] for review threads, ferrule issue post / ferrule pr publish for the rest. Re-open it with [guard] allow = [\"gh api\"] in .ferrule/ferrule.toml if the project needs it.".to_owned()

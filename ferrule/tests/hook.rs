@@ -799,3 +799,24 @@ fn it_shell_guard_reads_commands_git_settings_hand_to_git() {
         ],
     );
 }
+
+#[test]
+fn it_shell_guard_sees_gh_writes_however_spelled() {
+    let p = project();
+    check(
+        "shell",
+        p.path(),
+        &[
+            ("gh api -XPOST repos/o/r/issues -fbody=x", "deny"),
+            ("gh api -X=POST repos/o/r/issues", "deny"),
+            ("gh api -XDELETE repos/o/r/issues/1", "deny"),
+            ("gh api repos/o/r/issues -Ftitle=x", "deny"),
+            ("gh api repos/o/r/issues --field=title=x", "deny"),
+            ("gh api repos/o/r/issues --input=body.json", "deny"),
+            ("gh issue new --title x", "deny"),
+            ("gh pr new --fill", "deny"),
+            ("gh api -XGET repos/o/r/issues", "allow"),
+            ("gh api repos/o/r/pulls/1", "allow"),
+        ],
+    );
+}
