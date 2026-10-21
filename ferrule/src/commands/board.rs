@@ -146,6 +146,13 @@ Refusals:
                                  hint lists the allowed ones (see Fields)
   card-new=reject reason=arg arg=<a>
                                  A field argument without `=`; write key=value
+  card-new=reject reason=owned key=<k>
+                                 Only a ferrule command sets <k> (gate2,
+                                 gate3, gate4, branch, worktree, issue, pr);
+                                 the hint names it
+  card-new=reject reason=state state=done
+                                 A stage card cannot start done; create it
+                                 open and move it once its commit is verified
 Every refusal ends in `hint=<fix>`. Nothing is created on a refusal.
 Fields (`ferrule board set` takes the same):
   stage card <slug>.s<n>         title, blocked-by, files, branch, worktree,
@@ -186,6 +193,11 @@ Refusals:
   card-set=reject reason=arg arg=<a>
                                  A field argument without `=`; write key=value;
                                  nothing is written
+  card-set=reject reason=owned key=<k>
+                                 Only a ferrule command gives <k> a value
+                                 (gate2, gate3, gate4, branch, worktree,
+                                 issue, pr); the hint names it. `<k>=`
+                                 clears one; nothing is written
 Every refusal ends in `hint=<fix>`.
 Exit codes: 0 ok, 1 refused (card), 2 rejected input, 4 internal error.
 See: ferrule guide show board";
@@ -749,11 +761,37 @@ fn bad_key(verb: &'static str, key: &str, card: &str) -> Refusal {
         .exit(Exit::Usage)
 }
 
+/// A value for a key only ferrule commands set, refused naming the
+/// command; clearing one is not refused.
+fn owned(verb: &'static str, fields: &[(String, String)]) -> Option<Refusal> {
+    fields.iter().find_map(|(k, v)| {
+        let by = board::field_owner(k).filter(|_| !v.is_empty())?;
+        Some(
+            Refusal::new(verb, "owned")
+                .reject()
+                .field("key", k)
+                .hint(format!("only ferrule sets {k}, with `{by}`"))
+                .exit(Exit::Usage),
+        )
+    })
+}
+
 fn new(card: &str, st: State, fields: &[String], out: &mut impl Write) -> io::Result<u8> {
     let fields = match key_values(fields) {
         Ok(f) => f,
         Err(arg) => return refuse(out, &bad_arg("card-new", &arg)),
     };
+    if let Some(r) = owned("card-new", &fields) {
+        return refuse(out, &r);
+    }
+    if st == State::Done && board::CardId::parse(card).stage.is_some() {
+        let r = Refusal::new("card-new", "state")
+            .reject()
+            .field("state", st)
+            .hint("create the stage open; `ferrule board move` takes it to done once its commit is verified")
+            .exit(Exit::Usage);
+        return refuse(out, &r);
+    }
     let Some(mut s) = store(true)? else {
         unreachable!("store(true) creates the database");
     };
@@ -774,6 +812,9 @@ fn set(card: &str, fields: &[String], out: &mut impl Write) -> io::Result<u8> {
         Ok(f) => f,
         Err(arg) => return refuse(out, &bad_arg("card-set", &arg)),
     };
+    if let Some(r) = owned("card-set", &fields) {
+        return refuse(out, &r);
+    }
     let Some(mut s) = store(false)? else {
         return refuse(out, &Refusal::card("card-set"));
     };

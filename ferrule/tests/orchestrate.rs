@@ -6,7 +6,7 @@ mod golden;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use golden::{FakeGh, GH_FIELDS, Run, fixtures, gh_json, seed_log};
+use golden::{FakeGh, GH_FIELDS, Run, fixtures, gh_json, seed_log, seed_set};
 
 fn git(dir: &Path, args: &[&str]) -> String {
     let out = Command::new("git")
@@ -565,13 +565,13 @@ fn it_publish_refuses_threads_and_stage_refs() {
     let p = Project::new();
     p.ok(&["run", "init", "demo"]);
     p.artifacts();
-    p.ok(&["board", "set", "demo", "pr=34", "branch=feat/demo"]);
+    seed_set(&p.root, "demo", &["pr=34", "branch=feat/demo"]);
     assert_eq!(
         p.ferrule(&["pr", "publish", "demo"]).text(),
         "publish=refused reason=gate4 \
          hint=approve gate4 first: ferrule gate approve <slug> gate4\nexit=1"
     );
-    p.ok(&["board", "set", "demo", "gate4=2026-10-05"]);
+    seed_set(&p.root, "demo", &["gate4=2026-10-05"]);
     serve(&p.gh, &graphql("34"), &threads("src/x.rs"));
     assert_eq!(
         p.ferrule(&["pr", "publish", "demo"]).text(),
@@ -627,12 +627,12 @@ fn it_publish_refuses_threads_and_stage_refs() {
 fn it_push_refuses_an_unverified_head_and_main() {
     let p = Project::new();
     p.ok(&["run", "init", "demo"]);
-    p.ok(&["board", "set", "demo", "branch=main"]);
+    seed_set(&p.root, "demo", &["branch=main"]);
     assert_eq!(
         p.ferrule(&["pr", "push", "demo"]).text(),
         "push=refused reason=main hint=push from a branch other than main\nexit=1"
     );
-    p.ok(&["board", "set", "demo", "branch=feat/demo"]);
+    seed_set(&p.root, "demo", &["branch=feat/demo"]);
     git(
         &p.root,
         &[
@@ -797,7 +797,7 @@ fn it_issue_file_variants() {
         "post=refused reason=no-issue \
          hint=file the tracking issue first: ferrule issue post <slug>\nexit=1"
     );
-    p.ok(&["board", "set", "demo", "issue=12"]);
+    seed_set(&p.root, "demo", &["issue=12"]);
     assert_eq!(p.ok(&["issue", "post", "demo"]), "issue=12 action=recorded");
     serve(gh, &find("RTU clients reconnect"), "[]");
     gh.serve(
@@ -857,7 +857,7 @@ fn it_reconcile_checks_the_host() {
     let gh = &p.gh;
     p.ok(&["run", "init", "demo"]);
     p.artifacts();
-    p.ok(&["board", "set", "demo", "issue=12", "pr=34"]);
+    seed_set(&p.root, "demo", &["issue=12", "pr=34"]);
     seed_log(&p.root, "2026-10-05T09:00", "demo", &["pr=ready"]);
     let closed = "#12 Reconnect dropped Modbus clients [CLOSED]\nhttps://github.com/o/r/issues/12\nby someone\n\nbody\n\n--- 0 comment(s) ---\n";
     gh.serve(
@@ -883,7 +883,7 @@ fn it_reconcile_checks_the_host() {
 fn it_card_commit_checks_the_card_and_the_branch() {
     let p = Project::new();
     p.ok(&["run", "init", "demo"]);
-    p.ok(&["board", "set", "demo", "branch=feat/demo"]);
+    seed_set(&p.root, "demo", &["branch=feat/demo"]);
     p.ok(&["board", "new", "demo.s1", "title=Add a"]);
     git(
         &p.root,
@@ -938,7 +938,7 @@ fn it_pr_open_adopts_the_branch_pr_a_crash_left() {
     let gh = &p.gh;
     p.ok(&["run", "init", "demo"]);
     p.artifacts();
-    p.ok(&["board", "set", "demo", "issue=12", "branch=feat/demo"]);
+    seed_set(&p.root, "demo", &["issue=12", "branch=feat/demo"]);
     gh.serve(
         &[
             "pr",
@@ -981,7 +981,7 @@ fn it_issue_post_retries_post_only_what_is_missing() {
     let gh = &p.gh;
     p.ok(&["run", "init", "demo"]);
     p.artifacts();
-    p.ok(&["board", "set", "demo", "issue=12", "kind=slice", "epic=70"]);
+    seed_set(&p.root, "demo", &["issue=12", "kind=slice", "epic=70"]);
 
     // A title with qualifier-like words: searched as one phrase, adopted
     // only on an exact match.
@@ -1047,7 +1047,7 @@ fn it_slices_keep_their_position() {
         let e = e.unwrap();
         std::fs::copy(e.path(), dir.join(e.file_name())).unwrap();
     }
-    p.ok(&["board", "set", "lb", "kind=epic", "issue=70"]);
+    seed_set(&p.root, "lb", &["kind=epic", "issue=70"]);
     for (n, title) in [(72, "Batteries"), (71, "Walking skeleton")] {
         let title = format!("Load balancing core: {title}");
         serve(gh, &find(&title), "[]");

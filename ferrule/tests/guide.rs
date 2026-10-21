@@ -5,7 +5,7 @@ mod golden;
 
 use std::path::Path;
 
-use golden::{Run, seed_log};
+use golden::{Run, seed_card, seed_log};
 
 fn ferrule(root: &Path, cwd: &Path, args: &[&str]) -> String {
     Run::new(args)
@@ -25,7 +25,7 @@ fn ok(root: &Path, args: &[&str]) -> String {
 fn it_guide_cuts_to_the_cards_lane_and_state() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
-    ok(root, &["board", "new", "demo", "lane=fast", "pr=34"]);
+    seed_card(root, "demo", "open", &["lane=fast", "pr=34"]);
 
     let stages = ok(root, &["guide", "stages", "--slug", "demo"]);
     assert!(stages.contains("## Fast lane\n"), "{stages}");

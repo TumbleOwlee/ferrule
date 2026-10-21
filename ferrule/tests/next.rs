@@ -7,7 +7,7 @@ mod golden;
 use std::fmt::Write as _;
 use std::path::Path;
 
-use golden::{Run, check, seed_log};
+use golden::{Run, check, seed_card, seed_log};
 
 const NOW: &str = "2026-10-05T09:00";
 const R: &str = ".claude/tasks/artifacts/ns";
@@ -49,20 +49,11 @@ impl Board {
         self.transcript = transcript;
         let arch = format!("arch={arch}");
         let lane = format!("lane={lane}");
-        let mut args = vec![
-            "board",
-            "new",
-            "ns",
-            "--state",
-            "inprogress",
-            "branch=feat/ns",
-            "gate1=2026-10-01",
-            &arch,
-        ];
+        let mut fields = vec!["branch=feat/ns", "gate1=2026-10-01", &arch];
         if lane != "lane=-" {
-            args.push(&lane);
+            fields.push(&lane);
         }
-        self.ok(&args);
+        seed_card(self.root(), "ns", "inprogress", &fields);
         let mut summary = format!(
             "# ns — plan summary (rev 1)\n\nDecide: {rows} stages.\n\n| Stage | What | Pins | Files | Stop |\n|---|---|---|---|---|\n"
         );
@@ -248,7 +239,7 @@ fn it_next_branch_review_rounds() {
     let mut b = Board::new();
     let (review, verdict) = (file("review.md"), summary("review.verdict.md"));
     b.reset("full", "2026-10-02", 2, "clean");
-    b.ok(&["board", "new", "ns.s1", "--state", "done"]);
+    seed_card(b.root(), "ns.s1", "done", &[]);
     b.ok(&["board", "new", "ns.s2", "--state", "inreview"]);
     let findings = |count: &'static str, user: &'static str| {
         [
@@ -277,8 +268,8 @@ fn it_next_branch_review_rounds() {
     b.log_dump();
     // s2 reaches done: the same log on a board where it already is.
     b.reset("full", "2026-10-02", 2, "needs-user");
-    b.ok(&["board", "new", "ns.s1", "--state", "done"]);
-    b.ok(&["board", "new", "ns.s2", "--state", "done"]);
+    seed_card(b.root(), "ns.s1", "done", &[]);
+    seed_card(b.root(), "ns.s2", "done", &[]);
     b.log(&["review=2-open", "scope=branch"]);
     b.log(&["review=2-resolved"]);
     b.next(&findings("count=0", "user=1"));
@@ -286,8 +277,8 @@ fn it_next_branch_review_rounds() {
     b.next(&findings("count=0", "user=1"));
     b.log_dump();
     b.reset("full", "2026-10-02", 2, "clean");
-    b.ok(&["board", "new", "ns.s1", "--state", "done"]);
-    b.ok(&["board", "new", "ns.s2", "--state", "done"]);
+    seed_card(b.root(), "ns.s1", "done", &[]);
+    seed_card(b.root(), "ns.s2", "done", &[]);
     let clean = [
         "ns",
         "gate3",
@@ -352,7 +343,7 @@ fn it_next_retried_status_line_logs_and_counts_once() {
     let mut b = Board::new();
     let (review, verdict) = (file("review.md"), summary("review.verdict.md"));
     b.reset("full", "2026-10-02", 2, "clean");
-    b.ok(&["board", "new", "ns.s1", "--state", "done"]);
+    seed_card(b.root(), "ns.s1", "done", &[]);
     let g3 = [
         "gate",
         "next",

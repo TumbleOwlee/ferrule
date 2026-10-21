@@ -2,7 +2,7 @@ mod golden;
 
 use std::path::Path;
 
-use golden::{Run, check, fixtures, seed_log};
+use golden::{Run, check, fixtures, seed_card, seed_log, seed_set};
 
 const NOW: &str = "2026-10-05T09:00";
 
@@ -230,16 +230,11 @@ fn new(p: &Path, args: &[&str]) {
 fn it_move_follows_the_board_rules() {
     let dir = tempfile::tempdir().unwrap();
     let p = dir.path();
-    new(
+    seed_card(
         p,
-        &[
-            "ss",
-            "--state",
-            "inprogress",
-            "branch=feat/ss",
-            "lane=full",
-            "gate2=2026-10-03",
-        ],
+        "ss",
+        "inprogress",
+        &["branch=feat/ss", "lane=full", "gate2=2026-10-03"],
     );
     new(p, &["ss.s0", "title=Spec", "blocked-by=[]"]);
     new(p, &["ss.s1", "title=One", "blocked-by=[ss.s0]"]);
@@ -329,11 +324,21 @@ fn it_new_and_set_validate_fields() {
         "card-new=reject reason=key key=lane hint=a stage card takes only title, blocked-by, files, branch, worktree, stop\nexit=2"
     );
     assert_eq!(
-        run(&["board", "set", "r", "gate2=2026-10-03", "pr=7"]),
-        "exit=0"
+        run(&["board", "set", "r", "lane=full", "gate2=2026-10-03"]),
+        "card-set=reject reason=owned key=gate2 hint=only ferrule sets gate2, with `ferrule gate approve <slug> gate2`\nexit=2"
     );
     assert_eq!(
-        run(&["board", "set", "r", "issue=9", "color=red"]),
+        run(&["board", "new", "q", "worktree=/elsewhere"]),
+        "card-new=reject reason=owned key=worktree hint=only ferrule sets worktree, with `ferrule gate approve <slug> gate2`\nexit=2"
+    );
+    assert_eq!(
+        run(&["board", "new", "r.s9", "--state", "done"]),
+        "card-new=reject reason=state state=done hint=create the stage open; `ferrule board move` takes it to done once its commit is verified\nexit=2"
+    );
+    assert_eq!(run(&["board", "field", "r", "lane"]), "fast\nexit=0");
+    seed_set(p, "r", &["gate2=2026-10-03", "pr=7"]);
+    assert_eq!(
+        run(&["board", "set", "r", "lane=fast", "color=red"]),
         "card-set=reject reason=key key=color hint=a parent card takes only kind, epic, slices, issue, pr, branch, lane, gate1, with-arch, with-plan, skipped, arch, no-arch, gate2, gate3, gate4, split, upstream, artifacts, worktree\nexit=2"
     );
     assert_eq!(run(&["board", "field", "r", "issue"]), "exit=0");
@@ -342,13 +347,15 @@ fn it_new_and_set_validate_fields() {
     assert_eq!(run(&["board", "field", "r", "lane"]), "exit=0");
     assert_eq!(run(&["board", "field", "r", "state"]), "open\nexit=0");
     assert_eq!(
-        run(&["board", "set", "x", "pr=1"]),
+        run(&["board", "set", "x", "lane=fast"]),
         "card-set=refused reason=card hint=check the slug with `ferrule board list`\nexit=1"
     );
     assert_eq!(
         run(&["board", "show", "r"]),
         "---\nid: r\nstate: open\ngate2: 2026-10-03\npr: 7\n---\nexit=0"
     );
+    assert_eq!(run(&["board", "set", "r", "pr="]), "exit=0");
+    assert_eq!(run(&["board", "field", "r", "pr"]), "exit=0");
 }
 
 #[test]

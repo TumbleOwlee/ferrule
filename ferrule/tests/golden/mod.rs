@@ -201,3 +201,38 @@ pub fn gh_json(text: &str) -> String {
 }
 
 pub const GH_FIELDS: &str = "number,title,state,url,author,body,comments";
+
+/// Creates card `id` in `state` with `fields` (`key=value`) as a ferrule
+/// command would: `board new` refuses the fields only ferrule sets and a
+/// stage starting done, which a test needs on a board.
+pub fn seed_card(root: &Path, id: &str, state: &str, fields: &[&str]) {
+    let mut board = ferrule_core::store::Board::open(root, true)
+        .unwrap()
+        .expect("a board");
+    let state = ferrule_core::card::board::State::parse(state).expect("a state");
+    let fields = key_values(fields);
+    board
+        .write(|w| w.create(id, state, &fields, "2026-10-01T09:00"))
+        .unwrap_or_else(|e| panic!("{id}: {e:?}"));
+}
+
+/// Sets `fields` (`key=value`) on card `id` as a ferrule command would.
+pub fn seed_set(root: &Path, id: &str, fields: &[&str]) {
+    let mut board = ferrule_core::store::Board::open(root, false)
+        .unwrap()
+        .expect("a board");
+    let fields = key_values(fields);
+    board
+        .write(|w| w.set_all(id, &fields))
+        .unwrap_or_else(|e| panic!("{id}: {e:?}"));
+}
+
+fn key_values(fields: &[&str]) -> Vec<(String, String)> {
+    fields
+        .iter()
+        .map(|f| {
+            let (k, v) = f.split_once('=').expect("key=value");
+            (k.to_owned(), v.to_owned())
+        })
+        .collect()
+}

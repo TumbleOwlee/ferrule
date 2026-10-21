@@ -204,6 +204,32 @@ pub const PARENT_FIELDS: &[&str] = &[
 /// Frontmatter keys a stage card may carry; `id` and `parent` are derived.
 pub const STAGE_FIELDS: &[&str] = &["title", "blocked-by", "files", "branch", "worktree", "stop"];
 
+/// Frontmatter keys only ferrule commands give a value, each with the
+/// command that does: a hand-set one would approve a gate or point
+/// cleanup's `git worktree remove` and `git branch -D` elsewhere. Clearing
+/// one stays open.
+pub const FERRULE_FIELDS: &[(&str, &str)] = &[
+    ("gate2", "ferrule gate approve <slug> gate2"),
+    ("gate3", "ferrule gate approve <slug> gate3"),
+    ("gate4", "ferrule gate approve <slug> gate4"),
+    ("branch", "ferrule gate approve <slug> gate2"),
+    ("worktree", "ferrule gate approve <slug> gate2"),
+    (
+        "issue",
+        "ferrule run init <slug> --issue <n> or ferrule gate approve <slug> gate2",
+    ),
+    ("pr", "ferrule pr open <slug>"),
+];
+
+/// The command that sets `key`, when only ferrule gives it a value.
+#[must_use]
+pub fn field_owner(key: &str) -> Option<&'static str> {
+    FERRULE_FIELDS
+        .iter()
+        .find(|(k, _)| *k == key)
+        .map(|(_, by)| *by)
+}
+
 /// The `hint=` of a refused field: the keys a stage or a parent card
 /// takes.
 #[must_use]

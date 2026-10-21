@@ -3,7 +3,7 @@ mod golden;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use golden::{Run, seed_log};
+use golden::{Run, seed_card, seed_log, seed_set};
 
 const NOW: &str = "2026-10-05T09:00";
 
@@ -62,18 +62,18 @@ impl Scratch {
             root,
             wt,
         };
-        s.ok(&[
-            "board",
-            "new",
+        seed_card(
+            &s.root,
             "ss",
-            "--state",
             "inprogress",
-            "branch=feat/ss",
-            "lane=full",
-            "gate1=2026-10-01",
-            "arch=2026-10-02",
-            "gate2=2026-10-03",
-        ]);
+            &[
+                "branch=feat/ss",
+                "lane=full",
+                "gate1=2026-10-01",
+                "arch=2026-10-02",
+                "gate2=2026-10-03",
+            ],
+        );
         for n in 0..=stages {
             let id = format!("ss.s{n}");
             let state = if n == 0 { "done" } else { "open" };
@@ -84,9 +84,7 @@ impl Scratch {
                 format!("blocked-by=[ss.s{}]", n - 1)
             };
             let files = format!("files=[f{n}.txt]");
-            s.ok(&[
-                "board", "new", &id, "--state", state, &title, &blocked, &files,
-            ]);
+            seed_card(&s.root, &id, state, &[&title, &blocked, &files]);
         }
         s.artifact(
             "plan.summary.md",
@@ -258,12 +256,7 @@ fn it_reconcile_follows_the_worktree_field() {
             other.to_str().unwrap(),
         ],
     );
-    s.ok(&[
-        "board",
-        "set",
-        "ss",
-        &format!("worktree={}", other.display()),
-    ]);
+    seed_set(&s.root, "ss", &[&format!("worktree={}", other.display())]);
     // s0 is done without a commit, which reconcile reports; the worktree
     // at the field's path is not reported missing
     let got = s.run(&["run", "reconcile", "ss"]).text();
@@ -397,12 +390,7 @@ fn it_cleanup_checks_the_worktree_field() {
             other.to_str().unwrap(),
         ],
     );
-    s.ok(&[
-        "board",
-        "set",
-        "demo",
-        &format!("worktree={}", other.display()),
-    ]);
+    seed_set(&s.root, "demo", &[&format!("worktree={}", other.display())]);
     std::fs::write(other.join("y.txt"), "y\n").unwrap();
     assert!(
         s.say(&["run", "cleanup", "demo"])
