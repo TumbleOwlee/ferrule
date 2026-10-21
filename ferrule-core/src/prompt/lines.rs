@@ -3,30 +3,11 @@
 //! given: slices no slice or two slices claim, and the decisions the user
 //! has not seen.
 
-use crate::artifacts;
 use std::fmt::Write as _;
 use std::path::Path;
 
-use crate::spec::fixed_id_len;
-
-/// `[RE]<digits>` or a fixed ID, as a whole word.
-fn is_entry_id(w: &str) -> bool {
-    fixed_id_len(w.as_bytes()) == Some(w.len()) || is_local(w, &['R', 'E'])
-}
-
-fn is_local(w: &str, letters: &[char]) -> bool {
-    let mut c = w.chars();
-    c.next().is_some_and(|f| letters.contains(&f))
-        && w.len() > 1
-        && w[1..].bytes().all(|b| b.is_ascii_digit())
-}
-
-/// `## <id> — …` headings: the id and the rest after ` — `.
-fn heading(line: &str) -> Option<(&str, &str)> {
-    let rest = line.strip_prefix("## ")?;
-    let (id, after) = rest.split_once(" — ")?;
-    Some((id, after))
-}
+use crate::artifacts;
+use crate::spec::diff::SpecDiff;
 
 /// The items under a line starting `header`, as `- ` lines and (with
 /// `nested`) their `  - ` sub-items.
@@ -58,12 +39,8 @@ fn spec_diff(text: &str, out: &mut Vec<String>) {
     if let Some(goal) = text.lines().find(|l| l.starts_with("Goal: ")) {
         out.push(goal.to_owned());
     }
-    let scenarios: Vec<&str> = text
-        .lines()
-        .filter_map(heading)
-        .map(|(id, _)| id)
-        .filter(|id| is_local(id, &['S']))
-        .collect();
+    let diff = SpecDiff::parse(text);
+    let scenarios: Vec<&str> = diff.scenarios.iter().map(|s| s.id.as_str()).collect();
     if !scenarios.is_empty() {
         out.push(format!(
             "Scenarios: {} — {}",
@@ -71,19 +48,19 @@ fn spec_diff(text: &str, out: &mut Vec<String>) {
             scenarios.join(", ")
         ));
     }
-    let mut kinds: Vec<(String, Vec<&str>)> = Vec::new();
-    for (id, after) in text
-        .lines()
-        .filter_map(heading)
-        .filter(|(id, _)| is_entry_id(id))
-    {
-        let kind: String = after.chars().take_while(char::is_ascii_lowercase).collect();
-        match kinds.iter_mut().find(|(k, _)| *k == kind) {
-            Some((_, ids)) => ids.push(id),
-            None => kinds.push((kind, vec![id])),
+    let mut kinds: Vec<(&str, Vec<&str>)> = Vec::new();
+    for e in &diff.entries {
+        match kinds.iter_mut().find(|(k, _)| *k == e.kind) {
+            Some((_, ids)) => ids.push(&e.id),
+            None => kinds.push((&e.kind, vec![&e.id])),
         }
     }
-    let ids = |k: &str| kinds.iter().find(|(kk, _)| kk == k).map(|(_, v)| v.clone());
+    let ids = |k: &str| {
+        kinds
+            .iter()
+            .find(|(kk, _)| *kk == k)
+            .map(|(_, v)| v.clone())
+    };
     let mut line = String::from("Entries:");
     if let Some(v) = ids("violated") {
         let _ = write!(
@@ -102,21 +79,14 @@ fn spec_diff(text: &str, out: &mut Vec<String>) {
         }
     }
     out.push(line);
-    let mut on = false;
     let owners = ["architecture", "plan", "implementation", "unowned"];
     let mut counts = [0usize; 4];
-    for l in text.lines() {
-        if l == "## Deferred" {
-            on = true;
-        } else if on && l.starts_with("## ") {
-            on = false;
-        } else if on && l.starts_with("- ") {
-            let owner = owners[..3]
-                .iter()
-                .position(|o| l.ends_with(&format!(" — {o}")))
-                .unwrap_or(3);
-            counts[owner] += 1;
-        }
+    for l in diff.deferred.iter().filter(|l| l.starts_with("- ")) {
+        let owner = owners[..3]
+            .iter()
+            .position(|o| l.ends_with(&format!(" — {o}")))
+            .unwrap_or(3);
+        counts[owner] += 1;
     }
     let total: usize = counts.iter().sum();
     if total > 0 {
@@ -179,11 +149,14 @@ fn slices(text: &str, spec_diff: Option<&str>, out: &mut Vec<String>, confirm: &
         out.extend(lines);
     }
     let Some(sd) = spec_diff else { return };
-    for (id, after) in sd.lines().filter_map(heading) {
-        let wanted = is_local(id, &['S']) || is_entry_id(id);
-        if !wanted || after.starts_with("dropped") || after.starts_with("violated") {
-            continue;
-        }
+    let diff = SpecDiff::parse(sd);
+    let wanted = diff.scenarios.iter().map(|s| s.id.as_str()).chain(
+        diff.entries
+            .iter()
+            .filter(|e| e.kind != "dropped" && e.kind != "violated")
+            .map(|e| e.id.as_str()),
+    );
+    for id in wanted {
         let in_slices: Vec<&str> = claims
             .iter()
             .filter(|(c, _)| c == id)
@@ -346,13 +319,5 @@ mod tests {
             ),
             ["- MB-R-1 — a — why (author)", "- b", "- d (planner)"]
         );
-    }
-
-    #[test]
-    fn ut_ids() {
-        assert!(is_entry_id("R12"));
-        assert!(is_entry_id("MB-E-031"));
-        assert!(!is_entry_id("S1"));
-        assert!(!is_entry_id("R"));
     }
 }

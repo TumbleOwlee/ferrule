@@ -208,19 +208,16 @@ fn blocks(text: &str) -> Vec<Block<'_>> {
     let mut out = Vec::new();
     let mut tags = Vec::new();
     let mut lines: Vec<&str> = Vec::new();
-    let mut fence = false;
-    for line in markdown::lines(text) {
-        if !fence
+    for l in markdown::classified(text) {
+        let (line, code) = (l.text, l.fenced || l.delimiter);
+        if !code
             && lines.is_empty()
             && let Some(Ok(t)) = tag(line)
         {
             tags.push(t);
             continue;
         }
-        if line.starts_with("```") {
-            fence = !fence;
-        }
-        if !fence && line.trim().is_empty() && !line.starts_with("```") {
+        if !code && line.trim().is_empty() {
             if !lines.is_empty() {
                 out.push(Block {
                     tags: std::mem::take(&mut tags),
@@ -320,19 +317,14 @@ pub fn render(text: &str, ctx: &Context) -> String {
 /// The section spans of `text`: (heading line, start byte, end byte), each
 /// through the next heading of equal or shallower depth.
 fn sections(text: &str) -> Vec<(String, usize, usize)> {
-    let mut starts: Vec<(usize, usize, String)> = Vec::new();
-    let mut offset = 0;
-    let mut fence = false;
-    for line in text.split_inclusive('\n') {
-        let bare = line.trim_end_matches('\n');
-        if bare.starts_with("```") {
-            fence = !fence;
-        }
-        if !fence && let Some(level) = heading_level(bare) {
-            starts.push((offset, level, bare.trim_end().to_owned()));
-        }
-        offset += line.len();
-    }
+    // Each heading is a slice of `text`: its offset is where it starts.
+    let starts: Vec<(usize, usize, String)> = markdown::headings(text)
+        .iter()
+        .map(|h| {
+            let start = h.line.as_ptr() as usize - text.as_ptr() as usize;
+            (start, h.level, h.line.trim_end().to_owned())
+        })
+        .collect();
     starts
         .iter()
         .enumerate()
@@ -653,6 +645,15 @@ mod tests {
         let text = "<!-- lane: fast -->\n```sh\na\n\nb\n```\n\nafter\n";
         let out = render(text, &ctx(Some(Lane::Full)));
         assert_eq!(out, "after\n");
+    }
+
+    #[test]
+    fn ut_a_tilde_fence_hides_its_headings_and_blank_lines() {
+        let text = "<!-- lane: fast -->\n~~~md\n## not a section\n\nb\n~~~\n\nafter\n";
+        assert_eq!(render(text, &ctx(Some(Lane::Full))), "after\n");
+        let doc = "## A\n\n~~~\n## inside\n~~~\n\n## B\n\nb\n";
+        let heads: Vec<String> = sections(doc).into_iter().map(|(h, _, _)| h).collect();
+        assert_eq!(heads, ["## A", "## B"]);
     }
 
     #[test]

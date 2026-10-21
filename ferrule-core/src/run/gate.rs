@@ -383,16 +383,13 @@ fn cells_list(cell: &str) -> Vec<String> {
 /// The stage table of `plan.md`'s `## Shared` section.
 #[must_use]
 pub fn plan_stages(plan: &str) -> Vec<PlanStage> {
-    let mut fence = false;
     let mut on = false;
     let mut out = Vec::new();
-    for l in plan.lines() {
-        if l.starts_with("```") {
-            fence = !fence;
-        }
-        if fence {
+    for line in crate::markdown::classified(plan) {
+        if line.fenced || line.delimiter {
             continue;
         }
+        let l = line.text;
         if l.starts_with("## ") {
             on = l == "## Shared";
             continue;
