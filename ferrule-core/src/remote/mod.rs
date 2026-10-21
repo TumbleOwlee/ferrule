@@ -535,10 +535,40 @@ impl From<GhItem> for Item {
 
 pub(crate) const GH_FIELDS: &str = "number,title,state,url,author,body,comments";
 
+/// The environment variable that holds `file`'s JSON instead of it:
+/// `jira.local.json` is `FERRULE_JIRA_CREDENTIALS`.
+pub(crate) fn creds_var(file: &str) -> String {
+    let name = file.split('.').next().unwrap_or(file);
+    format!("FERRULE_{}_CREDENTIALS", name.to_ascii_uppercase())
+}
+
+/// Credentials from [`creds_var`] when it is set, else from `file` under
+/// `.ferrule/`. A file group or others can read is refused, as ssh refuses
+/// such a key: the token in it is the user's.
 pub(crate) fn creds<T: for<'de> Deserialize<'de>>(root: &Path, file: &str) -> Result<T, Error> {
+    let var = creds_var(file);
+    if let Some(text) = std::env::var_os(&var).filter(|v| !v.is_empty()) {
+        return serde_json::from_str(&text.to_string_lossy())
+            .map_err(|e| Error::Credentials(format!("{var}: {e}")));
+    }
     let path = root.join(DIR).join(file);
     let text = std::fs::read_to_string(&path)
-        .map_err(|e| Error::Credentials(format!("{}: {e}", path.display())))?;
+        .map_err(|e| Error::Credentials(format!("{}: {e} (or set {var})", path.display())))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&path)
+            .map_err(|e| Error::Credentials(format!("{}: {e}", path.display())))?
+            .permissions()
+            .mode();
+        if mode & 0o077 != 0 {
+            return Err(Error::Credentials(format!(
+                "{} is readable by others (mode {:o}); run chmod 600 on it",
+                path.display(),
+                mode & 0o777
+            )));
+        }
+    }
     serde_json::from_str(&text).map_err(|e| Error::Credentials(format!("{}: {e}", path.display())))
 }
 
@@ -811,6 +841,30 @@ mod tests {
 #[cfg(test)]
 mod run_tests {
     use super::*;
+
+    #[test]
+    fn ut_creds_var_names_the_file() {
+        assert_eq!(creds_var("jira.local.json"), "FERRULE_JIRA_CREDENTIALS");
+        assert_eq!(
+            creds_var("bitbucket.local.json"),
+            "FERRULE_BITBUCKET_CREDENTIALS"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ut_creds_refuse_a_file_others_can_read() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(DIR)).unwrap();
+        let file = dir.path().join(DIR).join("ztest.local.json");
+        std::fs::write(&file, r#"{"a": 1}"#).unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let err = creds::<serde_json::Value>(dir.path(), "ztest.local.json").unwrap_err();
+        assert!(err.to_string().contains("chmod 600"), "{err}");
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(creds::<serde_json::Value>(dir.path(), "ztest.local.json").is_ok());
+    }
 
     #[test]
     fn ut_run_feeds_stdin_while_reading_a_large_output() {

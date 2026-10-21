@@ -103,6 +103,8 @@ main_branch = "main"
 [backend]
 tracker = "github"           # github (gh) | jira (.ferrule/jira.local.json: baseUrl, email, apiToken)
 ci = "github"                # github (gh) | bitbucket (.ferrule/bitbucket.local.json: workspace, repoSlug, username, appPassword)
+# The .local.json files must be mode 600; FERRULE_JIRA_CREDENTIALS or
+# FERRULE_BITBUCKET_CREDENTIALS holding the same JSON is read instead when set.
 
 [[gauntlet.step]]
 name = "test"
