@@ -277,14 +277,21 @@ fn decompress(data: &[u8]) -> std::io::Result<Vec<u8>> {
     Ok(out)
 }
 
-/// Every file below `dir` as `(path relative to dir, contents)`.
+/// Every file below `dir` as `(path relative to dir, contents)`. Symbolic
+/// links are skipped, never followed: a link to an ancestor would loop and
+/// one to a file outside the run would archive it.
 fn files_below(dir: &Path) -> std::io::Result<Vec<(String, Vec<u8>)>> {
     let mut out = Vec::new();
     let mut pending = vec![dir.to_path_buf()];
     while let Some(next) = pending.pop() {
         for entry in std::fs::read_dir(&next)? {
-            let path = entry?.path();
-            if path.is_dir() {
+            let entry = entry?;
+            let kind = entry.file_type()?;
+            let path = entry.path();
+            if kind.is_symlink() {
+                continue;
+            }
+            if kind.is_dir() {
                 pending.push(path);
             } else {
                 let rel = path

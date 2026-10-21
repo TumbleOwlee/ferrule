@@ -1,5 +1,6 @@
 //! `ferrule stage`: one stage's work.
 
+use ferrule_core::card::board::Slug;
 use std::io::{self, Write};
 
 use clap::{Subcommand, ValueEnum};
@@ -137,7 +138,7 @@ pub enum StageCommand {
     #[command(after_long_help = VERIFY_AFTER_LONG_HELP)]
     Verify {
         /// The run's slug.
-        slug: String,
+        slug: Slug,
         /// The stage, `s<n>`.
         #[arg(value_parser = stage_id, value_name = "STAGE")]
         stage: u32,
@@ -150,7 +151,7 @@ pub enum StageCommand {
     #[command(after_long_help = STOP_AFTER_LONG_HELP)]
     Stop {
         /// The run's slug.
-        slug: String,
+        slug: Slug,
         /// The stage, `s<n>`.
         #[arg(value_parser = stage_id, value_name = "STAGE")]
         stage: u32,
@@ -162,7 +163,7 @@ pub enum StageCommand {
     #[command(after_long_help = REPLAN_AFTER_LONG_HELP)]
     Replan {
         /// The run's slug.
-        slug: String,
+        slug: Slug,
         /// Which half of the re-plan.
         step: ReplanStep,
         /// With `approve`: stages that stop for approval beyond the plan's,

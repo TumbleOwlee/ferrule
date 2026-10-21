@@ -4,6 +4,7 @@ mod finish;
 mod inspect;
 mod start;
 
+use ferrule_core::card::board::Slug;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
@@ -79,7 +80,11 @@ Refusals (nothing is written):
   rebuild=refused reason=bad-branch branch=<branch>
                                        The branch is not `<prefix>/<slug>`; the
                                        slug (after the first `/`) must be
-                                       non-empty and hold no slash
+                                       letters, digits, -, _ and single dots
+  rebuild=refused reason=bad-stage stage=<id>
+                                       A `## Stages` line is not marked
+                                       `<!-- s<n> -->`, repeats a stage, or
+                                       blocks on one that is not `s<n>`
   rebuild=refused reason=worktree      `git worktree add` failed
 Refusals end in ` hint=<fix>`.
 Exit codes: 0 done, 1 refused, 2 usage, 4 internal error.
@@ -231,7 +236,7 @@ pub enum RunCommand {
     #[command(after_long_help = INIT_AFTER_LONG_HELP)]
     Init {
         /// The run's slug.
-        slug: String,
+        slug: Slug,
         /// The issue the user named: a GitHub number or URL, or a Jira key.
         #[arg(long)]
         issue: Option<ItemRef>,
@@ -242,7 +247,7 @@ pub enum RunCommand {
     #[command(after_long_help = RECONCILE_AFTER_LONG_HELP)]
     Reconcile {
         /// The run's slug.
-        slug: String,
+        slug: Slug,
         /// Check git only: skip the issue, PR and PR-body rows.
         #[arg(long)]
         local: bool,
@@ -265,7 +270,7 @@ pub enum RunCommand {
     #[command(after_long_help = CLEANUP_AFTER_LONG_HELP)]
     Cleanup {
         /// The run's slug.
-        slug: String,
+        slug: Slug,
     },
     /// Record and print a run's metrics line.
     ///
@@ -273,7 +278,7 @@ pub enum RunCommand {
     #[command(after_long_help = METRICS_AFTER_LONG_HELP)]
     Metrics {
         /// The run's slug; without one, every line recorded.
-        slug: Option<String>,
+        slug: Option<Slug>,
         /// Without a slug: only the latest n lines recorded.
         #[arg(long, value_name = "N", conflicts_with = "slug")]
         last: Option<usize>,
@@ -282,13 +287,13 @@ pub enum RunCommand {
     #[command(after_long_help = STATUS_AFTER_LONG_HELP)]
     Status {
         /// The run's slug.
-        slug: String,
+        slug: Slug,
     },
     /// Print the run branch's diff against main, in the run's worktree.
     #[command(after_long_help = DIFF_AFTER_LONG_HELP)]
     Diff {
         /// The run's slug.
-        slug: String,
+        slug: Slug,
         /// Only docs/specs: the run's spec as it stands on the branch.
         #[arg(long)]
         specs: bool,
@@ -311,7 +316,7 @@ pub enum RunCommand {
     #[command(after_long_help = LOG_AFTER_LONG_HELP)]
     Log {
         /// The run's slug.
-        slug: String,
+        slug: Slug,
         /// Also each commit's changed files.
         #[arg(long)]
         stat: bool,
@@ -323,13 +328,13 @@ pub enum RunCommand {
     #[command(after_long_help = PLAN_DIFF_AFTER_LONG_HELP)]
     PlanDiff {
         /// The run's slug.
-        slug: String,
+        slug: Slug,
     },
     /// Write an archived run back out as files.
     #[command(after_long_help = EXPORT_AFTER_LONG_HELP)]
     Export {
         /// The run's slug.
-        slug: String,
+        slug: Slug,
         /// The archive id `run cleanup` printed [default: the latest].
         #[arg(long)]
         archive: Option<i64>,

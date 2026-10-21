@@ -1,3 +1,4 @@
+use ferrule_core::card::board::Slug;
 use std::io::{self, Write};
 use std::path::Path;
 
@@ -87,7 +88,7 @@ pub struct ShowArgs {
     /// The run the topic is read for [default: the run whose worktree holds
     /// the current directory].
     #[arg(long)]
-    pub slug: Option<String>,
+    pub slug: Option<Slug>,
     /// The stage the topic is read for, `s<n>`.
     #[arg(long, value_parser = stage_name)]
     pub stage: Option<String>,
@@ -170,14 +171,14 @@ fn show(
 }
 
 /// The run whose worktree holds the current directory.
-fn slug_of_cwd(layout: &Layout) -> Option<String> {
+fn slug_of_cwd(layout: &Layout) -> Option<Slug> {
     let cwd = std::env::current_dir().ok()?;
     let worktrees = layout.root.join(".ferrule").join("worktrees");
     let rest = cwd.strip_prefix(&worktrees).ok()?;
     rest.components()
         .next()
         .and_then(|c| c.as_os_str().to_str())
-        .map(str::to_owned)
+        .and_then(|s| s.parse().ok())
 }
 
 fn abs(p: &Path) -> String {
@@ -200,7 +201,7 @@ fn context(layout: &Layout, args: &ShowArgs) -> io::Result<Context> {
         ctx.vars.push(("worktree", abs(&layout.worktree(&slug))));
         let card = match &args.stage {
             Some(stage) => format!("{slug}.{stage}"),
-            None => slug.clone(),
+            None => slug.to_string(),
         };
         ctx.vars.push(("card", card));
         let held = match store(false)? {
@@ -237,7 +238,7 @@ fn context(layout: &Layout, args: &ShowArgs) -> io::Result<Context> {
                 }
             }
         }
-        ctx.vars.push(("slug", slug));
+        ctx.vars.push(("slug", slug.to_string()));
     }
     if let Some(l) = args.lane.as_deref().and_then(Lane::parse) {
         ctx.lane = Some(l);

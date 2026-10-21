@@ -1,3 +1,4 @@
+use ferrule_core::card::board::Slug;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
@@ -77,7 +78,7 @@ pub enum FeedbackCommand {
     #[command(after_long_help = FB_ROUTE_AFTER_LONG_HELP)]
     Route {
         /// The run's slug.
-        slug: String,
+        slug: Slug,
     },
     /// Write a PR's unresolved threads to a file.
     #[command(after_long_help = FB_FETCH_AFTER_LONG_HELP)]

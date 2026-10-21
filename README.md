@@ -93,7 +93,7 @@ The workflow's instructions ship inside the binary as topics (`crates/ferrule-co
 
 ## State
 
-The board lives in `.ferrule/state.db` (`SQLite`) in the main checkout; commands run inside a git worktree reach the same database through `git rev-parse --git-common-dir`. `FERRULE_NOW` overrides the log timestamp. A run's artifacts live in `.ferrule/runs/<slug>/`, its worktree in `.ferrule/worktrees/<slug>/`.
+The board lives in `.ferrule/state.db` (`SQLite`) in the main checkout; commands run inside a git worktree reach the same database through `git rev-parse --git-common-dir`. `FERRULE_NOW` overrides the log timestamp. A run's artifacts live in `.ferrule/runs/<slug>/`, its worktree in `.ferrule/worktrees/<slug>/`. A slug is ASCII letters, digits, `-`, `_` and single dots, starts with a letter or digit, is at most 64 bytes and never ends in `.`, `.lock` or `.s<n>`; every command refuses another as a usage error (exit 2).
 
 `.ferrule/ferrule.toml` holds what differs between projects; every key is optional:
 

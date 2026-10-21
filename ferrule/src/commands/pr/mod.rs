@@ -1,5 +1,6 @@
 mod feedback;
 
+use ferrule_core::card::board::Slug;
 use std::io::{self, Write};
 use std::path::Path;
 
@@ -215,7 +216,7 @@ pub enum PrCommand {
     #[command(after_long_help = PR_BODY_AFTER_LONG_HELP)]
     Body {
         /// The run's slug.
-        slug: String,
+        slug: Slug,
         /// Which body to assemble.
         form: BodyForm,
     },
@@ -223,7 +224,7 @@ pub enum PrCommand {
     #[command(after_long_help = PR_OPEN_AFTER_LONG_HELP)]
     Open {
         /// The run's slug.
-        slug: String,
+        slug: Slug,
     },
     /// Push the run's branch and update or open the draft PR.
     ///
@@ -233,7 +234,7 @@ pub enum PrCommand {
     Push {
         /// The run's slug; omitted with `--no-run`.
         #[arg(required_unless_present = "no_run", conflicts_with = "no_run")]
-        slug: Option<String>,
+        slug: Option<Slug>,
         /// Push the current branch outside a run, never the main one.
         #[arg(long)]
         no_run: bool,
@@ -246,7 +247,7 @@ pub enum PrCommand {
     #[command(after_long_help = PR_PUBLISH_AFTER_LONG_HELP)]
     Publish {
         /// The run's slug.
-        slug: String,
+        slug: Slug,
         /// The follow-ups to file: `1,3`, or `none` [default: all].
         #[arg(long, value_name = "LIST")]
         follow_ups: Option<String>,

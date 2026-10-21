@@ -840,3 +840,43 @@ fn internal_errors_exit_4() {
     assert_eq!(out.status.code(), Some(4), "{err}");
     assert!(err.starts_with("ferrule: state database: "), "{err}");
 }
+
+#[test]
+fn it_refuses_a_slug_that_is_no_path_segment() {
+    let s = Scratch::new(1);
+    let outside = s.root.join("sentinel");
+    std::fs::create_dir(&outside).unwrap();
+    for slug in ["..", "../../evil", "a/b", ".", "fix.s2", "-x", "a b", ""] {
+        let card = format!("{slug}.s1");
+        for args in [
+            vec!["run", "init", "--", slug],
+            vec!["run", "cleanup", "--", slug],
+            vec!["run", "status", "--", slug],
+            vec!["board", "new", "--", &card],
+        ] {
+            let out = s.run(&args).output();
+            assert_eq!(out.status.code(), Some(2), "{args:?}");
+        }
+    }
+    assert!(outside.is_dir());
+    assert!(s.root.join(".ferrule/state.db").is_file());
+    assert!(!s.root.join("evil").exists());
+}
+
+#[test]
+fn it_cleanup_archives_no_symlink() {
+    let s = pushed_run();
+    let run_dir = s.root.join(".ferrule/runs/demo");
+    std::fs::create_dir_all(&run_dir).unwrap();
+    let secret = s.root.join("secret.txt");
+    std::fs::write(&secret, "secret\n").unwrap();
+    std::os::unix::fs::symlink(&secret, run_dir.join("link.md")).unwrap();
+    std::os::unix::fs::symlink(&s.root, run_dir.join("loop")).unwrap();
+    seed_log(&s.root, NOW, "demo", &["ci=0"]);
+    assert_eq!(s.say(&["run", "cleanup", "demo"]), "cleanup=done archive=1");
+    let to = s.root.join("out");
+    s.say(&["run", "export", "demo", "--to", to.to_str().unwrap()]);
+    assert!(!to.join("link.md").exists());
+    assert!(secret.is_file());
+    assert!(s.root.join(".git").is_dir());
+}

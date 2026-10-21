@@ -171,14 +171,16 @@ pub fn entry_files(specs: &Path) -> io::Result<Vec<(String, EntryFile, PathBuf)>
     Ok(out)
 }
 
-/// Every `*.md` file below `dir`, in path order.
+/// Every `*.md` file below `dir`, in path order. A symbolic link to a
+/// directory is not followed, so a link to an ancestor cannot loop.
 pub fn markdown_files(dir: &Path) -> io::Result<Vec<PathBuf>> {
     let mut out = Vec::new();
     let mut pending = vec![dir.to_path_buf()];
     while let Some(next) = pending.pop() {
         for entry in std::fs::read_dir(&next)? {
-            let path = entry?.path();
-            if path.is_dir() {
+            let entry = entry?;
+            let path = entry.path();
+            if entry.file_type()?.is_dir() {
                 pending.push(path);
             } else if path.extension().is_some_and(|e| e == "md") {
                 out.push(path);

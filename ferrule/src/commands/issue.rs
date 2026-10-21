@@ -1,3 +1,4 @@
+use ferrule_core::card::board::Slug;
 use std::io::{self, Write};
 
 use clap::{Args, Subcommand};
@@ -243,7 +244,7 @@ pub enum IssueCommand {
     #[command(after_long_help = ISSUE_BODY_AFTER_LONG_HELP)]
     Body {
         /// The run's slug.
-        slug: String,
+        slug: Slug,
         /// Slice n's own issue instead.
         #[arg(long, value_name = "N")]
         slice: Option<u32>,
@@ -254,7 +255,7 @@ pub enum IssueCommand {
     #[command(after_long_help = ISSUE_POST_AFTER_LONG_HELP)]
     Post {
         /// The run's slug.
-        slug: String,
+        slug: Slug,
         #[command(flatten)]
         target: FileTarget,
         /// Reuse issue n as the tracking issue: its title and body are

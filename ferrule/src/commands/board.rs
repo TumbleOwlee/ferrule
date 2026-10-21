@@ -1,3 +1,4 @@
+use ferrule_core::card::board::Slug;
 use std::fmt::Write as _;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -349,7 +350,7 @@ pub enum BoardCommand {
     #[command(after_long_help = EVENTS_AFTER_LONG_HELP)]
     Events {
         /// The run's slug.
-        slug: String,
+        slug: Slug,
         /// Only the lines of this event, e.g. `follow-up` or `spec-delta`.
         #[arg(long, value_name = "NAME")]
         event: Option<String>,
@@ -361,6 +362,7 @@ pub enum BoardCommand {
     #[command(after_long_help = SHOW_AFTER_LONG_HELP)]
     Show {
         /// Card id: `<slug>` or `<slug>.s<n>`.
+        #[arg(value_parser = ferrule_core::card::board::parse_card_id)]
         card: String,
         /// Only the frontmatter fields.
         #[arg(long, conflicts_with_all = ["log", "last", "event"])]
@@ -379,6 +381,7 @@ pub enum BoardCommand {
     #[command(after_long_help = FIELD_AFTER_LONG_HELP)]
     Field {
         /// Card id: `<slug>` or `<slug>.s<n>`.
+        #[arg(value_parser = ferrule_core::card::board::parse_card_id)]
         card: String,
         /// A frontmatter field, `log:<key>` (the last `<key>=` in the log),
         /// `pass-sha` (the sha of the last `gauntlet=pass`) or `state`.
@@ -388,6 +391,7 @@ pub enum BoardCommand {
     #[command(after_long_help = NEW_AFTER_LONG_HELP)]
     New {
         /// Card id: `<slug>` or `<slug>.s<n>`.
+        #[arg(value_parser = ferrule_core::card::board::parse_card_id)]
         card: String,
         /// The state the card starts in.
         #[arg(long, value_enum, default_value_t = CardState::Open)]
@@ -400,6 +404,7 @@ pub enum BoardCommand {
     #[command(after_long_help = SET_AFTER_LONG_HELP)]
     Set {
         /// Card id: `<slug>` or `<slug>.s<n>`.
+        #[arg(value_parser = ferrule_core::card::board::parse_card_id)]
         card: String,
         /// Frontmatter fields, `key=value` each; `key=` removes one.
         #[arg(required = true, value_name = "KEY=VALUE")]
@@ -409,6 +414,7 @@ pub enum BoardCommand {
     #[command(after_long_help = MOVE_AFTER_LONG_HELP)]
     Move {
         /// Card id: `<slug>` or `<slug>.s<n>`.
+        #[arg(value_parser = ferrule_core::card::board::parse_card_id)]
         card: String,
         /// The state to move to.
         state: CardState,
@@ -420,6 +426,7 @@ pub enum BoardCommand {
     #[command(after_long_help = LOG_AFTER_LONG_HELP)]
     Log {
         /// Card id: `<slug>` or `<slug>.s<n>`.
+        #[arg(value_parser = ferrule_core::card::board::parse_card_id)]
         card: String,
         /// `<name>` or `<name>=<value>`; `board vocab` lists them.
         event: String,
@@ -757,6 +764,7 @@ fn new(card: &str, st: State, fields: &[String], out: &mut impl Write) -> io::Re
         }
         Err(CardError::Field(k)) => refuse(out, &bad_key("card-new", &k, card)),
         Err(CardError::Card) => unreachable!("create never looks a card up"),
+        Err(CardError::Id) => unreachable!("the card id was checked when parsed"),
         Err(CardError::Sql(e)) => Err(internal(e)),
     }
 }
@@ -773,7 +781,7 @@ fn set(card: &str, fields: &[String], out: &mut impl Write) -> io::Result<u8> {
         Ok(()) => Ok(exit::OK),
         Err(CardError::Card) => refuse(out, &Refusal::card("card-set")),
         Err(CardError::Field(k)) => refuse(out, &bad_key("card-set", &k, card)),
-        Err(CardError::Exists) => unreachable!("set never creates a card"),
+        Err(CardError::Exists | CardError::Id) => unreachable!("set never creates a card"),
         Err(CardError::Sql(e)) => Err(internal(e)),
     }
 }

@@ -5,6 +5,7 @@
 //! (`<!-- s1 blocked-by s0 -->`); a ticked line is a landed stage with its
 //! commit in parentheses.
 
+use std::collections::HashSet;
 use std::fmt::Write as _;
 use std::path::Path;
 
@@ -27,9 +28,11 @@ pub enum Refused {
     Sha(String),
     /// A ticked stage names no commit.
     NoSha(String),
-    /// The branch is not `<prefix>/<slug>`: the slug would be empty or hold
-    /// a slash.
+    /// The branch is not `<prefix>/<slug>` with a valid slug.
     BadBranch(String),
+    /// A `## Stages` line names a stage that is not `s<n>`, one named
+    /// twice, or blocks on one that is not `s<n>`.
+    BadStage(String),
     Worktree(git::GitError),
 }
 
@@ -46,6 +49,7 @@ impl Refused {
             Refused::Sha(_) => "sha",
             Refused::NoSha(_) => "no-sha",
             Refused::BadBranch(_) => "bad-branch",
+            Refused::BadStage(_) => "bad-stage",
             Refused::Worktree(_) => "worktree",
         };
         let hint = match self {
@@ -61,7 +65,10 @@ impl Refused {
                 "tick the stage as `- [x] <title> (<sha>) <!-- s<n> -->` with its commit, or untick it"
             }
             Refused::BadBranch(_) => {
-                "name the branch `<prefix>/<slug>` with a slug without slashes, e.g. feat/<slug>"
+                "name the branch `<prefix>/<slug>`, the slug letters, digits, -, _ and single dots, e.g. feat/<slug>"
+            }
+            Refused::BadStage(_) => {
+                "mark each `## Stages` line once with `<!-- s<n> -->`, blocking only on `s<n>` stages"
             }
             Refused::Worktree(_) => "git could not add the worktree; check `git worktree list`",
         };
@@ -69,7 +76,7 @@ impl Refused {
         if let Refused::Sha(sha) = self {
             r = r.field("sha", sha);
         }
-        if let Refused::NoSha(stage) = self {
+        if let Refused::NoSha(stage) | Refused::BadStage(stage) = self {
             r = r.field("stage", stage);
         }
         if let Refused::BadBranch(branch) = self {
@@ -316,14 +323,33 @@ fn spec_entries(root: &Path, main: &str, branch: &str) -> Vec<String> {
     out
 }
 
-/// The run's slug from its branch `<prefix>/<slug>`; a slug is one path
-/// segment, so an empty one or one with a slash is refused.
+/// The run's slug from its branch `<prefix>/<slug>`; one that is no
+/// [`board::valid_slug`] is refused.
 fn slug_of(branch: &str) -> Result<String, Refused> {
     let slug = branch.split_once('/').map_or(branch, |(_, s)| s);
-    if slug.is_empty() || slug.contains('/') {
+    if !board::valid_slug(slug) {
         return Err(Refused::BadBranch(branch.to_owned()));
     }
     Ok(slug.to_owned())
+}
+
+/// Every stage is `s<n>`, named once, and blocks only on `s<n>` stages;
+/// checked before anything is written.
+fn check_stages(st: &[Stage]) -> Result<(), Refused> {
+    let sid = |d: &str| {
+        d.strip_prefix('s')
+            .is_some_and(|n| n.parse::<u32>().is_ok())
+    };
+    let mut seen = HashSet::new();
+    for s in st {
+        if !sid(&s.sid) || !seen.insert(s.sid.as_str()) {
+            return Err(Refused::BadStage(s.sid.clone()));
+        }
+        if let Some(d) = s.blocked_by.iter().find(|d| !sid(d)) {
+            return Err(Refused::BadStage(d.clone()));
+        }
+    }
+    Ok(())
 }
 
 /// Recreates the board of the run on `pr`'s branch, `issue` its tracking
@@ -359,6 +385,7 @@ pub fn rebuild(
     if st.is_empty() {
         return Err(Refused::NoStages.into());
     }
+    check_stages(&st)?;
     for s in st.iter().filter(|s| s.done) {
         let sha = s.sha.clone().ok_or_else(|| Refused::NoSha(s.sid.clone()))?;
         if !git::ok(root, &["cat-file", "-e", &format!("{sha}^{{commit}}")]) {

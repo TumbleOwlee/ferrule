@@ -1,3 +1,4 @@
+use ferrule_core::card::board::Slug;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -175,7 +176,7 @@ pub enum PromptKind {
 #[derive(Debug, Args)]
 pub struct PromptRenderArgs {
     /// The run's slug.
-    pub slug: String,
+    pub slug: Slug,
     /// The stop to render; each flag below names the kinds it applies to.
     pub kind: PromptKind,
     /// stage, auto, blocked, delta: the stage, `s<n>`.

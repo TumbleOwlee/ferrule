@@ -75,6 +75,95 @@ impl<'a> CardId<'a> {
             stage: None,
         }
     }
+
+    /// Whether the run part is a [`valid_slug`]; a parent card whose id
+    /// reads as a stage (`fix.s2`) is caught by the parse itself.
+    #[must_use]
+    pub fn valid(&self) -> bool {
+        valid_slug(self.run)
+    }
+}
+
+/// The longest slug a run takes.
+pub const SLUG_MAX: usize = 64;
+
+/// Whether `s` can name a run: ASCII letters, digits, `-`, `_` and `.`,
+/// starting with a letter or digit, at most [`SLUG_MAX`] bytes. A slug
+/// becomes a directory under `.ferrule/runs/`, a branch name and a card id,
+/// so it holds no slash, no `..`, does not end in `.` or `.lock`, and does
+/// not end in `.s<n>`, which would read as a stage card.
+#[must_use]
+pub fn valid_slug(s: &str) -> bool {
+    s.len() <= SLUG_MAX
+        && s.bytes().next().is_some_and(|b| b.is_ascii_alphanumeric())
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+        && !s.contains("..")
+        && !s.ends_with('.')
+        && !s.to_ascii_lowercase().ends_with(".lock")
+        && CardId::parse(s).stage.is_none()
+}
+
+/// The `hint=` of a refused slug.
+pub const SLUG_HINT: &str = "a slug is letters, digits, -, _ and single dots, starting with a letter or digit, at most 64 bytes, never ending in .s<n>";
+
+/// A run's slug, checked by [`valid_slug`]; commands parse their slug
+/// arguments into one so no path or branch is built from another.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Slug(String);
+
+impl Slug {
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::str::FromStr for Slug {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if valid_slug(s) {
+            Ok(Slug(s.to_owned()))
+        } else {
+            Err(SLUG_HINT.to_owned())
+        }
+    }
+}
+
+impl std::ops::Deref for Slug {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl AsRef<str> for Slug {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl AsRef<Path> for Slug {
+    fn as_ref(&self) -> &Path {
+        Path::new(&self.0)
+    }
+}
+
+impl fmt::Display for Slug {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// A card id argument: a [`valid_slug`], or one followed by `.s<n>`.
+pub fn parse_card_id(s: &str) -> Result<String, String> {
+    if CardId::parse(s).valid() {
+        Ok(s.to_owned())
+    } else {
+        Err(format!("a card id is <slug> or <slug>.s<n>; {SLUG_HINT}"))
+    }
 }
 
 /// Frontmatter keys a parent card may carry; `id` is the card's own.
@@ -519,6 +608,8 @@ pub enum CardError {
     Field(String),
     /// The card exists already.
     Exists,
+    /// An id whose run part is no [`valid_slug`].
+    Id,
     Sql(rusqlite::Error),
 }
 
@@ -526,6 +617,7 @@ impl fmt::Display for CardError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             CardError::Card => f.write_str("no such card"),
+            CardError::Id => write!(f, "not a card id: {SLUG_HINT}"),
             CardError::Field(k) => write!(f, "the card's kind does not carry {k}"),
             CardError::Exists => f.write_str("the card exists already"),
             CardError::Sql(e) => write!(f, "state database: {e}"),
@@ -537,7 +629,7 @@ impl std::error::Error for CardError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             CardError::Sql(e) => Some(e),
-            CardError::Card | CardError::Field(_) | CardError::Exists => None,
+            CardError::Card | CardError::Field(_) | CardError::Exists | CardError::Id => None,
         }
     }
 }
@@ -677,6 +769,9 @@ fn insert(
     now: &str,
 ) -> Result<(), CardError> {
     let card = CardId::parse(id);
+    if !card.valid() {
+        return Err(CardError::Id);
+    }
     if let Some((k, _)) = fields.iter().find(|(k, _)| !allowed(&card, k)) {
         return Err(CardError::Field(k.clone()));
     }
@@ -1238,6 +1333,7 @@ pub fn import(conn: &mut Connection, board: &Path, now: &str) -> Result<usize, I
             Err(CardError::Field(k)) => {
                 return Err(bad(format!("unknown frontmatter key {k}")));
             }
+            Err(CardError::Id) => return Err(bad(format!("{id} is not a card id: {SLUG_HINT}"))),
             Err(CardError::Sql(e)) => return Err(ImportError::Sql(e)),
             Err(CardError::Card) => unreachable!("insert never looks a card up by id"),
         }
@@ -1369,6 +1465,45 @@ mod tests {
 
     fn raw(s: &Store, card: &str, at: &str, body: &str) {
         insert_body(&s.conn, card, at, body);
+    }
+
+    #[test]
+    fn ut_slug_is_one_plain_path_segment() {
+        for ok in [
+            "demo",
+            "add-backoff",
+            "a_1",
+            "7",
+            "my.slug",
+            &"x".repeat(SLUG_MAX),
+        ] {
+            assert!(valid_slug(ok), "{ok}");
+        }
+        for bad in [
+            "",
+            ".",
+            "..",
+            "../x",
+            "a/b",
+            "a..b",
+            "a.",
+            "a.lock",
+            "-x",
+            "_x",
+            "a b",
+            "fix.s2",
+            "é",
+            &"x".repeat(SLUG_MAX + 1),
+        ] {
+            assert!(!valid_slug(bad), "{bad}");
+        }
+        assert!(parse_card_id("demo.s3").is_ok());
+        assert!(parse_card_id("../x.s3").is_err());
+        let mut s = store();
+        assert!(matches!(
+            create(&mut s.conn, "../x", State::Open, &[], "t"),
+            Err(CardError::Id)
+        ));
     }
 
     #[test]

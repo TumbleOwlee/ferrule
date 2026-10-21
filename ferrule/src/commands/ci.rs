@@ -1,5 +1,6 @@
 //! `ferrule ci`: checks of the code, local and remote.
 
+use ferrule_core::card::board::Slug;
 use std::io::{self, Write};
 
 use clap::Subcommand;
@@ -81,7 +82,7 @@ pub enum CiCommand {
     #[command(after_long_help = GAUNTLET_AFTER_LONG_HELP)]
     Gauntlet {
         /// The run's slug.
-        slug: String,
+        slug: Slug,
         /// Run even when this tree passed before.
         #[arg(long)]
         force: bool,
@@ -92,7 +93,7 @@ pub enum CiCommand {
     #[command(after_long_help = WAIT_AFTER_LONG_HELP)]
     Wait {
         /// The run's slug.
-        slug: String,
+        slug: Slug,
     },
     /// Print the error lines of a failed CI run.
     ///

@@ -1,5 +1,6 @@
 //! `ferrule gate`: approvals, and the step after an agent reports.
 
+use ferrule_core::card::board::Slug;
 use std::io::{self, Write};
 
 use clap::{Args, Subcommand, ValueEnum};
@@ -159,7 +160,7 @@ pub enum GateCommand {
     #[command(after_long_help = NEXT_AFTER_LONG_HELP)]
     Next {
         /// The run's slug.
-        slug: String,
+        slug: Slug,
         /// Where the run is: the step whose agent wrote the status line.
         #[arg(value_enum)]
         position: NextAt,
@@ -198,7 +199,7 @@ pub enum GateName {
 #[derive(Debug, Args)]
 pub struct ApproveArgs {
     /// The run's slug.
-    pub slug: String,
+    pub slug: Slug,
     /// The gate the user approved.
     pub gate: GateName,
     /// The lane the user settled on, recorded on the card.

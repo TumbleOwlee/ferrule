@@ -289,3 +289,30 @@ fn it_rebuild_refuses_a_nested_branch_name() {
     }
     assert!(!r.root.join(".ferrule/runs/rb").exists());
 }
+
+#[test]
+fn it_rebuild_refuses_a_bad_stage_before_the_worktree() {
+    for (from, to, stage) in [
+        ("<!-- s1 blocked", "<!-- stage blocked", "stage"),
+        ("<!-- s2 blocked", "<!-- s1 blocked", "s1"),
+        ("blocked-by s1 -->", "blocked-by none -->", "none"),
+    ] {
+        let r = Repo::new();
+        let worktrees = git(&r.root, &["worktree", "list"]);
+        let text = std::fs::read_to_string(fixtures().join("pr/rebuild.txt"))
+            .unwrap()
+            .replace("SHA0", &r.sha0)
+            .replace("SHA1", &r.sha1)
+            .replace(from, to);
+        r.gh.serve(&["pr", "view", "22", "--json", GH_FIELDS], &gh_json(&text));
+        let refused = r.rebuild();
+        assert!(
+            refused.starts_with(&format!(
+                "rebuild=refused reason=bad-stage stage={stage} hint=mark each"
+            )),
+            "{refused}"
+        );
+        assert_eq!(git(&r.root, &["worktree", "list"]), worktrees);
+        assert!(!r.root.join(".ferrule/runs/rb").exists());
+    }
+}
