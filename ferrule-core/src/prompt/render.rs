@@ -84,8 +84,9 @@ pub enum Viewed {
 pub enum Error {
     Usage,
     Card,
-    /// The viewer step refused (a summary over its cap): its exit code.
-    Show(u8),
+    /// The viewer step refused (a file unreadable, a summary over its
+    /// cap); it reported why and answers its own exit code.
+    Show,
     Sql(rusqlite::Error),
 }
 
@@ -94,7 +95,7 @@ impl std::fmt::Display for Error {
         match self {
             Error::Usage => f.write_str("the arguments lack what this prompt needs"),
             Error::Card => f.write_str("the run has no card"),
-            Error::Show(code) => write!(f, "the viewer step refused (exit {code})"),
+            Error::Show => f.write_str("the viewer step refused"),
             Error::Sql(e) => write!(f, "state database: {e}"),
         }
     }
@@ -104,7 +105,7 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Error::Sql(e) => Some(e),
-            Error::Usage | Error::Card | Error::Show(_) => None,
+            Error::Usage | Error::Card | Error::Show => None,
         }
     }
 }
@@ -421,27 +422,27 @@ impl Run<'_> {
 /// render's own connection.
 fn viewer_note(
     run: &mut Run,
-    view: &mut dyn FnMut(&[PathBuf]) -> Result<Viewed, u8>,
+    view: &mut dyn FnMut(&[PathBuf]) -> Option<Viewed>,
     show: &[PathBuf],
 ) -> Result<Option<String>, Error> {
     if show.is_empty() {
         return Ok(None);
     }
     let viewed = view(show);
-    if viewed.is_ok() {
+    if viewed.is_some() {
         approval::record_in(run.conn, run.layout, show, run.now)?;
     }
     match viewed {
-        Ok(Viewed::Opened) => Ok(None),
-        Ok(Viewed::Failed) => Ok(Some("Viewer: failed — open the files manually".to_owned())),
-        Ok(Viewed::Unavailable(paths)) => {
+        Some(Viewed::Opened) => Ok(None),
+        Some(Viewed::Failed) => Ok(Some("Viewer: failed — open the files manually".to_owned())),
+        Some(Viewed::Unavailable(paths)) => {
             let paths: Vec<String> = paths.iter().map(|p| p.display().to_string()).collect();
             Ok(Some(format!(
                 "Viewer: none available — open manually: {}",
                 paths.join(" ")
             )))
         }
-        Err(code) => Err(Error::Show(code)),
+        None => Err(Error::Show),
     }
 }
 
@@ -477,7 +478,7 @@ pub fn render(
     slug: &str,
     args: &[(String, String)],
     now: &str,
-    view: &mut dyn FnMut(&[PathBuf]) -> Result<Viewed, u8>,
+    view: &mut dyn FnMut(&[PathBuf]) -> Option<Viewed>,
 ) -> Result<Vec<String>, Error> {
     render_in(db.conn_mut(), layout, kind, slug, args, now, view)
 }
@@ -490,7 +491,7 @@ pub(crate) fn render_in(
     slug: &str,
     args: &[(String, String)],
     now: &str,
-    view: &mut dyn FnMut(&[PathBuf]) -> Result<Viewed, u8>,
+    view: &mut dyn FnMut(&[PathBuf]) -> Option<Viewed>,
 ) -> Result<Vec<String>, Error> {
     if board::state(conn, slug)?.is_none() {
         return Err(Error::Card);

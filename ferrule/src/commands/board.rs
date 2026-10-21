@@ -806,8 +806,8 @@ fn new(card: &str, st: State, fields: &[String], out: &mut impl Write) -> io::Re
             refuse(out, &Refusal::new("card-new", "exists").hint(HINT_EXISTS))
         }
         Err(CardError::Field(k)) => refuse(out, &bad_key("card-new", &k, card)),
-        Err(CardError::Card) => unreachable!("create never looks a card up"),
-        Err(CardError::Id) => unreachable!("the card id was checked when parsed"),
+        // Create looks no card up, and the id was checked when parsed.
+        Err(e @ (CardError::Card | CardError::Id)) => Err(internal(e)),
         Err(CardError::Sql(e)) => Err(internal(e)),
     }
 }
@@ -827,7 +827,8 @@ fn set(card: &str, fields: &[String], out: &mut impl Write) -> io::Result<u8> {
         Ok(()) => Ok(exit::OK),
         Err(CardError::Card) => refuse(out, &Refusal::card("card-set")),
         Err(CardError::Field(k)) => refuse(out, &bad_key("card-set", &k, card)),
-        Err(CardError::Exists | CardError::Id) => unreachable!("set never creates a card"),
+        // Set creates no card.
+        Err(e @ (CardError::Exists | CardError::Id)) => Err(internal(e)),
         Err(CardError::Sql(e)) => Err(internal(e)),
     }
 }

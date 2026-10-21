@@ -8,7 +8,8 @@ use serde::Deserialize;
 use super::host::{Checks, CodeHost, PrState, PrStatus, comment_id};
 use super::tracker::{FIND_LIMIT, Found, IssueTracker, SearchState, title_query};
 use super::{
-    Error, GH_FIELDS, GhItem, Item, ItemRef, Query, json, number_of, pick_job, run, run_bounded,
+    Error, GH_FIELDS, GhItem, Item, ItemRef, MAX_PAGES, Query, json, number_of, pick_job, run,
+    run_bounded,
 };
 use super::{Fetched, Thread};
 
@@ -729,9 +730,6 @@ impl Gh {
         )
     }
 }
-
-/// The most pages of threads or of one thread's comments read.
-const MAX_PAGES: usize = 200;
 
 /// Every review thread of the PR and, in each, every comment: pages are
 /// followed while `pageInfo` says more. `threads(after)` and

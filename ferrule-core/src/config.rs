@@ -14,8 +14,9 @@ pub const FILE: &str = "ferrule.toml";
 pub struct Config {
     /// The ferrule version the project is pinned to.
     pub version: Option<String>,
-    /// Agent hosts `ferrule setup install` renders for.
-    pub hosts: Vec<String>,
+    /// `hosts`, which earlier versions wrote and nothing reads.
+    #[serde(rename = "hosts")]
+    legacy_hosts: Ignored,
     /// The project's stack, detected at install.
     pub stack: Option<String>,
     /// The branch runs merge into.
@@ -28,11 +29,22 @@ pub struct Config {
     pub thresholds: Thresholds,
 }
 
+/// A value accepted and dropped, so a key nothing reads any more still
+/// loads under `deny_unknown_fields`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Ignored;
+
+impl<'de> Deserialize<'de> for Ignored {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        serde::de::IgnoredAny::deserialize(d).map(|_| Ignored)
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Config {
             version: None,
-            hosts: vec!["claude".to_owned()],
+            legacy_hosts: Ignored,
             stack: None,
             main_branch: "main".to_owned(),
             backend: Backend::default(),

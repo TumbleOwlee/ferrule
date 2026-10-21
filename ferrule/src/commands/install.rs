@@ -11,7 +11,7 @@ use crate::commands::hook::HookCommand;
 /// Shown after `ferrule setup install --help`.
 const INSTALL_AFTER_LONG_HELP: &str = "\
 Output:
-  install=done version=<v> host=<h> stack=<s> viewer=<glow|stdout> hooks=<k> written=<n> kept=<n>
+  install=done version=<v> stack=<s> viewer=<glow|stdout> hooks=<k> written=<n> kept=<n>
       Summary. stack is `unknown` when the existing ferrule.toml names none;
       hooks is lefthook, git or manual.
   written=<path>
@@ -87,11 +87,7 @@ pub enum SetupCommand {
     ///
     /// Writes nothing; fails when a file drifted.
     #[command(after_long_help = CHECK_AFTER_LONG_HELP)]
-    Check {
-        /// The agent host whose files to check.
-        #[arg(long, default_value = "claude", value_parser = ["claude"])]
-        host: String,
-    },
+    Check,
     /// Remove what `setup install` added.
     ///
     /// Keeps `.ferrule/` (the board and every run's files) unless `--purge`.
@@ -105,9 +101,6 @@ pub enum SetupCommand {
 
 #[derive(Debug, Args)]
 pub struct InstallArgs {
-    /// The agent host to write files for.
-    #[arg(long, default_value = "claude", value_parser = ["claude"])]
-    pub host: String,
     /// The stack for a new `ferrule.toml` [default: detected].
     #[arg(long, value_parser = ["rust", "node", "go", "python", "none"])]
     pub stack: Option<String>,
@@ -142,9 +135,8 @@ pub fn pinned(command: &Command) -> Option<u8> {
 pub fn run(command: &SetupCommand, out: &mut impl Write) -> io::Result<u8> {
     match command {
         SetupCommand::Install(args) => install(args, out),
-        SetupCommand::Check { host } => install(
+        SetupCommand::Check => install(
             &InstallArgs {
-                host: host.clone(),
                 stack: None,
                 check: true,
                 force: false,
@@ -187,8 +179,7 @@ fn install(args: &InstallArgs, out: &mut impl Write) -> io::Result<u8> {
     };
     writeln!(
         out,
-        "install=done version={VERSION} host={} stack={} viewer={} hooks={} written={} kept={}",
-        args.host,
+        "install=done version={VERSION} stack={} viewer={} hooks={} written={} kept={}",
         report.stack.map_or("unknown", Stack::as_str),
         if report.viewer { "glow" } else { "stdout" },
         report.hooks.map_or("manual", |h| h.as_str()),

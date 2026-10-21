@@ -126,10 +126,7 @@ impl Jira {
     }
 
     fn unsupported(&self, op: &'static str) -> Error {
-        Error::Unsupported {
-            host: IssueTracker::name(self),
-            op,
-        }
+        Error::unsupported(IssueTracker::name(self), op)
     }
 }
 

@@ -99,10 +99,7 @@ impl Bitbucket {
     }
 
     fn unsupported(&self, op: &'static str) -> Error {
-        Error::Unsupported {
-            host: self.name(),
-            op,
-        }
+        Error::unsupported(self.name(), op)
     }
 }
 

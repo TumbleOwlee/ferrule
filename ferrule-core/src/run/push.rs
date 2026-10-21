@@ -87,8 +87,16 @@ impl std::fmt::Display for PushRefused {
 pub struct Pushed {
     pub sha: String,
     pub cached: bool,
-    /// The draft body's sync, or the PR opened by this first push.
-    pub body: Result<Sync, u64>,
+    pub body: Body,
+}
+
+/// What a push did to the draft PR.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Body {
+    /// The run had a PR: its body's sync.
+    Synced(Sync),
+    /// The first push opened PR `n` (or adopted the branch's open one).
+    Opened(u64),
 }
 
 impl std::fmt::Display for Pushed {
@@ -98,8 +106,8 @@ impl std::fmt::Display for Pushed {
             f.write_str(" cached")?;
         }
         match &self.body {
-            Ok(sync) => write!(f, " {sync}"),
-            Err(n) => write!(f, " pr-body=opened pr={n}"),
+            Body::Synced(sync) => write!(f, " {sync}"),
+            Body::Opened(n) => write!(f, " pr-body=opened pr={n}"),
         }
     }
 }
@@ -170,8 +178,8 @@ impl Run<'_> {
             &[format!("cov={cov}"), format!("sha={sha}")],
         )?;
         let body = match self.sync_draft()? {
-            Some(sync) => Ok(sync),
-            None => Err(self.open_pr()?.0),
+            Some(sync) => Body::Synced(sync),
+            None => Body::Opened(self.open_pr()?.0),
         };
         Ok(Ok(Pushed { sha, cached, body }))
     }

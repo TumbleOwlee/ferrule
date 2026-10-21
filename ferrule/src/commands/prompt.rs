@@ -418,12 +418,17 @@ fn render(args: &PromptRenderArgs, out: &mut impl Write) -> io::Result<u8> {
         return refuse(out, &Refusal::card("render"));
     };
     let layout = Layout::new(project::main_checkout());
-    let mut view = |files: &[PathBuf]| -> Result<Viewed, u8> {
+    // The exit code of a viewer step that refused.
+    let mut refused = exit::REFUSED;
+    let mut view = |files: &[PathBuf]| -> Option<Viewed> {
         // Core render records what was shown on its own connection.
         let shown = match open(files, "prompt render", false, &mut io::stderr()) {
             Ok(Ok(s)) => s,
-            Ok(Err(code)) => return Err(code),
-            Err(_) => return Ok(Viewed::Failed),
+            Ok(Err(code)) => {
+                refused = code;
+                return None;
+            }
+            Err(_) => return Some(Viewed::Failed),
         };
         for (_, how, _) in &shown {
             if let Shown::Failed(why) = how {
@@ -434,19 +439,19 @@ fn render(args: &PromptRenderArgs, out: &mut impl Write) -> io::Result<u8> {
             .iter()
             .any(|(_, how, _)| matches!(how, Shown::Failed(_)))
         {
-            Ok(Viewed::Failed)
+            Some(Viewed::Failed)
         } else if shown
             .iter()
             .all(|(_, how, _)| matches!(how, Shown::Viewer(_)))
         {
-            Ok(Viewed::Opened)
+            Some(Viewed::Opened)
         } else {
-            Ok(Viewed::Unavailable(
+            Some(Viewed::Unavailable(
                 shown.into_iter().map(|(p, _, _)| p).collect(),
             ))
         }
     };
-    match prompt::render::render(
+    let rendered = prompt::render::render(
         &mut s,
         &layout,
         kind,
@@ -454,7 +459,8 @@ fn render(args: &PromptRenderArgs, out: &mut impl Write) -> io::Result<u8> {
         &pairs,
         &board::now(),
         &mut view,
-    ) {
+    );
+    match rendered {
         Ok(lines) => {
             for l in lines {
                 writeln!(out, "{l}")?;
@@ -466,7 +472,7 @@ fn render(args: &PromptRenderArgs, out: &mut impl Write) -> io::Result<u8> {
             Ok(exit::USAGE)
         }
         Err(prompt::render::Error::Card) => refuse(out, &Refusal::card("render")),
-        Err(prompt::render::Error::Show(code)) => Ok(code),
+        Err(prompt::render::Error::Show) => Ok(refused),
         Err(prompt::render::Error::Sql(e)) => Err(internal(e)),
     }
 }

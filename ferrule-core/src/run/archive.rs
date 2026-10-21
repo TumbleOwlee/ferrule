@@ -145,18 +145,6 @@ impl From<std::io::Error> for Error {
     }
 }
 
-/// `YYYY-MM-DDTHH:MM` at the start of a log line.
-fn is_stamp(at: &str) -> bool {
-    let b = at.as_bytes();
-    b.len() == 16
-        && b.iter().enumerate().all(|(i, &c)| match i {
-            4 | 7 => c == b'-',
-            10 => c == b'T',
-            13 => c == b':',
-            _ => c.is_ascii_digit(),
-        })
-}
-
 /// Lines that `pick` keeps.
 fn count(events: &[Event], pick: impl Fn(Typed) -> bool) -> usize {
     events.iter().filter(|e| pick(e.typed())).count()
@@ -209,13 +197,13 @@ pub fn metrics(w: &Writer<'_>, slug: &str, now: &str) -> Result<String, Error> {
         .iter()
         .chain(&stage_events)
         .map(|e| e.at.as_str())
-        .filter(|at| is_stamp(at))
+        .filter(|at| board::valid_stamp(at))
         .min()
         .unwrap_or("-")
         .to_owned();
     let first_red = stage_events
         .iter()
-        .filter(|e| is_stamp(&e.at) && e.typed() == Typed::TestRed)
+        .filter(|e| board::valid_stamp(&e.at) && e.typed() == Typed::TestRed)
         .map(|e| e.at.as_str())
         .min()
         .unwrap_or("-");
@@ -577,8 +565,8 @@ mod tests {
 
     #[test]
     fn ut_stamps() {
-        assert!(is_stamp("2026-10-04T11:50"));
-        assert!(!is_stamp("2026-10-04"));
+        assert!(board::valid_stamp("2026-10-04T11:50"));
+        assert!(!board::valid_stamp("2026-10-04"));
     }
 
     #[test]

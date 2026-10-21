@@ -48,7 +48,7 @@ fn it_install_writes_the_adapters_and_is_idempotent() {
     let first = out.lines().next().unwrap();
     assert!(
         first.starts_with(&format!(
-            "install=done version={VERSION} host=claude stack=rust viewer="
+            "install=done version={VERSION} stack=rust viewer="
         )),
         "{out}"
     );

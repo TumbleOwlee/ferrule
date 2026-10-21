@@ -57,6 +57,11 @@ pub enum Error {
 }
 
 impl Error {
+    /// `op` is not implemented for `host` yet.
+    pub(crate) fn unsupported(host: &'static str, op: &'static str) -> Self {
+        Error::Unsupported { host, op }
+    }
+
     /// The `<verb>=refused` line a command answers this failure with.
     #[must_use]
     pub fn refusal(&self, verb: &'static str) -> Refusal {
@@ -161,7 +166,12 @@ pub(crate) fn run_bounded(
 }
 
 /// Runs `program` with `args`, `stdin` fed in, and returns its stdout.
-pub fn run(program: &str, args: &[&str], stdin: Option<&str>, cwd: &Path) -> Result<String, Error> {
+pub(crate) fn run(
+    program: &str,
+    args: &[&str],
+    stdin: Option<&str>,
+    cwd: &Path,
+) -> Result<String, Error> {
     let mut cmd = Command::new(program);
     cmd.args(args)
         .stdin(if stdin.is_some() {

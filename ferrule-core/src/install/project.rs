@@ -62,7 +62,7 @@ fn on_path(program: &str) -> bool {
 /// A new project's `ferrule.toml`.
 pub(super) fn config_text(stack: Stack, main: &str, viewer: bool) -> String {
     let mut out = format!(
-        "version = {}\nhosts = [\"claude\"]\nstack = {}\nmain_branch = {}\n\n[backend]\ntracker = \"github\"\nhost = \"github\"\n",
+        "version = {}\nstack = {}\nmain_branch = {}\n\n[backend]\ntracker = \"github\"\nhost = \"github\"\n",
         quote(VERSION),
         quote(stack.as_str()),
         quote(main)

@@ -1377,7 +1377,8 @@ pub fn import(conn: &mut Connection, board: &Path, now: &str) -> Result<usize, I
             }
             Err(CardError::Id) => return Err(bad(format!("{id} is not a card id: {SLUG_HINT}"))),
             Err(CardError::Sql(e)) => return Err(ImportError::Sql(e)),
-            Err(CardError::Card) => unreachable!("insert never looks a card up by id"),
+            // Insert looks no card up by id.
+            Err(e @ CardError::Card) => return Err(bad(e.to_string())),
         }
         for (at, body) in card.events {
             if !valid_stamp(&at) {
