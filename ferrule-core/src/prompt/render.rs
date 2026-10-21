@@ -948,25 +948,37 @@ fn gate4(run: &Run, args: &[(String, String)]) -> Result<Approval, Error> {
 /// files in its approval marker, and decisions.md's line count.
 fn approved(run: &mut Run) -> Result<Vec<String>, Error> {
     let mut out = String::from("approved");
-    for path in approval::shown(run.conn, run.slug)? {
+    for e in seen(run.conn, run.layout, run.slug)? {
+        run.log(&e, &[])?;
+        let _ = write!(out, " {e}");
+    }
+    Ok(vec![out])
+}
+
+/// The events an approval records: `spec-rev=` and `arch-rev=` of the
+/// files its marker shows, and decisions.md's line count. Read only, so a
+/// gate can log them in the transaction that records it.
+pub(crate) fn seen(
+    conn: &Connection,
+    layout: &Layout,
+    slug: &str,
+) -> rusqlite::Result<Vec<String>> {
+    let mut out = Vec::new();
+    for path in approval::shown(conn, slug)? {
         let event = match path.file_name().and_then(|n| n.to_str()) {
             Some("spec-diff.md") => "spec-rev",
             Some("architecture.summary.md") => "arch-rev",
             _ => continue,
         };
         if let Some(r) = rev_of(&path) {
-            let e = format!("{event}={r}");
-            run.log(&e, &[])?;
-            let _ = write!(out, " {e}");
+            out.push(format!("{event}={r}"));
         }
     }
-    if let Ok(d) = std::fs::read_to_string(run.art("decisions.md")) {
+    if let Ok(d) = std::fs::read_to_string(layout.run_dir(slug).join("decisions.md")) {
         let n = d.bytes().filter(|&b| b == b'\n').count();
-        let e = format!("decisions-seen={n}");
-        run.log(&e, &[])?;
-        let _ = write!(out, " {e}");
+        out.push(format!("decisions-seen={n}"));
     }
-    Ok(vec![out])
+    Ok(out)
 }
 
 /// The one-line notice of a stage that auto-continues.

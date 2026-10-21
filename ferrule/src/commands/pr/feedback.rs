@@ -19,9 +19,11 @@ const FB_ROUTE_AFTER_LONG_HELP: &str = "\
 Output:
   pr=<n> threads=<k> stages=<list>
       The PR's <k> unresolved threads were written to the run's
-      pr-feedback.md; <list> is the stages moved back to inprogress
-      (`s0,s2`), `none` when <k> is 0. Each thread goes to the stage whose
-      `files` hold its path, else the last stage. Logs `feedback=<k>`.
+      pr-feedback.md, keeping the reply and `posted:` lines of a thread
+      still open; <list> is the stages moved back to inprogress (`s0,s2`),
+      `none` when <k> is 0. Each thread goes to the stage whose `files`
+      hold its path, else the last stage. Logs `feedback=<k>` with the
+      moves, in one write.
   pr-body=<state>
       Printed after it when a stage moved: `pushed` or `unchanged`.
   pr-body=refused reason=stage-ref stage-ref=<token> hint=reword the text naming it; the PR keeps its previous body
@@ -32,6 +34,8 @@ Refusals (stdout, exit 1):
       No card for the slug.
   route=refused reason=no-pr hint=no PR is recorded for this run; open it with `ferrule pr open <slug>`
       The card has no PR.
+  route=refused reason=move stage=s<n> hint=stage s<n> cannot move back to inprogress: <why>
+      The board refused moving a stage back; nothing is logged or moved.
 Errors (stderr, exit 1): the CI host's error.
 Exit codes: 0 ok, 1 refused, 4 internal error.
 Backend: reads threads from the configured CI host.

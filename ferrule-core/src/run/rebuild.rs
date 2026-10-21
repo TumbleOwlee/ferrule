@@ -392,14 +392,6 @@ pub fn rebuild(
             return Err(Refused::Sha(sha).into());
         }
     }
-    super::ensure_worktree(
-        layout,
-        &layout.worktree(&slug),
-        &branch,
-        &format!("origin/{branch}"),
-    )
-    .map_err(Refused::Worktree)?;
-
     let lane = pr
         .body
         .lines()
@@ -433,8 +425,37 @@ pub fn rebuild(
             ("pr=draft".to_owned(), Vec::new()),
         ],
     }];
+    let (stage_cards, next) = stage_cards(&slug, &branch, &st);
+    cards.extend(stage_cards);
+    // The cards, then the worktree and the run's files, committed only
+    // when all are there: a refused card leaves no worktree, a failed
+    // worktree or file leaves no card, and the rerun is not refused as one
+    // that exists.
+    let sql = |e: rusqlite::Error| Error::Board(board::BatchError::Card(String::new(), e.into()));
+    let tx = conn
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(sql)?;
+    board::insert_all(&tx, &cards, now).map_err(Error::Board)?;
+    super::ensure_worktree(
+        layout,
+        &layout.worktree(&slug),
+        &branch,
+        &format!("origin/{branch}"),
+    )
+    .map_err(Refused::Worktree)?;
+    if let Err(e) = artifacts(layout, &slug, &issue, &pr, &st, main, &branch) {
+        let _ = std::fs::remove_dir_all(layout.run_dir(&slug));
+        return Err(e.into());
+    }
+    tx.commit().map_err(sql)?;
+    Ok((slug, st.len(), next))
+}
+
+/// The stage cards of a rebuilt run, and the first not done.
+fn stage_cards(slug: &str, branch: &str, st: &[Stage]) -> (Vec<NewCard>, Option<String>) {
+    let mut cards = Vec::new();
     let mut next = None;
-    for s in &st {
+    for s in st {
         let deps: Vec<String> = s.blocked_by.iter().map(|d| format!("{slug}.{d}")).collect();
         cards.push(NewCard {
             id: format!("{slug}.{}", s.sid),
@@ -443,7 +464,7 @@ pub fn rebuild(
                 ("title".to_owned(), s.title.clone()),
                 ("blocked-by".to_owned(), format!("[{}]", deps.join(", "))),
                 ("files".to_owned(), "[]".to_owned()),
-                ("branch".to_owned(), branch.clone()),
+                ("branch".to_owned(), branch.to_owned()),
             ],
             log: if s.done {
                 vec![(
@@ -458,9 +479,7 @@ pub fn rebuild(
             next = Some(s.sid.clone());
         }
     }
-    board::create_all(conn, &cards, now).map_err(Error::Board)?;
-    artifacts(layout, &slug, &issue, &pr, &st, main, &branch)?;
-    Ok((slug, st.len(), next))
+    (cards, next)
 }
 
 fn artifacts(

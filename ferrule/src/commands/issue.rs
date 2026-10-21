@@ -545,7 +545,8 @@ pub fn post_failed(e: publish::Error, verb: &'static str, out: &mut impl Write) 
         publish::Error::NoIssue
         | publish::Error::NoBranch
         | publish::Error::NoPr
-        | publish::Error::Card => {
+        | publish::Error::Card
+        | publish::Error::Moved(..) => {
             unreachable!("refusal() answers these")
         }
         publish::Error::Remote(e) => {

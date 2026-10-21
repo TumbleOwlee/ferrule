@@ -761,7 +761,11 @@ pub fn set_move_create(
     tx.commit().map_err(sql)
 }
 
-fn insert_all(conn: &Connection, cards: &[NewCard], now: &str) -> Result<(), BatchError> {
+pub(crate) fn insert_all(
+    conn: &Connection,
+    cards: &[NewCard],
+    now: &str,
+) -> Result<(), BatchError> {
     for c in cards {
         insert(conn, &c.id, c.state, &c.fields, now)
             .map_err(|e| BatchError::Card(c.id.clone(), e))?;

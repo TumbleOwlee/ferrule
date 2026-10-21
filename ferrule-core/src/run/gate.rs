@@ -22,10 +22,7 @@ use crate::git;
 use crate::issue::request::{self, Part};
 use crate::pr::publish::{self, Target};
 use crate::project::Layout;
-use crate::prompt::{
-    self,
-    render::{Kind, Viewed},
-};
+use crate::prompt;
 use crate::refusal::Refusal;
 use crate::remote::{self, Item, ItemRef};
 use crate::store::Board;
@@ -474,16 +471,6 @@ pub struct Approved {
     pub recorded: bool,
 }
 
-fn set_all(conn: &mut Connection, slug: &str, fields: &[(String, String)]) -> Result<(), Error> {
-    if fields.is_empty() {
-        return Ok(());
-    }
-    board::set_all(conn, slug, fields).map_err(|e| match e {
-        board::CardError::Sql(e) => Error::Sql(e),
-        _ => Error::Refused(GateRefusal::Card),
-    })
-}
-
 /// The last `key=` of `args`.
 fn arg<'a>(args: &'a [(String, String)], key: &str) -> Option<&'a str> {
     args.iter()
@@ -634,7 +621,10 @@ pub fn approve(
         fields.push(("kind".to_owned(), "epic".to_owned()));
         fields.push(("lane".to_owned(), String::new()));
     }
+    let seen = prompt::render::seen(conn, layout, slug)?;
     if gate == Gate::Gate2 {
+        // Its issue, worktree and cards come first, each idempotent, and
+        // write in their own transaction; what was shown follows.
         approve_gate2(
             conn,
             layout,
@@ -645,25 +635,28 @@ pub fn approve(
             gate1_pending,
             &mut out,
         )?;
-    } else {
-        if let Some(lane) = arg(args, "lane") {
-            fields.push(("lane".to_owned(), lane.to_owned()));
-        }
-        set_all(conn, slug, &fields)?;
+        fields.clear();
+    } else if let Some(lane) = arg(args, "lane") {
+        fields.push(("lane".to_owned(), lane.to_owned()));
     }
-    let mut no_view = |_: &[std::path::PathBuf]| Ok(Viewed::Opened);
-    let record =
-        prompt::render::render_in(conn, layout, Kind::Approved, slug, &[], now, &mut no_view)
-            .map_err(|e| match e {
-                prompt::render::Error::Sql(e) => Error::Sql(e),
-                _ => Error::Refused(GateRefusal::Card),
+    // The fields and what was shown in one transaction, the log lines
+    // last: a refused line leaves the gate unapproved.
+    db.write(|w| {
+        if !fields.is_empty() {
+            w.set_all(slug, &fields).map_err(|e| match e {
+                board::CardError::Sql(e) => Error::Sql(e),
+                e => Error::Board(board::BatchError::Card(slug.to_owned(), e)),
             })?;
-    record
-        .first()
-        .and_then(|l| l.strip_prefix("approved"))
-        .unwrap_or("")
-        .trim()
-        .clone_into(&mut out.record);
+        }
+        for e in &seen {
+            w.log(slug, e, &[], now).map_err(|e| match e {
+                board::LogError::Sql(e) => Error::Sql(e),
+                e => Error::Board(board::BatchError::Log(slug.to_owned(), e)),
+            })?;
+        }
+        Ok::<_, Error>(())
+    })?;
+    out.record = seen.join(" ");
     Ok(out)
 }
 
@@ -681,38 +674,54 @@ fn replan_from(conn: &Connection, slug: &str) -> rusqlite::Result<u32> {
 
 /// Starts a re-plan: logs `replan from=s<n>` and snapshots plan.md as
 /// plan.prev.md. Asked at gate 4, the parent moves back to inprogress.
+/// The board changes are one transaction, the log line last: a refused
+/// move clears no gate.
 pub fn replan_start(db: &mut Board, layout: &Layout, slug: &str, now: &str) -> Result<u32, Error> {
-    let conn = db.conn_mut();
-    let Some(st) = board::state(conn, slug)? else {
-        return Err(Error::Refused(GateRefusal::Card));
-    };
-    let from = replan_from(conn, slug)?;
-    // The run rejoins at gate 3 and gate 4: both are approved anew.
-    set_all(
-        conn,
-        slug,
-        &[
+    let dir = layout.run_dir(slug);
+    let snapshot = dir.join("plan.prev.md.tmp");
+    if dir.join("plan.md").is_file() {
+        std::fs::copy(dir.join("plan.md"), &snapshot)?;
+    }
+    let started = db.write(|w| {
+        let Some(st) = board::state(w.conn(), slug)? else {
+            return Err(Error::Refused(GateRefusal::Card));
+        };
+        let from = replan_from(w.conn(), slug)?;
+        // The run rejoins at gate 3 and gate 4: both are approved anew.
+        let gates = [
             ("gate3".to_owned(), String::new()),
             ("gate4".to_owned(), String::new()),
-        ],
-    )?;
-    if st != State::InProgress {
-        match board::move_card(conn, slug, State::InProgress, now) {
-            Ok(()) => {}
-            Err(board::MoveError::Sql(e)) => return Err(Error::Sql(e)),
-            Err(_) => return Err(Error::Refused(GateRefusal::Move)),
+        ];
+        w.set_all(slug, &gates).map_err(|e| match e {
+            board::CardError::Sql(e) => Error::Sql(e),
+            _ => Error::Refused(GateRefusal::Card),
+        })?;
+        if st != State::InProgress {
+            w.move_card(slug, State::InProgress, now)
+                .map_err(|e| match e {
+                    board::MoveError::Sql(e) => Error::Sql(e),
+                    _ => Error::Refused(GateRefusal::Move),
+                })?;
+        }
+        w.log(slug, "replan", &[format!("from=s{from}")], now)
+            .map_err(|e| match e {
+                board::LogError::Sql(e) => Error::Sql(e),
+                _ => Error::Refused(GateRefusal::Card),
+            })?;
+        Ok(from)
+    });
+    match started {
+        Ok(from) => {
+            if snapshot.is_file() {
+                std::fs::rename(&snapshot, dir.join("plan.prev.md"))?;
+            }
+            Ok(from)
+        }
+        Err(e) => {
+            let _ = std::fs::remove_file(&snapshot);
+            Err(e)
         }
     }
-    match board::log(conn, slug, "replan", &[format!("from=s{from}")], now) {
-        Ok(()) => {}
-        Err(board::LogError::Sql(e)) => return Err(Error::Sql(e)),
-        Err(_) => return Err(Error::Refused(GateRefusal::Card)),
-    }
-    let dir = layout.run_dir(slug);
-    if dir.join("plan.md").is_file() {
-        std::fs::copy(dir.join("plan.md"), dir.join("plan.prev.md"))?;
-    }
-    Ok(from)
 }
 
 /// The re-plan approved: the stage cards from `from` on are replaced by the

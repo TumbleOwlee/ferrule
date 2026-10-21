@@ -38,6 +38,8 @@ pub enum Error {
     Card,
     /// The run has no PR recorded.
     NoPr,
+    /// A stage card the board would not move back: its number and why.
+    Moved(u32, String),
     Remote(remote::Error),
     Sql(rusqlite::Error),
 }
@@ -64,6 +66,11 @@ impl Error {
                     .hint("no PR is recorded for this run; open it with `ferrule pr open <slug>`"),
             ),
             Error::Card => Some(Refusal::card(verb)),
+            Error::Moved(n, why) => Some(
+                Refusal::new(verb, "move")
+                    .field("stage", format!("s{n}"))
+                    .hint(format!("stage s{n} cannot move back to inprogress: {why}")),
+            ),
             Error::Remote(remote::Error::Unsupported { host, op }) => Some(
                 Refusal::new(verb, "unsupported")
                     .field("host", host)
@@ -85,6 +92,7 @@ impl std::fmt::Display for Error {
             Error::NoBranch => f.write_str("the run's card has no branch"),
             Error::Card => f.write_str("the run has no card"),
             Error::NoPr => f.write_str("the run has no PR recorded"),
+            Error::Moved(n, why) => write!(f, "stage s{n} cannot move back: {why}"),
             Error::Remote(e) => write!(f, "{e}"),
             Error::Sql(e) => write!(f, "state database: {e}"),
         }
@@ -97,9 +105,12 @@ impl std::error::Error for Error {
             Error::Body(e) => Some(e),
             Error::Remote(e) => Some(e),
             Error::Sql(e) => Some(e),
-            Error::Missing(_) | Error::NoIssue | Error::NoBranch | Error::Card | Error::NoPr => {
-                None
-            }
+            Error::Missing(_)
+            | Error::NoIssue
+            | Error::NoBranch
+            | Error::Card
+            | Error::NoPr
+            | Error::Moved(..) => None,
         }
     }
 }
@@ -871,7 +882,6 @@ impl Run<'_> {
         if count == 0 {
             return Ok((pr, 0, Vec::new(), None));
         }
-        self.log(&format!("feedback={count}"), &[])?;
         let stages = board::stages(self.conn, self.slug)?;
         let mut owners: Vec<u32> = Vec::new();
         for t in &fetched.threads {
@@ -895,18 +905,29 @@ impl Run<'_> {
             }
         }
         owners.sort_unstable();
+        // The stages back to inprogress and the count in one transaction,
+        // the count last: a refused move logs nothing and moves nothing.
+        let tx = self
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let w = crate::store::Writer::new(&tx);
         for n in &owners {
-            match board::move_card(
-                self.conn,
+            match w.move_card(
                 &format!("{}.s{n}", self.slug),
                 board::State::InProgress,
                 self.now,
             ) {
                 Ok(()) => {}
                 Err(board::MoveError::Sql(e)) => return Err(Error::Sql(e)),
-                Err(_) => return Err(Error::Card),
+                Err(e) => return Err(Error::Moved(*n, e.to_string())),
             }
         }
+        match w.log(self.slug, &format!("feedback={count}"), &[], self.now) {
+            Ok(()) => {}
+            Err(board::LogError::Sql(e)) => return Err(Error::Sql(e)),
+            Err(_) => return Err(Error::Card),
+        }
+        tx.commit()?;
         let sync = if owners.is_empty() {
             None
         } else {
