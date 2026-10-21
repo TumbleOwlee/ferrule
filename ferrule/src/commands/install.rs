@@ -123,7 +123,7 @@ pub fn pinned(command: &Command) -> Option<u8> {
     if matches!(command, Command::Hook(h) if !matches!(h, HookCommand::Git { .. })) {
         return None;
     }
-    let mismatch = install::version_mismatch(&project::main_checkout())?;
+    let mismatch = install::version_mismatch(&project::toplevel())?;
     eprintln!("{}", mismatch.message());
     Some(if matches!(command, Command::Hook(_)) {
         exit::USAGE

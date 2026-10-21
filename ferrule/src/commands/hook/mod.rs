@@ -240,7 +240,7 @@ fn pre_tool_use(
     // A version mismatch refuses every call but the update it asks for.
     let guards = matches!(command, HookCommand::Shell | HookCommand::Reviewer);
     let mismatch = (guards && !install::is_update(cmd))
-        .then(|| install::version_mismatch(&project::main_checkout()))
+        .then(|| install::version_mismatch(&project::toplevel()))
         .flatten();
     let verdict = match command {
         _ if let Some(m) = &mismatch => Some(Verdict::Deny(m.message())),
@@ -327,7 +327,7 @@ fn attribution(cmd: &str, cwd: &Path, tool_input: &Value) -> Option<Verdict> {
 /// Unfinished runs: any card in inprogress or inreview. Silent otherwise.
 #[allow(clippy::redundant_closure_for_method_calls)]
 fn session_start(out: &mut impl Write) -> io::Result<u8> {
-    if let Some(m) = install::version_mismatch(&project::main_checkout()) {
+    if let Some(m) = install::version_mismatch(&project::toplevel()) {
         writeln!(out, "[ferrule] {}", m.message())?;
     }
     let Ok(Some(s)) = super::board::store(false) else {

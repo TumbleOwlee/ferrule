@@ -1,17 +1,49 @@
-//! Where the project a command acts on lives.
+//! Where the project a command acts on lives. Each is resolved once per
+//! process: a command runs in one place.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
 
-/// The project root: `$CLAUDE_PROJECT_DIR` when the agent host sets it, else
-/// the current directory as an empty path, so paths joined onto it print
-/// relative (`docs/specs/…`, never `./docs/specs/…`).
+/// `git rev-parse <args>` run in `dir`, its trimmed output.
+fn rev_parse(dir: &Path, args: &[&str]) -> Option<PathBuf> {
+    let dir = if dir.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        dir
+    };
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .arg("rev-parse")
+        .args(args)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    Some(PathBuf::from(String::from_utf8_lossy(&out.stdout).trim()))
+}
+
+/// The project root: `$CLAUDE_PROJECT_DIR` when the agent host sets it,
+/// else the top of the checkout holding the current directory. At that
+/// top (or outside git) it is an empty path, so paths joined onto it print
+/// relative (`docs/specs/…`, never `./docs/specs/…`); from a subdirectory
+/// it is the top's absolute path, so a command finds the same files there.
 #[must_use]
 pub fn root() -> PathBuf {
-    std::env::var_os("CLAUDE_PROJECT_DIR")
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_default()
+    static ROOT: OnceLock<PathBuf> = OnceLock::new();
+    ROOT.get_or_init(|| {
+        if let Some(dir) = std::env::var_os("CLAUDE_PROJECT_DIR").filter(|v| !v.is_empty()) {
+            return PathBuf::from(dir);
+        }
+        let here = std::env::current_dir()
+            .ok()
+            .and_then(|d| d.canonicalize().ok());
+        match rev_parse(Path::new(""), &["--show-toplevel"]) {
+            Some(top) if top.canonicalize().ok() != here => top,
+            _ => PathBuf::new(),
+        }
+    })
+    .clone()
 }
 
 /// The project's spec tree, `docs/specs/` under [`root`].
@@ -25,46 +57,27 @@ pub fn specs_dir() -> PathBuf {
 /// git, [`root`] itself.
 #[must_use]
 pub fn main_checkout() -> PathBuf {
-    let root = root();
-    let dir = if root.as_os_str().is_empty() {
-        Path::new(".")
-    } else {
-        root.as_path()
-    };
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
-        .output();
-    match out {
-        Ok(o) if o.status.success() => {
-            let common = PathBuf::from(String::from_utf8_lossy(&o.stdout).trim());
-            common.parent().map_or(root, Path::to_path_buf)
-        }
-        _ => root,
-    }
+    static MAIN: OnceLock<PathBuf> = OnceLock::new();
+    MAIN.get_or_init(|| {
+        let root = root();
+        rev_parse(&root, &["--path-format=absolute", "--git-common-dir"])
+            .and_then(|common| common.parent().map(Path::to_path_buf))
+            .unwrap_or(root)
+    })
+    .clone()
 }
 
 /// The checkout holding [`root`] — a worktree's own top level, not the
-/// main checkout's — for commands that write committed files. Outside git,
-/// [`root`] itself.
+/// main checkout's — for commands that read or write committed files.
+/// Outside git, [`root`] itself.
 #[must_use]
 pub fn toplevel() -> PathBuf {
-    let root = root();
-    let dir = if root.as_os_str().is_empty() {
-        Path::new(".")
-    } else {
-        root.as_path()
-    };
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(["rev-parse", "--show-toplevel"])
-        .output();
-    match out {
-        Ok(o) if o.status.success() => PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()),
-        _ => root,
-    }
+    static TOP: OnceLock<PathBuf> = OnceLock::new();
+    TOP.get_or_init(|| {
+        let root = root();
+        rev_parse(&root, &["--show-toplevel"]).unwrap_or(root)
+    })
+    .clone()
 }
 
 /// Where a run's files live under the main checkout.

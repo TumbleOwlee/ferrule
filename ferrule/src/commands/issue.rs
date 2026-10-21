@@ -325,7 +325,8 @@ fn search(keywords: &[String], state: SearchState, out: &mut impl Write) -> io::
         SearchState::Closed => "closed",
         SearchState::All => "all",
     };
-    match remote::issue_tracker(&config, &project::root()).search(keywords, state, max + 1) {
+    match remote::issue_tracker(&config, &project::main_checkout()).search(keywords, state, max + 1)
+    {
         Ok(found) if found.len() > max => {
             writeln!(
                 out,
@@ -356,7 +357,7 @@ fn config() -> io::Result<Config> {
 
 /// The configured issue tracker, in the current checkout.
 fn tracker() -> io::Result<Box<dyn IssueTracker>> {
-    Ok(remote::issue_tracker(&config()?, &project::root()))
+    Ok(remote::issue_tracker(&config()?, &project::main_checkout()))
 }
 
 /// Columns of a comment index line when stdout is no terminal.

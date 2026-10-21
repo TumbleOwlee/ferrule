@@ -260,14 +260,15 @@ pub enum PrCommand {
 pub fn run(command: &PrCommand, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
     let config = Config::load(&project::main_checkout()).map_err(internal)?;
     match command {
-        PrCommand::View { pr, view } => match remote::code_host(&config, &project::root()).view(pr)
-        {
-            Ok(item) => super::issue::print_item(&item, &view.select(), ("pr", pr), style, out),
-            Err(e) => {
-                eprintln!("pr view: {e}");
-                Ok(exit::REFUSED)
+        PrCommand::View { pr, view } => {
+            match remote::code_host(&config, &project::main_checkout()).view(pr) {
+                Ok(item) => super::issue::print_item(&item, &view.select(), ("pr", pr), style, out),
+                Err(e) => {
+                    eprintln!("pr view: {e}");
+                    Ok(exit::REFUSED)
+                }
             }
-        },
+        }
         PrCommand::Body { slug, form } => {
             let layout = Layout::new(project::main_checkout());
             let s = match store(false)? {
@@ -318,7 +319,7 @@ pub(crate) fn failed(
         eprintln!("ci failed: HEAD is on no branch; name it: ferrule ci failed <branch>");
         return Ok(exit::REFUSED);
     }
-    match remote::code_host(config, &root).failed(&branch, query) {
+    match remote::code_host(config, &project::main_checkout()).failed(&branch, query) {
         Ok(lines) => {
             for l in lines {
                 writeln!(out, "{l}")?;

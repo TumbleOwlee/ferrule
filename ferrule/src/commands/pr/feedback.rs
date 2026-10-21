@@ -121,7 +121,7 @@ pub fn run(config: &Config, command: &FeedbackCommand, out: &mut impl Write) -> 
 }
 
 fn fetch(config: &Config, pr: &ItemRef, file: &Path, out: &mut impl Write) -> io::Result<u8> {
-    let f = match remote::code_host(config, &project::root()).threads(pr) {
+    let f = match remote::code_host(config, &project::main_checkout()).threads(pr) {
         Ok(f) => f,
         Err(e) => {
             eprintln!("pr feedback: {e}");
@@ -165,7 +165,7 @@ fn reply(
         _ => ("", ""),
     };
     let (mut fixed, mut declined) = (0, 0);
-    let host = remote::code_host(config, &project::root());
+    let host = remote::code_host(config, &project::main_checkout());
     let mut text = text;
     for r in &replies {
         let mut step = || -> Result<(), remote::Error> {

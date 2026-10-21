@@ -393,3 +393,23 @@ fn it_related_prints_long_entries_whole() {
         format!("MB-R-001 — modbus/requirements.md — {long}\nexit=0")
     );
 }
+
+#[test]
+fn it_related_from_a_subdirectory_reads_the_checkouts_specs() {
+    let project = spec_project();
+    let ok = Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(project.path())
+        .status()
+        .unwrap()
+        .success();
+    assert!(ok);
+    let sub = project.path().join("src/deep");
+    std::fs::create_dir_all(&sub).unwrap();
+    let at_top = Run::new(["spec", "related", "slow"])
+        .cwd(project.path())
+        .text();
+    let below = Run::new(["spec", "related", "slow"]).cwd(&sub).text();
+    assert!(at_top.contains("MB-E-001"), "{at_top}");
+    assert_eq!(below, at_top);
+}
