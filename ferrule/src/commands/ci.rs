@@ -173,8 +173,9 @@ fn wait(slug: &str, out: &mut impl Write) -> io::Result<u8> {
     let Some(mut s) = store(false)? else {
         return refuse(out, &Refusal::card("ci"));
     };
-    let now = board::now();
     let waited = run_on(&mut s, &config, slug, |r| r.wait_ci());
+    // `ci=` is stamped when the checks finished, not when the wait began.
+    let now = board::now();
     let (code, failed) = match waited {
         Ok(r) => r,
         Err(publish::Error::NoPr) => {

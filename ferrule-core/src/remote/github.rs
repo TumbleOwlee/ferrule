@@ -2,18 +2,21 @@
 //! lists keep `gh` off the deprecated Projects-Classic query.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
 use serde::Deserialize;
 
 use super::host::{CodeHost, PrStatus, comment_id};
 use super::tracker::{FIND_LIMIT, Found, IssueTracker, title_query};
-use super::{Error, GH_FIELDS, GhItem, Item, ItemRef, Query, json, number_of, pick_job, run};
+use super::{
+    Error, GH_FIELDS, GhItem, Item, ItemRef, Query, json, number_of, pick_job, run, run_bounded,
+};
 use crate::pr::feedback::{Fetched, Thread};
 
 /// `gh` in the repository's checkout.
 pub struct Gh {
     root: PathBuf,
+    /// How long `checks_watch` waits.
+    wait: std::time::Duration,
 }
 
 impl Gh {
@@ -21,7 +24,15 @@ impl Gh {
     pub fn new(root: &Path) -> Self {
         Gh {
             root: root.to_owned(),
+            wait: std::time::Duration::from_hours(2),
         }
+    }
+
+    /// `checks_watch` gives up after `wait`.
+    #[must_use]
+    pub fn waiting(mut self, wait: std::time::Duration) -> Self {
+        self.wait = wait;
+        self
     }
 
     fn gh(&self, args: &[&str], stdin: Option<&str>) -> Result<String, Error> {
@@ -154,24 +165,29 @@ impl CodeHost for Gh {
         })
     }
 
+    /// The checks' exit code and table. gh fails the same way for a red
+    /// check and for a call that never read any (auth, a missing PR): only
+    /// output holding check rows is a result.
     fn checks_watch(&self, pr: &ItemRef) -> Result<(i32, String), Error> {
         pr.pr_number()?;
         let n = pr.to_string();
-        let out = Command::new("gh")
-            .args(["pr", "checks", &n, "--watch"])
-            .current_dir(if self.root.as_os_str().is_empty() {
-                Path::new(".")
-            } else {
-                &self.root
-            })
-            .stdin(Stdio::null())
-            .output()
-            .map_err(|e| Error::Command(format!("gh: {e}")))?;
-        let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
-        text.push_str(&String::from_utf8_lossy(&out.stderr));
-        let code = out.status.code().unwrap_or(1);
+        let (code, stdout, stderr) = run_bounded(
+            "gh",
+            &["pr", "checks", &n, "--watch"],
+            &self.root,
+            self.wait,
+        )?;
+        let text = format!("{stdout}{stderr}");
         if code != 0 && no_checks(&text) {
             return Err(Error::NoChecks(text.trim().to_owned()));
+        }
+        if code != 0 && !stdout.lines().any(|l| l.contains('\t')) {
+            let why = stderr.trim();
+            return Err(Error::Command(if why.is_empty() {
+                format!("gh pr checks exited {code} without a result")
+            } else {
+                why.to_owned()
+            }));
         }
         Ok((code, text))
     }
@@ -295,7 +311,12 @@ impl CodeHost for Gh {
             .jobs
             .iter()
             .zip(&ids)
-            .filter(|(j, _)| j.conclusion.as_deref() == Some("failure"))
+            .filter(|(j, _)| {
+                matches!(
+                    j.conclusion.as_deref(),
+                    Some("failure" | "timed_out" | "cancelled" | "startup_failure")
+                )
+            })
             .map(|(j, id)| (j.name.as_str(), id.as_str()))
             .collect();
         let job = pick_job(&failing, query, &id)?.to_owned();

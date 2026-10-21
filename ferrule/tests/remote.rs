@@ -225,6 +225,26 @@ fn it_failed_prints_the_error_lines() {
 }
 
 #[test]
+fn it_failed_counts_a_timed_out_or_cancelled_job() {
+    let gh = FakeGh::new();
+    let p = tempfile::tempdir().unwrap();
+    gh.serve(
+        &["run", "view", "7", "--json", "jobs"],
+        r#"{"jobs":[{"databaseId":8,"name":"test","conclusion":"success"},{"databaseId":9,"name":"slow","conclusion":"timed_out"}]}"#,
+    );
+    gh.serve(
+        &["run", "view", "7", "--job", "9", "--log-failed"],
+        "slow	error: took too long
+",
+    );
+    assert_eq!(
+        ferrule(&gh, p.path(), &["ci", "failed", "--run", "7"]).text(),
+        "slow	error: took too long
+exit=0"
+    );
+}
+
+#[test]
 fn it_failed_takes_a_run_a_job_and_context() {
     let gh = FakeGh::new();
     let p = tempfile::tempdir().unwrap();

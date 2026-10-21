@@ -79,7 +79,7 @@ pub trait CodeHost {
 #[must_use]
 pub fn code_host(config: &Config, root: &Path) -> Box<dyn CodeHost> {
     match config.backend.ci {
-        Ci::Github => Box::new(Gh::new(root)),
+        Ci::Github => Box::new(Gh::new(root).waiting(config.thresholds.ci_wait)),
         Ci::Bitbucket => Box::new(Bitbucket::new(root)),
     }
 }

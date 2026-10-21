@@ -473,6 +473,12 @@ fn no_checks_refused(p: &Project) {
          rerun `ferrule ci wait demo` once CI has started\nexit=1"
     );
     assert!(!p.ok(&["board", "show", "demo"]).contains("ci=none"));
+    // A call that read no checks (auth, a missing PR) is no red result.
+    gh.serve_exit(&["pr", "checks", "34", "--watch"], "", 4);
+    let failed = p.ferrule(&["ci", "wait", "demo"]).text();
+    assert!(!failed.starts_with("ci=4"), "{failed}");
+    assert!(!failed.ends_with("exit=0"), "{failed}");
+    assert!(!p.ok(&["board", "show", "demo"]).contains("ci=4"));
 }
 
 /// Gate 4 published, then CI red and green.

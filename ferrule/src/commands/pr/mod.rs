@@ -308,10 +308,16 @@ pub(crate) fn failed(
     } else {
         root.as_path()
     };
-    let branch = branch.map_or_else(
-        || git::out(dir, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_default(),
-        str::to_owned,
-    );
+    // A detached HEAD names no branch: `HEAD` would be looked up as one.
+    let current = || git::out(dir, &["symbolic-ref", "--short", "-q", "HEAD"]);
+    let branch = branch
+        .map(str::to_owned)
+        .or_else(current)
+        .unwrap_or_default();
+    if branch.is_empty() && query.run.is_none() {
+        eprintln!("ci failed: HEAD is on no branch; name it: ferrule ci failed <branch>");
+        return Ok(exit::REFUSED);
+    }
     match remote::code_host(config, &root).failed(&branch, query) {
         Ok(lines) => {
             for l in lines {

@@ -77,6 +77,55 @@ impl std::fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+/// Runs `program` with `args` for at most `limit`: its exit code, stdout
+/// and stderr. One still running then is killed and refused.
+pub(crate) fn run_bounded(
+    program: &str,
+    args: &[&str],
+    cwd: &Path,
+    limit: std::time::Duration,
+) -> Result<(i32, String, String), Error> {
+    let mut cmd = Command::new(program);
+    cmd.args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    if !cwd.as_os_str().is_empty() {
+        cmd.current_dir(cwd);
+    }
+    let fail = |e: std::io::Error| Error::Command(format!("{program}: {e}"));
+    let mut child = cmd.spawn().map_err(fail)?;
+    let drain = |pipe: Option<Box<dyn std::io::Read + Send>>| {
+        std::thread::spawn(move || {
+            let mut text = Vec::new();
+            if let Some(mut p) = pipe {
+                let _ = p.read_to_end(&mut text);
+            }
+            String::from_utf8_lossy(&text).into_owned()
+        })
+    };
+    let stdout = drain(child.stdout.take().map(|p| Box::new(p) as _));
+    let stderr = drain(child.stderr.take().map(|p| Box::new(p) as _));
+    let deadline = std::time::Instant::now() + limit;
+    let status = loop {
+        if let Some(status) = child.try_wait().map_err(fail)? {
+            break status;
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(Error::Command(format!(
+                "{program} {} gave no result within {}s",
+                args.first().unwrap_or(&""),
+                limit.as_secs()
+            )));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    };
+    let text = |h: std::thread::JoinHandle<String>| h.join().unwrap_or_default();
+    Ok((status.code().unwrap_or(1), text(stdout), text(stderr)))
+}
+
 /// Runs `program` with `args`, `stdin` fed in, and returns its stdout.
 pub fn run(program: &str, args: &[&str], stdin: Option<&str>, cwd: &Path) -> Result<String, Error> {
     let mut cmd = Command::new(program);
@@ -490,7 +539,18 @@ pub(crate) fn curl(user: &str, pass: &str, args: &[&str], root: &Path) -> Result
     }
     let quote = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
     let config = format!("user = \"{}:{}\"\n", quote(user), quote(pass));
-    let mut all = vec!["-sf", "--config", "-"];
+    // A stalled host must not hang a command; a failed call keeps the
+    // HTTP status and body for the error.
+    let mut all = vec![
+        "-sS",
+        "--fail-with-body",
+        "--connect-timeout",
+        "20",
+        "--max-time",
+        "120",
+        "--config",
+        "-",
+    ];
     all.extend_from_slice(args);
     run("curl", &all, Some(&config), root)
 }

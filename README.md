@@ -129,6 +129,7 @@ stage_stop_checkpoint = 3    # stages auto-continued in a row before one stops a
 summary_max_lines = 25       # caps on *.summary.md and *.verdict.md
 summary_max_bytes = 2048
 search_max = 40              # spec related/refs and issue search refuse more hits
+ci_wait = "2h"               # ci wait gives up on the PR's checks after this
 ```
 
 ## Install

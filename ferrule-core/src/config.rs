@@ -178,6 +178,9 @@ pub struct Thresholds {
     /// `spec related`, `spec refs` and `issue search` print at most this
     /// many hits; more is refused.
     pub search_max: usize,
+    /// How long `ci wait` waits for the PR's checks before giving up.
+    #[serde(deserialize_with = "duration")]
+    pub ci_wait: Duration,
 }
 
 impl Default for Thresholds {
@@ -190,6 +193,7 @@ impl Default for Thresholds {
             summary_max_lines: 25,
             summary_max_bytes: 2048,
             search_max: 40,
+            ci_wait: Duration::from_hours(2),
         }
     }
 }
@@ -279,6 +283,7 @@ stage_stop_lines = 400
 stage_stop_files = 8
 summary_max_lines = 25
 summary_max_bytes = 2048
+ci_wait = "45m"
 "#,
         )
         .unwrap();
@@ -288,6 +293,8 @@ summary_max_bytes = 2048
         assert_eq!(c.hook.readonly.mutating.len(), 4);
         assert_eq!(c.hook.readonly.allow, ["make check"]);
         assert_eq!(c.backend.tracker, Tracker::Github);
+        assert_eq!(c.thresholds.ci_wait, Duration::from_mins(45));
+        assert_eq!(Thresholds::default().ci_wait, Duration::from_hours(2));
     }
 
     #[test]
