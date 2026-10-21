@@ -773,6 +773,9 @@ pub fn deny_rules(allow: &[String]) -> Vec<String> {
     for path in [
         "**/.ferrule/state.db",
         "**/.ferrule/ferrule.lock",
+        "**/.ferrule/ferrule.toml",
+        "**/.claude/settings.json",
+        "**/.claude/settings.local.json",
         "**/.claude/agents/fe-*.md",
         "**/.claude/skills/fe-*/SKILL.md",
     ] {

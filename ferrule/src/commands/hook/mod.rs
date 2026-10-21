@@ -26,9 +26,12 @@ Output:
   one JSON line        exit 0; permissionDecision \"deny\" with a reason that
                        names the ferrule command to run instead
 Refuses:
-  a write to a file only ferrule writes (state.db, ferrule.lock, ...),
+  a write to a file only ferrule writes (state.db, ferrule.lock, ...) or
+                       to the guard's own settings (.ferrule/ferrule.toml,
+                       .claude/settings.json, .claude/settings.local.json),
                        by any glob, brace or case form, and removing or
-                       moving .ferrule itself; git clean -x over it
+                       moving .ferrule itself; git clean -x over it; setting
+                       core.hooksPath
   a flood: whole-file cat of a .md or large file, unfiltered git diff/show,
                        unfiltered find -type, a raw CI log
   a git or gh call a ferrule command replaces; the reason names it

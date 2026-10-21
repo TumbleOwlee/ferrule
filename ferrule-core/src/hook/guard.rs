@@ -124,8 +124,16 @@ pub const REPLACED: &[Replaced] = &[
     },
 ];
 
-/// Files only ferrule writes, under `.ferrule/`.
-const OWNED: &[&str] = &["state.db", "ferrule.lock"];
+/// Files no session writes raw, each with the directory it sits in: the
+/// board and the lock, which only ferrule writes, and the settings the
+/// guard and the deny rules come from, which only the user edits.
+const OWNED: &[(&str, &str)] = &[
+    (".ferrule", "state.db"),
+    (".ferrule", "ferrule.lock"),
+    (".ferrule", "ferrule.toml"),
+    (".claude", "settings.json"),
+    (".claude", "settings.local.json"),
+];
 
 /// The guard's project settings.
 #[derive(Debug, Clone, Copy)]
@@ -260,24 +268,22 @@ fn globbed(word: &str) -> bool {
     word.contains(['*', '?', '[']) || brace_group(word).is_some()
 }
 
-/// One of [`OWNED`] (or a journal file of it), by name or by a glob.
-fn owned_file(f: &str) -> bool {
-    let lower = f.to_ascii_lowercase();
-    OWNED.iter().any(|o| {
-        lower
-            .strip_prefix(o)
-            .is_some_and(|r| r.is_empty() || r.starts_with('-'))
-            || ["", "-wal", "-shm", "-journal"]
-                .iter()
-                .any(|s| glob(f, &format!("{o}{s}")))
-    })
+/// Whether `f` names file `o` of [`OWNED`] (or a journal file of it), by
+/// name or by a glob.
+fn owned_file(o: &str, f: &str) -> bool {
+    f.to_ascii_lowercase()
+        .strip_prefix(o)
+        .is_some_and(|r| r.is_empty() || r.starts_with('-'))
+        || ["", "-wal", "-shm", "-journal"]
+            .iter()
+            .any(|s| glob(f, &format!("{o}{s}")))
 }
 
-/// `….ferrule/state.db` (and its journal files) or `….ferrule/ferrule.lock`,
-/// by name, glob or case variant.
+/// `….ferrule/state.db` (and its journal files), any other of [`OWNED`]
+/// under its directory, by name, glob or case variant.
 fn is_owned(path: &str) -> bool {
     let c = components(path);
-    matches!(c.as_slice(), [.., d, f] if glob(d, ".ferrule") && owned_file(f))
+    matches!(c.as_slice(), [.., d, f] if OWNED.iter().any(|(od, of)| glob(d, od) && owned_file(of, f)))
 }
 
 /// `….ferrule` itself, by name, glob or case variant: removing or moving it
@@ -291,9 +297,7 @@ fn is_ferrule_dir(path: &str) -> bool {
 /// code mentioning it, or a glob in the file name directly under
 /// `.ferrule/`. A name built from shell variables stays unseen.
 fn names_owned(cwd: &Path, word: &str) -> bool {
-    let in_ferrule = cwd
-        .file_name()
-        .is_some_and(|n| n.eq_ignore_ascii_case(".ferrule"));
+    let in_dir = |d: &str| cwd.file_name().is_some_and(|n| n.eq_ignore_ascii_case(d));
     !word.is_empty()
         && braces(word).iter().any(|w| {
             let lower = w.to_ascii_lowercase();
@@ -302,14 +306,16 @@ fn names_owned(cwd: &Path, word: &str) -> bool {
                 || is_owned(&resolved)
                 || is_ferrule_dir(w)
                 || is_ferrule_dir(&resolved)
-                || OWNED.iter().any(|o| {
-                    lower.contains(&format!(".ferrule/{o}")) || (in_ferrule && lower.contains(o))
+                || OWNED.iter().any(|(d, o)| {
+                    lower.contains(&format!("{d}/{o}")) || (in_dir(d) && lower.contains(o))
                 })
-                || lower
-                    .split(".ferrule/")
-                    .skip(1)
-                    .any(|f| !f.contains('/') && globbed(f))
-                || (in_ferrule && !w.contains('/') && globbed(w))
+                || [".ferrule", ".claude"].iter().any(|d| {
+                    lower
+                        .split(&format!("{d}/"))
+                        .skip(1)
+                        .any(|f| !f.contains('/') && globbed(f))
+                        || (in_dir(d) && !w.contains('/') && globbed(w))
+                })
         })
 }
 
@@ -446,6 +452,7 @@ fn guard_list(
             .or_else(|| fed_shell(c, name, args))
             .or_else(|| owned_edit(c, name, args, cwd))
             .or_else(|| owned_clean(name, args, cwd))
+            .or_else(|| git_config(name, args))
             .or_else(|| flood(c, name, args, cwd))
             .or_else(|| hidden(&c.words, name, args, policy))
             .or_else(|| replaced(name, args, policy))
@@ -634,6 +641,44 @@ fn owned_clean(name: &str, args: &[String], cwd: &Path) -> Option<String> {
     })
 }
 
+/// Git settings no session sets: `core.hooksPath` points git away from
+/// the hooks that refuse commits and pushes to the main branch.
+const CONFIG_REFUSED: &[&str] = &["core.hookspath"];
+
+/// A setting of [`CONFIG_REFUSED`], given to one call (`-c`,
+/// `--config-env`) or written with `git config`; reading one stays open.
+fn git_config(name: &str, args: &[String]) -> Option<String> {
+    if name != "git" {
+        return None;
+    }
+    let g = shell::git(args)?;
+    let globals = &args[..args.len() - g.args.len() - 1];
+    let refused = |kv: &str| {
+        let key = kv.split('=').next().unwrap_or(kv).to_ascii_lowercase();
+        CONFIG_REFUSED.contains(&key.as_str())
+    };
+    let mut hit = globals
+        .windows(2)
+        .any(|w| matches!(w[0].as_str(), "-c" | "--config-env") && refused(&w[1]))
+        || globals
+            .iter()
+            .any(|a| a.strip_prefix("--config-env=").is_some_and(refused));
+    if g.sub == "config" {
+        let words: Vec<&str> = g.args.iter().map(String::as_str).collect();
+        let reads = words
+            .iter()
+            .any(|a| matches!(*a, "--get" | "--get-all" | "--get-regexp" | "-l" | "--list"))
+            || words
+                .iter()
+                .find(|a| !a.starts_with('-'))
+                .is_some_and(|a| matches!(*a, "get" | "list"));
+        hit |= !reads && words.iter().any(|a| !a.starts_with('-') && refused(a));
+    }
+    hit.then(|| {
+        "Setting core.hooksPath turns off the git hooks that keep commits and pushes off the main branch. Leave it unset; ask the user if a hook is in the way.".to_owned()
+    })
+}
+
 /// Output that would land whole in the context: only when nothing captures
 /// it.
 fn flood(c: &Command, name: &str, args: &[String], cwd: &Path) -> Option<String> {
@@ -682,7 +727,7 @@ fn flood(c: &Command, name: &str, args: &[String], cwd: &Path) -> Option<String>
     }
 }
 
-const OWNED_REASON: &str = "Only ferrule writes .ferrule/state.db and .ferrule/ferrule.lock. Use ferrule board log|move|set for the board, ferrule board show|board to read it, ferrule setup install for the lock.";
+const OWNED_REASON: &str = "Only ferrule writes .ferrule/state.db and .ferrule/ferrule.lock, and only the user edits the settings this guard comes from (.ferrule/ferrule.toml, .claude/settings.json, .claude/settings.local.json). Use ferrule board log|move|set for the board, ferrule board show|board to read it, ferrule setup install for the lock; ask the user to change a setting.";
 
 /// Programs that may name ferrule's files: they only list or read them.
 const OWNED_READERS: &[&str] = &[
@@ -1210,8 +1255,12 @@ mod tests {
         assert!(is_owned(".ferrule/state.db"));
         assert!(is_owned("/x/.ferrule/state.db-wal"));
         assert!(is_owned(".ferrule/ferrule.lock"));
-        assert!(!is_owned(".ferrule/ferrule.toml"));
+        assert!(is_owned(".ferrule/ferrule.toml"));
+        assert!(is_owned("/x/.claude/settings.json"));
+        assert!(is_owned(".claude/settings.local.json"));
         assert!(!is_owned("/tmp/state.db"));
+        assert!(!is_owned("node/settings.json"));
+        assert!(!is_owned(".ferrule/runs/x/plan.md"));
     }
 
     fn guard(cmd: &str) -> Option<String> {
