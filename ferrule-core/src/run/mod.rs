@@ -3,6 +3,7 @@
 //! decision.
 
 pub mod archive;
+pub mod ci;
 pub mod commit;
 pub mod gate;
 pub mod gauntlet;

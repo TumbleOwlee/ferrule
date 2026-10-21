@@ -6,13 +6,11 @@ use std::io::{self, Write};
 use clap::Subcommand;
 use ferrule_core::card::board;
 use ferrule_core::config::Config;
-use ferrule_core::pr::publish;
 use ferrule_core::refusal::Refusal;
 use ferrule_core::run::gauntlet::{self, Outcome};
-use ferrule_core::run::next::{self, At, Status};
 use ferrule_core::{project, remote};
 
-use super::board::{run_on, store};
+use super::board::store;
 use super::{exit, internal, layout, refuse};
 
 /// Shown after `ferrule ci gauntlet --help`.
@@ -171,56 +169,32 @@ fn run_gauntlet(slug: &str, force: bool, out: &mut impl Write) -> io::Result<u8>
 }
 
 fn wait(slug: &str, out: &mut impl Write) -> io::Result<u8> {
+    use ferrule_core::run::ci;
     let layout = layout();
     let config = Config::load(&layout.root).map_err(internal)?;
     let Some(mut s) = store()? else {
         return refuse(out, &Refusal::card("ci"));
     };
-    let waited = run_on(&mut s, &config, slug, |r| r.wait_ci());
-    // `ci=` is stamped when the checks finished, not when the wait began.
-    let now = board::now();
-    let (code, failed) = match waited {
-        Ok(c) => (c.code, c.failed),
-        Err(publish::Error::NoPr) => {
-            let r = Refusal::new("ci", "no-pr").hint(format!(
-                "no PR is recorded for this run; open it with `ferrule pr open {slug}`"
-            ));
-            return refuse(out, &r);
+    let w = match ci::wait(&mut s, &layout, &config, slug, board::now) {
+        Ok(w) => w,
+        Err(e) => {
+            if let Some(r) = e.refusal(slug) {
+                return refuse(out, &r);
+            }
+            return match e {
+                ci::Error::Publish(e) => super::issue::post_failed(e, "ci", out),
+                ci::Error::Next(e) => Err(internal(e)),
+                ci::Error::NoPr | ci::Error::NoChecks => Ok(exit::REFUSED),
+            };
         }
-        Err(publish::Error::Remote(remote::Error::NoChecks(_))) => {
-            let r = Refusal::new("ci", "no-checks").hint(format!(
-                "the PR reports no checks yet; rerun `ferrule ci wait {slug}` once CI has started"
-            ));
-            return refuse(out, &r);
-        }
-        Err(e) => return super::issue::post_failed(e, "ci", out),
     };
-    write!(out, "ci={code}")?;
-    if !failed.is_empty() {
-        write!(out, " failed={}", failed.join(","))?;
+    write!(out, "ci={}", w.code)?;
+    if !w.failed.is_empty() {
+        write!(out, " failed={}", w.failed.join(","))?;
     }
     writeln!(out)?;
-    if code != 0 {
-        let branch = s
-            .read(|r| r.field(slug, "branch"))
-            .map_err(internal)?
-            .unwrap_or_default();
-        if let Ok(lines) =
-            remote::code_host(&config, &layout.root).failed(&branch, remote::Query::default())
-        {
-            for l in lines {
-                writeln!(out, "{l}")?;
-            }
-        }
+    for l in w.lines.iter().chain(&w.next) {
+        writeln!(out, "{l}")?;
     }
-    let status = Status::parse(&[format!("ci={code}")]);
-    match next::next(&mut s, &layout, slug, At::Ci, &status, &now) {
-        Ok(lines) => {
-            for l in lines {
-                writeln!(out, "{l}")?;
-            }
-            Ok(exit::OK)
-        }
-        Err(e) => Err(internal(e)),
-    }
+    Ok(exit::OK)
 }
