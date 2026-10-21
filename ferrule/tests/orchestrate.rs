@@ -1181,3 +1181,17 @@ fn it_slices_keep_their_position() {
     );
     assert_eq!(p.field("lb", "slices"), "[71, 72]");
 }
+
+#[test]
+fn it_a_mistyped_stop_or_follow_up_list_is_a_usage_error() {
+    let p = Project::new();
+    for args in [
+        &["gate", "approve", "demo", "gate2", "--stops", "s1,3"][..],
+        &["stage", "replan", "demo", "approve", "--stops", "s1;s2"],
+        &["pr", "publish", "demo", "--follow-ups", "1,x"],
+        &["pr", "publish", "demo", "--follow-ups", ""],
+    ] {
+        let got = p.ferrule(args).text();
+        assert!(got.ends_with("exit=2"), "{args:?}: {got}");
+    }
+}

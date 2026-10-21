@@ -169,6 +169,37 @@ pub fn replies(file: &str) -> (Vec<Reply>, usize) {
     (out, total)
 }
 
+/// What is wrong with the file's filled replies, one line per thread: a
+/// `reply:` that is neither `fixed` nor `declined` (it would be skipped)
+/// and a `declined` one without a reason bullet (it would post an empty
+/// reason). Empty when every reply can be posted.
+#[must_use]
+pub fn problems(file: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut tid = "";
+    for line in file.lines() {
+        if let Some(id) = line.strip_prefix("## thread ") {
+            tid = id;
+        } else if let Some(k) = line.strip_prefix("reply: ")
+            && !matches!(k.trim(), "" | "fixed" | "declined")
+        {
+            out.push(format!(
+                "thread {tid}: reply '{}' is neither fixed nor declined",
+                k.trim()
+            ));
+        }
+    }
+    for r in replies(file).0 {
+        if r.kind == Kind::Declined && r.bullets.is_empty() && r.posted.is_none() {
+            out.push(format!(
+                "thread {}: a declined reply needs a reason as its first bullet",
+                r.thread
+            ));
+        }
+    }
+    out
+}
+
 /// The file's header and its `## thread` blocks, each with its id.
 fn blocks(file: &str) -> (String, Vec<(String, String)>) {
     let mut head = String::new();
@@ -264,6 +295,18 @@ pub fn reply_text(reply: &Reply, stage: &str, sha: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ut_problems_name_unpostable_replies() {
+        let f = "## thread T1\ncomment: 1\nreply: fix\n  - x\n## thread T2\ncomment: 2\nreply: declined\n## thread T3\ncomment: 3\nreply: declined\n  - out of scope\n## thread T4\ncomment: 4\nreply:\n";
+        assert_eq!(
+            problems(f),
+            [
+                "thread T1: reply 'fix' is neither fixed nor declined",
+                "thread T2: a declined reply needs a reason as its first bullet"
+            ]
+        );
+    }
 
     #[test]
     fn ut_carry_over_keeps_worked_blocks_of_open_threads() {

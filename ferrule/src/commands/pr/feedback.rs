@@ -66,6 +66,9 @@ Output:
       is posted twice.
 Errors (stderr):
   pr feedback: no such file: <file>                 exit 1
+  pr feedback: thread <id>: reply '<word>' is neither fixed nor declined
+  pr feedback: thread <id>: a declined reply needs a reason as its first bullet
+      exit 1, before anything is posted. Fix: correct the reply in <file>.
   pr feedback: thread <id>: <the host's error>      exit 1
   pr feedback: a 'reply: fixed' thread needs <stage> <sha> (the pushed head)
       exit 2. Fix: give the stage and the pushed commit.
@@ -156,6 +159,13 @@ fn reply(
         eprintln!("pr feedback: no such file: {}", file.display());
         return Ok(exit::REFUSED);
     };
+    let problems = feedback::problems(&text);
+    if !problems.is_empty() {
+        for p in problems {
+            eprintln!("pr feedback: {p}");
+        }
+        return Ok(exit::REFUSED);
+    }
     let (replies, total) = feedback::replies(&text);
     let fixed_any = replies
         .iter()

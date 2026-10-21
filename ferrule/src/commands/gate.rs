@@ -217,7 +217,7 @@ pub struct ApproveArgs {
     #[arg(long)]
     pub branch: Option<String>,
     /// gate2: stages that stop for approval beyond the plan's, e.g. `s1,s3`.
-    #[arg(long)]
+    #[arg(long, value_parser = ferrule_core::run::gate::parse_stops)]
     pub stops: Option<String>,
 }
 

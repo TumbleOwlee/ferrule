@@ -249,7 +249,7 @@ pub enum PrCommand {
         /// The run's slug.
         slug: Slug,
         /// The follow-ups to file: `1,3`, or `none` [default: all].
-        #[arg(long, value_name = "LIST")]
+        #[arg(long, value_name = "LIST", value_parser = parse_follow_ups)]
         follow_ups: Option<String>,
     },
     /// Fetch, route and answer the PR's inline review threads.
@@ -367,6 +367,25 @@ fn push(config: &Config, slug: &str, out: &mut impl Write) -> io::Result<u8> {
         Some(Ok(Err(r))) => refuse(out, &r.refusal()),
         Some(Err(e)) => post_failed(e, "push", out),
     }
+}
+
+/// `--follow-ups` as given, when it is `none` or follow-up numbers: a
+/// typo would otherwise file none of them.
+fn parse_follow_ups(v: &str) -> Result<String, String> {
+    if v == "none" {
+        return Ok(v.to_owned());
+    }
+    for item in v.split(',').map(str::trim) {
+        if item.is_empty()
+            || !item.bytes().all(|b| b.is_ascii_digit())
+            || item.parse::<u32>().is_err()
+        {
+            return Err(format!(
+                "'{item}' is no follow-up number; give them as 1,3 or none"
+            ));
+        }
+    }
+    Ok(v.to_owned())
 }
 
 fn publish_pr(

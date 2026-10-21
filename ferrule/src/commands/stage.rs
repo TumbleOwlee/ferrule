@@ -172,7 +172,7 @@ pub enum StageCommand {
         step: ReplanStep,
         /// With `approve`: stages that stop for approval beyond the plan's,
         /// e.g. `s1,s3`.
-        #[arg(long)]
+        #[arg(long, value_parser = ferrule_core::run::gate::parse_stops)]
         stops: Option<String>,
     },
 }

@@ -450,6 +450,24 @@ pub fn stage_cards(slug: &str, stages: &[PlanStage], stops: &[u32], branch: &str
         .collect()
 }
 
+/// `--stops` as given, when every item is an `s<n>`: a typo would
+/// otherwise drop a stop the user asked for.
+///
+/// # Errors
+/// The item that is no stage id.
+pub fn parse_stops(v: &str) -> Result<String, String> {
+    for item in v.split(',').map(str::trim) {
+        let ok = item
+            .strip_prefix('s')
+            .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+            && item[1..].parse::<u32>().is_ok();
+        if !ok {
+            return Err(format!("'{item}' is no stage id; give them as s1,s3"));
+        }
+    }
+    Ok(v.to_owned())
+}
+
 /// `stops=s1,s3`.
 #[must_use]
 pub fn stop_arg(v: Option<&str>) -> Vec<u32> {
