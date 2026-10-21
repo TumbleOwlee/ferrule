@@ -3,9 +3,9 @@ exit=2
 $ gate next ns nowhere status=ready
 exit=2
 $ gate next ns gate4 status=new file=x
-run-next=unknown at=gate4 status=new hint=`ferrule gate next --help` lists the statuses each position takes
+run-next=refused reason=unknown at=gate4 status=new hint=`ferrule gate next --help` lists the statuses each position takes
 exit=2
 $ gate next nosuch gate2 status=ready
-run-next=card hint=check the slug with `ferrule board list`
+run-next=refused reason=card hint=check the slug with `ferrule board list`
 exit=1
 exit=0

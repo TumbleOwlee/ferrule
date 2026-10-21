@@ -1,10 +1,10 @@
 use std::io::{self, Write};
 
 use clap::{Args, Subcommand};
-use ferrule_core::install::{self, Error, Options, Stack, VERSION};
+use ferrule_core::install::{self, Options, Stack, VERSION};
 use ferrule_core::project;
 
-use super::exit;
+use super::{exit, refuse};
 use crate::cli::Command;
 use crate::commands::hook::HookCommand;
 
@@ -34,16 +34,17 @@ Refusals (stdout):
   install=refused reason=foreign path=<file> hint=--force overwrites it
       A generated path holds a file ferrule never wrote; nothing was
       written. Move it away or rerun with --force.
-  install=refused reason=<error> hint=fix the file the reason names, then rerun
-      The lock or .claude/settings.json is unreadable or not valid, or its
-      `hooks` or `permissions` hold a value of the wrong type (reason=
-      .claude/settings.json: hooks is not an object). Nothing is replaced;
-      the file is left as it was.
+  install=refused reason=<r> detail=\"<error>\" hint=fix the file the detail names, then rerun
+      reason=settings: .claude/settings.json is not valid, or its `hooks`
+      or `permissions` hold a value of the wrong type (detail=
+      \".claude/settings.json: hooks is not an object\"); reason=lock: the
+      lock is not valid; reason=io: a file could not be read or written.
+      Nothing is replaced; the file is left as it was.
 Version mismatch (stderr of every other command):
-  ferrule=refused reason=version pinned=<v> binary=<v>: <fix>
-  ferrule=refused reason=version locked=<v> binary=<v>: <fix>
+  ferrule=refused reason=version pinned=<v> binary=<v> hint=<fix>
+  ferrule=refused reason=version locked=<v> binary=<v> hint=<fix>
       ferrule.toml pins (pinned) or the lock was written by (locked)
-      another version than the binary. The line names the fix: run ferrule
+      another version than the binary. The hint names the fix: run ferrule
       install and commit, or cargo install the pinned tag. install and
       uninstall still run.
 Exit codes: 0 ok, 1 refused or drift, 2 usage (2 also blocks a git hook on a
@@ -59,8 +60,9 @@ Output (nothing is written):
       missing, stale (unedited, older), reason=edited (changed by hand, or
       settings.json deny rules differ) or version (then pinned=<v> or
       locked=<v>, and binary=<v>).
-  install-check=refused reason=<error> hint=fix the file the reason names, then rerun
-      The lock or settings file is unreadable.
+  install-check=refused reason=<r> detail=\"<error>\" hint=fix the file the detail names, then rerun
+      The lock (reason=lock) or settings file (reason=settings) is not
+      valid, or a file is unreadable (reason=io).
 Exit codes: 0 ok, 1 refused or drift, 2 usage, 4 internal error.";
 
 #[derive(Debug, Subcommand)]
@@ -163,13 +165,7 @@ fn install(args: &InstallArgs, out: &mut impl Write) -> io::Result<u8> {
                 }
                 Ok(exit::REFUSED)
             }
-            Err(e) => {
-                writeln!(
-                    out,
-                    "install-check=refused reason={e} hint=fix the file the reason names, then rerun"
-                )?;
-                Ok(exit::REFUSED)
-            }
+            Err(e) => refuse(out, &e.refusal("install-check")),
         };
     }
     let opts = Options {
@@ -178,20 +174,7 @@ fn install(args: &InstallArgs, out: &mut impl Write) -> io::Result<u8> {
     };
     let report = match install::install(&root, &opts) {
         Ok(r) => r,
-        Err(Error::Foreign(path)) => {
-            writeln!(
-                out,
-                "install=refused reason=foreign path={path} hint=--force overwrites it"
-            )?;
-            return Ok(exit::REFUSED);
-        }
-        Err(e) => {
-            writeln!(
-                out,
-                "install=refused reason={e} hint=fix the file the reason names, then rerun"
-            )?;
-            return Ok(exit::REFUSED);
-        }
+        Err(e) => return refuse(out, &e.refusal("install")),
     };
     writeln!(
         out,

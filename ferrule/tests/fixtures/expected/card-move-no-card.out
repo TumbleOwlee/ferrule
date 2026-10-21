@@ -1,2 +1,2 @@
-card-move=card hint=check the id with `ferrule board list`
+card-move=refused reason=card hint=check the slug with `ferrule board list`
 exit=1

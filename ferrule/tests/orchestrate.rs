@@ -553,7 +553,7 @@ fn it_replan_swaps_the_uncommitted_stages() {
     assert_eq!(p.field("demo.s1", "stop"), "yes");
     assert_eq!(
         p.ferrule(&["board", "show", "demo.s2"]).text(),
-        "card-show=card hint=check the id with `ferrule board list`\nexit=1"
+        "card-show=refused reason=card hint=check the slug with `ferrule board list`\nexit=1"
     );
     let parent = p.ok(&["board", "show", "demo"]);
     assert!(

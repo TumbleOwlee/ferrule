@@ -19,14 +19,16 @@ Refusals:
   approve=refused reason=no-plan   gate2: plan.md is missing from the run dir
   approve=refused reason=no-stages gate2: plan.md has no `## Shared` stage table
   approve=refused reason=usage     gate2: --issue is neither `new` nor a number
-  approve=refused reason=worktree  gate2: `git worktree add` failed
+  approve=refused reason=worktree detail=\"<git's error>\"
+                                   gate2: `git worktree add` failed
   approve=refused reason=move      gate2: the parent card cannot move to
                                    inprogress
-  post=refused reason=no-issue|no-branch|card
-                                   gate2: filing the issue failed; an issue body
-                                   that fails its checks prints as
-                                   `ferrule issue post` does (a host error goes
-                                   to stderr, exit 1)
+  approve=refused reason=no-issue|no-branch
+                                   gate2: filing the issue failed
+  approve=refused reason=stage-ref stage-ref=<token>
+                                   gate2: the issue body names a stage or an
+                                   agent (exit 3); a host error goes to
+                                   stderr, exit 1
 The approve=refused lines end in ` hint=<fix>`.
 Exit codes: 0 done, 1 refused, 2 usage, 4 internal error.
 See: ferrule guide show approval";
@@ -78,9 +80,9 @@ Output, in order:
   guide: ferrule guide show <topic> --slug <slug>
                                    The topic to read before acting
 Errors:
-  run-next=card                    No such run (exit 1); check the slug with
+  run-next=refused reason=card     No such run (exit 1); check the slug with
                                    `ferrule board list`
-  run-next=unknown at=<pos> status=<word>
+  run-next=refused reason=unknown at=<pos> status=<word>
                                    The position does not take that status
                                    (exit 2); the list above has the valid ones
   usage: ferrule gate next <slug> <pos> status=<word>  (stderr, exit 2)

@@ -1,2 +1,2 @@
-card-log=card hint=check the id with `ferrule board list`
+card-log=refused reason=card hint=check the slug with `ferrule board list`
 exit=1

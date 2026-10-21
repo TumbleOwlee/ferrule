@@ -1,2 +1,2 @@
-card-log=reject event=green reason=key hint=green takes no keys
+card-log=reject reason=key event=green hint=green takes no keys
 exit=2

@@ -22,7 +22,7 @@ Refusals (checked in this order; each line ends in `hint=<fix>`):
                                  branch: `ferrule gate approve <slug> gate2`
                                  creates it and its worktree (cd there); with
                                  --no-run, check out another branch first
-  commit=refused reason=card     No such card; check the id with
+  commit=refused reason=card     No such card; check it with
                                  `ferrule board list`
   commit=refused reason=state state=<s>
                                  The card is in <s>, not inreview; move it with
@@ -72,7 +72,7 @@ Output (also logged on the stage card; s0 never stops):
                                    \"<lines> lines, <files> files\"
     stop=7 reason=checkpoint       Enough stages auto-continued in a row
 Refusals:
-  stage-stop=card                  No such stage card; check the slug and
+  stage-stop=refused reason=card   No such stage card; check the slug and
                                    stage with `ferrule board list`
 The refusal ends in ` hint=<fix>`.
 Exit codes: 0 auto or stop, 1 refused, 2 usage, 4 internal error.
@@ -91,7 +91,8 @@ Output:
                                    the dropped stages is logged again on the
                                    parent, so the ids stay retired
   pr-body=pushed|unchanged         After approve: the draft PR's body synced
-  pr-body=refused stage-ref=s<n>   The body names stage s<n> that has no card
+  pr-body=refused reason=stage-ref stage-ref=s<n> hint=<fix>
+                                   The body names stage s<n> that has no card
   pr-body=failed                   The sync failed (details on stderr)
 Refusals:
   replan=refused reason=card       No such run; check the slug with

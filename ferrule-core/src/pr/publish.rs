@@ -17,6 +17,7 @@ use crate::config::Config;
 use crate::hook::attribution;
 use crate::pr::feedback;
 use crate::project::Layout;
+use crate::refusal::{Exit, Refusal};
 use crate::run::gauntlet::{self, Outcome};
 use crate::{git, remote, run, spec};
 
@@ -35,6 +36,32 @@ pub enum Error {
     NoPr,
     Remote(remote::Error),
     Sql(rusqlite::Error),
+}
+
+impl Error {
+    /// The `<verb>=refused` line of an error the command answers with a
+    /// refusal; `None` for the others (a missing artifact, the host, the
+    /// state database).
+    #[must_use]
+    pub fn refusal(&self, verb: &'static str) -> Option<Refusal> {
+        match self {
+            Error::Body(b) => b.refusal(verb),
+            Error::NoIssue => Some(
+                Refusal::new(verb, "no-issue")
+                    .hint("file the tracking issue first: ferrule issue post <slug>"),
+            ),
+            Error::NoBranch => Some(
+                Refusal::new(verb, "no-branch")
+                    .hint("approve gate2 first: ferrule gate approve <slug> gate2"),
+            ),
+            Error::NoPr => Some(
+                Refusal::new(verb, "no-pr")
+                    .hint("no PR is recorded for this run; open it with `ferrule pr open <slug>`"),
+            ),
+            Error::Card => Some(Refusal::card(verb)),
+            Error::Missing(_) | Error::Remote(_) | Error::Sql(_) => None,
+        }
+    }
 }
 
 impl std::fmt::Display for Error {
@@ -369,35 +396,64 @@ pub enum PushRefused {
     Sha(String),
     /// The worktree holds changes no commit has.
     Dirty,
-    /// The gauntlet failed: its status line.
-    Gauntlet(String),
+    /// The gauntlet did not pass: its outcome.
+    Gauntlet(Outcome),
     /// `git push` failed.
-    Push,
+    Push(git::GitError),
+}
+
+/// The fix when `git push` to origin fails.
+pub const PUSH_HINT: &str =
+    "git push to origin failed (network, auth or a rejected update); retry once, then ask the user";
+
+impl PushRefused {
+    /// The `push=refused` line.
+    #[must_use]
+    pub fn refusal(&self) -> Refusal {
+        match self {
+            PushRefused::Main => {
+                Refusal::new("push", "main").hint("push from a branch other than main")
+            }
+            PushRefused::NoBranch => Refusal::new("push", "branch")
+                .hint("approve gate2 first: ferrule gate approve <slug> gate2"),
+            PushRefused::Sha(m) => Refusal::new("push", "sha")
+                .field("mismatch", m)
+                .hint("push a stage's last commit= on the run's branch: ferrule stage verify"),
+            PushRefused::Dirty => Refusal::new("push", "dirty")
+                .hint("commit the changes through `ferrule stage commit`, then push again"),
+            PushRefused::Gauntlet(outcome) => match outcome {
+                Outcome::Fail {
+                    step,
+                    sha,
+                    timeout,
+                    log,
+                } => {
+                    let r = Refusal::new("push", "gauntlet")
+                        .field("step", step)
+                        .field("sha", sha);
+                    let r = if *timeout {
+                        r.field("timeout", "yes")
+                    } else {
+                        r
+                    };
+                    r.field("log", log.display())
+                        .hint("fix the failing step, commit, push again")
+                }
+                other => other.refusal("push").unwrap_or_else(|| {
+                    Refusal::new("push", "gauntlet")
+                        .hint("fix the failing step, commit, push again")
+                }),
+            },
+            PushRefused::Push(e) => Refusal::new("push", "push")
+                .detail(&e.stderr)
+                .hint(PUSH_HINT),
+        }
+    }
 }
 
 impl std::fmt::Display for PushRefused {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            PushRefused::Main => f.write_str("push=refused reason=main hint=push from a branch other than main"),
-            PushRefused::NoBranch => f.write_str(
-                "push=refused reason=branch hint=approve gate2 first: ferrule gate approve <slug> gate2",
-            ),
-            PushRefused::Sha(m) => write!(
-                f,
-                "push=refused reason=sha mismatch={m} \
-hint=push a stage's last commit= on the run's branch: ferrule stage verify"
-            ),
-            PushRefused::Dirty => f.write_str(
-                "push=refused reason=dirty hint=commit the changes through `ferrule stage commit`, then push again",
-            ),
-            PushRefused::Gauntlet(g) => write!(
-                f,
-                "push=refused reason=gauntlet {g} hint=fix the failing step, commit, push again"
-            ),
-            PushRefused::Push => f.write_str(
-                "push=refused reason=push hint=git push to origin failed (network, auth or a rejected update); retry once, then ask the user",
-            ),
-        }
+        write!(f, "{}", self.refusal())
     }
 }
 
@@ -436,35 +492,33 @@ pub enum PublishRefused {
     StageRef(String),
 }
 
+impl PublishRefused {
+    /// The `publish=refused` line; a stage reference exits 3.
+    #[must_use]
+    pub fn refusal(&self) -> Refusal {
+        match self {
+            PublishRefused::Threads(n) => Refusal::new("publish", "threads")
+                .field("threads", n)
+                .hint("resolve the open threads: ferrule guide show feedback"),
+            PublishRefused::Collide(ids) => Refusal::new("publish", "collide")
+                .field("ids", ids.join(","))
+                .hint("renumber the colliding IDs on the branch, push, publish again"),
+            PublishRefused::CollisionsUnknown => Refusal::new("publish", "collisions-unknown")
+                .hint(
+                    "main could not be fetched or shares no history with the branch; \
+                 ask the user to fix the remote, then publish again",
+                ),
+            PublishRefused::StageRef(t) => Refusal::new("publish", "stage-ref")
+                .field("stage-ref", t)
+                .hint("reword the text naming it, then publish again")
+                .exit(Exit::Content),
+        }
+    }
+}
+
 impl std::fmt::Display for PublishRefused {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            PublishRefused::Threads(n) => write!(
-                f,
-                "publish=refused reason=threads threads={n} \
-hint=resolve the open threads: ferrule guide show feedback"
-            ),
-            PublishRefused::Collide(ids) => {
-                write!(
-                    f,
-                    "publish=refused reason=collide ids={} \
-hint=renumber the colliding IDs on the branch, push, publish again",
-                    ids.join(",")
-                )
-            }
-            PublishRefused::CollisionsUnknown => write!(
-                f,
-                "publish=refused reason=collisions-unknown \
-hint=main could not be fetched or shares no history with the branch; ask the user to fix the remote, then publish again"
-            ),
-            PublishRefused::StageRef(t) => {
-                write!(
-                    f,
-                    "publish=refused reason=stage-ref stage-ref={t} \
-hint=reword the text naming it, then publish again"
-                )
-            }
-        }
+        write!(f, "{}", self.refusal())
     }
 }
 
@@ -531,10 +585,10 @@ impl Run<'_> {
             cov, sha, cached, ..
         } = outcome
         else {
-            return Ok(Err(PushRefused::Gauntlet(outcome.to_string())));
+            return Ok(Err(PushRefused::Gauntlet(outcome)));
         };
-        if !git::ok(&wt, &["push", "-q", "-u", "origin", &branch]) {
-            return Ok(Err(PushRefused::Push));
+        if let Err(e) = git::run(&wt, &["push", "-q", "-u", "origin", &branch]) {
+            return Ok(Err(PushRefused::Push(e)));
         }
         self.log(
             "gauntlet=pass",
@@ -631,7 +685,7 @@ impl Run<'_> {
         let pr = numbers(self.field("pr")?.as_deref())
             .first()
             .copied()
-            .ok_or(Error::Card)?;
+            .ok_or(Error::NoPr)?;
         let fetched = feedback::fetch(self.config.backend.ci, &pr.to_string(), self.root)?;
         let file = self.layout.run_dir(self.slug).join("pr-feedback.md");
         std::fs::write(&file, fetched.file(self.now))
@@ -773,8 +827,10 @@ impl std::fmt::Display for Sync {
             Sync::Unchanged => f.write_str("pr-body=unchanged"),
             Sync::Refused(t) => write!(
                 f,
-                "pr-body=refused stage-ref={t} \
-hint=reword the text naming it; the PR keeps its previous body"
+                "{}",
+                Refusal::new("pr-body", "stage-ref")
+                    .field("stage-ref", t)
+                    .hint("reword the text naming it; the PR keeps its previous body")
             ),
         }
     }

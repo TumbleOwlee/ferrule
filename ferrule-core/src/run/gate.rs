@@ -27,12 +27,75 @@ use crate::prompt::{
     self,
     render::{Kind, Viewed},
 };
+use crate::refusal::Refusal;
 use crate::remote::{self, Item};
+
+/// Why `run init`, `gate approve` or `stage replan` refused.
+#[derive(Debug)]
+pub enum GateRefusal {
+    /// The run already has a card or stage cards.
+    Exists,
+    /// No such run or stage card.
+    Card,
+    /// plan.md is missing from the run directory.
+    NoPlan,
+    /// plan.md has no stage table (from the re-planned stage on).
+    NoStages,
+    /// `--issue` is neither `new` nor a number.
+    Usage,
+    /// `git worktree add` failed.
+    Worktree(git::GitError),
+    /// The parent card cannot move to inprogress.
+    Move,
+    /// No replan was started since the last approval.
+    NoReplan,
+}
+
+impl GateRefusal {
+    /// The reason word.
+    #[must_use]
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            GateRefusal::Exists => "exists",
+            GateRefusal::Card => "card",
+            GateRefusal::NoPlan => "no-plan",
+            GateRefusal::NoStages => "no-stages",
+            GateRefusal::Usage => "usage",
+            GateRefusal::Worktree(_) => "worktree",
+            GateRefusal::Move => "move",
+            GateRefusal::NoReplan => "no-replan",
+        }
+    }
+
+    /// The `<verb>=refused` line of run `slug`.
+    #[must_use]
+    pub fn refusal(&self, verb: &'static str, slug: &str) -> Refusal {
+        let r = Refusal::new(verb, self.as_str());
+        match self {
+            GateRefusal::Exists => r.hint(format!(
+                "the run exists; resume it with `ferrule run reconcile {slug}`"
+            )),
+            GateRefusal::Card => Refusal::card(verb),
+            GateRefusal::NoPlan => r.hint(format!("write .ferrule/runs/{slug}/plan.md first")),
+            GateRefusal::NoStages => r.hint("add the `## Shared` stage table to plan.md"),
+            GateRefusal::Usage => r.hint("--issue takes `new` or an issue number"),
+            GateRefusal::Worktree(e) => r
+                .detail(&e.stderr)
+                .hint("git could not add the worktree; check `git worktree list` and --branch"),
+            GateRefusal::Move => r.hint(format!(
+                "the parent card cannot move to inprogress; see `ferrule board show {slug}`"
+            )),
+            GateRefusal::NoReplan => r.hint(format!(
+                "no replan is pending; start one: ferrule stage replan {slug} start"
+            )),
+        }
+    }
+}
 
 #[derive(Debug)]
 pub enum Error {
     /// The status-line refusal.
-    Refused(&'static str),
+    Refused(GateRefusal),
     Remote(remote::Error),
     Publish(publish::Error),
     Board(board::BatchError),
@@ -43,7 +106,7 @@ pub enum Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::Refused(r) => write!(f, "refused: {r}"),
+            Error::Refused(r) => write!(f, "refused: {}", r.as_str()),
             Error::Remote(e) => write!(f, "{e}"),
             Error::Publish(e) => write!(f, "{e}"),
             Error::Board(e) => write!(f, "{e}"),
@@ -117,7 +180,7 @@ pub fn init(
     now: &str,
 ) -> Result<Option<String>, Error> {
     if board::state(conn, slug)?.is_some() || !board::stages(conn, slug)?.is_empty() {
-        return Err(Error::Refused("exists"));
+        return Err(Error::Refused(GateRefusal::Exists));
     }
     let root = &layout.root;
     let tracker = config.backend.tracker;
@@ -318,7 +381,7 @@ fn is_date(v: Option<&str>) -> bool {
 fn set(conn: &mut Connection, slug: &str, key: &str, value: &str) -> Result<(), Error> {
     board::set(conn, slug, key, value).map_err(|e| match e {
         board::CardError::Sql(e) => Error::Sql(e),
-        _ => Error::Refused("card"),
+        _ => Error::Refused(GateRefusal::Card),
     })
 }
 
@@ -344,14 +407,14 @@ fn approve_gate2(
     let today = now.get(..10).unwrap_or(now);
     let gate1_pending = !is_date(board::field(conn, slug, "gate1")?.as_deref());
     let plan = std::fs::read_to_string(layout.run_dir(slug).join("plan.md"))
-        .map_err(|_| Error::Refused("no-plan"))?;
+        .map_err(|_| Error::Refused(GateRefusal::NoPlan))?;
     let stages = plan_stages(&plan);
     if stages.is_empty() {
-        return Err(Error::Refused("no-stages"));
+        return Err(Error::Refused(GateRefusal::NoStages));
     }
     let reuse = match arg(args, "issue") {
         None | Some("" | "new") => None,
-        Some(n) => Some(n.parse().map_err(|_| Error::Refused("usage"))?),
+        Some(n) => Some(n.parse().map_err(|_| Error::Refused(GateRefusal::Usage))?),
     };
     let root = layout.root.clone();
     let mut run = publish::Run {
@@ -378,9 +441,7 @@ fn approve_gate2(
             OsStr::new(&branch),
             OsStr::new(&config.main_branch),
         ];
-        if !git::ok(&layout.root, &add) {
-            return Err(Error::Refused("worktree"));
-        }
+        git::run(&layout.root, &add).map_err(|e| Error::Refused(GateRefusal::Worktree(e)))?;
     }
     out.worktree = Some(
         wt.strip_prefix(&layout.root)
@@ -399,7 +460,7 @@ fn approve_gate2(
     match board::move_card(conn, slug, State::InProgress, now) {
         Ok(()) => {}
         Err(board::MoveError::Sql(e)) => return Err(Error::Sql(e)),
-        Err(_) => return Err(Error::Refused("move")),
+        Err(_) => return Err(Error::Refused(GateRefusal::Move)),
     }
     let summary =
         std::fs::read_to_string(layout.run_dir(slug).join("plan.summary.md")).unwrap_or_default();
@@ -429,7 +490,7 @@ pub fn approve(
     now: &str,
 ) -> Result<Approved, Error> {
     if board::state(conn, slug)?.is_none() {
-        return Err(Error::Refused("card"));
+        return Err(Error::Refused(GateRefusal::Card));
     }
     let today = now.get(..10).unwrap_or(now);
     let gate1_pending = !is_date(board::field(conn, slug, "gate1")?.as_deref());
@@ -460,7 +521,7 @@ pub fn approve(
     let record = prompt::render::render(conn, layout, Kind::Approved, slug, &[], now, &mut no_view)
         .map_err(|e| match e {
             prompt::render::Error::Sql(e) => Error::Sql(e),
-            _ => Error::Refused("card"),
+            _ => Error::Refused(GateRefusal::Card),
         })?;
     record
         .first()
@@ -492,20 +553,20 @@ pub fn replan_start(
     now: &str,
 ) -> Result<u32, Error> {
     let Some(st) = board::state(conn, slug)? else {
-        return Err(Error::Refused("card"));
+        return Err(Error::Refused(GateRefusal::Card));
     };
     let from = replan_from(conn, slug)?;
     if st != State::InProgress {
         match board::move_card(conn, slug, State::InProgress, now) {
             Ok(()) => {}
             Err(board::MoveError::Sql(e)) => return Err(Error::Sql(e)),
-            Err(_) => return Err(Error::Refused("move")),
+            Err(_) => return Err(Error::Refused(GateRefusal::Move)),
         }
     }
     match board::log(conn, slug, "replan", &[format!("from=s{from}")], now) {
         Ok(()) => {}
         Err(board::LogError::Sql(e)) => return Err(Error::Sql(e)),
-        Err(_) => return Err(Error::Refused("card")),
+        Err(_) => return Err(Error::Refused(GateRefusal::Card)),
     }
     let dir = layout.run_dir(slug);
     if dir.join("plan.md").is_file() {
@@ -535,16 +596,16 @@ pub fn replan_approve(
             Typed::Replan { from: Some(f) } => f.strip_prefix('s')?.parse().ok(),
             _ => None,
         })
-        .ok_or(Error::Refused("no-replan"))?;
+        .ok_or(Error::Refused(GateRefusal::NoReplan))?;
     let dir = layout.run_dir(slug);
-    let plan =
-        std::fs::read_to_string(dir.join("plan.md")).map_err(|_| Error::Refused("no-plan"))?;
+    let plan = std::fs::read_to_string(dir.join("plan.md"))
+        .map_err(|_| Error::Refused(GateRefusal::NoPlan))?;
     let fresh: Vec<PlanStage> = plan_stages(&plan)
         .into_iter()
         .filter(|s| s.n >= from)
         .collect();
     if fresh.is_empty() {
-        return Err(Error::Refused("no-stages"));
+        return Err(Error::Refused(GateRefusal::NoStages));
     }
     let mut delete = Vec::new();
     let mut relog = Vec::new();

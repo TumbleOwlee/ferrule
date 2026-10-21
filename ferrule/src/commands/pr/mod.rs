@@ -9,13 +9,14 @@ use ferrule_core::card::board;
 use ferrule_core::config::Config;
 use ferrule_core::pr::publish;
 use ferrule_core::project::{self, Layout};
+use ferrule_core::refusal::Refusal;
 use ferrule_core::term::Style;
 use ferrule_core::{git, remote};
 
 use super::board::store;
 use super::exit;
-use super::internal;
 use super::issue::{post_failed, print_body};
+use super::{internal, refuse};
 use feedback::FeedbackCommand;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -53,7 +54,7 @@ const PR_BODY_AFTER_LONG_HELP: &str = "\
 Output (stdout): the body, line 1 `# <title>`, ending `Closes #<issue>`; posts
 nothing. `draft` is the progress form, `full` the gate 4 form from pr.md.
 Refusals:
-  body=refused stage-ref=<token> hint=reword the source text so it names no stage or agent
+  body=refused reason=stage-ref stage-ref=<token> hint=reword the source text so it names no stage or agent
       The visible text names a stage (`s<n>`) or an agent (`fe-author`, ...);
       only backticked spans holding `.` or `/` are exempt. Exit 3. Fix: have
       the agent that wrote the source file reword it; never edit the body.
@@ -71,11 +72,11 @@ Output:
       The run's draft PR <n>; opened now, or the one the card already names.
       Opening records `pr:` on the card and logs `pr=draft`.
 Refusals (stdout, exit 1):
-  post=refused reason=card hint=no card for this slug; check it with `ferrule board list`
-      No card for the slug. Fix: check the slug with `ferrule board list`.
-  post=refused reason=no-branch hint=approve gate2 first: ferrule gate approve <slug> gate2
+  open=refused reason=card hint=check the slug with `ferrule board list`
+      No card for the slug.
+  open=refused reason=no-branch hint=approve gate2 first: ferrule gate approve <slug> gate2
       The card has no branch yet. Fix: `ferrule gate approve <slug> gate2`.
-  body=refused stage-ref=<token> hint=reword the source text so it names no stage or agent
+  open=refused reason=stage-ref stage-ref=<token> hint=reword the source text so it names no stage or agent
       The draft body names a stage or an agent. Exit 3. Fix: see `pr body`.
 Errors (stderr, exit 1): `body: missing <path>`; the CI host's error.
 Exit codes: 0 ok, 1 refused, 3 content, 4 internal error.
@@ -89,7 +90,7 @@ Output:
       pass is logged as `gauntlet=pass` with cov= and sha= on the card.
       The PR's draft body was updated. `pr-body=unchanged` when it already
       matched.
-  push=done sha=<sha> gauntlet=pass pr-body=refused stage-ref=<token> hint=reword the text naming it; the PR keeps its previous body
+  push=done sha=<sha> gauntlet=pass pr-body=refused reason=stage-ref stage-ref=<token> hint=reword the text naming it; the PR keeps its previous body
       Pushed (exit 0), but the draft body names a stage or an agent: the
       token sits in a card's `spec-delta` why or a `decisions.md` line.
       Fix: have the agent that wrote it reword it, then push again.
@@ -110,14 +111,18 @@ Refusals (stdout, exit 1):
   push=refused reason=dirty hint=commit the changes through `ferrule stage commit`, then push again
       The worktree holds changes beyond HEAD (modified or untracked
       files). Fix: commit them through `ferrule stage commit`, push again.
-  push=refused reason=gauntlet <gauntlet line> hint=fix the failing step, commit, push again
-      The gauntlet failed on the head; the line is `ci gauntlet`'s. Fix: fix
-      the step, commit, push again.
-  push=refused reason=push hint=git push to origin failed (network, auth or a rejected update); retry once, then ask the user
-      `git push` failed; ferrule does not show git's error, and the shell
-      guard refuses a raw `git push`. Fix: retry once, then ask the user.
-  push=refused reason=card hint=no card for this slug; check it with `ferrule board list`
-      No card for the slug. Fix: check the slug with `ferrule board list`.
+  push=refused reason=gauntlet step=<name> sha=<sha> [timeout=yes] log=<path> hint=fix the failing step, commit, push again
+      The gauntlet failed on the head, as `ci gauntlet` reports it. Fix:
+      fix the step, commit, push again.
+  push=refused reason=no-worktree|no-steps hint=<fix>
+      The gauntlet could not run, as `ci gauntlet` refuses it.
+  push=refused reason=push detail=\"<git's error>\" hint=git push to origin failed (network, auth or a rejected update); retry once, then ask the user
+      `git push` failed; detail is what git said, and the shell guard
+      refuses a raw `git push`. Fix: retry once, then ask the user.
+  push=refused reason=no-branch|stage-ref ...
+      Opening the PR on the first push failed, as `pr open` refuses it.
+  push=refused reason=card hint=check the slug with `ferrule board list`
+      No card for the slug.
 Errors (stderr, exit 1): `missing <path>`; the CI host's error.
 Exit codes: 0 ok, 1 refused, 4 internal error.
 Backend: pushes to origin; updates the PR on the configured CI host.
@@ -141,9 +146,9 @@ Refusals (stdout, exit 1 unless noted):
       the check. Fix: ask the user.
   publish=refused reason=stage-ref stage-ref=<token> hint=reword the text naming it, then publish again
       The full body names a stage or an agent. Exit 3. Fix: reword the text.
-  publish=refused reason=card hint=no card for this slug; check it with `ferrule board list`
-      No card for the slug. Fix: check the slug with `ferrule board list`.
-  body=refused stage-ref=<token> hint=reword the source text so it names no stage or agent
+  publish=refused reason=card hint=check the slug with `ferrule board list`
+      No card for the slug.
+  publish=refused reason=stage-ref stage-ref=<token> hint=reword the source text so it names no stage or agent
       As in `pr body full`. Exit 3.
 Errors (stderr, exit 1): `body: missing <path>` (pr.md); the host's error.
 Exit codes: 0 ok, 1 refused, 3 content, 4 internal error.
@@ -282,11 +287,7 @@ pub(crate) fn failed(
 fn open(config: &Config, slug: &str, out: &mut impl Write) -> io::Result<u8> {
     let layout = Layout::new(project::main_checkout());
     let Some(mut s) = store(false)? else {
-        writeln!(
-            out,
-            "post=refused reason=card hint=no card for this slug; check it with `ferrule board list`"
-        )?;
-        return Ok(exit::REFUSED);
+        return refuse(out, &Refusal::card("open"));
     };
     let now = board::now();
     let mut run = publish::Run {
@@ -302,7 +303,7 @@ fn open(config: &Config, slug: &str, out: &mut impl Write) -> io::Result<u8> {
             writeln!(out, "pr={n} state=draft")?;
             Ok(exit::OK)
         }
-        Err(e) => post_failed(e, out),
+        Err(e) => post_failed(e, "open", out),
     }
 }
 
@@ -347,22 +348,13 @@ fn push(config: &Config, slug: &str, out: &mut impl Write) -> io::Result<u8> {
         }
     };
     match pushed {
-        None | Some(Err(publish::Error::Card)) => {
-            writeln!(
-                out,
-                "push=refused reason=card hint=no card for this slug; check it with `ferrule board list`"
-            )?;
-            Ok(exit::REFUSED)
-        }
+        None | Some(Err(publish::Error::Card)) => refuse(out, &Refusal::card("push")),
         Some(Ok(Ok(p))) => {
             writeln!(out, "{p}")?;
             Ok(exit::OK)
         }
-        Some(Ok(Err(r))) => {
-            writeln!(out, "{r}")?;
-            Ok(exit::REFUSED)
-        }
-        Some(Err(e)) => post_failed(e, out),
+        Some(Ok(Err(r))) => refuse(out, &r.refusal()),
+        Some(Err(e)) => post_failed(e, "push", out),
     }
 }
 
@@ -375,13 +367,7 @@ fn publish_pr(
     let keep: Option<Vec<u32>> =
         keep.map(|k| k.split(',').filter_map(|x| x.trim().parse().ok()).collect());
     match with_run(config, slug, |r| r.publish(keep.as_deref()))? {
-        None | Some(Err(publish::Error::Card)) => {
-            writeln!(
-                out,
-                "publish=refused reason=card hint=no card for this slug; check it with `ferrule board list`"
-            )?;
-            Ok(exit::REFUSED)
-        }
+        None | Some(Err(publish::Error::Card)) => refuse(out, &Refusal::card("publish")),
         Some(Ok(Ok((pr, filed)))) => {
             let list: Vec<String> = filed.iter().map(|n| format!("#{n}")).collect();
             let list = if list.is_empty() {
@@ -392,15 +378,8 @@ fn publish_pr(
             writeln!(out, "publish=done pr={pr} follow-ups={list}")?;
             Ok(exit::OK)
         }
-        Some(Ok(Err(r))) => {
-            writeln!(out, "{r}")?;
-            Ok(if matches!(r, publish::PublishRefused::StageRef(_)) {
-                exit::CONTENT
-            } else {
-                exit::REFUSED
-            })
-        }
-        Some(Err(e)) => post_failed(e, out),
+        Some(Ok(Err(r))) => refuse(out, &r.refusal()),
+        Some(Err(e)) => post_failed(e, "publish", out),
     }
 }
 
@@ -409,25 +388,16 @@ fn push_branch(config: &Config, out: &mut impl Write) -> io::Result<u8> {
     let here = std::env::current_dir()?;
     let Some(branch) = ferrule_core::git::out(&here, &["symbolic-ref", "--short", "-q", "HEAD"])
     else {
-        writeln!(
+        return refuse(
             out,
-            "push=refused reason=no-branch hint=check out a branch first"
-        )?;
-        return Ok(exit::REFUSED);
+            &Refusal::new("push", "no-branch").hint("check out a branch first"),
+        );
     };
     if branch == config.main_branch {
-        writeln!(
-            out,
-            "push=refused reason=main hint=push from a branch other than main"
-        )?;
-        return Ok(exit::REFUSED);
+        return refuse(out, &publish::PushRefused::Main.refusal());
     }
-    if !ferrule_core::git::ok(&here, &["push", "-q", "-u", "origin", &branch]) {
-        writeln!(
-            out,
-            "push=refused reason=push hint=git push to origin failed (network, auth or a rejected update); retry once, then ask the user"
-        )?;
-        return Ok(exit::REFUSED);
+    if let Err(e) = ferrule_core::git::run(&here, &["push", "-q", "-u", "origin", &branch]) {
+        return refuse(out, &publish::PushRefused::Push(e).refusal());
     }
     writeln!(out, "push=done branch={branch}")?;
     Ok(exit::OK)

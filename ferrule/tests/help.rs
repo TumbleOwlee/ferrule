@@ -11,6 +11,7 @@ use golden::Run;
 
 /// Source file to the commands whose `--help` documents its status tokens.
 const SOURCES: &[(&str, &[&str])] = &[
+    ("ferrule-core/src/body.rs", &["issue body", "pr body"]),
     ("ferrule-core/src/card/board.rs", &["board move"]),
     ("ferrule-core/src/card/vocab.rs", &["board log"]),
     ("ferrule-core/src/guide.rs", &["guide show", "guide check"]),
@@ -20,13 +21,22 @@ const SOURCES: &[(&str, &[&str])] = &[
     ),
     (
         "ferrule-core/src/pr/publish.rs",
-        &["pr open", "pr push", "pr publish", "pr feedback route"],
+        &[
+            "issue post",
+            "pr open",
+            "pr push",
+            "pr publish",
+            "pr feedback route",
+        ],
     ),
     ("ferrule-core/src/prompt/render.rs", &["prompt render"]),
-    ("ferrule-core/src/run/archive.rs", &["run metrics"]),
+    (
+        "ferrule-core/src/run/archive.rs",
+        &["run metrics", "run cleanup"],
+    ),
     (
         "ferrule-core/src/run/gate.rs",
-        &["gate approve", "stage replan"],
+        &["run init", "gate approve", "stage replan"],
     ),
     ("ferrule-core/src/run/gauntlet.rs", &["ci gauntlet"]),
     ("ferrule-core/src/run/mod.rs", &["stage stop"]),
@@ -266,6 +276,70 @@ fn tokens_in(text: &str, found: &mut BTreeSet<String>) {
     }
 }
 
+/// The `"..."` literal at the start of `s`, after whitespace; `None` when
+/// `s` starts with anything else (a variable).
+fn leading_literal(s: &str) -> Option<&str> {
+    let rest = s.trim_start().strip_prefix('"')?;
+    rest.find('"').map(|end| &rest[..end])
+}
+
+/// The builder chain of a `Refusal::new(` whose arguments start `s`: up to
+/// the `;`, `,` or closing bracket that ends the expression, string
+/// literals skipped.
+fn statement(s: &str) -> &str {
+    let mut in_str = false;
+    let mut escaped = false;
+    let mut depth = 1usize;
+    for (i, c) in s.char_indices() {
+        match c {
+            _ if escaped => escaped = false,
+            '\\' if in_str => escaped = true,
+            '"' => in_str = !in_str,
+            _ if in_str => {}
+            '(' | '{' | '[' => depth += 1,
+            ')' | '}' | ']' | ';' | ',' if depth == 0 => return &s[..i],
+            ')' | '}' | ']' => depth -= 1,
+            _ => {}
+        }
+    }
+    s
+}
+
+/// The tokens of the refusals built in `code`: `Refusal::new("verb",
+/// "reason")` is `verb=refused` (`verb=reject` when the chain calls
+/// `.reject()`) and `reason=reason`; `Refusal::card("verb")` is
+/// `verb=refused` and `reason=card`; a `.field("key", …)` in the chain is
+/// `key=`. A verb or reason passed as a variable adds no token for it.
+fn refusal_tokens(code: &str, found: &mut BTreeSet<String>) {
+    for (at, _) in code.match_indices("Refusal::new(") {
+        let args = &code[at + "Refusal::new(".len()..];
+        let chain = statement(args);
+        let verdict = if chain.contains(".reject()") {
+            "reject"
+        } else {
+            "refused"
+        };
+        if let Some(verb) = leading_literal(args) {
+            found.insert(format!("{verb}={verdict}"));
+        }
+        let second = args.split_once(',').map_or("", |(_, r)| r);
+        if let Some(reason) = leading_literal(second) {
+            found.insert(format!("reason={reason}"));
+        }
+        for (f, _) in chain.match_indices(".field(") {
+            if let Some(key) = leading_literal(&chain[f + ".field(".len()..]) {
+                found.insert(format!("{key}="));
+            }
+        }
+    }
+    for (at, _) in code.match_indices("Refusal::card(") {
+        if let Some(verb) = leading_literal(&code[at + "Refusal::card(".len()..]) {
+            found.insert(format!("{verb}=refused"));
+        }
+        found.insert("reason=card".to_owned());
+    }
+}
+
 /// Status tokens in `file` (relative to the workspace) before its tests.
 fn scan(file: &str) -> BTreeSet<String> {
     let src = std::fs::read_to_string(workspace().join(file)).expect("read source");
@@ -274,6 +348,7 @@ fn scan(file: &str) -> BTreeSet<String> {
     for text in literals(code) {
         tokens_in(&text, &mut found);
     }
+    refusal_tokens(code, &mut found);
     found
 }
 

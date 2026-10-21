@@ -7,11 +7,12 @@ use ferrule_core::card::board;
 use ferrule_core::card::typed::{Change, Name, Typed};
 use ferrule_core::config::Config;
 use ferrule_core::markdown::{self, Match};
+use ferrule_core::refusal::{Exit, Refusal};
 use ferrule_core::spec::diff::{Part, SpecDiff};
 use ferrule_core::term::{self, Style};
 use ferrule_core::{git, project, run, spec};
 
-use super::exit;
+use super::{exit, refuse};
 
 /// Shown after `ferrule spec id --help`.
 const ID_AFTER_LONG_HELP: &str = "\
@@ -64,8 +65,8 @@ Refusals:
                                  the implementer to renumber them on the
                                  branch (spec, test citations, spec-delta
                                  log), then check again.
-  ids=error reason=no-merge-base hint=fetch the REF, or pass a REF the branch
-                                 descends from
+  ids=refused reason=no-merge-base hint=fetch the REF, or pass a REF the
+                                 branch descends from
                                  The branch and REF share no history (exit
                                  2). Fetch REF, or name the right one.
 Exit codes: 0 clean, 1 collide, 2 error or usage, 4 internal error.
@@ -287,19 +288,18 @@ pub fn run(command: &SpecCommand, style: Option<Style>, out: &mut impl Write) ->
 fn next(args: &NextArgs, out: &mut impl Write) -> io::Result<u8> {
     let prefix = &args.prefix;
     if prefix.len() != 2 || !prefix.bytes().all(|b| b.is_ascii_uppercase()) {
-        writeln!(
-            out,
-            "next=refused reason=prefix hint=a prefix is two capital letters, e.g. MB"
-        )?;
-        return Ok(exit::REFUSED);
+        let r = Refusal::new("next", "prefix").hint("a prefix is two capital letters, e.g. MB");
+        return refuse(out, &r);
     }
     let series = if args.edge { 'E' } else { 'R' };
     let root = project::main_checkout();
     let config = Config::load(&root).map_err(super::internal)?;
     let reference = args.r#ref.clone().unwrap_or(config.main_branch);
     if git::commit(&root, &reference).is_none() {
-        writeln!(out, "next=refused reason=ref hint=fetch REF or pass --ref")?;
-        return Ok(exit::REFUSED);
+        return refuse(
+            out,
+            &Refusal::new("next", "ref").hint("fetch REF or pass --ref"),
+        );
     }
     // whole lines: `highest` checks the word boundaries
     let needle = format!("{prefix}-{series}-");
@@ -307,20 +307,13 @@ fn next(args: &NextArgs, out: &mut impl Write) -> io::Result<u8> {
         &root,
         &["-hF", "-e", &needle, &reference, "--", "docs/specs"],
     ) else {
-        writeln!(
-            out,
-            "next=refused reason=grep hint=git grep failed on REF; report it to the user"
-        )?;
-        return Ok(exit::REFUSED);
+        let r = Refusal::new("next", "grep").hint("git grep failed on REF; report it to the user");
+        return refuse(out, &r);
     };
     let mut texts = vec![on_ref];
     if let Some(slug) = &args.run {
         let Some(found) = run_texts(slug)? else {
-            writeln!(
-                out,
-                "next=refused reason=card hint=check the slug with `ferrule board list`"
-            )?;
-            return Ok(exit::REFUSED);
+            return refuse(out, &Refusal::card("next"));
         };
         texts.extend(found);
     }
@@ -332,12 +325,11 @@ fn next(args: &NextArgs, out: &mut impl Write) -> io::Result<u8> {
     let id = |n: u32| format!("{prefix}-{series}-{n:0width$}");
     let first = best.map_or(Some(1), |(n, _)| n.checked_add(1));
     let Some((first, end)) = first.and_then(|f| Some((f, f.checked_add(args.count)?))) else {
-        writeln!(
-            out,
-            "next=refused reason=range hint=lower --count; the numbers would pass {}",
+        let r = Refusal::new("next", "range").hint(format!(
+            "lower --count; the numbers would pass {}",
             u32::MAX
-        )?;
-        return Ok(exit::REFUSED);
+        ));
+        return refuse(out, &r);
     };
     let ids: Vec<String> = (first..end).map(id).collect();
     let last = best.map_or_else(|| "-".to_owned(), |(n, _)| id(n));
@@ -378,11 +370,11 @@ fn run_texts(slug: &str) -> io::Result<Option<Vec<String>>> {
 
 fn refs(args: &RefsArgs, out: &mut impl Write) -> io::Result<u8> {
     if let Some(bad) = args.ids.iter().find(|id| !spec::is_fixed_id(id)) {
-        writeln!(
-            out,
-            "refs=refused reason=id id={bad} hint=a fixed ID looks like MB-R-001"
-        )?;
-        return Ok(exit::USAGE);
+        let r = Refusal::new("refs", "id")
+            .field("id", bad)
+            .hint("a fixed ID looks like MB-R-001")
+            .exit(Exit::Usage);
+        return refuse(out, &r);
     }
     let dir = if args.r#ref.is_some() {
         project::main_checkout()
@@ -392,11 +384,8 @@ fn refs(args: &RefsArgs, out: &mut impl Write) -> io::Result<u8> {
     if let Some(r) = &args.r#ref
         && git::commit(&dir, r).is_none()
     {
-        writeln!(
-            out,
-            "refs=refused reason=ref hint=fetch REF or pass another --ref"
-        )?;
-        return Ok(exit::REFUSED);
+        let r = Refusal::new("refs", "ref").hint("fetch REF or pass another --ref");
+        return refuse(out, &r);
     }
     let mut cmd: Vec<&str> = vec!["-n", "-w", "-F", "--no-color"];
     for id in &args.ids {
@@ -406,11 +395,9 @@ fn refs(args: &RefsArgs, out: &mut impl Write) -> io::Result<u8> {
     cmd.push("--");
     cmd.extend(args.path.iter().map(String::as_str));
     let Some(text) = git::grep(&dir, &cmd) else {
-        writeln!(
-            out,
-            "refs=refused reason=grep hint=git grep failed; check each --path, else report it to the user"
-        )?;
-        return Ok(exit::REFUSED);
+        let r = Refusal::new("refs", "grep")
+            .hint("git grep failed; check each --path, else report it to the user");
+        return refuse(out, &r);
     };
     let strip = args.r#ref.as_ref().map(|r| format!("{r}:"));
     let lines: Vec<&str> = text
@@ -603,13 +590,12 @@ fn collisions(args: &CollisionsArgs, out: &mut impl Write) -> io::Result<u8> {
         format!("origin/{}", config.main_branch)
     };
     match spec::collisions(&args.worktree, &reference) {
-        None => {
-            writeln!(
-                out,
-                "ids=error reason=no-merge-base hint=fetch the REF, or pass a REF the branch descends from"
-            )?;
-            Ok(exit::USAGE)
-        }
+        None => refuse(
+            out,
+            &Refusal::new("ids", "no-merge-base")
+                .hint("fetch the REF, or pass a REF the branch descends from")
+                .exit(Exit::Usage),
+        ),
         Some(hits) if hits.is_empty() => {
             writeln!(out, "ids=clean")?;
             Ok(exit::OK)

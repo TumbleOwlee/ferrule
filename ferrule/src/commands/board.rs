@@ -3,15 +3,16 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use clap::{Subcommand, ValueEnum};
-use ferrule_core::card::board::{self, CardError, LogError, MoveError, State};
+use ferrule_core::card::board::{self, CardError, LogError, State};
 use ferrule_core::card::vocab;
 use ferrule_core::config::Config;
 use ferrule_core::pr::publish;
 use ferrule_core::project;
+use ferrule_core::refusal::{Exit, Refusal};
 use ferrule_core::store::{OpenError, Store};
 use ferrule_core::term::{self, Style};
 
-use super::{exit, internal};
+use super::{exit, internal, refuse};
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum CardKind {
@@ -71,7 +72,7 @@ Output:
 Filters: --event <name> keeps that event's lines (`follow-up`, `spec-delta`,
 `commit`, ...); --last <n> the latest n of them.
 Refusals:
-  events=card hint=check the id with `ferrule board list`
+  events=refused reason=card hint=check the slug with `ferrule board list`
                              No such run (exit 1).
 Exit codes: 0 ok, 1 refused, 4 internal error.
 Examples:
@@ -107,7 +108,8 @@ Examples:
   ferrule board show <slug>.s1 --log --last 5
   ferrule board show <slug>.s1 --event commit
 Refusals:
-  card-show=card             No such card; check the id with
+  card-show=refused reason=card
+                             No such card; check it with
                              `ferrule board list` (hint= says so)
 Exit codes: 0 ok, 1 refused, 4 internal error.
 See: ferrule guide show board";
@@ -136,11 +138,13 @@ const NEW_AFTER_LONG_HELP: &str = "\
 Output:
   (nothing)                      The card was created; exit 0.
 Refusals:
-  card-new=exists                The card exists already; pick another id, or
+  card-new=refused reason=exists The card exists already; pick another id, or
                                  change it with `ferrule board set`
-  card-new=reject key=<k>        <k> is not a field of this kind of card; the
+  card-new=reject reason=key key=<k>
+                                 <k> is not a field of this kind of card; the
                                  hint lists the allowed ones (see Fields)
-  card-new=reject arg=<a>        A field argument without `=`; write key=value
+  card-new=reject reason=arg arg=<a>
+                                 A field argument without `=`; write key=value
 Every refusal ends in `hint=<fix>`. Nothing is created on a refusal.
 Fields (`ferrule board set` takes the same):
   stage card <slug>.s<n>         title, blocked-by, files, branch, worktree,
@@ -166,16 +170,18 @@ Output:
   (nothing)                      The fields were written, all in one
                                  transaction; exit 0.
 Refusals:
-  card-set=card                  No such card; check the id with
+  card-set=refused reason=card   No such card; check it with
                                  `ferrule board list`
-  card-set=reject key=<k>        <k> is not a field of this kind of card; the
+  card-set=reject reason=key key=<k>
+                                 <k> is not a field of this kind of card; the
                                  hint lists the allowed ones, also under
                                  Fields in `ferrule board new --help` (do not
                                  hand-set the ones the workflow commands
                                  write: gate1, arch, gate2, lane, branch,
                                  issue, pr, slices, split); every key is
                                  checked first, so nothing is written
-  card-set=reject arg=<a>        A field argument without `=`; write key=value;
+  card-set=reject reason=arg arg=<a>
+                                 A field argument without `=`; write key=value;
                                  nothing is written
 Every refusal ends in `hint=<fix>`.
 Exit codes: 0 ok, 1 refused (card), 2 rejected input, 4 internal error.
@@ -188,15 +194,16 @@ Output:
   pr-body=pushed                 The run has a PR; its draft body was
                                  re-rendered and pushed.
   pr-body=unchanged              The run has a PR; the body did not change.
-  pr-body=refused stage-ref=<t>  The body names a stage <t> that does not exist.
+  pr-body=refused reason=stage-ref stage-ref=<t> hint=<fix>
+                                 The body names a stage <t> that does not exist.
   pr-body=failed                 The host could not be reached; the move
                                  stands (details on stderr).
 Refusals:
-  card-move=card                 No such card; check the id with
+  card-move=refused reason=card  No such card; check it with
                                  `ferrule board list`
-  card-move=refused from=<s> to=<s> reason=<r> hint=<fix>
+  card-move=refused reason=<r> from=<s> to=<s> hint=<fix>
                                  The board forbids the move; nothing changes.
-  card-log=reject event=moved reason=length
+  card-log=reject reason=length event=moved hint=<fix>
                                  The `moved=` line would be over the log line
                                  length; nothing changes (exit 2).
 Reasons:
@@ -228,9 +235,9 @@ Output:
   (nothing)                      The line was appended, stamped with the UTC
                                  minute; exit 0.
 Refusals:
-  card-log=card                  No such card; check the id with
+  card-log=refused reason=card   No such card; check it with
                                  `ferrule board list`
-  card-log=reject event=<e> reason=<r> hint=<fix>
+  card-log=reject reason=<r> event=<e> hint=<fix>
                                  The vocabulary refuses the line; nothing is
                                  appended. <e> is the event without its `=`.
 Reasons:
@@ -301,20 +308,20 @@ const IMPORT_AFTER_LONG_HELP: &str = "\
 Output:
   import=ok cards=<n>            All <n> cards were loaded (frontmatter, log).
 Refusals:
-  import=refused reason=<text>   Nothing was loaded. <text> is free text to the
-                                 end of the line: `<path>: <problem>` for a
-                                 card file whose `id:` or `parent:` disagrees
-                                 with its name, whose `state:` is not the
-                                 state directory it sits in, that has a key
-                                 its kind does not carry, or whose log line
-                                 stamp is not `YYYY-MM-DDTHH:MM`,
-                                 `card <id> is already on the
-                                 board`, an I/O error or `state database: ...`.
-                                 Fix the file or the board and run it again.
+  import=refused reason=invalid detail=\"<text>\" hint=<fix>
+                                 Nothing was loaded. <text> is
+                                 `<path>: <problem>` for a card file whose
+                                 `id:` or `parent:` disagrees with its name,
+                                 whose `state:` is not the state directory it
+                                 sits in, that has a key its kind does not
+                                 carry, or whose log line stamp is not
+                                 `YYYY-MM-DDTHH:MM`, `card <id> is already on
+                                 the board`, an I/O error or `state database:
+                                 ...`. Fix the file or the board and run it
+                                 again.
 Exit codes: 0 ok, 2 refused, 4 internal error.
 See: ferrule guide show board";
 
-const HINT_CARD: &str = "check the id with `ferrule board list`";
 const HINT_KEY_VALUE: &str = "pass each field as key=value";
 const HINT_EXISTS: &str = "pick another id, or change the card with `ferrule board set`";
 
@@ -568,8 +575,7 @@ fn field(card: &str, field: &str, out: &mut impl Write) -> io::Result<u8> {
 
 fn log(card: &str, event: &str, args: &[String], out: &mut impl Write) -> io::Result<u8> {
     let Some(mut s) = store(false)? else {
-        writeln!(out, "card-log=card hint={HINT_CARD}")?;
-        return Ok(exit::REFUSED);
+        return refuse(out, &Refusal::card("card-log"));
     };
     let config = Config::load(&project::main_checkout()).map_err(internal)?;
     match board::log_with_budget(
@@ -582,46 +588,25 @@ fn log(card: &str, event: &str, args: &[String], out: &mut impl Write) -> io::Re
         true,
     ) {
         Ok(()) => Ok(exit::OK),
-        Err(LogError::Card) => {
-            writeln!(out, "card-log=card hint={HINT_CARD}")?;
-            Ok(exit::REFUSED)
-        }
-        Err(LogError::Reject(r)) => {
-            writeln!(out, "{r}")?;
-            Ok(exit::USAGE)
-        }
+        Err(LogError::Card) => refuse(out, &Refusal::card("card-log")),
+        Err(LogError::Reject(r)) => refuse(out, &r.refusal()),
         Err(LogError::Sql(e)) => Err(internal(e)),
     }
 }
 
 fn move_card(card: &str, to: State, out: &mut impl Write) -> io::Result<u8> {
     let Some(mut s) = store(false)? else {
-        writeln!(out, "card-move=card hint={HINT_CARD}")?;
-        return Ok(exit::REFUSED);
+        return refuse(out, &Refusal::card("card-move"));
     };
     match board::move_card(&mut s.conn, card, to, &board::now()) {
         Ok(()) => {
             sync_draft(&mut s, card, out)?;
             Ok(exit::OK)
         }
-        Err(MoveError::Card) => {
-            writeln!(out, "card-move=card hint={HINT_CARD}")?;
-            Ok(exit::REFUSED)
-        }
-        Err(MoveError::Log(r)) => {
-            writeln!(out, "{r}")?;
-            Ok(exit::USAGE)
-        }
-        Err(MoveError::Refused { from, reason }) => {
-            writeln!(
-                out,
-                "card-move=refused from={from} to={to} reason={} hint={}",
-                reason.as_str(),
-                reason.hint(from, board::CardId::parse(card).stage.is_some())
-            )?;
-            Ok(exit::USAGE)
-        }
-        Err(MoveError::Sql(e)) => Err(internal(e)),
+        Err(e) => match e.refusal(card, to) {
+            Some(r) => refuse(out, &r),
+            None => Err(internal(e)),
+        },
     }
 }
 
@@ -645,8 +630,7 @@ fn show(card: &str, part: &ShowPart, style: Option<Style>, out: &mut impl Write)
         }
         Ok(exit::OK)
     } else {
-        writeln!(out, "card-show=card hint={HINT_CARD}")?;
-        Ok(exit::REFUSED)
+        refuse(out, &Refusal::card("card-show"))
     }
 }
 
@@ -683,8 +667,7 @@ fn events(
     out: &mut impl Write,
 ) -> io::Result<u8> {
     let Some(s) = card_store(slug)? else {
-        writeln!(out, "events=card hint={HINT_CARD}")?;
-        return Ok(exit::REFUSED);
+        return refuse(out, &Refusal::card("events"));
     };
     let mut lines: Vec<String> = board::run_log_lines(&s.conn, slug, event)
         .map_err(internal)?
@@ -733,13 +716,28 @@ fn list(
     Ok(exit::OK)
 }
 
+/// `<verb>=reject reason=arg`: a field argument without `=`.
+fn bad_arg(verb: &'static str, arg: &str) -> Refusal {
+    Refusal::new(verb, "arg")
+        .reject()
+        .field("arg", arg)
+        .hint(HINT_KEY_VALUE)
+        .exit(Exit::Usage)
+}
+
+/// `<verb>=reject reason=key`: not a field of this kind of card.
+fn bad_key(verb: &'static str, key: &str, card: &str) -> Refusal {
+    Refusal::new(verb, "key")
+        .reject()
+        .field("key", key)
+        .hint(hint_field(card))
+        .exit(Exit::Usage)
+}
+
 fn new(card: &str, st: State, fields: &[String], out: &mut impl Write) -> io::Result<u8> {
     let fields = match key_values(fields) {
         Ok(f) => f,
-        Err(arg) => {
-            writeln!(out, "card-new=reject arg={arg} hint={HINT_KEY_VALUE}")?;
-            return Ok(exit::USAGE);
-        }
+        Err(arg) => return refuse(out, &bad_arg("card-new", &arg)),
     };
     let Some(mut s) = store(true)? else {
         unreachable!("store(true) creates the database");
@@ -747,13 +745,9 @@ fn new(card: &str, st: State, fields: &[String], out: &mut impl Write) -> io::Re
     match board::create(&mut s.conn, card, st, &fields, &board::now()) {
         Ok(()) => Ok(exit::OK),
         Err(CardError::Exists) => {
-            writeln!(out, "card-new=exists hint={HINT_EXISTS}")?;
-            Ok(exit::REFUSED)
+            refuse(out, &Refusal::new("card-new", "exists").hint(HINT_EXISTS))
         }
-        Err(CardError::Field(k)) => {
-            writeln!(out, "card-new=reject key={k} hint={}", hint_field(card))?;
-            Ok(exit::USAGE)
-        }
+        Err(CardError::Field(k)) => refuse(out, &bad_key("card-new", &k, card)),
         Err(CardError::Card) => unreachable!("create never looks a card up"),
         Err(CardError::Sql(e)) => Err(internal(e)),
     }
@@ -762,25 +756,15 @@ fn new(card: &str, st: State, fields: &[String], out: &mut impl Write) -> io::Re
 fn set(card: &str, fields: &[String], out: &mut impl Write) -> io::Result<u8> {
     let fields = match key_values(fields) {
         Ok(f) => f,
-        Err(arg) => {
-            writeln!(out, "card-set=reject arg={arg} hint={HINT_KEY_VALUE}")?;
-            return Ok(exit::USAGE);
-        }
+        Err(arg) => return refuse(out, &bad_arg("card-set", &arg)),
     };
     let Some(mut s) = store(false)? else {
-        writeln!(out, "card-set=card hint={HINT_CARD}")?;
-        return Ok(exit::REFUSED);
+        return refuse(out, &Refusal::card("card-set"));
     };
     match board::set_all(&mut s.conn, card, &fields) {
         Ok(()) => Ok(exit::OK),
-        Err(CardError::Card) => {
-            writeln!(out, "card-set=card hint={HINT_CARD}")?;
-            Ok(exit::REFUSED)
-        }
-        Err(CardError::Field(k)) => {
-            writeln!(out, "card-set=reject key={k} hint={}", hint_field(card))?;
-            Ok(exit::USAGE)
-        }
+        Err(CardError::Card) => refuse(out, &Refusal::card("card-set")),
+        Err(CardError::Field(k)) => refuse(out, &bad_key("card-set", &k, card)),
         Err(CardError::Exists) => unreachable!("set never creates a card"),
         Err(CardError::Sql(e)) => Err(internal(e)),
     }
@@ -796,8 +780,11 @@ fn import(board_dir: &Path, out: &mut impl Write) -> io::Result<u8> {
             Ok(exit::OK)
         }
         Err(e) => {
-            writeln!(out, "import=refused reason={e}")?;
-            Ok(exit::USAGE)
+            let r = Refusal::new("import", "invalid")
+                .detail(e.to_string())
+                .hint("fix the file or the board the detail names, then import again")
+                .exit(Exit::Usage);
+            refuse(out, &r)
         }
     }
 }
@@ -840,34 +827,26 @@ pub(super) fn commit(
             "commit on the run's branch, not {}: `ferrule gate approve <slug> gate2` creates it and its worktree; with --no-run, check out another branch first",
             config.main_branch
         );
-        writeln!(
-            out,
-            "commit=refused reason=main branch={} hint={hint}",
-            config.main_branch
-        )?;
-        return Ok(exit::REFUSED);
+        let r = Refusal::new("commit", "main")
+            .field("branch", &config.main_branch)
+            .hint(hint);
+        return refuse(out, &r);
     }
     let mut store = None;
     if let Some(id) = card {
         let Some(s) = super::board::store(false)? else {
-            writeln!(out, "commit=refused reason=card hint={HINT_CARD}")?;
-            return Ok(exit::REFUSED);
+            return refuse(out, &Refusal::card("commit"));
         };
         match board::state(&s.conn, id).map_err(internal)? {
-            None => {
-                writeln!(out, "commit=refused reason=card hint={HINT_CARD}")?;
-                return Ok(exit::REFUSED);
-            }
+            None => return refuse(out, &Refusal::card("commit")),
             Some(State::InReview) => {}
             Some(other) => {
-                let hint =
-                    format!("move the card to inreview first: `ferrule board move {id} inreview`");
-                writeln!(
-                    out,
-                    "commit=refused reason=state state={} hint={hint}",
-                    other.as_str()
-                )?;
-                return Ok(exit::REFUSED);
+                let r = Refusal::new("commit", "state")
+                    .field("state", other)
+                    .hint(format!(
+                        "move the card to inreview first: `ferrule board move {id} inreview`"
+                    ));
+                return refuse(out, &r);
             }
         }
         let run = board::CardId::parse(id).run;
@@ -877,9 +856,12 @@ pub(super) fn commit(
         if let Some(want) = want
             && branch.as_deref() != Some(want.as_str())
         {
-            let hint = format!("check out {want}, the run's branch, and commit there");
-            writeln!(out, "commit=refused reason=branch want={want} hint={hint}")?;
-            return Ok(exit::REFUSED);
+            let r = Refusal::new("commit", "branch")
+                .field("want", &want)
+                .hint(format!(
+                    "check out {want}, the run's branch, and commit there"
+                ));
+            return refuse(out, &r);
         }
         store = Some(s);
     }
@@ -896,8 +878,7 @@ pub(super) fn commit(
         stdin.write_all(b"\n")?;
     }
     if !child.wait()?.success() {
-        writeln!(out, "commit=refused reason=git hint={HINT_GIT}")?;
-        return Ok(exit::REFUSED);
+        return refuse(out, &Refusal::new("commit", "git").hint(HINT_GIT));
     }
     let sha = ferrule_core::git::out(&here, &["rev-parse", "--short", "HEAD"]).unwrap_or_default();
     write!(out, "commit=done sha={sha}")?;

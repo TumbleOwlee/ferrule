@@ -7,6 +7,9 @@
 use std::borrow::Cow;
 use std::fmt;
 
+/// The fix for a slug or card id that names no card.
+pub const CARD_HINT: &str = "check the slug with `ferrule board list`";
+
 /// The exit code a refusal ends the command with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -60,6 +63,13 @@ impl Refusal {
             hint: None,
             exit: Exit::Refused,
         }
+    }
+
+    /// `<verb>=refused reason=card hint=…`: the slug or card id names no
+    /// card on the board.
+    #[must_use]
+    pub fn card(verb: impl Into<Cow<'static, str>>) -> Self {
+        Refusal::new(verb, "card").hint(CARD_HINT)
     }
 
     /// Prints `<verb>=reject` instead of `<verb>=refused`.
@@ -150,7 +160,7 @@ mod tests {
 
     #[test]
     fn reason_then_hint() {
-        let r = Refusal::new("diff", "card").hint("check the slug with `ferrule board list`");
+        let r = Refusal::card("diff");
         assert_eq!(
             r.to_string(),
             "diff=refused reason=card hint=check the slug with `ferrule board list`"

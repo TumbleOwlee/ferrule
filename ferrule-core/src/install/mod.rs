@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 use crate::hook::guard;
+use crate::refusal::Refusal;
 use crate::{config, git};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -192,6 +193,27 @@ pub enum Error {
 impl From<std::io::Error> for Error {
     fn from(e: std::io::Error) -> Self {
         Error::Io(e)
+    }
+}
+
+impl Error {
+    /// The `<verb>=refused` line: `foreign` names the path, the others say
+    /// what was wrong in `detail=`.
+    #[must_use]
+    pub fn refusal(&self, verb: &'static str) -> Refusal {
+        const FIX: &str = "fix the file the detail names, then rerun";
+        match self {
+            Error::Foreign(p) => Refusal::new(verb, "foreign")
+                .field("path", p)
+                .hint("--force overwrites it"),
+            Error::Settings(_) => Refusal::new(verb, "settings")
+                .detail(self.to_string())
+                .hint(FIX),
+            Error::Lock(_) => Refusal::new(verb, "lock")
+                .detail(self.to_string())
+                .hint(FIX),
+            Error::Io(_) => Refusal::new(verb, "io").detail(self.to_string()).hint(FIX),
+        }
     }
 }
 
@@ -947,7 +969,11 @@ impl Mismatch {
                 "the project's ferrule files are from {v}; run ferrule setup install to update them to {VERSION} and commit the result, or keep {v} with {cargo}"
             )
         };
-        format!("ferrule=refused reason=version {key}={v} binary={VERSION}: {fix}")
+        Refusal::new("ferrule", "version")
+            .field(key, v)
+            .field("binary", VERSION)
+            .hint(fix)
+            .to_string()
     }
 }
 

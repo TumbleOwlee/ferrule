@@ -7,11 +7,13 @@ use ferrule_core::config::Config;
 use ferrule_core::pr::feedback::{self, Kind};
 use ferrule_core::pr::publish;
 use ferrule_core::project::{self, Layout};
+use ferrule_core::refusal::Refusal;
 
 use crate::cli::stage_name;
 use crate::commands::board::store;
 use crate::commands::exit;
 use crate::commands::issue::post_failed;
+use crate::commands::refuse;
 
 const FB_ROUTE_AFTER_LONG_HELP: &str = "\
 Output:
@@ -22,13 +24,14 @@ Output:
       `files` hold its path, else the last stage. Logs `feedback=<k>`.
   pr-body=<state>
       Printed after it when a stage moved: `pushed` or `unchanged`.
-  pr-body=refused stage-ref=<token> hint=reword the text naming it; the PR keeps its previous body
+  pr-body=refused reason=stage-ref stage-ref=<token> hint=reword the text naming it; the PR keeps its previous body
       The draft body names a stage or an agent (the token sits in a card's
       `spec-delta` why or a `decisions.md` line); the PR keeps its body.
 Refusals (stdout, exit 1):
-  route=refused reason=card hint=needs the run's card and a PR: ferrule pr open <slug>
-      No card for the slug, or the card has no PR. Fix: check the slug, or
-      `ferrule pr open <slug>`.
+  route=refused reason=card hint=check the slug with `ferrule board list`
+      No card for the slug.
+  route=refused reason=no-pr hint=no PR is recorded for this run; open it with `ferrule pr open <slug>`
+      The card has no PR.
 Errors (stderr, exit 1): the CI host's error.
 Exit codes: 0 ok, 1 refused, 4 internal error.
 Backend: reads threads from the configured CI host.
@@ -200,13 +203,7 @@ fn route(config: &Config, slug: &str, out: &mut impl Write) -> io::Result<u8> {
         }
     };
     match routed {
-        None | Some(Err(publish::Error::Card)) => {
-            writeln!(
-                out,
-                "route=refused reason=card hint=needs the run's card and a PR: ferrule pr open <slug>"
-            )?;
-            Ok(exit::REFUSED)
-        }
+        None => refuse(out, &Refusal::card("route")),
         Some(Ok((pr, threads, stages, sync))) => {
             let list: Vec<String> = stages.iter().map(|n| format!("s{n}")).collect();
             let list = if list.is_empty() {
@@ -220,6 +217,6 @@ fn route(config: &Config, slug: &str, out: &mut impl Write) -> io::Result<u8> {
             }
             Ok(exit::OK)
         }
-        Some(Err(e)) => post_failed(e, out),
+        Some(Err(e)) => post_failed(e, "route", out),
     }
 }

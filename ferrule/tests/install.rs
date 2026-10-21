@@ -438,7 +438,7 @@ fn it_install_refuses_a_settings_value_of_the_wrong_type() {
     std::fs::write(root.join(".claude/settings.json"), text).unwrap();
     let out = ferrule(root, &["install"]);
     assert!(
-        out.contains("install=refused reason=.claude/settings.json: hooks is not an object"),
+        out.contains("install=refused reason=settings detail=\".claude/settings.json: hooks is not an object\""),
         "{out}"
     );
     assert_eq!(read(root, ".claude/settings.json"), text);

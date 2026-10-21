@@ -25,11 +25,11 @@ Failures:
       The step exited non-zero; read the log, fix, rerun.
   gauntlet=fail step=<name> sha=<sha> reason=timeout log=<path>
       The step ran past its timeout and was killed.
-  gauntlet=fail step=cd reason=no-worktree
+Refusals (nothing ran):
+  gauntlet=refused reason=no-worktree hint=<fix>
       The run has no worktree; `ferrule gate approve <slug> gate2` adds it.
-  gauntlet=fail step=config reason=no-steps
+  gauntlet=refused reason=no-steps hint=<fix>
       ferrule.toml has no [[gauntlet.step]]; add the project's checks.
-The no-worktree and no-steps lines end in ` hint=<fix>`.
 Exit codes: 0 pass, 1 fail, 4 internal error.
 See: ferrule guide show verify";
 

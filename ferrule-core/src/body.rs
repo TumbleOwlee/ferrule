@@ -14,6 +14,7 @@ use rusqlite::Connection;
 use crate::card::board::{self, State};
 use crate::card::typed::{Change, Name, Typed};
 use crate::project::Layout;
+use crate::refusal::{Exit, Refusal};
 use crate::spec::{
     self,
     diff::{Part, Render, SpecDiff},
@@ -31,6 +32,23 @@ pub enum Error {
     /// Nothing to print.
     Empty,
     Sql(rusqlite::Error),
+}
+
+impl Error {
+    /// The `<verb>=refused reason=stage-ref` line (exit 3) of a body that
+    /// names a stage or an agent; `None` for the other errors.
+    #[must_use]
+    pub fn refusal(&self, verb: &'static str) -> Option<Refusal> {
+        match self {
+            Error::StageRef(t) => Some(
+                Refusal::new(verb, "stage-ref")
+                    .field("stage-ref", t)
+                    .hint("reword the source text so it names no stage or agent")
+                    .exit(Exit::Content),
+            ),
+            _ => None,
+        }
+    }
 }
 
 impl std::fmt::Display for Error {

@@ -1,2 +1,2 @@
-card-log=reject event=gauntlet reason=owner hint=only ferrule logs it, with `ferrule pr push <slug>`
+card-log=reject reason=owner event=gauntlet hint=only ferrule logs it, with `ferrule pr push <slug>`
 exit=2

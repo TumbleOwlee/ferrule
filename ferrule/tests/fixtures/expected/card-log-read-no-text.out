@@ -1,2 +1,2 @@
-card-log=reject event=read reason=value hint=read takes optional keys path, -- text (required)
+card-log=reject reason=value event=read hint=read takes optional keys path, -- text (required)
 exit=2

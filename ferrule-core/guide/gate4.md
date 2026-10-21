@@ -4,7 +4,7 @@
 
 <!-- done: review=clean -->
 - Gauntlet + gate 3 clean, `ferrule guide show feedback` at `threads=0`.
-- `fe-author`, given the worktree path `{worktree}` and the run directory `{run_dir}`, syncs `spec-diff.md` from the branch's `docs/specs/`, writes `{run_dir}/pr.md` in **full form** and one `follow-up-<k>.md` per thing the run noticed outside its goal (implementer cards' `follow-up` lines, `review.md`'s `follow-up — ` lines; answers `follow-ups=<n>`) (content rules: `ferrule guide show author-late`). `ferrule pr body {slug} full` prints the body it makes; exit 3 (`body=refused stage-ref=… hint=…`) → resume `fe-author` to reword `pr.md`.
+- `fe-author`, given the worktree path `{worktree}` and the run directory `{run_dir}`, syncs `spec-diff.md` from the branch's `docs/specs/`, writes `{run_dir}/pr.md` in **full form** and one `follow-up-<k>.md` per thing the run noticed outside its goal (implementer cards' `follow-up` lines, `review.md`'s `follow-up — ` lines; answers `follow-ups=<n>`) (content rules: `ferrule guide show author-late`). `ferrule pr body {slug} full` prints the body it makes; exit 3 (`body=refused reason=stage-ref stage-ref=… hint=…`) → resume `fe-author` to reword `pr.md`.
 - The full body is the draft minus `## Stages` and `## Review here`, with its own status line, the `pr.md` prose in place of `## Why` and `## Scenarios covered` in place of `## Scenarios`; its spec changes come from the synced `spec-diff.md` Revisions lines, so the tick boxes and board state drop out and the remaining sections keep their order.
 
 <!-- done: pr=ready -->

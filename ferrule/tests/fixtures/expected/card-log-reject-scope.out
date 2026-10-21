@@ -1,2 +1,2 @@
-card-log=reject event=stop reason=scope hint=the event is for the other card kind; see `ferrule board vocab`
+card-log=reject reason=scope event=stop hint=the event is for the other card kind; see `ferrule board vocab`
 exit=2

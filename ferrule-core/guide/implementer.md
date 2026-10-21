@@ -18,7 +18,7 @@ Given `plan.md`'s path and your stage id(s): pull only your section(s), one batc
 
 Work **only** inside your worktree path — never the main checkout, never another agent's worktree. Never `git add -A` outside your assigned path.
 
-Also given the **id of your own task card**. Every card line goes through `ferrule board log <id> …`: it locates the card wherever the orchestrator moved it, stamps UTC, validates the event against its vocabulary and keeps the line **≤ 160 characters**. `card-log=card` → `status=blocked stage=s<n> reason=card`; `card-log=reject` → the line's `hint=` names the fix: fix the call, never write the card another way. Keep it current: a new session reads it if this one dies.
+Also given the **id of your own task card**. Every card line goes through `ferrule board log <id> …`: it locates the card wherever the orchestrator moved it, stamps UTC, validates the event against its vocabulary and keeps the line **≤ 160 characters**. `card-log=refused reason=card` → `status=blocked stage=s<n> reason=card`; `card-log=reject` → the line's `hint=` names the fix: fix the call, never write the card another way. Keep it current: a new session reads it if this one dies.
 
 Vocabulary (the only events you log):
 

@@ -259,7 +259,7 @@ fn it_move_follows_the_board_rules() {
             }
             _ => "approve gate 2 first: `ferrule gate approve <slug> gate2`",
         };
-        format!("card-move=refused from={from} to={to} reason={reason} hint={hint}\nexit=2")
+        format!("card-move=refused reason={reason} from={from} to={to} hint={hint}\nexit=2")
     };
     let moves = |line: String, hint: &str| line.replace("TRANSITION", hint);
 
@@ -321,11 +321,11 @@ fn it_new_and_set_validate_fields() {
     let run = |args: &[&str]| ferrule(p, args).text();
     assert_eq!(
         run(&["board", "new", "r"]),
-        "card-new=exists hint=pick another id, or change the card with `ferrule board set`\nexit=1"
+        "card-new=refused reason=exists hint=pick another id, or change the card with `ferrule board set`\nexit=1"
     );
     assert_eq!(
         run(&["board", "new", "r.s1", "lane=fast"]),
-        "card-new=reject key=lane hint=a stage card takes only title, blocked-by, files, branch, worktree, stop\nexit=2"
+        "card-new=reject reason=key key=lane hint=a stage card takes only title, blocked-by, files, branch, worktree, stop\nexit=2"
     );
     assert_eq!(
         run(&["board", "set", "r", "gate2=2026-10-03", "pr=7"]),
@@ -333,7 +333,7 @@ fn it_new_and_set_validate_fields() {
     );
     assert_eq!(
         run(&["board", "set", "r", "issue=9", "color=red"]),
-        "card-set=reject key=color hint=a parent card takes only kind, epic, slices, issue, pr, branch, lane, gate1, with-arch, with-plan, skipped, arch, no-arch, gate2, split, upstream, artifacts, worktree\nexit=2"
+        "card-set=reject reason=key key=color hint=a parent card takes only kind, epic, slices, issue, pr, branch, lane, gate1, with-arch, with-plan, skipped, arch, no-arch, gate2, split, upstream, artifacts, worktree\nexit=2"
     );
     assert_eq!(run(&["board", "field", "r", "issue"]), "exit=0");
     assert_eq!(run(&["board", "set", "r", "lane="]), "exit=0");
@@ -342,7 +342,7 @@ fn it_new_and_set_validate_fields() {
     assert_eq!(run(&["board", "field", "r", "state"]), "open\nexit=0");
     assert_eq!(
         run(&["board", "set", "x", "pr=1"]),
-        "card-set=card hint=check the id with `ferrule board list`\nexit=1"
+        "card-set=refused reason=card hint=check the slug with `ferrule board list`\nexit=1"
     );
     assert_eq!(
         run(&["board", "show", "r"]),
@@ -355,7 +355,10 @@ fn it_import_is_all_or_nothing() {
     let p = project();
     let board = fixtures().join("board");
     let again = ferrule(p.path(), &["board", "import", board.to_str().unwrap()]).text();
-    assert!(again.starts_with("import=refused reason=card "), "{again}");
+    assert!(
+        again.starts_with("import=refused reason=invalid detail=\"card "),
+        "{again}"
+    );
 
     let bad = tempfile::tempdir().unwrap();
     std::fs::create_dir(bad.path().join("open")).unwrap();
@@ -655,7 +658,7 @@ fn it_log_refuses_events_only_ferrule_writes() {
     let p = project();
     assert_eq!(
         log_tail(p.path(), "demo", &["gauntlet=pass", "sha=x"]),
-        "card-log=reject event=gauntlet reason=owner hint=only ferrule logs it, with `ferrule pr push <slug>`\nexit=2"
+        "card-log=reject reason=owner event=gauntlet hint=only ferrule logs it, with `ferrule pr push <slug>`\nexit=2"
     );
     let refused = log_tail(p.path(), "demo", &["ci=0"]);
     assert!(refused.contains("reason=owner"), "{refused}");

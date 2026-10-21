@@ -64,7 +64,7 @@ fn it_guide_cuts_to_the_cards_lane_and_state() {
     let missing = ferrule(root, root, &["guide", "stages", "--section", "Nope"]);
     assert!(
         missing
-            .starts_with("guide=unknown-section topic=stages section=Nope\nsection=Every stage\n"),
+            .starts_with("guide=refused reason=unknown-section topic=stages section=Nope hint=pick a heading from the section= lines that follow\nsection=Every stage\n"),
         "{missing}"
     );
     assert!(missing.ends_with("exit=1"), "{missing}");
@@ -132,7 +132,7 @@ fn it_guide_check_flags_unknown_topics_and_bad_tags() {
     );
     assert_eq!(
         ferrule(root, root, &["guide", "nosuch"]),
-        "guide=unknown topic=nosuch list=ferrule guide list\nexit=1"
+        "guide=refused reason=unknown topic=nosuch hint=`ferrule guide list` names the topics\nexit=1"
     );
     assert!(ferrule(root, root, &["guide"]).ends_with("exit=2"));
 }

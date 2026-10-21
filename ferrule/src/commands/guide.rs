@@ -6,11 +6,12 @@ use ferrule_core::card::board;
 use ferrule_core::config::Config;
 use ferrule_core::guide::{self, Context, Lane};
 use ferrule_core::project::{self, Layout};
+use ferrule_core::refusal::Refusal;
 use ferrule_core::term::{self, Style};
 
 use super::board::store;
 use super::exit;
-use super::internal;
+use super::{internal, refuse};
 use crate::cli::stage_name;
 
 /// Shown after `ferrule guide show --help`.
@@ -20,9 +21,9 @@ Output:
   for the other lane is left out), finished steps marked, placeholders such
   as {slug} and {run_dir} filled. With --section, only those sections.
 Refusals (stdout, exit 1):
-  guide=unknown topic=<name> list=ferrule guide list
-                                 No such topic; the list command names them.
-  guide=unknown-section topic=<name> section=<heading>
+  guide=refused reason=unknown topic=<name> hint=`ferrule guide list` names the topics
+                                 No such topic.
+  guide=refused reason=unknown-section topic=<name> section=<heading> hint=<fix>
                                  The topic has no section of that heading
                                  (one line per miss). Followed by one
                                  section=<heading> line for each heading the
@@ -136,8 +137,10 @@ fn show(
 ) -> io::Result<u8> {
     let name = args.topic.as_str();
     let Some(text) = guide::load(&layout.root, name) else {
-        writeln!(out, "guide=unknown topic={name} list=ferrule guide list")?;
-        return Ok(exit::REFUSED);
+        let r = Refusal::new("guide", "unknown")
+            .field("topic", name)
+            .hint("`ferrule guide list` names the topics");
+        return refuse(out, &r);
     };
     let ctx = context(layout, args)?;
     let rendered = guide::render(&text, &ctx);
@@ -153,7 +156,11 @@ fn show(
         }
         Err(missing) => {
             for m in missing {
-                writeln!(out, "guide=unknown-section topic={name} section={m}")?;
+                let r = Refusal::new("guide", "unknown-section")
+                    .field("topic", name)
+                    .field("section", m)
+                    .hint("pick a heading from the section= lines that follow");
+                writeln!(out, "{r}")?;
             }
             for h in guide::headings(body) {
                 writeln!(out, "section={h}")?;

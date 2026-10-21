@@ -214,7 +214,7 @@ fn it_rebuild_refuses_and_writes_nothing() {
     assert!(!r.root.join(".ferrule/runs/rb").exists());
     assert_eq!(
         r.ferrule(&["board", "show", "rb"]).text(),
-        "card-show=card hint=check the id with `ferrule board list`\nexit=1"
+        "card-show=refused reason=card hint=check the slug with `ferrule board list`\nexit=1"
     );
     r.serve_pr("pr/rebuild.txt", None);
     r.serve_issue(false);
@@ -245,7 +245,7 @@ fn it_rebuild_re_adds_a_missing_worktree_and_refuses_a_blocked_one() {
     check("run-rebuild-worktree-refused", &r.rebuild());
     assert_eq!(
         r.ferrule(&["board", "show", "rb"]).text(),
-        "card-show=card hint=check the id with `ferrule board list`\nexit=1"
+        "card-show=refused reason=card hint=check the slug with `ferrule board list`\nexit=1"
     );
     assert!(!r.root.join(".ferrule/runs/rb").exists());
 }

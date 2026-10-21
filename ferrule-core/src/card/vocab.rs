@@ -3,6 +3,8 @@
 
 use std::fmt::{self, Write as _};
 
+use crate::refusal::{Exit, Refusal};
+
 /// Which cards an event may appear on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Scope {
@@ -289,89 +291,78 @@ fn usage(spec: &Event) -> String {
     format!("{} takes {}", spec.name, parts.join(", "))
 }
 
-impl fmt::Display for Reject {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Reason {
+    /// The reason word.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Reason::Event => "event",
+            Reason::Key => "key",
+            Reason::Scope => "scope",
+            Reason::Value => "value",
+            Reason::Length => "length",
+            Reason::Budget => "budget",
+            Reason::Owner => "owner",
+            Reason::Typed(_) => "typed",
+            Reason::InProgress => "inprogress",
+        }
+    }
+}
+
+impl Reject {
+    /// The `card-log=reject` line, exit 2.
+    #[must_use]
+    pub fn refusal(&self) -> Refusal {
+        let r = Refusal::new("card-log", self.reason.as_str())
+            .reject()
+            .field("event", &self.event)
+            .exit(Exit::Usage);
         match self.reason {
-            Reason::Typed(use_) => write!(
-                f,
-                "card-log=reject event={} reason=typed use={use_}",
-                self.event
-            ),
+            Reason::Typed(use_) => r
+                .field("use", use_)
+                .hint(format!("log `{use_}` instead of a note")),
             Reason::Owner => {
                 let cmd = match self.spec.map(|s| s.owner) {
                     Some(Owner::Ferrule(cmd)) => cmd,
                     _ => "see `ferrule board vocab`",
                 };
-                let hint = format!("only ferrule logs it, with `{cmd}`");
-                write!(
-                    f,
-                    "card-log=reject event={} reason=owner hint={hint}",
-                    self.event
-                )
+                r.hint(format!("only ferrule logs it, with `{cmd}`"))
             }
-            Reason::InProgress => write!(
-                f,
-                "card-log=reject event={} reason=inprogress move=inreview",
-                self.event
-            ),
-            r => {
-                let reason = match r {
-                    Reason::Event => "event",
-                    Reason::Key => "key",
-                    Reason::Scope => "scope",
-                    Reason::Value => "value",
-                    Reason::Length => "length",
-                    _ => "budget",
-                };
-                let hint = match r {
-                    Reason::Event => "run `ferrule board vocab` for the events",
-                    Reason::Key => {
-                        let hint = self.spec.map_or_else(
-                            || {
-                                "use only the keys the event lists in `ferrule board vocab`"
-                                    .to_owned()
-                            },
-                            |s| {
-                                if s.keys.is_empty() {
-                                    format!("{} takes no keys", s.name)
-                                } else {
-                                    format!("{} takes only the keys {}", s.name, s.keys.join(","))
-                                }
-                            },
-                        );
-                        return write!(
-                            f,
-                            "card-log=reject event={} reason=key hint={hint}",
-                            self.event
-                        );
+            Reason::InProgress => r
+                .field("move", "inreview")
+                .hint("move the card to inreview first, then log commit="),
+            Reason::Event => r.hint("run `ferrule board vocab` for the events"),
+            Reason::Key => r.hint(self.spec.map_or_else(
+                || "use only the keys the event lists in `ferrule board vocab`".to_owned(),
+                |s| {
+                    if s.keys.is_empty() {
+                        format!("{} takes no keys", s.name)
+                    } else {
+                        format!("{} takes only the keys {}", s.name, s.keys.join(","))
                     }
-                    Reason::Scope => {
-                        "the event is for the other card kind; see `ferrule board vocab`"
-                    }
-                    Reason::Value => {
-                        let hint = self.spec.map_or_else(
-                            || {
-                                "check the value, positional words and `-- text` against `ferrule board vocab`"
-                                    .to_owned()
-                            },
-                            usage,
-                        );
-                        return write!(
-                            f,
-                            "card-log=reject event={} reason=value hint={hint}",
-                            self.event
-                        );
-                    }
-                    Reason::Length => "shorten the line to 160 characters with its timestamp",
-                    _ => "the read budget is spent: stop with status=blocked, the plan is too thin",
-                };
-                write!(
-                    f,
-                    "card-log=reject event={} reason={reason} hint={hint}",
-                    self.event
-                )
+                },
+            )),
+            Reason::Scope => {
+                r.hint("the event is for the other card kind; see `ferrule board vocab`")
+            }
+            Reason::Value => r.hint(self.spec.map_or_else(
+                || {
+                    "check the value, positional words and `-- text` against `ferrule board vocab`"
+                        .to_owned()
+                },
+                usage,
+            )),
+            Reason::Length => r.hint("shorten the line to 160 characters with its timestamp"),
+            Reason::Budget => {
+                r.hint("the read budget is spent: stop with status=blocked, the plan is too thin")
             }
         }
+    }
+}
+
+impl fmt::Display for Reject {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.refusal())
     }
 }
 
@@ -818,7 +809,7 @@ mod tests {
         let r = check("nosuch", &[], STAGE).unwrap_err().to_string();
         assert_eq!(
             r,
-            "card-log=reject event=nosuch reason=event hint=run `ferrule board vocab` for the events"
+            "card-log=reject reason=event event=nosuch hint=run `ferrule board vocab` for the events"
         );
     }
 
@@ -862,39 +853,39 @@ mod tests {
         let r = |e, a, c| body(e, a, c).unwrap_err();
         assert_eq!(
             r("nosuch", "", STAGE),
-            "card-log=reject event=nosuch reason=event"
+            "card-log=reject reason=event event=nosuch"
         );
         assert_eq!(
             r("green", "", PARENT),
-            "card-log=reject event=green reason=scope"
+            "card-log=reject reason=scope event=green"
         );
         assert_eq!(
             r("pr=open", "", PARENT),
-            "card-log=reject event=pr reason=value"
+            "card-log=reject reason=value event=pr"
         );
         assert_eq!(
             r("spawn", "who=x", STAGE),
-            "card-log=reject event=spawn reason=key"
+            "card-log=reject reason=key event=spawn"
         );
         assert_eq!(
             r("note", "", STAGE),
-            "card-log=reject event=note reason=value"
+            "card-log=reject reason=value event=note"
         );
         assert_eq!(
             r("green", "-- why", STAGE),
-            "card-log=reject event=green reason=value"
+            "card-log=reject reason=value event=green"
         );
         assert_eq!(
             r("stop", "gate=2", PARENT),
-            "card-log=reject event=stop reason=key"
+            "card-log=reject reason=key event=stop"
         );
         assert_eq!(
             r("spec-delta", "MB-R-002 changed", STAGE),
-            "card-log=reject event=spec-delta reason=value"
+            "card-log=reject reason=value event=spec-delta"
         );
         assert_eq!(
             r("test-red", "R1", STAGE),
-            "card-log=reject event=test-red reason=value"
+            "card-log=reject reason=value event=test-red"
         );
     }
 
@@ -902,15 +893,15 @@ mod tests {
     fn ut_note_starting_with_an_event_is_refused() {
         assert_eq!(
             body("note", "-- green: all tests pass", STAGE).unwrap_err(),
-            "card-log=reject event=note reason=typed use=green"
+            "card-log=reject reason=typed event=note use=green"
         );
         assert_eq!(
             body("note", "-- commit=abc landed", STAGE).unwrap_err(),
-            "card-log=reject event=note reason=typed use=commit="
+            "card-log=reject reason=typed event=note use=commit="
         );
         assert_eq!(
             body("note", "-- plan-review: ok", PARENT).unwrap_err(),
-            "card-log=reject event=note reason=typed use=plan-review="
+            "card-log=reject reason=typed event=note use=plan-review="
         );
         assert!(body("note", "-- renamed the stage", STAGE).is_ok());
     }
@@ -920,7 +911,7 @@ mod tests {
         let full = Context { reads: 3, ..STAGE };
         assert_eq!(
             body("read", "path=x -- why", full).unwrap_err(),
-            "card-log=reject event=read reason=budget"
+            "card-log=reject reason=budget event=read"
         );
         let wip = Context {
             in_progress: true,
@@ -928,7 +919,7 @@ mod tests {
         };
         assert_eq!(
             body("commit=abc", "", wip).unwrap_err(),
-            "card-log=reject event=commit reason=inprogress move=inreview"
+            "card-log=reject reason=inprogress event=commit move=inreview"
         );
     }
 
@@ -936,7 +927,7 @@ mod tests {
     fn ut_spaced_values_are_quoted() {
         assert_eq!(
             body("spec-delta", "MB-R-1 changed quote=a b origin=user", STAGE).unwrap_err(),
-            "card-log=reject event=spec-delta reason=value"
+            "card-log=reject reason=value event=spec-delta"
         );
         let a = vec![
             "MB-R-1".to_owned(),
@@ -1040,7 +1031,7 @@ mod tests {
         let got = check("gauntlet=pass", &args("sha=x"), agent).unwrap_err();
         assert_eq!(
             got.to_string(),
-            "card-log=reject event=gauntlet reason=owner hint=only ferrule logs it, with `ferrule pr push <slug>`"
+            "card-log=reject reason=owner event=gauntlet hint=only ferrule logs it, with `ferrule pr push <slug>`"
         );
         assert!(check("gauntlet=pass", &args("sha=x"), PARENT).is_ok());
         assert!(check("ci-waived", &args("-- why"), agent).is_ok());

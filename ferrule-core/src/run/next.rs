@@ -9,6 +9,7 @@ use crate::card::board::{self, Event, State};
 use crate::card::typed::{Name, Typed};
 use crate::guide::Topic;
 use crate::project::Layout;
+use crate::refusal::{Exit, Refusal};
 
 /// Where in the run the status line comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,6 +78,25 @@ pub enum Error {
     /// A status `at` does not take.
     Unknown(String),
     Sql(rusqlite::Error),
+}
+
+impl Error {
+    /// The `run-next=refused` line of a refusal at `at`; `None` for usage
+    /// and internal errors.
+    #[must_use]
+    pub fn refusal(&self, at: At) -> Option<Refusal> {
+        match self {
+            Error::Card => Some(Refusal::card("run-next")),
+            Error::Unknown(word) => Some(
+                Refusal::new("run-next", "unknown")
+                    .field("at", at.as_str())
+                    .field("status", word)
+                    .hint("`ferrule gate next --help` lists the statuses each position takes")
+                    .exit(Exit::Usage),
+            ),
+            Error::Usage | Error::Sql(_) => None,
+        }
+    }
 }
 
 impl std::fmt::Display for Error {

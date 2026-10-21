@@ -179,7 +179,7 @@ fn it_stage_stop_rules_in_order() {
     );
     s.config("[thresholds]\nstage_stop_files = 2\n");
     assert_eq!(stop("s1"), "auto");
-    assert!(stop("s9").starts_with("stage-stop=card hint="));
+    assert!(stop("s9").starts_with("stage-stop=refused reason=card hint="));
 }
 
 #[test]
@@ -352,7 +352,7 @@ fn it_cleanup_refuses_until_pushed_and_green_then_archives() {
     );
     assert!(
         s.say(&["run", "export", "nospec"])
-            .starts_with("export=none hint=")
+            .starts_with("export=refused reason=no-archive hint=")
     );
 }
 
@@ -396,7 +396,7 @@ fn it_gauntlet_runs_the_configured_steps_and_caches_a_pass() {
         args.extend_from_slice(extra);
         s.run(&args).text()
     };
-    assert!(g(&[]).starts_with("gauntlet=fail step=config reason=no-steps hint="));
+    assert!(g(&[]).starts_with("gauntlet=refused reason=no-steps hint="));
     s.config(STEPS);
     let sha = git(&s.wt, &["rev-parse", "--short", "HEAD"]);
     let pass = format!("gauntlet=pass cov=81.20% sha={sha}");
@@ -442,7 +442,7 @@ fn it_gauntlet_runs_the_configured_steps_and_caches_a_pass() {
         )
     );
     std::fs::remove_dir_all(&s.wt).unwrap();
-    assert!(g(&[]).starts_with("gauntlet=fail step=cd reason=no-worktree hint="));
+    assert!(g(&[]).starts_with("gauntlet=refused reason=no-worktree hint="));
 }
 
 #[test]
@@ -657,7 +657,7 @@ fn it_board_events_reads_the_whole_run() {
     );
     assert_eq!(
         s.run(&["board", "events", "zz"]).text(),
-        "events=card hint=check the id with `ferrule board list`\nexit=1"
+        "events=refused reason=card hint=check the slug with `ferrule board list`\nexit=1"
     );
 }
 

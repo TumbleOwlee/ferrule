@@ -247,7 +247,7 @@ fn it_collisions_without_merge_base_is_an_error() {
     .text();
     assert_eq!(
         out,
-        "ids=error reason=no-merge-base hint=fetch the REF, or pass a REF the branch descends from\nexit=2"
+        "ids=refused reason=no-merge-base hint=fetch the REF, or pass a REF the branch descends from\nexit=2"
     );
 }
 

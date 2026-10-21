@@ -936,6 +936,26 @@ pub enum MoveError {
     Sql(rusqlite::Error),
 }
 
+impl MoveError {
+    /// The refusal line of moving card `id` to `to`; `None` for a state
+    /// database error.
+    #[must_use]
+    pub fn refusal(&self, id: &str, to: State) -> Option<crate::refusal::Refusal> {
+        match self {
+            MoveError::Card => Some(crate::refusal::Refusal::card("card-move")),
+            MoveError::Log(r) => Some(r.refusal()),
+            MoveError::Refused { from, reason } => Some(
+                crate::refusal::Refusal::new("card-move", reason.as_str())
+                    .field("from", from)
+                    .field("to", to)
+                    .hint(reason.hint(*from, CardId::parse(id).stage.is_some()))
+                    .exit(crate::refusal::Exit::Usage),
+            ),
+            MoveError::Sql(_) => None,
+        }
+    }
+}
+
 impl fmt::Display for MoveError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

@@ -17,6 +17,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::config::{Coverage, Step};
 use crate::git;
+use crate::refusal::Refusal;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
@@ -39,8 +40,23 @@ pub enum Outcome {
     NoSteps,
 }
 
-const NO_WORKTREE_HINT: &str = "create it with: ferrule gate approve <slug> gate2";
-const NO_STEPS_HINT: &str = "add [[gauntlet.step]] tables to ferrule.toml";
+impl Outcome {
+    /// The `<verb>=refused` line when nothing could run: no worktree or no
+    /// steps; `None` for a pass or a failed step.
+    #[must_use]
+    pub fn refusal(&self, verb: &'static str) -> Option<Refusal> {
+        match self {
+            Outcome::NoWorktree => Some(
+                Refusal::new(verb, "no-worktree")
+                    .hint("create it with: ferrule gate approve <slug> gate2"),
+            ),
+            Outcome::NoSteps => Some(
+                Refusal::new(verb, "no-steps").hint("add [[gauntlet.step]] tables to ferrule.toml"),
+            ),
+            Outcome::Pass { .. } | Outcome::Fail { .. } => None,
+        }
+    }
+}
 
 impl std::fmt::Display for Outcome {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -72,14 +88,10 @@ impl std::fmt::Display for Outcome {
                 }
                 write!(f, " log={}", log.display())
             }
-            Outcome::NoWorktree => write!(
-                f,
-                "gauntlet=fail step=cd reason=no-worktree hint={NO_WORKTREE_HINT}"
-            ),
-            Outcome::NoSteps => write!(
-                f,
-                "gauntlet=fail step=config reason=no-steps hint={NO_STEPS_HINT}"
-            ),
+            Outcome::NoWorktree | Outcome::NoSteps => match self.refusal("gauntlet") {
+                Some(r) => write!(f, "{r}"),
+                None => Ok(()),
+            },
         }
     }
 }

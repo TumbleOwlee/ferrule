@@ -15,6 +15,7 @@ use crate::card::board::{self, Event};
 use crate::card::typed::Typed;
 use crate::git;
 use crate::project::Layout;
+use crate::refusal::Refusal;
 
 /// Why a run's metrics are refused: its CI is not known green.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,6 +32,72 @@ impl CiRefusal {
             CiRefusal::CiRed => "ci-red",
         }
     }
+
+    /// The `<verb>=refused` line of run `slug`.
+    #[must_use]
+    pub fn refusal(self, verb: &'static str, slug: &str) -> Refusal {
+        let r = Refusal::new(verb, self.as_str());
+        match self {
+            CiRefusal::NoCi => r.hint(format!("record CI first: ferrule ci wait {slug}")),
+            CiRefusal::CiRed => r.hint(format!(
+                "fix CI and rerun `ferrule ci wait {slug}`; on the user's word only: \
+                 ferrule board log {slug} ci-waived -- <why>"
+            )),
+        }
+    }
+}
+
+/// Why a clean-up refused before it changed anything.
+#[derive(Debug)]
+pub enum CleanupRefusal {
+    /// The worktree is on no branch.
+    DetachedHead,
+    /// The worktree has changes.
+    UncommittedChanges,
+    /// The branch was never pushed.
+    NoUpstream,
+    /// The branch has commits its upstream lacks.
+    UnpushedCommits,
+    /// `git worktree remove` failed.
+    WorktreeRemoveFailed(git::GitError),
+    /// `git branch -D` failed.
+    BranchDeleteFailed(git::GitError),
+}
+
+impl CleanupRefusal {
+    /// The reason word.
+    #[must_use]
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CleanupRefusal::DetachedHead => "detached-head",
+            CleanupRefusal::UncommittedChanges => "uncommitted-changes",
+            CleanupRefusal::NoUpstream => "no-upstream",
+            CleanupRefusal::UnpushedCommits => "unpushed-commits",
+            CleanupRefusal::WorktreeRemoveFailed(_) => "worktree-remove-failed",
+            CleanupRefusal::BranchDeleteFailed(_) => "branch-delete-failed",
+        }
+    }
+
+    /// The `cleanup=refused` line of run `slug`.
+    #[must_use]
+    pub fn refusal(&self, slug: &str) -> Refusal {
+        let r = Refusal::new("cleanup", self.as_str());
+        match self {
+            CleanupRefusal::DetachedHead => r.hint("check the run's branch out in its worktree"),
+            CleanupRefusal::UncommittedChanges => {
+                r.hint("commit them with `ferrule stage commit`, or ask the user, then push")
+            }
+            CleanupRefusal::NoUpstream | CleanupRefusal::UnpushedCommits => {
+                r.hint(format!("push the branch: ferrule pr push {slug}"))
+            }
+            CleanupRefusal::WorktreeRemoveFailed(e) => r.detail(&e.stderr).hint(
+                "the shell guard refuses `git worktree remove`; ask the user to remove it, then rerun",
+            ),
+            CleanupRefusal::BranchDeleteFailed(e) => r
+                .detail(&e.stderr)
+                .hint("delete the branch by hand with `git branch -D`, then rerun"),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -38,7 +105,7 @@ pub enum Error {
     Card,
     Ci(CiRefusal),
     /// A clean-up refused before it changed anything.
-    Refused(&'static str),
+    Refused(CleanupRefusal),
     Io(std::io::Error),
     Sql(rusqlite::Error),
 }
@@ -48,7 +115,7 @@ impl std::fmt::Display for Error {
         match self {
             Error::Card => f.write_str("the run has no card"),
             Error::Ci(r) => write!(f, "CI refused: {}", r.as_str()),
-            Error::Refused(r) => write!(f, "refused: {r}"),
+            Error::Refused(r) => write!(f, "refused: {}", r.as_str()),
             Error::Io(e) => write!(f, "{e}"),
             Error::Sql(e) => write!(f, "state database: {e}"),
         }
@@ -232,17 +299,17 @@ fn files_below(dir: &Path) -> std::io::Result<Vec<(String, Vec<u8>)>> {
 
 /// The worktree's checks: nothing uncommitted, nothing unpushed. Returns its
 /// branch.
-fn worktree_clean(wt: &Path) -> Result<String, &'static str> {
-    let branch =
-        git::out(wt, &["symbolic-ref", "--quiet", "--short", "HEAD"]).ok_or("detached-head")?;
+fn worktree_clean(wt: &Path) -> Result<String, CleanupRefusal> {
+    let branch = git::out(wt, &["symbolic-ref", "--quiet", "--short", "HEAD"])
+        .ok_or(CleanupRefusal::DetachedHead)?;
     if !git::out(wt, &["status", "--porcelain"]).is_some_and(|s| s.is_empty()) {
-        return Err("uncommitted-changes");
+        return Err(CleanupRefusal::UncommittedChanges);
     }
     if git::commit(wt, "@{upstream}").is_none() {
-        return Err("no-upstream");
+        return Err(CleanupRefusal::NoUpstream);
     }
     if git::out(wt, &["rev-list", "--count", "@{upstream}..HEAD"]).as_deref() != Some("0") {
-        return Err("unpushed-commits");
+        return Err(CleanupRefusal::UnpushedCommits);
     }
     Ok(branch)
 }
@@ -270,12 +337,10 @@ pub fn cleanup(
     }
     if let Some(branch) = &branch {
         let remove = [OsStr::new("worktree"), OsStr::new("remove"), wt.as_os_str()];
-        if !git::ok(&layout.root, &remove) {
-            return Err(Error::Refused("worktree-remove-failed"));
-        }
-        if !git::ok(&layout.root, &["branch", "-D", branch]) {
-            return Err(Error::Refused("branch-delete-failed"));
-        }
+        git::run(&layout.root, &remove)
+            .map_err(|e| Error::Refused(CleanupRefusal::WorktreeRemoveFailed(e)))?;
+        git::run(&layout.root, &["branch", "-D", branch])
+            .map_err(|e| Error::Refused(CleanupRefusal::BranchDeleteFailed(e)))?;
     }
     let run_dir = layout.run_dir(slug);
     let mut cards: Vec<String> = Vec::new();

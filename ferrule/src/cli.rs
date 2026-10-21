@@ -28,8 +28,8 @@ Output:
   overrides that.
   A refusal ends in `hint=<fix>`. Each command's --help lists its outputs
   and refusals. Every command but setup refuses (stderr) with
-  `ferrule=refused reason=version pinned=<v> binary=<v>: <fix>` when the
-  binary and the project's version differ; the line names the fix.
+  `ferrule=refused reason=version pinned=<v> binary=<v> hint=<fix>` when
+  the binary and the project's version differ.
 
 Exit codes:
   0  done, or a negative answer that is not an error
@@ -147,7 +147,9 @@ pub fn stage_name(s: &str) -> Result<String, String> {
 /// `YYYY-MM-DDTHH:MM` stamp.
 pub fn now_refusal() -> Option<String> {
     let problem = ferrule_core::card::board::now_problem()?;
-    Some(format!(
-        "ferrule=refused reason=now hint={problem}; fix or unset it"
-    ))
+    Some(
+        ferrule_core::refusal::Refusal::new("ferrule", "now")
+            .hint(format!("{problem}; fix or unset it"))
+            .to_string(),
+    )
 }

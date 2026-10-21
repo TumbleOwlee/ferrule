@@ -1,2 +1,2 @@
-card-log=reject event=note reason=typed use=plan-review=
+card-log=reject reason=typed event=note use=plan-review= hint=log `plan-review=` instead of a note
 exit=2

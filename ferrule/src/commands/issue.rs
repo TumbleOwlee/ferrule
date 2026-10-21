@@ -7,12 +7,13 @@ use ferrule_core::config::Config;
 use ferrule_core::issue::request::{self, Part};
 use ferrule_core::pr::publish::{self, Target};
 use ferrule_core::project::{self, Layout};
+use ferrule_core::refusal::Refusal;
 use ferrule_core::remote;
 use ferrule_core::term::{self, Style};
 
 use super::board::store;
 use super::exit;
-use super::internal;
+use super::{internal, refuse};
 
 const ISSUE_SEARCH_AFTER_LONG_HELP: &str = "\
 Output:
@@ -76,7 +77,7 @@ const ISSUE_BODY_AFTER_LONG_HELP: &str = "\
 Output (stdout): the body, line 1 `# <title>`, nothing else. Reads the run's
 files and cards; posts nothing.
 Refusals:
-  body=refused stage-ref=<token> hint=reword the source text so it names no stage or agent
+  body=refused reason=stage-ref stage-ref=<token> hint=reword the source text so it names no stage or agent
       The visible text names a stage (`s<n>`) or an agent (`fe-author`, ...);
       only backticked spans holding `.` or `/` are exempt. Exit 3. Fix: have
       the agent that wrote the source file reword it; never edit the body.
@@ -102,12 +103,12 @@ Output:
         commented  `--comment` posted issue-comment.md
         recorded   The card already names the issue; nothing was posted
 Refusals (stdout, exit 1):
-  post=refused reason=card hint=no card for this slug; check it with `ferrule board list`
-      No card for the slug. Fix: check the slug with `ferrule board list`.
+  post=refused reason=card hint=check the slug with `ferrule board list`
+      No card for the slug.
   post=refused reason=no-issue hint=file the tracking issue first: ferrule issue post <slug>
       `--split`, `--follow-up` or `--comment` before the card has an issue.
       Fix: `ferrule issue post <slug>` first.
-  body=refused stage-ref=<token> hint=reword the source text so it names no stage or agent
+  post=refused reason=stage-ref stage-ref=<token> hint=reword the source text so it names no stage or agent
       The tracking or slice body names a stage or an agent. Exit 3. Fix:
       reword the source file (see `issue body`).
 Errors (stderr, exit 1): `missing <path>` for an absent run file; the tracker's
@@ -355,13 +356,10 @@ fn view(
             print_item(&item, &view.select(), style, out)?;
             Ok(exit::OK)
         }
-        Err(remote::Error::PullRequest(n)) => {
-            writeln!(
-                out,
-                "issue=refused reason=pull-request hint=ferrule pr view {n}"
-            )?;
-            Ok(exit::REFUSED)
-        }
+        Err(remote::Error::PullRequest(n)) => refuse(
+            out,
+            &Refusal::new("issue", "pull-request").hint(format!("ferrule pr view {n}")),
+        ),
         Err(e) => {
             eprintln!("issue view: {e}");
             Ok(exit::REFUSED)
@@ -418,14 +416,7 @@ pub fn print_body(
             super::doc(out, style, &text)?;
             Ok(exit::OK)
         }
-        Err(body::Error::StageRef(t)) => {
-            writeln!(
-                out,
-                "body=refused stage-ref={t} \
-                 hint=reword the source text so it names no stage or agent"
-            )?;
-            Ok(exit::CONTENT)
-        }
+        Err(e) if let Some(r) = e.refusal("body") => refuse(out, &r),
         Err(body::Error::Missing(p)) => {
             eprintln!("body: missing {}", p.display());
             Ok(exit::REFUSED)
@@ -434,7 +425,7 @@ pub fn print_body(
             eprintln!("body: no slice {n} in slices.md");
             Ok(exit::REFUSED)
         }
-        Err(body::Error::Empty) => Ok(exit::REFUSED),
+        Err(body::Error::Empty | body::Error::StageRef(_)) => Ok(exit::REFUSED),
         Err(body::Error::Sql(e)) => Err(internal(e)),
     }
 }
@@ -453,43 +444,23 @@ fn body(
     print_body(body::issue(&s.conn, &layout, slug, slice), style, out)
 }
 
-/// Prints the refusal of a post; its exit code.
-pub fn post_failed(e: publish::Error, out: &mut impl Write) -> io::Result<u8> {
+/// Prints the `<verb>=refused` line of a failed post, or what went wrong
+/// on stderr; its exit code.
+pub fn post_failed(e: publish::Error, verb: &'static str, out: &mut impl Write) -> io::Result<u8> {
+    if let Some(r) = e.refusal(verb) {
+        return refuse(out, &r);
+    }
     match e {
         publish::Error::Body(b) => print_body(Err(b), None, out),
         publish::Error::Missing(p) => {
             eprintln!("missing {}", p.display());
             Ok(exit::REFUSED)
         }
-        publish::Error::NoIssue => {
-            writeln!(
-                out,
-                "post=refused reason=no-issue \
-                 hint=file the tracking issue first: ferrule issue post <slug>"
-            )?;
-            Ok(exit::REFUSED)
-        }
-        publish::Error::NoBranch => {
-            writeln!(
-                out,
-                "post=refused reason=no-branch \
-                 hint=approve gate2 first: ferrule gate approve <slug> gate2"
-            )?;
-            Ok(exit::REFUSED)
-        }
-        publish::Error::NoPr => {
-            writeln!(
-                out,
-                "post=refused reason=card hint=no PR is recorded for this run; open it with `ferrule pr open <slug>`"
-            )?;
-            Ok(exit::REFUSED)
-        }
-        publish::Error::Card => {
-            writeln!(
-                out,
-                "post=refused reason=card hint=no card for this slug; check it with `ferrule board list`"
-            )?;
-            Ok(exit::REFUSED)
+        publish::Error::NoIssue
+        | publish::Error::NoBranch
+        | publish::Error::NoPr
+        | publish::Error::Card => {
+            unreachable!("refusal() answers these")
         }
         publish::Error::Remote(e) => {
             eprintln!("{e}");
@@ -510,11 +481,7 @@ fn file(slug: &str, t: FileTarget, reuse: Option<u64>, out: &mut impl Write) -> 
     let layout = Layout::new(project::main_checkout());
     let config = config()?;
     let Some(mut s) = store(false)? else {
-        writeln!(
-            out,
-            "post=refused reason=card hint=no card for this slug; check it with `ferrule board list`"
-        )?;
-        return Ok(exit::REFUSED);
+        return refuse(out, &Refusal::card("post"));
     };
     let now = board::now();
     let mut run = publish::Run {
@@ -530,6 +497,6 @@ fn file(slug: &str, t: FileTarget, reuse: Option<u64>, out: &mut impl Write) -> 
             writeln!(out, "issue={n} action={}", action.as_str())?;
             Ok(exit::OK)
         }
-        Err(e) => post_failed(e, out),
+        Err(e) => post_failed(e, "post", out),
     }
 }

@@ -8,7 +8,7 @@ use ferrule_core::config::Config;
 use ferrule_core::git::GitError;
 use ferrule_core::pr::publish;
 use ferrule_core::project::{self, Layout};
-use ferrule_core::refusal::Refusal;
+use ferrule_core::refusal::{CARD_HINT, Refusal};
 use ferrule_core::remote::{self, Item};
 use ferrule_core::run::archive::{self, Error as ArchiveError};
 use ferrule_core::run::gate::{self, Gate};
@@ -33,8 +33,7 @@ With --issue the run directory also holds request.md and issue-spec.md (when
 the issue carries them) and, for a slice, slice-line.md and epic.md.
 Refusals:
   init=refused reason=exists       The run already has a card or stage cards;
-                                   resume it with `ferrule run reconcile <slug>`
-Errors (stderr):
+                                   resume it with `ferrule run reconcile <slug>`Errors (stderr):
   init: <host error>               The issue could not be read (exit 1)
 Refusals end in ` hint=<fix>`.
 Exit codes: 0 done, 1 refused, 2 usage, 4 internal error.
@@ -115,7 +114,8 @@ Refusals (nothing is removed):
                                               refuses `git worktree remove`)
   cleanup=refused reason=branch-delete-failed The local branch could not be
                                               deleted; `git branch -D` it
-Refusals end in ` hint=<fix>`.
+The two git failures carry ` detail=\"<git's error>\"`. Refusals end in
+` hint=<fix>`.
 Exit codes: 0 done, 1 refused, 4 internal error.
 See: ferrule guide show cleanup";
 
@@ -215,7 +215,7 @@ Output:
   export=done archive=<id> path=<dir>
       The archive's cards/ and artifacts/ files are written below <dir>.
 Refusals:
-  export=none                      The run has no archive (or not <id>);
+  export=refused reason=no-archive The run has no archive (or not <id>);
                                    `ferrule run cleanup` creates one and
                                    prints its id. Ends in ` hint=<fix>`.
 Exit codes: 0 done, 1 refused, 4 internal error.
@@ -405,46 +405,10 @@ pub enum ReplanStep {
     Approve,
 }
 
-const CARD_HINT: &str = "check the slug with `ferrule board list`";
-const EXPORT_HINT: &str =
-    "the run has no such archive; `ferrule run cleanup` creates one and prints its id";
-
-/// ` hint=<fix>` for a refusal `reason`, or nothing when it has no fix to name.
-fn hint(reason: &str, slug: &str) -> String {
-    let fix = match reason {
-        "card" => CARD_HINT.to_owned(),
-        "exists" => format!("the run exists; resume it with `ferrule run reconcile {slug}`"),
-        "no-plan" => format!("write .ferrule/runs/{slug}/plan.md first"),
-        "no-stages" => "add the `## Shared` stage table to plan.md".to_owned(),
-        "usage" => "--issue takes `new` or an issue number".to_owned(),
-        "worktree" => {
-            "git could not add the worktree; check `git worktree list` and --branch".to_owned()
-        }
-        "move" => {
-            format!("the parent card cannot move to inprogress; see `ferrule board show {slug}`")
-        }
-        "no-replan" => {
-            format!("no replan is pending; start one: ferrule stage replan {slug} start")
-        }
-        "detached-head" => "check the run's branch out in its worktree".to_owned(),
-        "uncommitted-changes" => {
-            "commit them with `ferrule stage commit`, or ask the user, then push".to_owned()
-        }
-        "no-upstream" | "unpushed-commits" => format!("push the branch: ferrule pr push {slug}"),
-        "worktree-remove-failed" => {
-            "the shell guard refuses `git worktree remove`; ask the user to remove it, then rerun"
-                .to_owned()
-        }
-        "branch-delete-failed" => {
-            "delete the branch by hand with `git branch -D`, then rerun".to_owned()
-        }
-        "no-ci" => format!("record CI first: ferrule ci wait {slug}"),
-        "ci-red" => format!(
-            "fix CI and rerun `ferrule ci wait {slug}`; on the user's word only: ferrule board log {slug} ci-waived -- <why>"
-        ),
-        _ => return String::new(),
-    };
-    format!(" hint={fix}")
+/// `export=refused reason=no-archive`.
+fn no_archive() -> Refusal {
+    Refusal::new("export", "no-archive")
+        .hint("the run has no such archive; `ferrule run cleanup` creates one and prints its id")
 }
 
 /// The fix for a reported commit the run refuses.
@@ -479,7 +443,7 @@ struct Pick<'a> {
 /// The run's worktree, or the `<verb>` refusal of why there is none.
 fn run_worktree(verb: &'static str, slug: &str) -> io::Result<Result<PathBuf, Refusal>> {
     let Some(s) = card_store(slug)? else {
-        return Ok(Err(Refusal::new(verb, "card").hint(CARD_HINT)));
+        return Ok(Err(Refusal::card(verb)));
     };
     let wt = core_run::worktree(&s.conn, &layout(), slug, slug).map_err(internal)?;
     if !wt.is_dir() {
@@ -576,7 +540,7 @@ fn status(slug: &str, out: &mut impl Write) -> io::Result<u8> {
     let layout = layout();
     let config = Config::load(&layout.root).map_err(internal)?;
     let Some(s) = card_store(slug)? else {
-        return refuse(out, &Refusal::new("status", "card").hint(CARD_HINT));
+        return refuse(out, &Refusal::card("status"));
     };
     let c = &s.conn;
     let last_value = |name: Name| -> io::Result<String> {
@@ -658,18 +622,14 @@ fn status(slug: &str, out: &mut impl Write) -> io::Result<u8> {
 fn plan_diff(slug: &str, out: &mut impl Write) -> io::Result<u8> {
     let dir = layout().run_dir(slug);
     if !dir.join("plan.md").is_file() {
-        writeln!(
-            out,
-            "plan-diff=refused reason=no-plan hint=the planner has not written plan.md yet"
-        )?;
-        return Ok(exit::REFUSED);
+        let r =
+            Refusal::new("plan-diff", "no-plan").hint("the planner has not written plan.md yet");
+        return refuse(out, &r);
     }
     if !dir.join("plan.prev.md").is_file() {
-        writeln!(
-            out,
-            "plan-diff=refused reason=no-prev hint=no plan review has snapshotted plan.md; read it whole"
-        )?;
-        return Ok(exit::REFUSED);
+        let r = Refusal::new("plan-diff", "no-prev")
+            .hint("no plan review has snapshotted plan.md; read it whole");
+        return refuse(out, &r);
     }
     let mut text = Vec::new();
     git_to(
@@ -806,8 +766,7 @@ pub(super) fn stage_stop(
     let layout = layout();
     let config = Config::load(&layout.root).map_err(internal)?;
     let Some(mut s) = store(false)? else {
-        writeln!(out, "stage-stop=card hint={CARD_HINT}")?;
-        return Ok(exit::REFUSED);
+        return refuse(out, &Refusal::card("stage-stop"));
     };
     match core_run::stage_stop(
         &mut s.conn,
@@ -820,10 +779,7 @@ pub(super) fn stage_stop(
     ) {
         Ok(Some(stop)) => writeln!(out, "{stop}")?,
         Ok(None) => writeln!(out, "auto")?,
-        Err(Error::Card) => {
-            writeln!(out, "stage-stop=card hint={CARD_HINT}")?;
-            return Ok(exit::REFUSED);
-        }
+        Err(Error::Card) => return refuse(out, &Refusal::card("stage-stop")),
         Err(Error::Sql(e)) => return Err(internal(e)),
     }
     Ok(exit::OK)
@@ -856,15 +812,7 @@ fn metrics(slug: Option<&str>, last: Option<usize>, out: &mut impl Write) -> io:
             eprintln!("metrics: no card for {slug}");
             Ok(exit::REFUSED)
         }
-        Err(ArchiveError::Ci(r)) => {
-            writeln!(
-                out,
-                "metrics=refused reason={}{}",
-                r.as_str(),
-                hint(r.as_str(), slug)
-            )?;
-            Ok(exit::REFUSED)
-        }
+        Err(ArchiveError::Ci(r)) => refuse(out, &r.refusal("metrics", slug)),
         Err(e) => Err(internal(e)),
     }
 }
@@ -874,7 +822,7 @@ fn cleanup(slug: &str, out: &mut impl Write) -> io::Result<u8> {
     let Some(mut s) = store(true)? else {
         unreachable!("store(true) creates the database");
     };
-    let reason = match archive::cleanup(&mut s.conn, &layout, slug, &board::now()) {
+    let refusal = match archive::cleanup(&mut s.conn, &layout, slug, &board::now()) {
         Ok(Some(id)) => {
             writeln!(out, "cleanup=done archive={id}")?;
             return Ok(exit::OK);
@@ -883,14 +831,13 @@ fn cleanup(slug: &str, out: &mut impl Write) -> io::Result<u8> {
             writeln!(out, "cleanup=done archive=none")?;
             return Ok(exit::OK);
         }
-        Err(ArchiveError::Refused(r)) => r,
-        Err(ArchiveError::Ci(r)) => r.as_str(),
-        Err(ArchiveError::Card) => "card",
+        Err(ArchiveError::Refused(r)) => r.refusal(slug),
+        Err(ArchiveError::Ci(r)) => r.refusal("cleanup", slug),
+        Err(ArchiveError::Card) => Refusal::card("cleanup"),
         Err(ArchiveError::Io(e)) => return Err(e),
         Err(ArchiveError::Sql(e)) => return Err(internal(e)),
     };
-    writeln!(out, "cleanup=refused reason={reason}{}", hint(reason, slug))?;
-    Ok(exit::REFUSED)
+    refuse(out, &refusal)
 }
 
 fn export(
@@ -901,8 +848,7 @@ fn export(
 ) -> io::Result<u8> {
     let layout = layout();
     let Some(s) = store(false)? else {
-        writeln!(out, "export=none hint={EXPORT_HINT}")?;
-        return Ok(exit::REFUSED);
+        return refuse(out, &no_archive());
     };
     let id = match id {
         Some(id) => Some(id),
@@ -912,8 +858,7 @@ fn export(
             .map(|(id, _)| *id),
     };
     let Some(id) = id else {
-        writeln!(out, "export=none hint={EXPORT_HINT}")?;
-        return Ok(exit::REFUSED);
+        return refuse(out, &no_archive());
     };
     let dest = to.map_or_else(
         || {
@@ -930,10 +875,7 @@ fn export(
             writeln!(out, "export=done archive={id} path={}", path.display())?;
             Ok(exit::OK)
         }
-        Ok(None) => {
-            writeln!(out, "export=none hint={EXPORT_HINT}")?;
-            Ok(exit::REFUSED)
-        }
+        Ok(None) => refuse(out, &no_archive()),
         Err(ArchiveError::Io(e)) => Err(e),
         Err(e) => Err(internal(e)),
     }
@@ -980,8 +922,7 @@ pub(super) fn next_step(
     };
     let status = Status::parse(status);
     let Some(mut s) = store(false)? else {
-        writeln!(out, "run-next=card hint={CARD_HINT}")?;
-        return Ok(exit::REFUSED);
+        return refuse(out, &Refusal::card("run-next"));
     };
     match next::next(&mut s.conn, &layout(), slug, at, &status, &board::now()) {
         Ok(lines) => {
@@ -997,19 +938,10 @@ pub(super) fn next_step(
             );
             Ok(exit::USAGE)
         }
-        Err(next::Error::Card) => {
-            writeln!(out, "run-next=card hint={CARD_HINT}")?;
-            Ok(exit::REFUSED)
-        }
-        Err(next::Error::Unknown(word)) => {
-            writeln!(
-                out,
-                "run-next=unknown at={} status={word} hint=`ferrule gate next --help` lists the statuses each position takes",
-                at.as_str()
-            )?;
-            Ok(exit::USAGE)
-        }
-        Err(next::Error::Sql(e)) => Err(internal(e)),
+        Err(e) => match e.refusal(at) {
+            Some(r) => refuse(out, &r),
+            None => Err(internal(e)),
+        },
     }
 }
 
@@ -1072,13 +1004,15 @@ fn rebuild(issue: &str, pr: &str, out: &mut impl Write) -> io::Result<u8> {
     }
 }
 
-fn gate_failed(e: gate::Error, verb: &str, slug: &str, out: &mut impl Write) -> io::Result<u8> {
+fn gate_failed(
+    e: gate::Error,
+    verb: &'static str,
+    slug: &str,
+    out: &mut impl Write,
+) -> io::Result<u8> {
     match e {
-        gate::Error::Refused(reason) => {
-            writeln!(out, "{verb}=refused reason={reason}{}", hint(reason, slug))?;
-            Ok(exit::REFUSED)
-        }
-        gate::Error::Publish(e) => super::issue::post_failed(e, out),
+        gate::Error::Refused(r) => refuse(out, &r.refusal(verb, slug)),
+        gate::Error::Publish(e) => super::issue::post_failed(e, verb, out),
         gate::Error::Remote(e) => {
             eprintln!("{verb}: {e}");
             Ok(exit::REFUSED)
@@ -1137,8 +1071,7 @@ pub(super) fn approve(args: &ApproveArgs, out: &mut impl Write) -> io::Result<u8
     let layout = layout();
     let config = Config::load(&layout.root).map_err(internal)?;
     let Some(mut s) = store(false)? else {
-        writeln!(out, "approve=refused reason=card{}", hint("card", slug))?;
-        return Ok(exit::REFUSED);
+        return refuse(out, &Refusal::card("approve"));
     };
     match gate::approve(
         &mut s.conn,
@@ -1178,8 +1111,7 @@ pub(super) fn replan(
 ) -> io::Result<u8> {
     let layout = layout();
     let Some(mut s) = store(false)? else {
-        writeln!(out, "replan=refused reason=card{}", hint("card", slug))?;
-        return Ok(exit::REFUSED);
+        return refuse(out, &Refusal::card("replan"));
     };
     let now = board::now();
     let result = match step {
@@ -1211,8 +1143,7 @@ pub(super) fn ci(slug: &str, out: &mut impl Write) -> io::Result<u8> {
     let layout = layout();
     let config = Config::load(&layout.root).map_err(internal)?;
     let Some(mut s) = store(false)? else {
-        writeln!(out, "ci=refused reason=card{}", hint("card", slug))?;
-        return Ok(exit::REFUSED);
+        return refuse(out, &Refusal::card("ci"));
     };
     let now = board::now();
     let waited = publish::Run {
@@ -1227,14 +1158,12 @@ pub(super) fn ci(slug: &str, out: &mut impl Write) -> io::Result<u8> {
     let (code, failed) = match waited {
         Ok(r) => r,
         Err(publish::Error::NoPr) => {
-            writeln!(
-                out,
-                "ci=refused reason=no-pr hint=no PR is recorded for this run; \
-                 open it with `ferrule pr open {slug}`"
-            )?;
-            return Ok(exit::REFUSED);
+            let r = Refusal::new("ci", "no-pr").hint(format!(
+                "no PR is recorded for this run; open it with `ferrule pr open {slug}`"
+            ));
+            return refuse(out, &r);
         }
-        Err(e) => return super::issue::post_failed(e, out),
+        Err(e) => return super::issue::post_failed(e, "ci", out),
     };
     write!(out, "ci={code}")?;
     if !failed.is_empty() {
