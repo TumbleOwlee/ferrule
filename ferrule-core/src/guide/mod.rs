@@ -14,10 +14,16 @@
 //! the default lacks is appended. An override naming no default topic is a
 //! topic of the project's own.
 
-use std::fmt::Write as _;
+mod render;
+mod sections;
+
 use std::path::Path;
 
 use crate::markdown;
+
+use render::tag;
+pub use render::{Context, Lane, VARS, render};
+pub use sections::{body, headings, merge, select};
 
 macro_rules! topics {
     ($($variant:ident $name:literal,)*) => {
@@ -40,7 +46,7 @@ macro_rules! topics {
             #[must_use]
             pub fn text(self) -> &'static str {
                 match self {
-                    $(Topic::$variant => include_str!(concat!("../guide/", $name, ".md")),)*
+                    $(Topic::$variant => include_str!(concat!("../../guide/", $name, ".md")),)*
                 }
             }
         }
@@ -105,333 +111,6 @@ impl Topic {
                 | Topic::Decisions
         )
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Lane {
-    Fast,
-    Full,
-}
-
-impl Lane {
-    #[must_use]
-    pub fn parse(s: &str) -> Option<Lane> {
-        match s {
-            "fast" => Some(Lane::Fast),
-            "full" => Some(Lane::Full),
-            _ => None,
-        }
-    }
-
-    fn as_str(self) -> &'static str {
-        match self {
-            Lane::Fast => "fast",
-            Lane::Full => "full",
-        }
-    }
-}
-
-/// What the guide knows about the run it is printed for.
-#[derive(Debug, Clone, Default)]
-pub struct Context {
-    /// None prints both lanes' blocks, each labelled.
-    pub lane: Option<Lane>,
-    /// The parent card's fields and log tokens, `key=value` each.
-    pub done: Vec<String>,
-    /// Placeholder values: `slug`, `stage`, `card`, `run_dir`, `worktree`,
-    /// `branch`, `issue`, `pr`, `main`.
-    pub vars: Vec<(&'static str, String)>,
-}
-
-/// The placeholders [`render`] fills; any other `{name}` is left alone.
-pub const VARS: &[&str] = &[
-    "slug", "stage", "card", "run_dir", "worktree", "branch", "issue", "pr", "main",
-];
-
-impl Context {
-    /// Whether the card carries `token`: `key=value` as a field or a log
-    /// token, a bare `key` as a non-empty field or any `key=` log token.
-    fn has(&self, token: &str) -> bool {
-        if token.contains('=') {
-            self.done.iter().any(|t| t == token)
-        } else {
-            let prefix = format!("{token}=");
-            self.done
-                .iter()
-                .any(|t| t.starts_with(&prefix) && t.len() > prefix.len())
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Tag {
-    Lane(Lane),
-    Done(String),
-}
-
-/// A tag comment line, or None for any other line. A malformed one is an
-/// error naming the line.
-fn tag(line: &str) -> Option<Result<Tag, String>> {
-    let inner = line
-        .trim()
-        .strip_prefix("<!--")?
-        .strip_suffix("-->")?
-        .trim();
-    let (key, value) = inner.split_once(':')?;
-    let value = value.trim();
-    match key.trim() {
-        "lane" => Some(
-            Lane::parse(value)
-                .map(Tag::Lane)
-                .ok_or_else(|| line.to_owned()),
-        ),
-        "done" if !value.is_empty() && !value.contains(' ') => {
-            Some(Ok(Tag::Done(value.to_owned())))
-        }
-        "done" => Some(Err(line.to_owned())),
-        _ => None,
-    }
-}
-
-fn heading_level(line: &str) -> Option<usize> {
-    markdown::headings(line).first().map(|h| h.level)
-}
-
-/// One block: its tags and its lines; blank lines separate blocks outside
-/// fenced code.
-struct Block<'a> {
-    tags: Vec<Tag>,
-    lines: Vec<&'a str>,
-}
-
-fn blocks(text: &str) -> Vec<Block<'_>> {
-    let mut out = Vec::new();
-    let mut tags = Vec::new();
-    let mut lines: Vec<&str> = Vec::new();
-    for l in markdown::classified(text) {
-        let (line, code) = (l.text, l.fenced || l.delimiter);
-        if !code
-            && lines.is_empty()
-            && let Some(Ok(t)) = tag(line)
-        {
-            tags.push(t);
-            continue;
-        }
-        if !code && line.trim().is_empty() {
-            if !lines.is_empty() {
-                out.push(Block {
-                    tags: std::mem::take(&mut tags),
-                    lines: std::mem::take(&mut lines),
-                });
-            }
-            continue;
-        }
-        lines.push(line);
-    }
-    if !lines.is_empty() {
-        out.push(Block { tags, lines });
-    }
-    out
-}
-
-fn fill(line: &str, ctx: &Context) -> String {
-    let mut out = line.to_owned();
-    for name in VARS {
-        let key = format!("{{{name}}}");
-        if !out.contains(&key) {
-            continue;
-        }
-        let value = ctx
-            .vars
-            .iter()
-            .find(|(k, _)| k == name)
-            .map_or_else(|| format!("<{name}>"), |(_, v)| v.clone());
-        out = out.replace(&key, &value);
-    }
-    out
-}
-
-/// `text` cut to `ctx`: blocks of the other lane dropped, done blocks
-/// marked, placeholders filled.
-#[must_use]
-pub fn render(text: &str, ctx: &Context) -> String {
-    let mut out = String::new();
-    // Tags inherited from enclosing headings: (level, tags).
-    let mut scopes: Vec<(usize, Vec<Tag>)> = Vec::new();
-    for block in blocks(text) {
-        let level = heading_level(block.lines[0]);
-        if let Some(level) = level {
-            scopes.retain(|(l, _)| *l < level);
-        }
-        let mut tags: Vec<Tag> = scopes.iter().flat_map(|(_, t)| t.clone()).collect();
-        tags.extend(block.tags.iter().cloned());
-        if let Some(level) = level {
-            scopes.push((level, block.tags.clone()));
-        }
-        let lane = tags.iter().find_map(|t| match t {
-            Tag::Lane(l) => Some(*l),
-            Tag::Done(_) => None,
-        });
-        if let (Some(want), Some(have)) = (lane, ctx.lane)
-            && want != have
-        {
-            continue;
-        }
-        let own_done = block
-            .tags
-            .iter()
-            .any(|t| matches!(t, Tag::Done(d) if ctx.has(d)));
-        let mut marks = Vec::new();
-        if ctx.lane.is_none()
-            && let Some(l) = block.tags.iter().find_map(|t| match t {
-                Tag::Lane(l) => Some(*l),
-                Tag::Done(_) => None,
-            })
-        {
-            marks.push(format!("{} lane", l.as_str()));
-        }
-        if own_done {
-            marks.push("done".to_owned());
-        }
-        if !out.is_empty() {
-            out.push('\n');
-        }
-        let mut lines = block.lines.iter();
-        if !marks.is_empty() {
-            let mark = marks.join(", ");
-            if level.is_some() {
-                let first = lines.next().map(|l| fill(l, ctx)).unwrap_or_default();
-                let _ = writeln!(out, "{first} ({mark})");
-            } else {
-                let _ = writeln!(out, "({mark})");
-            }
-        }
-        for line in lines {
-            out.push_str(&fill(line, ctx));
-            out.push('\n');
-        }
-    }
-    out
-}
-
-/// The section spans of `text`: (heading line, start byte, end byte), each
-/// through the next heading of equal or shallower depth.
-fn sections(text: &str) -> Vec<(String, usize, usize)> {
-    // Each heading is a slice of `text`: its offset is where it starts.
-    let starts: Vec<(usize, usize, String)> = markdown::headings(text)
-        .iter()
-        .map(|h| {
-            let start = h.line.as_ptr() as usize - text.as_ptr() as usize;
-            (start, h.level, h.line.trim_end().to_owned())
-        })
-        .collect();
-    starts
-        .iter()
-        .enumerate()
-        .map(|(i, (start, level, heading))| {
-            let end = starts[i + 1..]
-                .iter()
-                .find(|(_, l, _)| l <= level)
-                .map_or(text.len(), |(s, _, _)| *s);
-            (heading.clone(), *start, end)
-        })
-        .collect()
-}
-
-/// A heading's text without its `#`s and without the marks `render` adds,
-/// `(fast lane)`, `(full lane)`, `(done)`.
-fn heading_text(line: &str) -> &str {
-    let text = line.trim_start_matches('#').trim();
-    if let Some((bare, mark)) = text.rsplit_once(" (")
-        && let Some(mark) = mark.strip_suffix(')')
-        && mark
-            .split(", ")
-            .all(|m| matches!(m, "fast lane" | "full lane" | "done"))
-    {
-        return bare;
-    }
-    text
-}
-
-/// The topic without its `# <name> — <summary>` line, which only `list`
-/// shows.
-#[must_use]
-pub fn body(text: &str) -> &str {
-    if !text.starts_with("# ") {
-        return text;
-    }
-    let rest = text.split_once('\n').map_or("", |(_, r)| r);
-    rest.trim_start_matches('\n')
-}
-
-/// The text of every heading in `text`, in order.
-#[must_use]
-pub fn headings(text: &str) -> Vec<String> {
-    sections(text)
-        .into_iter()
-        .map(|(h, _, _)| heading_text(&h).to_owned())
-        .collect()
-}
-
-/// The sections whose heading text equals one of `wanted`, ignoring case,
-/// in the order asked; `Err` names the headings `text` lacks.
-pub fn select(text: &str, wanted: &[String]) -> Result<String, Vec<String>> {
-    let all = sections(text);
-    let mut out = String::new();
-    let mut missing = Vec::new();
-    for w in wanted {
-        match all
-            .iter()
-            .find(|(h, _, _)| heading_text(h).eq_ignore_ascii_case(heading_text(w)))
-        {
-            Some((_, start, end)) => {
-                if !out.is_empty() && !out.ends_with("\n\n") {
-                    out.push('\n');
-                }
-                out.push_str(&text[*start..*end]);
-            }
-            None => missing.push(w.clone()),
-        }
-    }
-    if missing.is_empty() {
-        Ok(out)
-    } else {
-        Err(missing)
-    }
-}
-
-/// `default` with `over` laid on top (module docs).
-#[must_use]
-pub fn merge(default: &str, over: &str) -> String {
-    let over_sections = sections(over);
-    if over_sections.is_empty() {
-        return over.to_owned();
-    }
-    let mut out = default.to_owned();
-    // Top-level override sections only; their subsections travel with them.
-    let mut covered = 0;
-    for (heading, start, end) in &over_sections {
-        if *start < covered {
-            continue;
-        }
-        covered = *end;
-        let mut body = over[*start..*end].to_owned();
-        if !body.ends_with('\n') {
-            body.push('\n');
-        }
-        if let Some((_, s, e)) = sections(&out).into_iter().find(|(h, _, _)| h == heading) {
-            if out[s..e].ends_with("\n\n") && !body.ends_with("\n\n") {
-                body.push('\n');
-            }
-            out.replace_range(s..e, &body);
-        } else {
-            if !out.ends_with("\n\n") {
-                out.push_str(if out.ends_with('\n') { "\n" } else { "\n\n" });
-            }
-            out.push_str(&body);
-        }
-    }
-    out
 }
 
 fn override_path(root: &Path, name: &str) -> std::path::PathBuf {
@@ -591,6 +270,8 @@ pub fn check(root: &Path) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    use super::render::Tag;
+    use super::sections::sections;
     use super::*;
 
     const TEXT: &str = "# stages — Implement\n\nBoth lanes.\n\n<!-- lane: fast -->\n## Fast lane\n\nCommit on green.\n\n- one\n- two\n\n<!-- lane: full -->\n## Full lane\n\nStop per rules.\n\n## After\n\n<!-- done: pr=ready -->\nMark it ready for {slug} in {run_dir}, not {owner}.\n";

@@ -14,7 +14,10 @@ const SOURCES: &[(&str, &[&str])] = &[
     ("ferrule-core/src/body.rs", &["issue body", "pr body"]),
     ("ferrule-core/src/card/board.rs", &["board move"]),
     ("ferrule-core/src/card/vocab.rs", &["board log"]),
-    ("ferrule-core/src/guide.rs", &["guide show", "guide check"]),
+    (
+        "ferrule-core/src/guide/mod.rs",
+        &["guide show", "guide check"],
+    ),
     (
         "ferrule-core/src/install/githooks.rs",
         &["setup install", "setup check"],
