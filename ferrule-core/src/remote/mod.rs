@@ -1,18 +1,25 @@
 //! The tracker and CI hosts: issues, pull requests and failed CI runs,
 //! through `gh` for GitHub and `curl` for Jira and Bitbucket. Everything is
 //! returned as an [`Item`] so the commands above never see a host's JSON.
-//! Pull requests go through a [`CodeHost`] built once from the
-//! configuration; issues and pull requests are named by an [`ItemRef`].
+//! Issues go through an [`IssueTracker`] and pull requests through a
+//! [`CodeHost`], each built once from the configuration; issues and pull
+//! requests are named by an [`ItemRef`]. What stays here is the plumbing
+//! they share: running programs, `curl` with credentials, paging, the
+//! item and error types, and reading CI logs.
 
 mod bitbucket;
 mod github;
 mod host;
 mod item_ref;
+mod jira;
+mod tracker;
 
 pub use bitbucket::Bitbucket;
 pub use github::Gh;
 pub use host::{CodeHost, PrStatus, code_host};
 pub use item_ref::ItemRef;
+pub use jira::Jira;
+pub use tracker::{FIND_LIMIT, Found, IssueTracker, issue_tracker, title_query};
 
 use std::fmt::Write as _;
 use std::io::Write as _;
@@ -22,7 +29,6 @@ use std::process::{Command, Stdio};
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::config::Tracker;
 use crate::store::DIR;
 
 #[derive(Debug)]
@@ -280,37 +286,6 @@ impl From<GhItem> for Item {
 
 pub(crate) const GH_FIELDS: &str = "number,title,state,url,author,body,comments";
 
-/// Every `text` leaf of an Atlassian document, joined by spaces.
-fn adf_text(v: &Value) -> String {
-    fn walk(v: &Value, out: &mut Vec<String>) {
-        match v {
-            Value::Object(m) => {
-                if let Some(Value::String(t)) = m.get("text") {
-                    out.push(t.clone());
-                }
-                for (k, x) in m {
-                    if k != "text" {
-                        walk(x, out);
-                    }
-                }
-            }
-            Value::Array(a) => a.iter().for_each(|x| walk(x, out)),
-            _ => {}
-        }
-    }
-    let mut out = Vec::new();
-    walk(v, &mut out);
-    out.join(" ")
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct JiraCreds {
-    base_url: String,
-    email: String,
-    api_token: String,
-}
-
 pub(crate) fn creds<T: for<'de> Deserialize<'de>>(root: &Path, file: &str) -> Result<T, Error> {
     let path = root.join(DIR).join(file);
     let text = std::fs::read_to_string(&path)
@@ -327,33 +302,9 @@ pub(crate) fn curl(user: &str, pass: &str, args: &[&str], root: &Path) -> Result
     run("curl", &all, Some(&config), root)
 }
 
-/// Whether a Jira status is not closed: its category is not `done`, whatever
-/// the project names its statuses.
-fn jira_open(status: &Value) -> bool {
-    status["statusCategory"]["key"] != "done"
-}
-
 /// The most pages of a listing read before giving up: a host that never
 /// stops paging must not hang a command.
 const MAX_PAGES: usize = 200;
-
-/// Every comment of a Jira issue: `get(start)` fetches the page from
-/// `startAt=start`; pages follow until `total` is reached.
-fn jira_comments(mut get: impl FnMut(usize) -> Result<Value, Error>) -> Result<Vec<Value>, Error> {
-    let mut out: Vec<Value> = Vec::new();
-    for _ in 0..MAX_PAGES {
-        let page = get(out.len())?;
-        let got = page["comments"].as_array().map_or(0, Vec::len);
-        out.extend(page["comments"].as_array().into_iter().flatten().cloned());
-        let total = page["total"].as_u64().unwrap_or(0);
-        if got == 0 || out.len() as u64 >= total {
-            return Ok(out);
-        }
-    }
-    Err(Error::Shape(format!(
-        "jira: more than {MAX_PAGES} pages of comments"
-    )))
-}
 
 /// Every `values` entry of a paged Bitbucket listing, following `next`
 /// from `first`; `get(url)` fetches one page.
@@ -376,83 +327,6 @@ pub(crate) fn follow_next(
     )))
 }
 
-struct Jira {
-    c: JiraCreds,
-}
-
-impl Jira {
-    fn get(&self, path: &str, root: &Path) -> Result<Value, Error> {
-        let url = format!("{}/rest/api/3/{path}", self.c.base_url);
-        json(
-            &curl(&self.c.email, &self.c.api_token, &[&url], root)?,
-            "jira",
-        )
-    }
-
-    fn issue(&self, id: &ItemRef, root: &Path) -> Result<Item, Error> {
-        let key = id.segment();
-        let i = self.get(
-            &format!("issue/{key}?fields=summary,status,reporter,description"),
-            root,
-        )?;
-        let comments = jira_comments(|start| {
-            self.get(
-                &format!("issue/{key}/comment?orderBy=created&startAt={start}&maxResults=100"),
-                root,
-            )
-        })?;
-        let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
-        let f = &i["fields"];
-        Ok(Item {
-            head: format!(
-                "{} {} [{}]",
-                s(&i["key"]),
-                s(&f["summary"]),
-                s(&f["status"]["name"])
-            ),
-            url: None,
-            open: jira_open(&f["status"]),
-            by: f["reporter"]["displayName"]
-                .as_str()
-                .unwrap_or("unknown")
-                .to_owned(),
-            body: adf_text(&f["description"]),
-            comments: comments
-                .iter()
-                .map(|c| Comment {
-                    author: s(&c["author"]["displayName"]),
-                    at: s(&c["created"]),
-                    body: adf_text(&c["body"]),
-                })
-                .collect(),
-        })
-    }
-}
-
-/// An issue from the configured tracker: a GitHub number or URL, or a Jira
-/// key.
-pub fn issue(tracker: Tracker, id: &ItemRef, root: &Path) -> Result<Item, Error> {
-    match tracker {
-        Tracker::Github => {
-            let out = run(
-                "gh",
-                &["issue", "view", &id.to_string(), "--json", GH_FIELDS],
-                None,
-                root,
-            )?;
-            let item = json::<GhItem>(&out, "gh issue view")?;
-            if item.url.contains("/pull/") {
-                return Err(Error::PullRequest(item.number.to_string()));
-            }
-            Ok(item.into())
-        }
-        Tracker::Jira => Jira {
-            c: creds(root, "jira.local.json")?,
-        }
-        .issue(id, root),
-    }
-}
-
 /// The number at the end of the URL `gh … create` prints.
 pub(crate) fn number_of(url: &str) -> Result<u64, Error> {
     url.trim()
@@ -460,160 +334,6 @@ pub(crate) fn number_of(url: &str) -> Result<u64, Error> {
         .next()
         .and_then(|n| n.parse().ok())
         .ok_or_else(|| Error::Shape(format!("no number in {}", url.trim())))
-}
-
-fn github_tracker(tracker: Tracker, what: &'static str) -> Result<(), Error> {
-    match tracker {
-        Tracker::Github => Ok(()),
-        Tracker::Jira => Err(Error::Unsupported {
-            host: "Jira",
-            op: what,
-        }),
-    }
-}
-
-/// Files an issue; its number.
-pub fn issue_create(tracker: Tracker, title: &str, body: &str, root: &Path) -> Result<u64, Error> {
-    github_tracker(tracker, "issue create")?;
-    let url = run(
-        "gh",
-        &["issue", "create", "--title", title, "--body-file", "-"],
-        Some(body),
-        root,
-    )?;
-    number_of(&url)
-}
-
-/// Replaces an issue's title and body.
-pub fn issue_edit(
-    tracker: Tracker,
-    n: u64,
-    title: &str,
-    body: &str,
-    root: &Path,
-) -> Result<(), Error> {
-    github_tracker(tracker, "issue edit")?;
-    run(
-        "gh",
-        &[
-            "issue",
-            "edit",
-            &n.to_string(),
-            "--title",
-            title,
-            "--body-file",
-            "-",
-        ],
-        Some(body),
-        root,
-    )
-    .map(drop)
-}
-
-pub fn issue_comment(tracker: Tracker, n: u64, body: &str, root: &Path) -> Result<(), Error> {
-    github_tracker(tracker, "issue comment")?;
-    run(
-        "gh",
-        &["issue", "comment", &n.to_string(), "--body-file", "-"],
-        Some(body),
-        root,
-    )
-    .map(drop)
-}
-
-/// The most hits [`issue_find_open`] reads.
-pub const FIND_LIMIT: usize = 100;
-
-/// The search [`issue_find_open`] sends: the title as one quoted phrase
-/// (its own double quotes dropped), so words like `-v` or `is:closed` in
-/// it are matched, never read as qualifiers.
-#[must_use]
-pub fn title_query(title: &str) -> String {
-    format!("\"{}\" in:title", title.replace('"', "").trim())
-}
-
-/// The open issue titled exactly `title`, if one exists among the first
-/// [`FIND_LIMIT`] hits of its quoted title.
-pub fn issue_find_open(tracker: Tracker, title: &str, root: &Path) -> Result<Option<u64>, Error> {
-    #[derive(Deserialize)]
-    struct Found {
-        number: u64,
-        title: String,
-    }
-    github_tracker(tracker, "issue search")?;
-    let out = run(
-        "gh",
-        &[
-            "issue",
-            "list",
-            "--state",
-            "open",
-            "--limit",
-            &FIND_LIMIT.to_string(),
-            "--search",
-            &title_query(title),
-            "--json",
-            "number,title",
-        ],
-        None,
-        root,
-    )?;
-    let found: Vec<Found> = json(&out, "gh issue list")?;
-    Ok(found
-        .into_iter()
-        .find(|f| f.title == title)
-        .map(|f| f.number))
-}
-
-/// One hit of [`issue_search`].
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct Found {
-    pub number: u64,
-    pub title: String,
-    pub state: String,
-}
-
-/// Issues whose title or body mention every keyword (one with a space as a
-/// phrase), in `state` (`open`, `closed` or `all`); at most `limit` of them,
-/// newest first.
-pub fn issue_search(
-    tracker: Tracker,
-    keywords: &[String],
-    state: &str,
-    limit: usize,
-    root: &Path,
-) -> Result<Vec<Found>, Error> {
-    github_tracker(tracker, "issue search")?;
-    let words: Vec<String> = keywords
-        .iter()
-        .map(|k| {
-            let k = k.replace('"', "");
-            if k.contains(char::is_whitespace) {
-                format!("\"{k}\"")
-            } else {
-                k
-            }
-        })
-        .collect();
-    let query = format!("{} in:title,body sort:created-desc", words.join(" "));
-    let out = run(
-        "gh",
-        &[
-            "issue",
-            "list",
-            "--state",
-            state,
-            "--search",
-            &query,
-            "--limit",
-            &limit.to_string(),
-            "--json",
-            "number,title,state",
-        ],
-        None,
-        root,
-    )?;
-    json(&out, "gh issue list")
 }
 
 /// The names of the failed checks in `gh pr checks` output, each once:
@@ -721,25 +441,6 @@ mod tests {
     }
 
     #[test]
-    fn ut_jira_comments_follow_start_at_until_total() {
-        let mut starts = Vec::new();
-        let got = jira_comments(|start| {
-            starts.push(start);
-            let all = ["a", "b", "c"];
-            let page: Vec<Value> = all
-                .iter()
-                .skip(start)
-                .take(2)
-                .map(|b| serde_json::json!({ "body": b }))
-                .collect();
-            Ok(serde_json::json!({ "comments": page, "total": 3 }))
-        })
-        .unwrap();
-        assert_eq!(got.len(), 3);
-        assert_eq!(starts, [0, 2]);
-    }
-
-    #[test]
     fn ut_bitbucket_pages_follow_next() {
         let mut asked = Vec::new();
         let got = follow_next("u1", |u| {
@@ -753,14 +454,6 @@ mod tests {
         .unwrap();
         assert_eq!(got.len(), 3);
         assert_eq!(asked, ["u1", "u2"]);
-    }
-
-    #[test]
-    fn ut_jira_closed_by_status_category() {
-        let st = |c: &str| serde_json::json!({ "name": "Shipped", "statusCategory": { "key": c } });
-        assert!(!jira_open(&st("done")));
-        assert!(jira_open(&st("indeterminate")));
-        assert!(jira_open(&st("new")));
     }
 
     #[test]
@@ -778,15 +471,6 @@ mod tests {
     }
 
     #[test]
-    fn ut_adf_text_joins_leaves() {
-        let v: Value = serde_json::from_str(
-            r#"{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"a"},{"type":"text","text":"b"}]}]}"#,
-        )
-        .unwrap();
-        assert_eq!(adf_text(&v), "a b");
-    }
-
-    #[test]
     fn ut_failed_checks_and_numbers() {
         assert_eq!(
             failed_checks("test\tfail\t1m\thttps://x\nlint\tpass\t5s\thttps://y\n"),
@@ -794,14 +478,6 @@ mod tests {
         );
         assert_eq!(number_of("https://github.com/o/r/pull/41\n").unwrap(), 41);
         assert!(number_of("nope").is_err());
-    }
-
-    #[test]
-    fn ut_title_query_quotes_the_title() {
-        assert_eq!(
-            title_query("Add -v and is:closed \"modes\""),
-            "\"Add -v and is:closed modes\" in:title"
-        );
     }
 
     #[test]

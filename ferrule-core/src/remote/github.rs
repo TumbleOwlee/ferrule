@@ -1,4 +1,4 @@
-//! GitHub as the code host, through `gh`. The explicit `--json` field
+//! GitHub as the code host and the issue tracker, through `gh`. The explicit `--json` field
 //! lists keep `gh` off the deprecated Projects-Classic query.
 
 use std::path::{Path, PathBuf};
@@ -7,6 +7,7 @@ use std::process::{Command, Stdio};
 use serde::Deserialize;
 
 use super::host::{CodeHost, PrStatus, comment_id};
+use super::tracker::{FIND_LIMIT, Found, IssueTracker, title_query};
 use super::{Error, GH_FIELDS, GhItem, Item, ItemRef, Query, json, number_of, pick_job, run};
 use crate::pr::feedback::{Fetched, Thread};
 
@@ -285,6 +286,115 @@ impl CodeHost for Gh {
                 None,
             ),
         }
+    }
+}
+
+impl IssueTracker for Gh {
+    fn name(&self) -> &'static str {
+        "GitHub"
+    }
+
+    fn view(&self, issue: &ItemRef) -> Result<Item, Error> {
+        let out = self.gh(
+            &["issue", "view", &issue.to_string(), "--json", GH_FIELDS],
+            None,
+        )?;
+        let item = json::<GhItem>(&out, "gh issue view")?;
+        if item.url.contains("/pull/") {
+            return Err(Error::PullRequest(item.number.to_string()));
+        }
+        Ok(item.into())
+    }
+
+    fn create(&self, title: &str, body: &str) -> Result<u64, Error> {
+        let url = self.gh(
+            &["issue", "create", "--title", title, "--body-file", "-"],
+            Some(body),
+        )?;
+        number_of(&url)
+    }
+
+    fn edit(&self, issue: &ItemRef, title: &str, body: &str) -> Result<(), Error> {
+        self.gh(
+            &[
+                "issue",
+                "edit",
+                &issue.to_string(),
+                "--title",
+                title,
+                "--body-file",
+                "-",
+            ],
+            Some(body),
+        )
+        .map(drop)
+    }
+
+    fn comment(&self, issue: &ItemRef, body: &str) -> Result<(), Error> {
+        self.gh(
+            &["issue", "comment", &issue.to_string(), "--body-file", "-"],
+            Some(body),
+        )
+        .map(drop)
+    }
+
+    fn find_open(&self, title: &str) -> Result<Option<u64>, Error> {
+        #[derive(Deserialize)]
+        struct Hit {
+            number: u64,
+            title: String,
+        }
+        let out = self.gh(
+            &[
+                "issue",
+                "list",
+                "--state",
+                "open",
+                "--limit",
+                &FIND_LIMIT.to_string(),
+                "--search",
+                &title_query(title),
+                "--json",
+                "number,title",
+            ],
+            None,
+        )?;
+        let found: Vec<Hit> = json(&out, "gh issue list")?;
+        Ok(found
+            .into_iter()
+            .find(|f| f.title == title)
+            .map(|f| f.number))
+    }
+
+    fn search(&self, keywords: &[String], state: &str, limit: usize) -> Result<Vec<Found>, Error> {
+        let words: Vec<String> = keywords
+            .iter()
+            .map(|k| {
+                let k = k.replace('"', "");
+                if k.contains(char::is_whitespace) {
+                    format!("\"{k}\"")
+                } else {
+                    k
+                }
+            })
+            .collect();
+        let query = format!("{} in:title,body sort:created-desc", words.join(" "));
+        let out = self.gh(
+            &[
+                "issue",
+                "list",
+                "--state",
+                state,
+                "--search",
+                &query,
+                "--limit",
+                &limit.to_string(),
+                "--json",
+                "number,title,state",
+            ],
+            None,
+        )?;
+        json(&out, "gh issue list")
     }
 }
 
@@ -620,7 +730,7 @@ mod tests {
         let gh = Gh::new(Path::new("/nonexistent"));
         let key = ItemRef::Key("KEY-1".into());
         assert!(matches!(gh.branch(&key), Err(Error::Ref(_))));
-        assert!(matches!(gh.view(&key), Err(Error::Ref(_))));
+        assert!(matches!(CodeHost::view(&gh, &key), Err(Error::Ref(_))));
         assert!(matches!(
             gh.reply(&ItemRef::Number(1), "1/../../x", "t"),
             Err(Error::Ref(_))

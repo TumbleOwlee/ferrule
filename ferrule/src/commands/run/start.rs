@@ -2,11 +2,10 @@
 //! `run rebuild`.
 
 use std::io::{self, Write};
-use std::path::PathBuf;
 
 use ferrule_core::card::board;
 use ferrule_core::config::Config;
-use ferrule_core::remote::{self, CodeHost, Item, ItemRef};
+use ferrule_core::remote::{self, CodeHost, IssueTracker, Item, ItemRef};
 use ferrule_core::run::{self as core_run, Error, gate, rebuild};
 
 use crate::commands::board::{run_on, store};
@@ -68,11 +67,10 @@ pub(super) fn reconcile(slug: &str, local: bool, out: &mut impl Write) -> io::Re
 
 /// The remote host behind `run rebuild`.
 struct Remote {
-    config: Config,
     host: Box<dyn CodeHost>,
+    tracker: Box<dyn IssueTracker>,
     pr: ItemRef,
     issue: ItemRef,
-    root: PathBuf,
 }
 
 impl rebuild::Source for Remote {
@@ -85,7 +83,7 @@ impl rebuild::Source for Remote {
     }
 
     fn issue(&self) -> Option<Item> {
-        remote::issue(self.config.backend.tracker, &self.issue, &self.root).ok()
+        self.tracker.view(&self.issue).ok()
     }
 }
 
@@ -95,10 +93,9 @@ pub(super) fn rebuild(issue: &ItemRef, pr: &ItemRef, out: &mut impl Write) -> io
     let main = config.main_branch.clone();
     let source = Remote {
         host: remote::code_host(&config, &layout.root),
-        config,
+        tracker: remote::issue_tracker(&config, &layout.root),
         pr: pr.clone(),
         issue: issue.clone(),
-        root: layout.root.clone(),
     };
     let Some(mut s) = store(true)? else {
         return Ok(exit::REFUSED);

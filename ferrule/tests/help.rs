@@ -192,8 +192,8 @@ const IGNORED: &[(&str, &str)] = &[
         "gh api arguments and GraphQL variables",
     ),
     (
-        "ferrule-core/src/remote/mod.rs",
-        "query strings of the issue host's API calls",
+        "ferrule-core/src/remote/jira.rs",
+        "query strings of the issue tracker's API calls",
     ),
     (
         "ferrule-core/src/run/archive.rs:kind=",

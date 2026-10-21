@@ -1,10 +1,11 @@
-//! An in-process [`CodeHost`] for unit tests: one pull request held in
-//! memory, every call recorded.
+//! An in-process [`CodeHost`] and [`IssueTracker`] for unit tests: one
+//! pull request and a few open issues held in memory, every call recorded.
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use super::host::{CodeHost, PrStatus};
+use super::tracker::{Found, IssueTracker};
 use super::{Error, Item, ItemRef, Query};
 use crate::pr::feedback::{Fetched, Thread};
 
@@ -141,5 +142,98 @@ impl CodeHost for FakeHost {
         Err(Error::NotFound(format!(
             "No failed run found for branch '{branch}'"
         )))
+    }
+}
+
+/// What the fake tracker serves, and the calls it received.
+#[derive(Debug, Default)]
+pub(crate) struct Issues {
+    /// The open issues `find_open` searches: number and title.
+    pub open: Vec<(u64, String)>,
+    /// The number the next `create` returns.
+    pub next: u64,
+    /// Every write and search answers [`Error::Unsupported`], as Jira's do.
+    pub read_only: bool,
+    /// One line per call: the operation and its issue or title.
+    pub calls: Vec<String>,
+}
+
+/// An in-process [`IssueTracker`]: a handle on shared [`Issues`].
+#[derive(Debug, Clone, Default)]
+pub(crate) struct FakeTracker(pub Rc<RefCell<Issues>>);
+
+impl FakeTracker {
+    pub(crate) fn calls(&self) -> Vec<String> {
+        self.0.borrow().calls.clone()
+    }
+
+    /// Records the call; `Err` when the tracker is read-only.
+    fn write(&self, op: &'static str, line: String) -> Result<(), Error> {
+        let mut s = self.0.borrow_mut();
+        s.calls.push(line);
+        if s.read_only {
+            return Err(Error::Unsupported { host: "Fake", op });
+        }
+        Ok(())
+    }
+}
+
+impl IssueTracker for FakeTracker {
+    fn name(&self) -> &'static str {
+        "Fake"
+    }
+
+    fn view(&self, issue: &ItemRef) -> Result<Item, Error> {
+        self.0.borrow_mut().calls.push(format!("view {issue}"));
+        let s = self.0.borrow();
+        let open = s.open.iter().find(|(n, _)| issue.number() == Some(*n));
+        Ok(Item {
+            head: format!(
+                "#{issue} {} [{}]",
+                open.map_or("", |(_, t)| t.as_str()),
+                if open.is_some() { "OPEN" } else { "CLOSED" }
+            ),
+            url: None,
+            open: open.is_some(),
+            by: "fake".to_owned(),
+            body: String::new(),
+            comments: Vec::new(),
+        })
+    }
+
+    fn create(&self, title: &str, _body: &str) -> Result<u64, Error> {
+        self.write("issue create", format!("create {title}"))?;
+        let mut s = self.0.borrow_mut();
+        let n = s.next;
+        s.open.push((n, title.to_owned()));
+        s.next += 1;
+        Ok(n)
+    }
+
+    fn edit(&self, issue: &ItemRef, title: &str, _body: &str) -> Result<(), Error> {
+        self.write("issue edit", format!("edit {issue} {title}"))
+    }
+
+    fn comment(&self, issue: &ItemRef, _body: &str) -> Result<(), Error> {
+        self.write("issue comment", format!("comment {issue}"))
+    }
+
+    fn find_open(&self, title: &str) -> Result<Option<u64>, Error> {
+        self.write("issue search", format!("find_open {title}"))?;
+        Ok(self
+            .0
+            .borrow()
+            .open
+            .iter()
+            .find(|(_, t)| t == title)
+            .map(|(n, _)| *n))
+    }
+
+    fn search(&self, keywords: &[String], state: &str, _limit: usize) -> Result<Vec<Found>, Error> {
+        self.write(
+            "issue search",
+            format!("search {} {state}", keywords.join(" ")),
+        )?;
+        Ok(Vec::new())
     }
 }

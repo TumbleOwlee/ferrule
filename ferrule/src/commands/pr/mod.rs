@@ -81,6 +81,9 @@ Refusals (stdout, exit 1):
       The card has no branch yet. Fix: `ferrule gate approve <slug> gate2`.
   open=refused reason=stage-ref stage-ref=<token> hint=reword the source text so it names no stage or agent
       The draft body names a stage or an agent. Exit 3. Fix: see `pr body`.
+  open=refused reason=unsupported host=<host> hint=<op> is not implemented for <host> yet; do it on <host> by hand
+      The configured CI host cannot open a PR (Bitbucket). Fix: open it on
+      the host by hand.
 Errors (stderr, exit 1): `body: missing <path>`; the CI host's error.
 Exit codes: 0 ok, 1 refused, 3 content, 4 internal error.
 Backend: opens the PR on the configured CI host.
@@ -123,7 +126,7 @@ Refusals (stdout, exit 1):
   push=refused reason=push detail=\"<git's error>\" hint=git push to origin failed (network, auth or a rejected update); retry once, then ask the user
       `git push` failed; detail is what git said, and the shell guard
       refuses a raw `git push`. Fix: retry once, then ask the user.
-  push=refused reason=no-branch|stage-ref ...
+  push=refused reason=no-branch|stage-ref|unsupported ...
       Opening the PR on the first push failed, as `pr open` refuses it.
   push=refused reason=card hint=check the slug with `ferrule board list`
       No card for the slug.
@@ -160,6 +163,9 @@ Refusals (stdout, exit 1 unless noted):
       No card for the slug.
   publish=refused reason=stage-ref stage-ref=<token> hint=reword the source text so it names no stage or agent
       As in `pr body full`. Exit 3.
+  publish=refused reason=unsupported host=<host> hint=<op> is not implemented for <host> yet; do it on <host> by hand
+      The CI host cannot edit or ready the PR, or the tracker cannot file
+      the follow-ups. Fix: do it on the host by hand.
 Errors (stderr, exit 1): `body: missing <path>` (pr.md); the host's error.
 Exit codes: 0 ok, 1 refused, 3 content, 4 internal error.
 Backend: edits and readies the PR on the configured CI host; files the

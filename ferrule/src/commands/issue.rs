@@ -7,7 +7,7 @@ use ferrule_core::issue::request::{self, Part};
 use ferrule_core::pr::publish::{self, Target};
 use ferrule_core::project::{self, Layout};
 use ferrule_core::refusal::Refusal;
-use ferrule_core::remote::{self, ItemRef};
+use ferrule_core::remote::{self, IssueTracker, ItemRef};
 use ferrule_core::term::{self, Style};
 
 use super::board::{run_on, store};
@@ -123,12 +123,15 @@ Refusals (stdout, exit 1):
   post=refused reason=stage-ref stage-ref=<token> hint=reword the source text so it names no stage or agent
       The tracking or slice body names a stage or an agent. Exit 3. Fix:
       reword the source file (see `issue body`).
+  post=refused reason=unsupported host=<host> hint=<op> is not implemented for <host> yet; do it on <host> by hand
+      The configured tracker cannot file, search, edit or comment on
+      issues (Jira). Fix: do it on the tracker by hand.
 Errors (stderr, exit 1): `missing <path>` for an absent run file;
 `body: no slice <n> in slices.md` for a slice slices.md lacks (or 0); the
 tracker's error when the host call fails.
 Exit codes: 0 ok, 1 refused, 3 content, 4 internal error.
 Backend: writes are GitHub-only (`gh`); with another tracker configured the
-command refuses.
+command refuses (reason=unsupported).
 See: ferrule guide show issue";
 
 /// What `issue view` and `pr view` print; without a flag, everything.
@@ -285,13 +288,7 @@ fn search(keywords: &[String], state: SearchState, out: &mut impl Write) -> io::
         SearchState::Closed => "closed",
         SearchState::All => "all",
     };
-    match remote::issue_search(
-        config.backend.tracker,
-        keywords,
-        state,
-        max + 1,
-        &project::root(),
-    ) {
+    match remote::issue_tracker(&config, &project::root()).search(keywords, state, max + 1) {
         Ok(found) if found.len() > max => {
             writeln!(
                 out,
@@ -318,6 +315,11 @@ fn search(keywords: &[String], state: SearchState, out: &mut impl Write) -> io::
 
 fn config() -> io::Result<Config> {
     Config::load(&project::main_checkout()).map_err(internal)
+}
+
+/// The configured issue tracker, in the current checkout.
+fn tracker() -> io::Result<Box<dyn IssueTracker>> {
+    Ok(remote::issue_tracker(&config()?, &project::root()))
 }
 
 /// Prints an issue or PR: compact text, or styled with its body and
@@ -365,7 +367,7 @@ fn view(
     style: Option<Style>,
     out: &mut impl Write,
 ) -> io::Result<u8> {
-    match remote::issue(config()?.backend.tracker, issue, &project::root()) {
+    match tracker()?.view(issue) {
         Ok(item) => {
             print_item(&item, &view.select(), style, out)?;
             Ok(exit::OK)
@@ -387,7 +389,7 @@ fn request(
     style: Option<Style>,
     out: &mut impl Write,
 ) -> io::Result<u8> {
-    let item = match remote::issue(config()?.backend.tracker, issue, &project::root()) {
+    let item = match tracker()?.view(issue) {
         Ok(item) => item,
         Err(e) => {
             eprintln!("issue request: {e}");

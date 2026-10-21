@@ -62,6 +62,9 @@ Refusals:
                                    inprogress
   approve=refused reason=no-issue|no-branch
                                    gate2: filing the issue failed
+  approve=refused reason=unsupported host=<host>
+                                   gate2: the tracker cannot file or search
+                                   issues (Jira)
   approve=refused reason=stage-ref stage-ref=<token>
                                    gate2: the issue body names a stage or an
                                    agent (exit 3); a host error goes to

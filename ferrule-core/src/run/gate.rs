@@ -219,14 +219,14 @@ pub fn init(
         return Err(Error::Refused(GateRefusal::Exists));
     }
     let root = &layout.root;
-    let tracker = config.backend.tracker;
-    let item = issue.map(|n| remote::issue(tracker, n, root)).transpose()?;
+    let tracker = remote::issue_tracker(config, root);
+    let item = issue.map(|n| tracker.view(n)).transpose()?;
     let epic = item
         .as_ref()
         .and_then(|i| request::part(&i.body, Part::Epic).into_iter().next());
     let epic_item = epic
         .as_deref()
-        .map(|e| ItemRef::parse(e).and_then(|e| remote::issue(tracker, &e, root)))
+        .map(|e| ItemRef::parse(e).and_then(|e| tracker.view(&e)))
         .transpose()?;
     let mut fields = Vec::new();
     if let Some(e) = &epic {
@@ -536,6 +536,7 @@ fn approve_gate2(
         slug,
         now,
         host: remote::code_host(config, &root),
+        tracker: remote::issue_tracker(config, &root),
     };
     out.issue = Some(run.file(Target::Run, reuse)?.0);
     let wt = super::worktree(conn, layout, slug, slug)?;

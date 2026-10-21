@@ -20,7 +20,7 @@ use crate::config::Config;
 use crate::hook::attribution;
 use crate::project::Layout;
 use crate::refusal::{Exit, Refusal};
-use crate::remote::{CodeHost, ItemRef, PrStatus};
+use crate::remote::{CodeHost, IssueTracker, ItemRef, PrStatus};
 use crate::run::gauntlet::{self, Outcome};
 use crate::store::{Board, Reader, snapshot};
 use crate::{git, remote, run, spec};
@@ -44,8 +44,9 @@ pub enum Error {
 
 impl Error {
     /// The `<verb>=refused` line of an error the command answers with a
-    /// refusal; `None` for the others (a missing artifact, the host, the
-    /// state database).
+    /// refusal, among them an operation the configured host does not
+    /// implement; `None` for the others (a missing artifact, the host's
+    /// own error, the state database).
     #[must_use]
     pub fn refusal(&self, verb: &'static str) -> Option<Refusal> {
         match self {
@@ -63,6 +64,13 @@ impl Error {
                     .hint("no PR is recorded for this run; open it with `ferrule pr open <slug>`"),
             ),
             Error::Card => Some(Refusal::card(verb)),
+            Error::Remote(remote::Error::Unsupported { host, op }) => Some(
+                Refusal::new(verb, "unsupported")
+                    .field("host", host)
+                    .hint(format!(
+                        "{op} is not implemented for {host} yet; do it on {host} by hand"
+                    )),
+            ),
             Error::Missing(_) | Error::Remote(_) | Error::Sql(_) => None,
         }
     }
@@ -221,11 +229,13 @@ pub struct Run<'a> {
     pub now: &'a str,
     /// The configured code host, the PR's.
     pub host: Box<dyn CodeHost>,
+    /// The configured issue tracker, the issues'.
+    pub tracker: Box<dyn IssueTracker>,
 }
 
 impl<'a> Run<'a> {
     /// The publish run for `slug` over the board `db`, on the configured
-    /// code host.
+    /// code host and issue tracker.
     pub fn new(
         db: &'a mut Board,
         layout: &'a Layout,
@@ -242,6 +252,7 @@ impl<'a> Run<'a> {
             slug,
             now,
             host: crate::remote::code_host(config, root),
+            tracker: crate::remote::issue_tracker(config, root),
         }
     }
 }
@@ -296,14 +307,10 @@ impl Run<'_> {
 
     /// Adopts the open issue titled `title`, else files a new one.
     fn adopt_or_create(&self, title: &str, body: &str) -> Result<(u64, Action), Error> {
-        let tracker = self.config.backend.tracker;
-        if let Some(n) = remote::issue_find_open(tracker, title, self.root)? {
+        if let Some(n) = self.tracker.find_open(title)? {
             return Ok((n, Action::Adopted));
         }
-        Ok((
-            remote::issue_create(tracker, title, body, self.root)?,
-            Action::Created,
-        ))
+        Ok((self.tracker.create(title, body)?, Action::Created))
     }
 
     /// Posts `target`; the issue posted to and what happened.
@@ -356,7 +363,6 @@ impl Run<'_> {
             targets.push(epic);
         }
         let done = self.posted("comment")?;
-        let tracker = self.config.backend.tracker;
         let mut action = Action::Recorded;
         for t in targets {
             if done
@@ -365,7 +371,7 @@ impl Run<'_> {
             {
                 continue;
             }
-            remote::issue_comment(tracker, t, &text, self.root)?;
+            self.tracker.comment(&ItemRef::Number(t), &text)?;
             self.log(
                 "posted=comment",
                 &[format!("issue={t}"), format!("sum={sum}")],
@@ -378,15 +384,14 @@ impl Run<'_> {
     fn file_run(&mut self, reuse: Option<u64>) -> Result<(u64, Action), Error> {
         let rendered = snapshot(self.conn, |r| body::issue(r, self.layout, self.slug, None))?;
         let (title, body) = split_title(&rendered);
-        let tracker = self.config.backend.tracker;
         let current = numbers(self.field("issue")?.as_deref()).first().copied();
         let (n, action) = match (reuse, current) {
             (Some(n), _) => {
-                remote::issue_edit(tracker, n, &title, &body, self.root)?;
+                self.tracker.edit(&ItemRef::Number(n), &title, &body)?;
                 (n, Action::Edited)
             }
             (None, Some(n)) if self.field("kind")?.as_deref() == Some("epic") => {
-                remote::issue_edit(tracker, n, &title, &body, self.root)?;
+                self.tracker.edit(&ItemRef::Number(n), &title, &body)?;
                 (n, Action::Edited)
             }
             (None, Some(n)) => (n, Action::Recorded),
@@ -434,7 +439,7 @@ impl Run<'_> {
         let (n, action) = self.adopt_or_create(&title, &text)?;
         if let (Some(e), Action::Created) = (epic, action) {
             let note = format!("Split off #{n} from #{issue}.\n");
-            remote::issue_comment(self.config.backend.tracker, e, &note, self.root)?;
+            self.tracker.comment(&ItemRef::Number(e), &note)?;
         }
         let mut split = numbers(self.field("split")?.as_deref());
         if !split.contains(&n) {
@@ -892,11 +897,13 @@ impl Run<'_> {
 
     /// What git cannot answer about the run: the issue open and carrying a
     /// comment per kept spec change, the PR's state against the log, and
-    /// its body against the board. One `differ` row each.
+    /// its body against the board. One `differ` row each; a check the
+    /// configured host cannot make ([`remote::Error::Unsupported`]) is
+    /// skipped, not reported.
     pub fn reconcile_remote(&self) -> Result<Vec<String>, Error> {
         let mut differ = Vec::new();
         if let Some(&n) = numbers(self.field("issue")?.as_deref()).first() {
-            match remote::issue(self.config.backend.tracker, &ItemRef::Number(n), self.root) {
+            match self.tracker.view(&ItemRef::Number(n)) {
                 Ok(item) => {
                     if !item.open {
                         differ.push(format!("issue #{n} is not open"));
@@ -909,6 +916,7 @@ impl Run<'_> {
                         ));
                     }
                 }
+                Err(remote::Error::Unsupported { .. }) => {}
                 Err(e) => differ.push(format!("issue #{n} unreadable: {e}")),
             }
         }
@@ -941,6 +949,7 @@ impl Run<'_> {
                         differ.push(format!("pr #{n} body behind the board"));
                     }
                 }
+                Err(remote::Error::Unsupported { .. }) => {}
                 Err(e) => differ.push(format!("pr #{n} unreadable: {e}")),
             }
         }
@@ -1004,7 +1013,7 @@ pub fn run_of(card: &str) -> &str {
 mod tests {
     use super::*;
     use crate::pr::feedback::Thread;
-    use crate::remote::fake::FakeHost;
+    use crate::remote::fake::{FakeHost, FakeTracker};
 
     /// A board holding the parent card `r` with `fields`, a run directory
     /// with issue.md, and a fake host shared with the caller.
@@ -1041,7 +1050,85 @@ mod tests {
     ) -> Run<'a> {
         let mut run = Run::new(db, layout, config, &layout.root, "r", "2026-01-02T03:04");
         run.host = Box::new(host.clone());
+        run.tracker = Box::new(FakeTracker::default());
         run
+    }
+
+    #[test]
+    fn ut_gate2_issue_adopts_the_open_issue_of_the_same_title() {
+        let (_dir, mut db, layout, host) = setup(&[]);
+        let tracker = FakeTracker::default();
+        tracker.0.borrow_mut().open =
+            vec![(30, "Retry client".into()), (31, "Retry clients".into())];
+        let config = Config::default();
+        let mut run = run_on(&mut db, &layout, &config, &host);
+        run.tracker = Box::new(tracker.clone());
+        assert_eq!(run.file(Target::Run, None).unwrap(), (31, Action::Adopted));
+        assert_eq!(run.file(Target::Run, None).unwrap(), (31, Action::Recorded));
+        assert_eq!(
+            tracker.calls(),
+            ["find_open Retry clients"],
+            "adopted by its exact title, never filed"
+        );
+        assert_eq!(
+            board::field(db.conn_mut(), "r", "issue")
+                .unwrap()
+                .as_deref(),
+            Some("31")
+        );
+    }
+
+    #[test]
+    fn ut_gate2_issue_files_once_when_none_is_open() {
+        let (_dir, mut db, layout, host) = setup(&[]);
+        let tracker = FakeTracker::default();
+        tracker.0.borrow_mut().next = 8;
+        let config = Config::default();
+        let mut run = run_on(&mut db, &layout, &config, &host);
+        run.tracker = Box::new(tracker.clone());
+        assert_eq!(run.file(Target::Run, None).unwrap(), (8, Action::Created));
+        assert_eq!(run.file(Target::Run, None).unwrap(), (8, Action::Recorded));
+        assert_eq!(
+            tracker.calls(),
+            ["find_open Retry clients", "create Retry clients"]
+        );
+    }
+
+    #[test]
+    fn ut_issue_comment_targets_the_issue_and_the_epic_once() {
+        let (_dir, mut db, layout, host) =
+            setup(&[("issue", "12"), ("kind", "slice"), ("epic", "#9")]);
+        std::fs::write(layout.run_dir("r").join("issue-comment.md"), "Kept R3.\n").unwrap();
+        let tracker = FakeTracker::default();
+        let config = Config::default();
+        let mut run = run_on(&mut db, &layout, &config, &host);
+        run.tracker = Box::new(tracker.clone());
+        assert_eq!(
+            run.file(Target::Comment, None).unwrap(),
+            (12, Action::Commented)
+        );
+        assert_eq!(
+            run.file(Target::Comment, None).unwrap(),
+            (12, Action::Recorded)
+        );
+        assert_eq!(tracker.calls(), ["comment 12", "comment 9"]);
+    }
+
+    #[test]
+    fn ut_unsupported_tracker_write_is_a_refusal() {
+        let (_dir, mut db, layout, host) = setup(&[]);
+        let tracker = FakeTracker::default();
+        tracker.0.borrow_mut().read_only = true;
+        let config = Config::default();
+        let mut run = run_on(&mut db, &layout, &config, &host);
+        run.tracker = Box::new(tracker.clone());
+        let e = run.file(Target::Run, None).unwrap_err();
+        assert_eq!(
+            e.refusal("post").unwrap().to_string(),
+            "post=refused reason=unsupported host=Fake \
+             hint=issue search is not implemented for Fake yet; do it on Fake by hand"
+        );
+        assert_eq!(board::field(db.conn_mut(), "r", "issue").unwrap(), None);
     }
 
     #[test]
