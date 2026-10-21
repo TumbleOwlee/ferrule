@@ -225,7 +225,7 @@ fn stages(pr: &str) -> Vec<Stage> {
             && title[open + 2..title.len() - 1]
                 .bytes()
                 .all(|b| b.is_ascii_hexdigit())
-            && title.len() > open + 3
+            && title.len() >= open + 3 + board::SHA_MIN
         {
             sha = Some(title[open + 2..title.len() - 1].to_owned());
             title = &title[..open];

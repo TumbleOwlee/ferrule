@@ -84,6 +84,18 @@ impl<'a> CardId<'a> {
     }
 }
 
+/// The fewest hex digits a sha needs before two are compared as one
+/// commit: git's own default abbreviation.
+pub const SHA_MIN: usize = 7;
+
+/// Whether `a` and `b` name one commit: both at least [`SHA_MIN`] hex
+/// digits, one a prefix of the other (a short and a full sha of it).
+#[must_use]
+pub fn same_commit(a: &str, b: &str) -> bool {
+    let sha = |s: &str| s.len() >= SHA_MIN && s.bytes().all(|b| b.is_ascii_hexdigit());
+    sha(a) && sha(b) && (a.starts_with(b) || b.starts_with(a))
+}
+
 /// The longest slug a run takes.
 pub const SLUG_MAX: usize = 64;
 
@@ -1188,7 +1200,7 @@ fn refusal(
                 Some(sha) => {
                     let verified = pass_shas(conn, card.run)?
                         .iter()
-                        .any(|p| p.starts_with(&sha) || sha.starts_with(p.as_str()));
+                        .any(|p| same_commit(p, &sha));
                     (!verified).then_some(Refusal::Unverified)
                 }
             },
@@ -1497,6 +1509,9 @@ mod tests {
         ] {
             assert!(!valid_slug(bad), "{bad}");
         }
+        assert!(same_commit("abc1234", "abc1234def") && same_commit("abc1234def", "abc1234"));
+        assert!(!same_commit("abc123", "abc1234def") && !same_commit("", "abc1234"));
+        assert!(!same_commit("abc1234", "abc1235") && !same_commit("zzzzzzz", "zzzzzzz"));
         assert!(parse_card_id("demo.s3").is_ok());
         assert!(parse_card_id("../x.s3").is_err());
         let mut s = store();
@@ -1716,12 +1731,12 @@ mod tests {
         create(&mut s.conn, "r", State::InProgress, &gate2, "t").unwrap();
         create(&mut s.conn, "r.s1", State::InReview, &[], "t").unwrap();
         let a = |s: &str| s.split(' ').map(str::to_owned).collect::<Vec<_>>();
-        log(&mut s.conn, "r.s1", "commit=abc", &[], "t").unwrap();
+        log(&mut s.conn, "r.s1", "commit=abc1234", &[], "t").unwrap();
         log(
             &mut s.conn,
             "r",
             "note",
-            &a("-- saw gauntlet=pass sha=abc"),
+            &a("-- saw gauntlet=pass sha=abc1234"),
             "t",
         )
         .unwrap();
@@ -1730,7 +1745,7 @@ mod tests {
         assert!(pass_shas(&s.conn, "r").unwrap().is_empty());
         assert_eq!(
             last_logged(&s.conn, "r.s1", "commit").unwrap().as_deref(),
-            Some("abc")
+            Some("abc1234")
         );
         assert!(matches!(
             move_card(&mut s.conn, "r.s1", State::Done, "t"),
@@ -1739,8 +1754,8 @@ mod tests {
                 ..
             })
         ));
-        log(&mut s.conn, "r", "gauntlet=pass", &a("sha=abc"), "t").unwrap();
-        assert_eq!(pass_shas(&s.conn, "r").unwrap(), ["abc"]);
+        log(&mut s.conn, "r", "gauntlet=pass", &a("sha=abc1234"), "t").unwrap();
+        assert_eq!(pass_shas(&s.conn, "r").unwrap(), ["abc1234"]);
         move_card(&mut s.conn, "r.s1", State::Done, "t").unwrap();
     }
 

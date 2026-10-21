@@ -1,2 +1,0 @@
-card-log=reject reason=inprogress event=commit move=inreview hint=move the card to inreview first, then log commit=
-exit=2

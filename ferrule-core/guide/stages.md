@@ -16,7 +16,7 @@
 
 Per stage:
 
-1. Green: card → `inreview`, the implementer commits (`ferrule board log` refuses `commit=` from `inprogress`), answers `status=committed stage=s<n> sha=<sha> delta=<n>` — no per-stage code review, no approval stop.
+1. Green: card → `inreview`, the implementer commits with `ferrule stage commit` (it refuses from `inprogress` and alone logs `commit=`), answers `status=committed stage=s<n> sha=<sha> delta=<n>` — no per-stage code review, no approval stop.
 2. `ferrule pr push {slug}`. `delta>0` → fresh `fe-reviewer`, scope `delta s<n>` (`ferrule guide show spec-changes`): `count>0` → resume the implementer with the `review.md` path, fixes committed on green, push, follow-up pass by the same reviewer, rounds per `ferrule guide show verify`; a `Needs user` item → the delta stop below. Then card → `done`, the next stage (*Every stage*).
 3. Last stage `done` → `ferrule guide show feedback`, then `ferrule guide show gate3`: its branch review is the only code review of a fast-lane run.
 

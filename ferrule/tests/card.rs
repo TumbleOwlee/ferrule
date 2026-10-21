@@ -153,7 +153,7 @@ fn it_log_rejects_and_leaves_the_card_unchanged() {
             "card-log-reject-owner",
             &["demo", "gauntlet=pass", "sha=abc1234"],
         ),
-        ("card-log-reject-event-quote", &["demo.s1", "commit=a\"b"]),
+        ("card-log-reject-event-quote", &["demo.s1", "feedback=a\"b"]),
         ("card-log-no-card", &["nosuch.s9", "green"]),
         ("card-log-note-empty", &["demo.s1", "note"]),
         (
@@ -215,13 +215,9 @@ fn it_log_read_budget_and_commit_state() {
     .golden("card-log-read-budget");
     new(p, &["demo.s3", "--state", "inprogress"]);
     ferrule(p, &["board", "log", "demo.s3", "commit=abc1234"])
-        .golden("card-log-reject-commit-inprogress");
+        .golden("card-log-reject-commit-owner");
     let shown = ferrule(p, &["board", "show", "demo.s3"]).text();
     assert!(!shown.contains("commit="));
-    assert_eq!(
-        log_tail(p, "demo.s1", &["commit=abc1234"]),
-        "2026-10-05T09:00 commit=abc1234\nexit=0"
-    );
 }
 
 fn new(p: &Path, args: &[&str]) {
@@ -272,7 +268,12 @@ fn it_move_follows_the_board_rules() {
     let shown = ferrule(p, &["board", "show", "ss.s0"]).text();
     assert!(shown.ends_with("2026-10-05T09:00 moved=inreview\nexit=0"));
     assert_eq!(mv("ss.s0", "done"), refused("inreview", "done", "commit"));
-    ferrule(p, &["board", "log", "ss.s0", "commit=abc1234"]).text();
+    seed_log(p, NOW, "ss.s0", &["commit=abc12"]);
+    assert_eq!(
+        mv("ss.s0", "done"),
+        refused("inreview", "done", "unverified")
+    );
+    seed_log(p, NOW, "ss.s0", &["commit=abc1234"]);
     assert_eq!(
         mv("ss.s0", "done"),
         refused("inreview", "done", "unverified")
@@ -660,12 +661,13 @@ fn it_log_refuses_events_only_ferrule_writes() {
         log_tail(p.path(), "demo", &["gauntlet=pass", "sha=x"]),
         "card-log=reject reason=owner event=gauntlet hint=only ferrule logs it, with `ferrule pr push <slug>`\nexit=2"
     );
-    let refused = log_tail(p.path(), "demo", &["ci=0"]);
-    assert!(refused.contains("reason=owner"), "{refused}");
+    for (card, args) in [("demo", vec!["ci=0"]), ("demo.s1", vec!["commit=abc1234"])] {
+        let refused = log_tail(p.path(), card, &args);
+        assert!(refused.contains("reason=owner"), "{refused}");
+    }
     // The events the guides have agents log stay open to them.
     for (card, args) in [
         ("demo.s1", vec!["checks=pass", "crates=a"]),
-        ("demo.s1", vec!["commit=abc"]),
         ("demo", vec!["spec-keep=MB-R-001"]),
         ("demo", vec!["ci-waived", "--", "red on main too"]),
     ] {

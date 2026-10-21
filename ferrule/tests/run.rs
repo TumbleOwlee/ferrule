@@ -204,7 +204,7 @@ fn it_stage_stop_checkpoint_after_three_autos() {
 fn it_sha_check_and_reconcile() {
     let s = Scratch::new(2);
     let s1 = s.commit_in_worktree("f1.txt", "x\n", "s1");
-    s.ok(&["board", "log", "ss.s1", &format!("commit={s1}")]);
+    seed_log(&s.root, NOW, "ss.s1", &[&format!("commit={s1}")]);
     let check = |sha: &str| s.run(&["stage", "verify", "ss", "s1", sha]).text();
     assert_eq!(check(&s1), "sha=ok\nexit=0");
     assert!(check("deadbee").starts_with("sha=mismatch reason=missing hint="));
@@ -219,12 +219,12 @@ fn it_sha_check_and_reconcile() {
             .starts_with("sha=mismatch reason=card hint=")
     );
 
-    s.ok(&["board", "log", "ss.s0", &format!("commit={s1}")]);
+    seed_log(&s.root, NOW, "ss.s0", &[&format!("commit={s1}")]);
     assert_eq!(
         s.run(&["run", "reconcile", "ss"]).text(),
         "reconcile=clean next=s1\nexit=0"
     );
-    s.ok(&["board", "log", "ss.s2", "commit=deadbee"]);
+    seed_log(&s.root, NOW, "ss.s2", &["commit=deadbee"]);
     seed_log(&s.root, NOW, "ss", &["gauntlet=pass", &format!("sha={m}")]);
     assert_eq!(
         s.run(&["run", "reconcile", "ss"]).text(),

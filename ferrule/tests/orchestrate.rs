@@ -155,7 +155,12 @@ impl Project {
         git(&self.worktree(), &["commit", "-qm", sid]);
         let sha = git(&self.worktree(), &["rev-parse", "--short", "HEAD"]);
         self.ok(&["board", "move", &card, "inreview"]);
-        self.ok(&["board", "log", &card, &format!("commit={sha}")]);
+        seed_log(
+            &self.root,
+            "2026-10-05T09:00",
+            &card,
+            &[&format!("commit={sha}")],
+        );
         sha
     }
 }

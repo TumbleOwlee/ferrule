@@ -1,2 +1,2 @@
-card-log=reject reason=value event=commit hint=commit= takes a value, no -- text
+card-log=reject reason=value event=feedback hint=feedback= takes a value, no -- text
 exit=2

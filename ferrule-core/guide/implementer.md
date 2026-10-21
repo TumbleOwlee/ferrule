@@ -28,7 +28,6 @@ ferrule board log <id> test-red [<IDs>] -- <test name>: <failure seen>
 ferrule board log <id> green
 ferrule board log <id> spec-delta <ID> <added|changed|dropped> origin=<user|review|impl> [quote="<the user's words>"] -- <≤ 8 words why>
 ferrule board log <id> checks=pass crates=<package,…>   |   checks=fail -- <one-line reason>
-ferrule board log <id> commit=<sha>
 ferrule board log <id> feedback=<n>
 ferrule board log <id> stopped -- <what and why>
 ferrule board log <id> follow-up -- <what> — <where> — <why it matters>

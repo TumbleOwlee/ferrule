@@ -690,7 +690,7 @@ impl Run<'_> {
         let mut stage = None;
         for (n, id, _) in board::stages(self.conn, self.slug)? {
             if let Some(c) = board::last_value(self.conn, &id, Name::Commit)?
-                && head.starts_with(&c)
+                && board::same_commit(&head, &c)
             {
                 stage = Some(n);
             }
