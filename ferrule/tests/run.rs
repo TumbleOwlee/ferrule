@@ -421,6 +421,68 @@ fn it_cleanup_of_an_epic_needs_no_ci() {
     );
 }
 
+/// The latest archive id of `demo`.
+fn latest_archive(s: &Scratch) -> usize {
+    let to = s.root.join("o2");
+    let out = s.say(&["run", "export", "demo", "--to", to.to_str().unwrap()]);
+    out.trim_start_matches("export=done archive=")
+        .split(' ')
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap_or_else(|_| panic!("{out}"))
+}
+
+#[test]
+fn it_cleanup_resumes_after_the_branch_cannot_be_deleted() {
+    let s = pushed_run();
+    seed_log(&s.root, NOW, "demo", &["ci=0"]);
+    let lock = s.root.join(".git/refs/heads/feat/demo.lock");
+    std::fs::write(&lock, "").unwrap();
+    let first = s.say(&["run", "cleanup", "demo"]);
+    assert!(
+        first.starts_with("cleanup=refused reason=branch-delete-failed detail="),
+        "{first}"
+    );
+    assert!(!s.wt.exists());
+    assert!(has_ref(&s.root, "refs/heads/feat/demo"));
+    assert!(s.root.join(".ferrule/runs/demo").exists());
+    std::fs::remove_file(&lock).unwrap();
+    assert_eq!(
+        s.say(&["run", "cleanup", "demo"]),
+        "cleanup=done archive=1 resumed"
+    );
+    assert!(!has_ref(&s.root, "refs/heads/feat/demo"));
+    assert!(!s.root.join(".ferrule/runs/demo").exists());
+    assert_eq!(
+        s.say(&["run", "cleanup", "demo"]),
+        "cleanup=done archive=none"
+    );
+    assert_eq!(latest_archive(&s), 1);
+}
+
+#[test]
+fn it_cleanup_resumes_after_the_worktree_cannot_be_removed() {
+    let s = pushed_run();
+    seed_log(&s.root, NOW, "demo", &["ci=0"]);
+    git(&s.root, &["worktree", "lock", s.wt.to_str().unwrap()]);
+    let first = s.say(&["run", "cleanup", "demo"]);
+    assert!(
+        first.starts_with("cleanup=refused reason=worktree-remove-failed detail="),
+        "{first}"
+    );
+    assert!(s.wt.is_dir());
+    assert_eq!(s.say(&["board", "field", "demo", "state"]), "");
+    git(&s.root, &["worktree", "unlock", s.wt.to_str().unwrap()]);
+    assert_eq!(
+        s.say(&["run", "cleanup", "demo"]),
+        "cleanup=done archive=1 resumed"
+    );
+    assert!(!s.wt.exists());
+    assert!(!has_ref(&s.root, "refs/heads/feat/demo"));
+    assert_eq!(latest_archive(&s), 1);
+}
+
 fn has_ref(dir: &Path, r: &str) -> bool {
     Command::new("git")
         .arg("-C")

@@ -108,6 +108,13 @@ CREATE INDEX events_card_name ON events (card, name, id);
 ",
     ),
     Step::Rust(crate::card::board::backfill_args),
+    Step::Sql(
+        r"
+ALTER TABLE archives ADD COLUMN pending_worktree TEXT;
+ALTER TABLE archives ADD COLUMN pending_branch TEXT;
+ALTER TABLE archives ADD COLUMN pending_run_dir INTEGER NOT NULL DEFAULT 0;
+",
+    ),
 ];
 
 #[derive(Debug)]

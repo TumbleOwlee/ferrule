@@ -93,12 +93,17 @@ See: ferrule guide show resume";
 /// Shown after `ferrule run cleanup --help`.
 const CLEANUP_AFTER_LONG_HELP: &str = "\
 Output:
-  cleanup=done archive=<id>        The metrics line is recorded, the worktree
-                                   and local branch are removed, and the cards
+  cleanup=done archive=<id>        The metrics line is recorded and the cards
                                    and run files are archived as <id>
-                                   (`ferrule run export` writes it back)
+                                   (`ferrule run export` writes it back), in
+                                   one transaction; then the worktree, local
+                                   branch and run directory are removed
   cleanup=done archive=none        Nothing was left to archive
-Refusals (nothing is removed):
+  cleanup=done archive=<id> resumed
+                                   An earlier cleanup archived the run but
+                                   failed removing the worktree, branch or
+                                   run directory; this one finished those
+Refusals before the archive is written (nothing is changed):
   cleanup=refused reason=card                 No such run
   cleanup=refused reason=detached-head        The worktree is on no branch
   cleanup=refused reason=uncommitted-changes  The worktree has changes; commit
@@ -108,6 +113,7 @@ Refusals (nothing is removed):
   cleanup=refused reason=no-ci                No ci= logged; `ferrule ci wait`
   cleanup=refused reason=ci-red               The last ci= is not 0 and no later
                                               ci-waived line exists
+Refusals after it (the run is archived; rerun to finish):
   cleanup=refused reason=worktree-remove-failed
                                               git could not remove the worktree;
                                               ask the user (the shell guard
@@ -823,12 +829,12 @@ fn cleanup(slug: &str, out: &mut impl Write) -> io::Result<u8> {
         unreachable!("store(true) creates the database");
     };
     let refusal = match archive::cleanup(&mut s.conn, &layout, slug, &board::now()) {
-        Ok(Some(id)) => {
-            writeln!(out, "cleanup=done archive={id}")?;
-            return Ok(exit::OK);
-        }
-        Ok(None) => {
-            writeln!(out, "cleanup=done archive=none")?;
+        Ok(done) => {
+            let id = done
+                .archive
+                .map_or_else(|| "none".to_owned(), |i| i.to_string());
+            let resumed = if done.resumed { " resumed" } else { "" };
+            writeln!(out, "cleanup=done archive={id}{resumed}")?;
             return Ok(exit::OK);
         }
         Err(ArchiveError::Refused(r)) => r.refusal(slug),

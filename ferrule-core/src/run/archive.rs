@@ -314,52 +314,151 @@ fn worktree_clean(wt: &Path) -> Result<String, CleanupRefusal> {
     Ok(branch)
 }
 
+/// What a clean-up did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Cleaned {
+    /// The archive written, `None` when there was nothing to archive.
+    pub archive: Option<i64>,
+    /// An earlier clean-up had archived the run and only its git and file
+    /// steps were left, which this one finished.
+    pub resumed: bool,
+}
+
+/// An archive whose worktree, branch or run directory is still to remove.
+struct Pending {
+    id: i64,
+    worktree: Option<String>,
+    branch: Option<String>,
+    run_dir: bool,
+}
+
+fn pending(conn: &Connection, slug: &str) -> rusqlite::Result<Option<Pending>> {
+    conn.query_row(
+        "SELECT id, pending_worktree, pending_branch, pending_run_dir FROM archives
+         WHERE run = ?1 AND (pending_worktree IS NOT NULL OR pending_branch IS NOT NULL
+                             OR pending_run_dir <> 0)
+         ORDER BY id DESC LIMIT 1",
+        [slug],
+        |r| {
+            Ok(Pending {
+                id: r.get(0)?,
+                worktree: r.get(1)?,
+                branch: r.get(2)?,
+                run_dir: r.get::<_, i64>(3)? != 0,
+            })
+        },
+    )
+    .optional()
+}
+
+/// Removes the worktree, deletes the branch and removes the run directory,
+/// each only when it is still there, and clears the archive's pending mark
+/// of every step done, so that a rerun finishes the rest.
+fn finish(conn: &Connection, layout: &Layout, slug: &str, todo: &Pending) -> Result<(), Error> {
+    if let Some(wt) = &todo.worktree {
+        let wt = Path::new(wt);
+        if wt.is_dir() {
+            let remove = [OsStr::new("worktree"), OsStr::new("remove"), wt.as_os_str()];
+            git::run(&layout.root, &remove)
+                .map_err(|e| Error::Refused(CleanupRefusal::WorktreeRemoveFailed(e)))?;
+        }
+        conn.execute(
+            "UPDATE archives SET pending_worktree = NULL WHERE id = ?1",
+            [todo.id],
+        )?;
+    }
+    if let Some(branch) = &todo.branch {
+        let _ = git::ok(&layout.root, &["worktree", "prune"]);
+        let exists = git::ok(
+            &layout.root,
+            &[
+                "rev-parse",
+                "-q",
+                "--verify",
+                &format!("refs/heads/{branch}"),
+            ],
+        );
+        if exists {
+            git::run(&layout.root, &["branch", "-D", branch])
+                .map_err(|e| Error::Refused(CleanupRefusal::BranchDeleteFailed(e)))?;
+        }
+        conn.execute(
+            "UPDATE archives SET pending_branch = NULL WHERE id = ?1",
+            [todo.id],
+        )?;
+    }
+    if todo.run_dir {
+        let run_dir = layout.run_dir(slug);
+        if run_dir.is_dir() {
+            std::fs::remove_dir_all(&run_dir)?;
+        }
+        conn.execute(
+            "UPDATE archives SET pending_run_dir = 0 WHERE id = ?1",
+            [todo.id],
+        )?;
+    }
+    Ok(())
+}
+
 /// Cleans up a finished run: refuses while the worktree holds work its PR
-/// would not carry or the run's CI is not green; else records the metrics,
-/// removes the worktree and the local branch, and archives the cards and
-/// artifacts. Returns the archive id, `None` when there was nothing to
-/// archive.
+/// would not carry or the run's CI is not green; else, in one transaction,
+/// records the metrics and archives and deletes the cards and artifacts,
+/// marking the worktree, the local branch and the run directory as still to
+/// remove, and then removes them. A rerun after a failure there finishes
+/// only what the archive still marks. Returns what was done.
 pub fn cleanup(
     conn: &mut Connection,
     layout: &Layout,
     slug: &str,
     now: &str,
-) -> Result<Option<i64>, Error> {
+) -> Result<Cleaned, Error> {
+    if let Some(todo) = pending(conn, slug)? {
+        finish(conn, layout, slug, &todo)?;
+        return Ok(Cleaned {
+            archive: Some(todo.id),
+            resumed: true,
+        });
+    }
     let wt = super::worktree(conn, layout, slug, slug)?;
     let branch = if wt.is_dir() {
         Some(worktree_clean(&wt).map_err(Error::Refused)?)
     } else {
         None
     };
-    let has_parent = board::state(conn, slug)?.is_some();
-    if has_parent {
-        metrics(conn, slug, now)?;
-    }
-    if let Some(branch) = &branch {
-        let remove = [OsStr::new("worktree"), OsStr::new("remove"), wt.as_os_str()];
-        git::run(&layout.root, &remove)
-            .map_err(|e| Error::Refused(CleanupRefusal::WorktreeRemoveFailed(e)))?;
-        git::run(&layout.root, &["branch", "-D", branch])
-            .map_err(|e| Error::Refused(CleanupRefusal::BranchDeleteFailed(e)))?;
-    }
     let run_dir = layout.run_dir(slug);
-    let mut cards: Vec<String> = Vec::new();
-    if has_parent {
-        cards.push(slug.to_owned());
-    }
-    cards.extend(board::stages(conn, slug)?.into_iter().map(|(_, id, _)| id));
     let artifacts = if run_dir.is_dir() {
         files_below(&run_dir)?
     } else {
         Vec::new()
     };
-    if cards.is_empty() && !run_dir.is_dir() {
-        return Ok(None);
-    }
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let has_parent = board::state(&tx, slug)?.is_some();
+    if has_parent {
+        metrics(&tx, slug, now)?;
+    }
+    let mut cards: Vec<String> = Vec::new();
+    if has_parent {
+        cards.push(slug.to_owned());
+    }
+    cards.extend(board::stages(&tx, slug)?.into_iter().map(|(_, id, _)| id));
+    let todo = Pending {
+        id: 0,
+        worktree: branch.as_ref().map(|_| wt.to_string_lossy().into_owned()),
+        branch,
+        run_dir: run_dir.is_dir(),
+    };
+    if cards.is_empty() && !run_dir.is_dir() {
+        tx.commit()?;
+        finish(conn, layout, slug, &todo)?;
+        return Ok(Cleaned {
+            archive: None,
+            resumed: false,
+        });
+    }
     tx.execute(
-        "INSERT INTO archives (run, archived_at) VALUES (?1, ?2)",
-        params![slug, now],
+        "INSERT INTO archives (run, archived_at, pending_worktree, pending_branch, pending_run_dir)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![slug, now, todo.worktree, todo.branch, todo.run_dir],
     )?;
     let id = tx.last_insert_rowid();
     let put = |path: String, data: &[u8]| -> Result<(), Error> {
@@ -380,10 +479,11 @@ pub fn cleanup(
         tx.execute("DELETE FROM cards WHERE id = ?1", [card])?;
     }
     tx.commit()?;
-    if run_dir.is_dir() {
-        std::fs::remove_dir_all(&run_dir)?;
-    }
-    Ok(Some(id))
+    finish(conn, layout, slug, &Pending { id, ..todo })?;
+    Ok(Cleaned {
+        archive: Some(id),
+        resumed: false,
+    })
 }
 
 /// A run's archives as `(id, archived_at)`, oldest first.
