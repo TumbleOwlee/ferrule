@@ -571,3 +571,29 @@ fn it_feedback_reply_retries_post_nothing_twice() {
     assert_eq!(log.matches("comments/13/replies").count(), 1, "{log}");
     assert_eq!(log.matches("id=T1").count(), 2, "{log}");
 }
+
+#[test]
+fn it_feedback_reply_to_a_url_posts_on_that_repository() {
+    let gh = FakeGh::new();
+    let p = tempfile::tempdir().unwrap();
+    let file = p.path().join("threads.md");
+    std::fs::write(
+        &file,
+        "# PR feedback — fetched now\n## thread T3\ncomment: 13\npath: src/c.rs:?\n[al @ t]\n> why?\nreply: declined\n  - the spec asks for it\n",
+    )
+    .unwrap();
+    let url = "https://github.com/other/repo/pull/12";
+    let out = ferrule(
+        &gh,
+        p.path(),
+        &["pr", "feedback", "reply", url, file.to_str().unwrap()],
+    )
+    .text();
+    assert!(out.ends_with("exit=0"), "{out}");
+    let log = gh.log();
+    assert!(
+        log.contains("api repos/other/repo/pulls/12/comments/13/replies"),
+        "{log}"
+    );
+    assert!(!log.contains("{owner}"), "{log}");
+}

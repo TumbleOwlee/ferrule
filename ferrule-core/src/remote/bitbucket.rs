@@ -61,8 +61,26 @@ impl Bitbucket {
         ))
     }
 
-    /// The pull request's API URL.
+    /// The pull request's API URL. A URL naming another workspace or
+    /// repository is refused: the number would land on this one's.
     fn pr_api(&self, pr: &ItemRef) -> Result<String, Error> {
+        if let ItemRef::Url { url, .. } = pr {
+            let c = self.creds()?;
+            let path = url.split_once("://").map_or(url.as_str(), |(_, r)| r);
+            let path = path.split(['?', '#']).next().unwrap_or_default();
+            let segments: Vec<&str> = path.trim_end_matches('/').split('/').collect();
+            let ours = matches!(
+                segments.as_slice(),
+                [_host, ws, repo, "pull-requests", _n, ..]
+                    if ws.eq_ignore_ascii_case(&c.workspace) && repo.eq_ignore_ascii_case(&c.repo_slug)
+            );
+            if !ours {
+                return Err(Error::Ref(format!(
+                    "{url} is not a pull request of {}/{}",
+                    c.workspace, c.repo_slug
+                )));
+            }
+        }
         self.api(&format!("pullrequests/{}", pr.pr_number()?))
     }
 

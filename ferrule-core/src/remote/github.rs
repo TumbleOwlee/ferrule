@@ -42,11 +42,12 @@ impl CodeHost for Gh {
 
     fn branch(&self, pr: &ItemRef) -> Result<String, Error> {
         let n = pr.pr_number()?;
+        let repo = repo_of(pr)?;
         let branch = self
             .gh(
                 &[
                     "api",
-                    &format!("repos/{{owner}}/{{repo}}/pulls/{n}"),
+                    &format!("repos/{repo}/pulls/{n}"),
                     "--jq",
                     ".head.ref",
                 ],
@@ -104,7 +105,8 @@ impl CodeHost for Gh {
     }
 
     fn edit(&self, pr: &ItemRef, title: Option<&str>, body: &str) -> Result<(), Error> {
-        let n = pr.pr_number()?.to_string();
+        pr.pr_number()?;
+        let n = pr.to_string();
         let mut args = vec!["pr", "edit", n.as_str(), "--body-file", "-"];
         if let Some(t) = title {
             args.extend(["--title", t]);
@@ -113,7 +115,8 @@ impl CodeHost for Gh {
     }
 
     fn ready(&self, pr: &ItemRef) -> Result<(), Error> {
-        let n = pr.pr_number()?.to_string();
+        pr.pr_number()?;
+        let n = pr.to_string();
         self.gh(&["pr", "ready", &n], None).map(drop)
     }
 
@@ -125,7 +128,8 @@ impl CodeHost for Gh {
             is_draft: bool,
             body: Option<String>,
         }
-        let n = pr.pr_number()?.to_string();
+        pr.pr_number()?;
+        let n = pr.to_string();
         let out = self.gh(&["pr", "view", &n, "--json", "state,isDraft,body"], None)?;
         let p: Pr = json(&out, "gh pr view")?;
         Ok(PrStatus {
@@ -136,7 +140,8 @@ impl CodeHost for Gh {
     }
 
     fn checks_watch(&self, pr: &ItemRef) -> Result<(i32, String), Error> {
-        let n = pr.pr_number()?.to_string();
+        pr.pr_number()?;
+        let n = pr.to_string();
         let out = Command::new("gh")
             .args(["pr", "checks", &n, "--watch"])
             .current_dir(if self.root.as_os_str().is_empty() {
@@ -158,8 +163,9 @@ impl CodeHost for Gh {
 
     fn threads(&self, pr: &ItemRef) -> Result<Fetched, Error> {
         let n = pr.pr_number()?;
+        let repo = repo_of(pr)?;
         let (state, draft, all) = threads(
-            |after| self.threads_page(n, after),
+            |after| self.threads_page(&repo, n, after),
             |id, after| self.comments_page(id, after),
         )?;
         Ok(Fetched {
@@ -176,13 +182,15 @@ impl CodeHost for Gh {
     fn reply(&self, pr: &ItemRef, comment: &str, text: &str) -> Result<(), Error> {
         let n = pr.pr_number()?;
         let c = comment_id(comment)?;
-        let path = format!("repos/{{owner}}/{{repo}}/pulls/{n}/comments/{c}/replies");
+        let repo = repo_of(pr)?;
+        let path = format!("repos/{repo}/pulls/{n}/comments/{c}/replies");
         self.gh(&["api", &path, "-f", &format!("body={text}")], None)
             .map(drop)
     }
 
     fn resolve(&self, pr: &ItemRef, thread: &str, _comment: &str) -> Result<(), Error> {
         pr.pr_number()?;
+        repo_of(pr)?;
         // `-f`, never `-F`: `-F` reads a value starting with `@` as a file.
         self.gh(
             &[
@@ -404,6 +412,38 @@ fn no_checks(output: &str) -> bool {
     output.contains("no checks reported")
 }
 
+/// The repository a reference names, as the `repos/<owner>/<repo>` an API
+/// path starts with: a URL's own (`https://github.com/o/r/pull/7`), the
+/// checkout's (`{owner}/{repo}`, which gh fills in) for a number. A URL of
+/// another shape is refused, so a number never lands on another repo's
+/// item of the same number.
+fn repo_of(item: &ItemRef) -> Result<String, Error> {
+    let ItemRef::Url { url, .. } = item else {
+        return Ok("{owner}/{repo}".to_owned());
+    };
+    let path = url
+        .split_once("://")
+        .map_or(url.as_str(), |(_, rest)| rest)
+        .split(['?', '#'])
+        .next()
+        .unwrap_or_default();
+    let segments: Vec<&str> = path.trim_end_matches('/').split('/').collect();
+    let name = |s: &str| {
+        !s.is_empty()
+            && !s.starts_with('.')
+            && s.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+    };
+    match segments.as_slice() {
+        [_host, owner, repo, "pull" | "pulls" | "issues", _n] if name(owner) && name(repo) => {
+            Ok(format!("{owner}/{repo}"))
+        }
+        _ => Err(Error::Ref(format!(
+            "{url} is not a GitHub pull request or issue URL"
+        ))),
+    }
+}
+
 /// A review thread's GraphQL node id (`PRRT_kwDO…`): only the characters
 /// such an id holds, so a value from an edited file cannot pass as
 /// anything else.
@@ -610,18 +650,11 @@ const RESOLVE: &str =
 
 impl Gh {
     /// The gh call for one page: `after` is the cursor of the page before.
-    fn threads_page(&self, pr: u64, after: Option<&str>) -> Result<String, Error> {
+    fn threads_page(&self, repo: &str, pr: u64, after: Option<&str>) -> Result<String, Error> {
         let (pr, query) = (format!("pr={pr}"), format!("query={THREADS_QUERY}"));
-        let mut args = vec![
-            "api",
-            "graphql",
-            "-F",
-            "owner={owner}",
-            "-F",
-            "repo={repo}",
-            "-F",
-            &pr,
-        ];
+        let (owner, name) = repo.split_once('/').unwrap_or((repo, ""));
+        let (owner, name) = (format!("owner={owner}"), format!("repo={name}"));
+        let mut args = vec!["api", "graphql", "-F", &owner, "-F", &name, "-F", &pr];
         let cursor = after.map(|c| format!("after={c}"));
         if let Some(c) = &cursor {
             args.extend(["-f", c]);
@@ -699,6 +732,21 @@ fn threads(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ut_a_url_names_its_own_repository() {
+        let r = |s: &str| repo_of(&ItemRef::parse(s).unwrap());
+        assert_eq!(r("12").unwrap(), "{owner}/{repo}");
+        assert_eq!(r("https://github.com/o2/r.2/pull/12").unwrap(), "o2/r.2");
+        assert_eq!(r("https://github.com/o/r/issues/3/").unwrap(), "o/r");
+        for bad in [
+            "https://github.com/o/pull/12",
+            "https://github.com/../r/pull/12",
+            "https://github.com/o/r/x/pull/12",
+        ] {
+            assert!(r(bad).is_err(), "{bad}");
+        }
+    }
 
     #[test]
     fn ut_ids_and_branches_reaching_gh_are_checked() {
