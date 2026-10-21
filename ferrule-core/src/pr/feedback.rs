@@ -276,9 +276,115 @@ pub fn reply_text(reply: &Reply, stage: &str, sha: &str) -> String {
     out
 }
 
+/// How far answering a threads file got.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Answered {
+    pub fixed: usize,
+    pub declined: usize,
+    /// The file's threads not fixed.
+    pub open: usize,
+}
+
+/// Why a threads file was not answered in full.
+#[derive(Debug)]
+pub enum AnswerError {
+    /// Replies that cannot be posted, one line each; nothing was posted.
+    Problems(Vec<String>),
+    /// A `fixed` reply is still to post and no stage and sha were given.
+    NeedsStage,
+    /// The host failed on a thread: how far it got, the thread, the error.
+    Host(Answered, String, crate::remote::Error),
+}
+
+/// Posts every filled reply of the threads file at `path` through `host`,
+/// in file order: a reply, then for a fixed one the thread resolved, each
+/// step marked in the file (`posted:`) once done, so a rerun after a
+/// failure posts nothing twice. `stage` and `sha` sign the fixed replies.
+///
+/// # Errors
+/// [`AnswerError`]; an unreadable file is an I/O error.
+pub fn answer(
+    host: &dyn crate::remote::CodeHost,
+    pr: &crate::remote::ItemRef,
+    path: &std::path::Path,
+    stage_sha: Option<(&str, &str)>,
+) -> std::io::Result<Result<Answered, AnswerError>> {
+    let mut text = std::fs::read_to_string(path)?;
+    let problems = problems(&text);
+    if !problems.is_empty() {
+        return Ok(Err(AnswerError::Problems(problems)));
+    }
+    let (replies, total) = replies(&text);
+    let fixed_left = replies
+        .iter()
+        .any(|r| r.kind == Kind::Fixed && r.posted.is_none());
+    let (stage, sha) = match stage_sha {
+        Some(s) => s,
+        None if fixed_left => return Ok(Err(AnswerError::NeedsStage)),
+        None => ("", ""),
+    };
+    let mut got = Answered {
+        open: total,
+        ..Answered::default()
+    };
+    for r in &replies {
+        let mut step = || -> Result<(), crate::remote::Error> {
+            let save = |t: &str| {
+                std::fs::write(path, t).map_err(|e| crate::remote::Error::Command(e.to_string()))
+            };
+            if r.posted.is_none() {
+                host.reply(pr, &r.comment, &reply_text(r, stage, sha))?;
+                text = mark(&text, &r.thread, Posted::Replied);
+                save(&text)?;
+            }
+            if r.kind == Kind::Fixed && r.posted != Some(Posted::Resolved) {
+                host.resolve(pr, &r.thread, &r.comment)?;
+                text = mark(&text, &r.thread, Posted::Resolved);
+                save(&text)?;
+            }
+            Ok(())
+        };
+        if let Err(e) = step() {
+            return Ok(Err(AnswerError::Host(got, r.thread.clone(), e)));
+        }
+        match r.kind {
+            Kind::Fixed => {
+                got.fixed += 1;
+                got.open -= 1;
+            }
+            Kind::Declined => got.declined += 1,
+        }
+    }
+    Ok(Ok(got))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ut_answer_posts_each_step_once() {
+        use crate::remote::ItemRef;
+        use crate::remote::fake::FakeHost;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pr-feedback.md");
+        std::fs::write(&path, FILE).unwrap();
+        let host = FakeHost::default();
+        let pr = ItemRef::Number(5);
+        assert!(matches!(
+            answer(&host, &pr, &path, None).unwrap(),
+            Err(AnswerError::NeedsStage)
+        ));
+        let got = answer(&host, &pr, &path, Some(("s1", "abc1234")))
+            .unwrap()
+            .unwrap();
+        assert_eq!((got.fixed, got.declined, got.open), (1, 1, 2));
+        assert_eq!(host.calls(), ["reply 5 11", "resolve 5 T1", "reply 5 12"]);
+        // Everything is marked posted: a rerun needs no stage, posts nothing.
+        let again = answer(&host, &pr, &path, None).unwrap().unwrap();
+        assert_eq!((again.fixed, again.declined), (1, 1));
+        assert_eq!(host.calls().len(), 3);
+    }
 
     #[test]
     fn ut_problems_name_unpostable_replies() {

@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use clap::Subcommand;
 use ferrule_core::card::board;
 use ferrule_core::config::Config;
-use ferrule_core::pr::feedback::{self, Kind, Posted};
+use ferrule_core::pr::feedback::{self, AnswerError};
 use ferrule_core::project;
 use ferrule_core::refusal::Refusal;
 use ferrule_core::remote::{self, ItemRef};
@@ -155,67 +155,39 @@ fn reply(
     sha: Option<&str>,
     out: &mut impl Write,
 ) -> io::Result<u8> {
-    let Ok(text) = std::fs::read_to_string(file) else {
-        eprintln!("pr feedback: no such file: {}", file.display());
-        return Ok(exit::REFUSED);
-    };
-    let problems = feedback::problems(&text);
-    if !problems.is_empty() {
-        for p in problems {
-            eprintln!("pr feedback: {p}");
-        }
-        return Ok(exit::REFUSED);
-    }
-    let (replies, total) = feedback::replies(&text);
-    let fixed_any = replies
-        .iter()
-        .any(|r| r.kind == Kind::Fixed && r.posted.is_none());
-    let (stage, sha) = match (stage, sha) {
-        (Some(st), Some(sh)) => (st, sh),
-        _ if fixed_any => {
-            eprintln!("pr feedback: a 'reply: fixed' thread needs <stage> <sha> (the pushed head)");
-            return Ok(exit::USAGE);
-        }
-        _ => ("", ""),
-    };
-    let (mut fixed, mut declined) = (0, 0);
     let host = remote::code_host(config, &project::main_checkout());
-    let mut text = text;
-    for r in &replies {
-        let mut step = || -> Result<(), remote::Error> {
-            if r.posted.is_none() {
-                let body = feedback::reply_text(r, stage, sha);
-                host.reply(pr, &r.comment, &body)?;
-                text = feedback::mark(&text, &r.thread, Posted::Replied);
-                std::fs::write(file, &text).map_err(|e| remote::Error::Command(e.to_string()))?;
-            }
-            if r.kind == Kind::Fixed && r.posted != Some(Posted::Resolved) {
-                host.resolve(pr, &r.thread, &r.comment)?;
-                text = feedback::mark(&text, &r.thread, Posted::Resolved);
-                std::fs::write(file, &text).map_err(|e| remote::Error::Command(e.to_string()))?;
-            }
-            Ok(())
-        };
-        if let Err(e) = step() {
-            eprintln!("pr feedback: thread {}: {e}", r.thread);
-            writeln!(
-                out,
-                "pr={pr} fixed={fixed} declined={declined} open={}",
-                total - fixed
-            )?;
-            return Ok(exit::REFUSED);
+    let stage_sha = stage.zip(sha);
+    let line = |a: feedback::Answered| {
+        format!(
+            "pr={pr} fixed={} declined={} open={}",
+            a.fixed, a.declined, a.open
+        )
+    };
+    match feedback::answer(host.as_ref(), pr, file, stage_sha) {
+        Err(_) => {
+            eprintln!("pr feedback: no such file: {}", file.display());
+            Ok(exit::REFUSED)
         }
-        match r.kind {
-            Kind::Fixed => fixed += 1,
-            Kind::Declined => declined += 1,
+        Ok(Ok(a)) => {
+            writeln!(out, "{}", line(a))?;
+            Ok(exit::OK)
+        }
+        Ok(Err(AnswerError::Problems(problems))) => {
+            for p in problems {
+                eprintln!("pr feedback: {p}");
+            }
+            Ok(exit::REFUSED)
+        }
+        Ok(Err(AnswerError::NeedsStage)) => {
+            eprintln!("pr feedback: a 'reply: fixed' thread needs <stage> <sha> (the pushed head)");
+            Ok(exit::USAGE)
+        }
+        Ok(Err(AnswerError::Host(a, thread, e))) => {
+            eprintln!("pr feedback: thread {thread}: {e}");
+            writeln!(out, "{}", line(a))?;
+            Ok(exit::REFUSED)
         }
     }
-    writeln!(
-        out,
-        "pr={pr} fixed={fixed} declined={declined} open={}",
-        total - fixed
-    )?;
-    Ok(exit::OK)
 }
 
 #[allow(clippy::redundant_closure_for_method_calls)]
