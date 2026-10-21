@@ -161,7 +161,7 @@ fn it_feedback_fetches_threads_and_replies() {
         "{log}"
     );
     assert!(
-        log.contains("api graphql -F id=T1 -f query=mutation"),
+        log.contains("api graphql -f id=T1 -f query=mutation"),
         "{log}"
     );
     assert!(
@@ -193,8 +193,7 @@ fn it_failed_prints_the_error_lines() {
         &[
             "run",
             "list",
-            "--branch",
-            "feat/x",
+            "--branch=feat/x",
             "--commit",
             "abc1234def",
             "--status",
@@ -218,7 +217,7 @@ fn it_failed_prints_the_error_lines() {
         ferrule(&gh, p.path(), &["ci", "failed", "feat/x"]).text(),
         "test\terror[E0308]: mismatched types\ntest\ttest a ... FAILED\nexit=0"
     );
-    assert!(gh.log().contains("--branch feat/x --commit abc1234def"));
+    assert!(gh.log().contains("--branch=feat/x --commit abc1234def"));
     assert_eq!(
         ferrule(&gh, p.path(), &["ci", "failed", "feat/none"]).text(),
         "exit=1"
@@ -532,7 +531,7 @@ fn it_feedback_reply_retries_post_nothing_twice() {
     let resolve = [
         "api",
         "graphql",
-        "-F",
+        "-f",
         "id=T1",
         "-f",
         "query=mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { isResolved } } }",

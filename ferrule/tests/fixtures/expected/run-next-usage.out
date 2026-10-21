@@ -8,4 +8,8 @@ exit=2
 $ gate next nosuch gate2 status=ready
 run-next=refused reason=card hint=check the slug with `ferrule board list`
 exit=1
+$ gate next ns ci ci=green
+exit=2
+$ gate next ns gate2 status=new issue=1;x
+exit=2
 exit=0

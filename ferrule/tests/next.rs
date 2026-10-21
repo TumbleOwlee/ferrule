@@ -335,6 +335,8 @@ fn it_next_usage() {
     b.next(&["ns", "nowhere", "status=ready"]);
     b.next(&["ns", "gate4", "status=new", "file=x"]);
     b.next(&["nosuch", "gate2", "status=ready"]);
+    b.next(&["ns", "ci", "ci=green"]);
+    b.next(&["ns", "gate2", "status=new", "issue=1;x"]);
     b.finish("run-next-usage");
 }
 

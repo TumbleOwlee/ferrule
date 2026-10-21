@@ -70,6 +70,23 @@ impl Status {
         }
         s
     }
+
+    /// The word `at` decides on: `ci=` at `ci`, else `status=`. A missing
+    /// one, a `ci=` that is no exit code or an `issue=` that is neither a
+    /// number nor `new` is a usage error: both reach a command line the
+    /// decision prints.
+    fn word(&self, at: At) -> Result<String, Error> {
+        let digits = |v: &str| !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit());
+        let word = match at {
+            At::Ci => self.ci.clone().filter(|c| digits(c)),
+            _ => self.status.clone(),
+        };
+        let issue_ok = self
+            .issue
+            .as_deref()
+            .is_none_or(|i| i == "new" || digits(i));
+        word.filter(|_| issue_ok).ok_or(Error::Usage)
+    }
 }
 
 #[derive(Debug)]
@@ -263,10 +280,7 @@ pub fn next(
     now: &str,
 ) -> Result<Vec<String>, Error> {
     let conn = db.conn_mut();
-    let word = match at {
-        At::Ci => status.ci.clone().ok_or(Error::Usage)?,
-        _ => status.status.clone().ok_or(Error::Usage)?,
-    };
+    let word = status.word(at)?;
     if board::state(conn, slug)?.is_none() {
         return Err(Error::Card);
     }

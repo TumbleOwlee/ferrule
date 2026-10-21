@@ -183,12 +183,13 @@ impl CodeHost for Gh {
 
     fn resolve(&self, pr: &ItemRef, thread: &str, _comment: &str) -> Result<(), Error> {
         pr.pr_number()?;
+        // `-f`, never `-F`: `-F` reads a value starting with `@` as a file.
         self.gh(
             &[
                 "api",
                 "graphql",
-                "-F",
-                &format!("id={thread}"),
+                "-f",
+                &format!("id={}", thread_id(thread)?),
                 "-f",
                 &format!("query={RESOLVE}"),
             ],
@@ -216,14 +217,14 @@ impl CodeHost for Gh {
             jobs: Vec<Job>,
         }
         let id = if let Some(given) = query.run {
-            given.to_owned()
+            run_id(given)?.to_owned()
         } else {
             // The branch's head: an older commit's failure is not this one's.
             let sha = self
                 .gh(
                     &[
                         "api",
-                        &format!("repos/{{owner}}/{{repo}}/commits/{branch}"),
+                        &format!("repos/{{owner}}/{{repo}}/commits/{}", ref_path(branch)?),
                         "--jq",
                         ".sha",
                     ],
@@ -236,8 +237,7 @@ impl CodeHost for Gh {
                     &[
                         "run",
                         "list",
-                        "--branch",
-                        branch,
+                        &format!("--branch={branch}"),
                         "--commit",
                         &sha,
                         "--status",
@@ -402,6 +402,47 @@ impl IssueTracker for Gh {
 /// exits 1 then, as for a red check).
 fn no_checks(output: &str) -> bool {
     output.contains("no checks reported")
+}
+
+/// A review thread's GraphQL node id (`PRRT_kwDO…`): only the characters
+/// such an id holds, so a value from an edited file cannot pass as
+/// anything else.
+fn thread_id(thread: &str) -> Result<&str, Error> {
+    if !thread.is_empty()
+        && thread
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'='))
+    {
+        Ok(thread)
+    } else {
+        Err(Error::Ref(format!("'{thread}' is not a review thread id")))
+    }
+}
+
+/// A workflow run id, as `ci failed --run` names one: digits only.
+fn run_id(given: &str) -> Result<&str, Error> {
+    if !given.is_empty() && given.bytes().all(|b| b.is_ascii_digit()) {
+        Ok(given)
+    } else {
+        Err(Error::Ref(format!("'{given}' is not a workflow run id")))
+    }
+}
+
+/// A branch as an API path segment: the characters a branch name takes in
+/// practice, never a leading `-`, `..`, `?`, `#` or `%`, so it names one
+/// ref and nothing else.
+fn ref_path(branch: &str) -> Result<&str, Error> {
+    if !branch.is_empty()
+        && !branch.starts_with('-')
+        && !branch.contains("..")
+        && branch.bytes().all(|b| {
+            b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'/' | b'+' | b'@')
+        })
+    {
+        Ok(branch)
+    } else {
+        Err(Error::Ref(format!("'{branch}' is not a branch name")))
+    }
 }
 
 #[derive(Deserialize)]
@@ -658,6 +699,22 @@ fn threads(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ut_ids_and_branches_reaching_gh_are_checked() {
+        assert!(thread_id("PRRT_kwDOAbc-_=").is_ok());
+        for bad in ["", "@/etc/passwd", "a b", "x;y", "T1\n"] {
+            assert!(thread_id(bad).is_err(), "{bad}");
+        }
+        assert!(run_id("123").is_ok());
+        for bad in ["", "-x", "12a", "1 2"] {
+            assert!(run_id(bad).is_err(), "{bad}");
+        }
+        assert!(ref_path("feat/x-1.2_b+c@d").is_ok());
+        for bad in ["", "-x", "a..b", "a?b", "a#b", "a%2fb", "a b"] {
+            assert!(ref_path(bad).is_err(), "{bad}");
+        }
+    }
 
     fn thread(id: &str, resolved: bool, n: usize, more: Option<&str>) -> String {
         let comments: Vec<String> = (0..n)

@@ -479,8 +479,15 @@ pub(crate) fn creds<T: for<'de> Deserialize<'de>>(root: &Path, file: &str) -> Re
     serde_json::from_str(&text).map_err(|e| Error::Credentials(format!("{}: {e}", path.display())))
 }
 
-/// `curl` with the credentials on stdin (`--config -`), never in argv.
+/// `curl` with the credentials on stdin (`--config -`), never in argv. A
+/// control character in them is refused: a newline would start another
+/// config line.
 pub(crate) fn curl(user: &str, pass: &str, args: &[&str], root: &Path) -> Result<String, Error> {
+    if user.chars().chain(pass.chars()).any(char::is_control) {
+        return Err(Error::Credentials(
+            "the user name or token holds a control character".to_owned(),
+        ));
+    }
     let quote = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
     let config = format!("user = \"{}:{}\"\n", quote(user), quote(pass));
     let mut all = vec!["-sf", "--config", "-"];

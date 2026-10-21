@@ -107,7 +107,7 @@ if [ -f "$GH_DIR/fx/$key" ]; then
   exit 0
 fi
 case "$*" in
-  "api "*"-f body="*|"api graphql -F id="*) echo '{}'; exit 0 ;;
+  "api "*"-f body="*|"api graphql -f id="*) echo '{}'; exit 0 ;;
 esac
 echo "gh: no fixture for: $*" >&2
 exit 1

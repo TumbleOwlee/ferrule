@@ -265,7 +265,9 @@ impl CodeHost for Bitbucket {
         let uuid = if let Some(given) = query.run {
             pipeline_id(given)?.to_owned()
         } else {
-            let q = format!("target.ref_name=\"{branch}\" AND state.result.name=\"FAILED\"");
+            // BBQL string: a quote or backslash in the branch is escaped.
+            let quoted = branch.replace('\\', "\\\\").replace('"', "\\\"");
+            let q = format!("target.ref_name=\"{quoted}\" AND state.result.name=\"FAILED\"");
             let pipelines: Value = json(
                 &self.call(&[
                     "-G",
