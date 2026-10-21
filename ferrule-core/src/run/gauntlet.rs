@@ -18,6 +18,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use crate::config::{Coverage, Step};
 use crate::git;
 use crate::refusal::Refusal;
+use crate::store::Board;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
@@ -231,6 +232,19 @@ fn run_step(wt: &Path, step: &Step, log: &Path) -> std::io::Result<StepResult> {
 
 /// Runs the gauntlet for `run` in `wt`, its log at `log`.
 pub fn run(
+    db: &Board,
+    run: &str,
+    wt: &Path,
+    log: &Path,
+    steps: &[Step],
+    force: bool,
+    now: &str,
+) -> Result<Outcome, Box<dyn std::error::Error + Send + Sync>> {
+    run_in(db.conn(), run, wt, log, steps, force, now)
+}
+
+/// [`run`] over a connection core code already holds.
+pub(crate) fn run_in(
     conn: &Connection,
     run: &str,
     wt: &Path,

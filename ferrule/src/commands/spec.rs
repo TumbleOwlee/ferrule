@@ -3,14 +3,13 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use clap::{Args, Subcommand, ValueEnum};
-use ferrule_core::card::board;
 use ferrule_core::card::typed::{Change, Name, Typed};
 use ferrule_core::config::Config;
 use ferrule_core::markdown::{self, Match};
 use ferrule_core::refusal::{Exit, Refusal};
 use ferrule_core::spec::diff::{Part, SpecDiff};
 use ferrule_core::term::{self, Style};
-use ferrule_core::{git, project, run, spec};
+use ferrule_core::{git, project, spec};
 
 use super::{exit, refuse};
 
@@ -345,7 +344,14 @@ fn run_texts(slug: &str) -> io::Result<Option<Vec<String>>> {
         return Ok(None);
     };
     let mut texts = Vec::new();
-    let wt = run::worktree(&s.conn, &layout, slug, slug).map_err(super::internal)?;
+    let (wt, deltas) = s
+        .read(|r| {
+            Ok::<_, ferrule_core::store::Error>((
+                r.worktree(&layout, slug, slug)?,
+                r.run_events(slug, &[Name::SpecDelta])?,
+            ))
+        })
+        .map_err(super::internal)?;
     let specs = wt.join("docs/specs");
     if specs.is_dir() {
         for path in spec::markdown_files(&specs)? {
@@ -355,7 +361,7 @@ fn run_texts(slug: &str) -> io::Result<Option<Vec<String>>> {
     if let Ok(diff) = std::fs::read_to_string(layout.run_dir(slug).join("spec-diff.md")) {
         texts.push(diff);
     }
-    for e in board::run_events(&s.conn, slug, &[Name::SpecDelta]).map_err(super::internal)? {
+    for e in deltas {
         if let Typed::SpecDelta {
             id,
             change: Some(Change::Added),
@@ -630,7 +636,7 @@ fn render(args: &RenderArgs, style: Option<Style>, out: &mut impl Write) -> io::
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default();
         Some(match super::board::store(false)? {
-            Some(s) => board::reworded_ids(&s.conn, &slug).map_err(super::internal)?,
+            Some(s) => s.read(|r| r.reworded_ids(&slug)).map_err(super::internal)?,
             None => HashSet::new(),
         })
     } else {

@@ -292,15 +292,7 @@ fn approve(args: &ApproveArgs, out: &mut impl Write) -> io::Result<u8> {
     let Some(mut s) = store(false)? else {
         return refuse(out, &Refusal::card("approve"));
     };
-    match gate::approve(
-        &mut s.conn,
-        &layout,
-        &config,
-        g,
-        slug,
-        &pairs,
-        &board::now(),
-    ) {
+    match gate::approve(&mut s, &layout, &config, g, slug, &pairs, &board::now()) {
         Ok(a) => {
             write!(out, "approve=done gate={gate_name}")?;
             if let Some(i) = a.issue {
@@ -337,7 +329,7 @@ fn next_step(slug: &str, at: NextAt, status: &[String], out: &mut impl Write) ->
     let Some(mut s) = store(false)? else {
         return refuse(out, &Refusal::card("run-next"));
     };
-    match next::next(&mut s.conn, &layout(), slug, at, &status, &board::now()) {
+    match next::next(&mut s, &layout(), slug, at, &status, &board::now()) {
         Ok(lines) => {
             for l in lines {
                 writeln!(out, "{l}")?;

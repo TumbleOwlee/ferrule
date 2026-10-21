@@ -18,6 +18,7 @@ use crate::card::board::{self, State};
 use crate::card::typed::{Name, Typed};
 use crate::config::Config;
 use crate::project::Layout;
+use crate::store::{Board, Reader};
 use crate::{artifacts, git};
 
 /// A run command's failure that is not an answer.
@@ -61,6 +62,13 @@ pub fn worktree(
 ) -> rusqlite::Result<PathBuf> {
     Ok(board::field(conn, card, "worktree")?
         .map_or_else(|| layout.worktree(slug), |w| layout.resolve(&w)))
+}
+
+impl Reader<'_> {
+    /// [`worktree`] over this snapshot.
+    pub fn worktree(&self, layout: &Layout, slug: &str, card: &str) -> rusqlite::Result<PathBuf> {
+        worktree(self.conn(), layout, slug, card)
+    }
 }
 
 /// Why a reported commit is refused.
@@ -134,12 +142,13 @@ pub fn ensure_worktree(
 /// Checks an implementer's reported commit: it exists in the worktree, the
 /// run's branch contains it, and it is the stage card's last `commit=`.
 pub fn sha_check(
-    conn: &Connection,
+    r: &Reader<'_>,
     layout: &Layout,
     slug: &str,
     sid: &str,
     sha: &str,
 ) -> rusqlite::Result<Result<(), Mismatch>> {
+    let conn = r.conn();
     let card = format!("{slug}.{sid}");
     if board::state(conn, slug)?.is_none() || board::state(conn, &card)?.is_none() {
         return Ok(Err(Mismatch::Card));
@@ -184,7 +193,8 @@ pub(crate) fn same_dir(a: &Path, b: &Path) -> bool {
 /// Card = intent, git = fact: the worktree once `gate2` is set, the branch,
 /// every stage's `commit=`, every done stage having one, and the last
 /// `gauntlet=pass` sha on the branch.
-pub fn reconcile(conn: &Connection, layout: &Layout, slug: &str) -> Result<Reconciled, Error> {
+pub fn reconcile(r: &Reader<'_>, layout: &Layout, slug: &str) -> Result<Reconciled, Error> {
+    let conn = r.conn();
     if board::state(conn, slug)?.is_none() {
         return Err(Error::Card);
     }
@@ -375,7 +385,7 @@ fn decide(
 /// The stage-stop decision for `s<n>`, logged on its card as `stop=<rule>`
 /// or `auto=yes`.
 pub fn stage_stop(
-    conn: &mut Connection,
+    db: &mut Board,
     layout: &Layout,
     config: &Config,
     slug: &str,
@@ -383,6 +393,7 @@ pub fn stage_stop(
     threads: u32,
     now: &str,
 ) -> Result<Option<Stop>, Error> {
+    let conn = db.conn_mut();
     let card = format!("{slug}.s{me}");
     if board::state(conn, &card)?.is_none() {
         return Err(Error::Card);

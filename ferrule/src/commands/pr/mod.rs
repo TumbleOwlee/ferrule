@@ -9,6 +9,7 @@ use ferrule_core::config::Config;
 use ferrule_core::pr::publish;
 use ferrule_core::project::{self, Layout};
 use ferrule_core::refusal::Refusal;
+use ferrule_core::store::Board;
 use ferrule_core::term::Style;
 use ferrule_core::{git, remote};
 
@@ -239,14 +240,14 @@ pub fn run(command: &PrCommand, style: Option<Style>, out: &mut impl Write) -> i
             let layout = Layout::new(project::main_checkout());
             let s = match store(false)? {
                 Some(s) => s,
-                None => ferrule_core::store::Store::memory().map_err(internal)?,
+                None => Board::memory().map_err(internal)?,
             };
             let form = match form {
                 BodyForm::Draft => Form::Draft,
                 BodyForm::Full => Form::Full,
             };
             print_body(
-                body::pr(&s.conn, &layout, slug, form, &config.main_branch),
+                s.read(|r| body::pr(r, &layout, slug, form, &config.main_branch)),
                 style,
                 out,
             )

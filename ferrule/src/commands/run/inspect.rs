@@ -6,6 +6,7 @@ use std::io::{self, Write};
 use ferrule_core::config::Config;
 use ferrule_core::git;
 use ferrule_core::run::inspect::{self, Error, Invocation, Worktree};
+use ferrule_core::store::Reader;
 
 use crate::commands::board::store;
 use crate::commands::{exit, internal, layout, refuse};
@@ -34,22 +35,24 @@ pub(super) fn diff(
     uncommitted: bool,
     out: &mut impl Write,
 ) -> io::Result<u8> {
-    let s = store(false)?;
-    match inspect::diff(
-        s.as_ref().map(|s| &s.conn),
-        &layout(),
-        slug,
-        pick,
-        uncommitted,
-    ) {
+    let diff = |r: Option<&Reader>| inspect::diff(r, &layout(), slug, pick, uncommitted);
+    let inv = match store(false)? {
+        Some(s) => s.read(|r| diff(Some(r))),
+        None => diff(None),
+    };
+    match inv {
         Ok(inv) => write_git(&inv, out),
         Err(e) => failed(e, out),
     }
 }
 
 pub(super) fn log(slug: &str, pick: &Pick, out: &mut impl Write) -> io::Result<u8> {
-    let s = store(false)?;
-    match inspect::log(s.as_ref().map(|s| &s.conn), &layout(), slug, pick) {
+    let log = |r: Option<&Reader>| inspect::log(r, &layout(), slug, pick);
+    let inv = match store(false)? {
+        Some(s) => s.read(|r| log(Some(r))),
+        None => log(None),
+    };
+    match inv {
         Ok(inv) => write_git(&inv, out),
         Err(e) => failed(e, out),
     }
@@ -63,13 +66,12 @@ fn or_dash(v: Option<&str>) -> &str {
 pub(super) fn status(slug: &str, out: &mut impl Write) -> io::Result<u8> {
     let layout = layout();
     let config = Config::load(&layout.root).map_err(internal)?;
-    let s = store(false)?;
-    let st = match inspect::status(
-        s.as_ref().map(|s| &s.conn),
-        &layout,
-        &config.main_branch,
-        slug,
-    ) {
+    let status = |r: Option<&Reader>| inspect::status(r, &layout, &config.main_branch, slug);
+    let st = match store(false)? {
+        Some(s) => s.read(|r| status(Some(r))),
+        None => status(None),
+    };
+    let st = match st {
         Ok(st) => st,
         Err(e) => return failed(e, out),
     };

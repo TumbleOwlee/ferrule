@@ -8,6 +8,7 @@ use rusqlite::{Connection, TransactionBehavior, params};
 use crate::artifacts;
 use crate::config::Thresholds;
 use crate::project::Layout;
+use crate::store::Board;
 
 /// The run whose artifact `path` is: a direct child of
 /// `.ferrule/runs/<slug>/`.
@@ -35,11 +36,12 @@ pub fn over_cap(path: &Path, text: &str, t: &Thresholds) -> Option<(usize, usize
 /// Replaces the marker of every run among `files` with that run's files
 /// from this call, in order. Returns each file's run.
 pub fn record(
-    conn: &mut Connection,
+    db: &mut Board,
     layout: &Layout,
     files: &[PathBuf],
     now: &str,
 ) -> rusqlite::Result<Vec<Option<String>>> {
+    let conn = db.conn_mut();
     let runs: Vec<Option<String>> = files.iter().map(|f| run_of(layout, f)).collect();
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let mut cleared: Vec<&str> = Vec::new();

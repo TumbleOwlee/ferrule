@@ -9,7 +9,7 @@ use ferrule_core::config::Config;
 use ferrule_core::pr::publish;
 use ferrule_core::project;
 use ferrule_core::refusal::{Exit, Refusal};
-use ferrule_core::store::{OpenError, Store};
+use ferrule_core::store::{Board, Error as StoreError};
 use ferrule_core::term::{self, Style};
 
 use super::{exit, internal, refuse};
@@ -452,18 +452,14 @@ pub enum BoardCommand {
 
 /// The board's database; `None` when there is none yet, which reads as an
 /// empty board.
-pub(crate) fn store(create: bool) -> io::Result<Option<Store>> {
-    match Store::open(&project::main_checkout(), create) {
-        Ok(s) => Ok(Some(s)),
-        Err(OpenError::Missing(_)) => Ok(None),
-        Err(e) => Err(internal(e)),
-    }
+pub(crate) fn store(create: bool) -> io::Result<Option<Board>> {
+    Board::open(&project::main_checkout(), create).map_err(internal)
 }
 
 /// The board's database when `id` names a card on it; `None` otherwise.
-pub(crate) fn card_store(id: &str) -> io::Result<Option<Store>> {
+pub(crate) fn card_store(id: &str) -> io::Result<Option<Board>> {
     match store(false)? {
-        Some(s) if board::state(&s.conn, id).map_err(internal)?.is_some() => Ok(Some(s)),
+        Some(s) if s.read(|r| r.state(id)).map_err(internal)?.is_some() => Ok(Some(s)),
         _ => Ok(None),
     }
 }
@@ -559,16 +555,16 @@ fn field(card: &str, field: &str, out: &mut impl Write) -> io::Result<u8> {
     let Some(s) = store(false)? else {
         return Ok(exit::OK);
     };
-    let value = match field {
-        "state" => board::state(&s.conn, card)
-            .map_err(internal)?
-            .map(|st| st.as_str().to_owned()),
-        "pass-sha" => board::pass_shas(&s.conn, card).map_err(internal)?.pop(),
-        f => match f.strip_prefix("log:") {
-            Some(key) => board::last_logged(&s.conn, card, key).map_err(internal)?,
-            None => board::field(&s.conn, card, f).map_err(internal)?,
-        },
-    };
+    let value = s
+        .read(|r| match field {
+            "state" => Ok(r.state(card)?.map(|st| st.as_str().to_owned())),
+            "pass-sha" => Ok(r.pass_shas(card)?.pop()),
+            f => match f.strip_prefix("log:") {
+                Some(key) => r.last_logged(card, key),
+                None => r.field(card, f),
+            },
+        })
+        .map_err(internal)?;
     if let Some(v) = value {
         writeln!(out, "{v}")?;
     }
@@ -580,15 +576,16 @@ fn log(card: &str, event: &str, args: &[String], out: &mut impl Write) -> io::Re
         return refuse(out, &Refusal::card("card-log"));
     };
     let config = Config::load(&project::main_checkout()).map_err(internal)?;
-    match board::log_with_budget(
-        &mut s.conn,
-        card,
-        event,
-        args,
-        &board::now(),
-        config.thresholds.read_budget,
-        true,
-    ) {
+    match s.write(|w| {
+        w.log_with_budget(
+            card,
+            event,
+            args,
+            &board::now(),
+            config.thresholds.read_budget,
+            true,
+        )
+    }) {
         Ok(()) => Ok(exit::OK),
         Err(LogError::Card) => refuse(out, &Refusal::card("card-log")),
         Err(LogError::Reject(r)) => refuse(out, &r.refusal()),
@@ -600,7 +597,7 @@ fn move_card(card: &str, to: State, out: &mut impl Write) -> io::Result<u8> {
     let Some(mut s) = store(false)? else {
         return refuse(out, &Refusal::card("card-move"));
     };
-    match board::move_card(&mut s.conn, card, to, &board::now()) {
+    match s.write(|w| w.move_card(card, to, &board::now())) {
         Ok(()) => {
             sync_draft(&mut s, card, out)?;
             Ok(exit::OK)
@@ -614,13 +611,13 @@ fn move_card(card: &str, to: State, out: &mut impl Write) -> io::Result<u8> {
 
 fn show(card: &str, part: &ShowPart, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
     let shown = match store(false)? {
-        Some(s) => match board::show(&s.conn, card).map_err(internal)? {
-            Some(text) => Some((
-                text,
-                board::log_lines(&s.conn, card, part.event).map_err(internal)?,
-            )),
-            None => None,
-        },
+        Some(s) => s
+            .read(|r| {
+                r.show(card)?
+                    .map(|text| Ok::<_, StoreError>((text, r.log_lines(card, part.event)?)))
+                    .transpose()
+            })
+            .map_err(internal)?,
         None => None,
     };
     if let Some((text, log)) = shown {
@@ -671,7 +668,8 @@ fn events(
     let Some(s) = card_store(slug)? else {
         return refuse(out, &Refusal::card("events"));
     };
-    let mut lines: Vec<String> = board::run_log_lines(&s.conn, slug, event)
+    let mut lines: Vec<String> = s
+        .read(|r| r.run_log_lines(slug, event))
         .map_err(internal)?
         .into_iter()
         .map(|(card, at, body)| format!("{card} {at} {body}"))
@@ -694,14 +692,22 @@ fn list(
     let Some(s) = store(false)? else {
         return Ok(exit::OK);
     };
-    let cards = board::all(&s.conn)
-        .map_err(internal)?
-        .into_iter()
-        .filter(|(id, st)| {
-            (states.is_empty() || states.contains(st))
-                && run.is_none_or(|r| board::CardId::parse(id).run == r)
-        });
-    for (id, st) in cards {
+    let cards = s
+        .read(|r| {
+            r.all()?
+                .into_iter()
+                .filter(|(id, st)| {
+                    (states.is_empty() || states.contains(st))
+                        && run.is_none_or(|run| board::CardId::parse(id).run == run)
+                })
+                .map(|(id, st)| {
+                    let title = r.field(&id, "title")?;
+                    Ok::<_, StoreError>((id, st, title))
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .map_err(internal)?;
+    for (id, st, title) in cards {
         let state = match style {
             Some(style) => format!(
                 "{}{}",
@@ -710,7 +716,7 @@ fn list(
             ),
             None => format!("{:<10}", st.as_str()),
         };
-        match board::field(&s.conn, &id, "title").map_err(internal)? {
+        match title {
             Some(t) => writeln!(out, "{state} {id}  {t}")?,
             None => writeln!(out, "{state} {id}")?,
         }
@@ -744,7 +750,7 @@ fn new(card: &str, st: State, fields: &[String], out: &mut impl Write) -> io::Re
     let Some(mut s) = store(true)? else {
         unreachable!("store(true) creates the database");
     };
-    match board::create(&mut s.conn, card, st, &fields, &board::now()) {
+    match s.write(|w| w.create(card, st, &fields, &board::now())) {
         Ok(()) => Ok(exit::OK),
         Err(CardError::Exists) => {
             refuse(out, &Refusal::new("card-new", "exists").hint(HINT_EXISTS))
@@ -763,7 +769,7 @@ fn set(card: &str, fields: &[String], out: &mut impl Write) -> io::Result<u8> {
     let Some(mut s) = store(false)? else {
         return refuse(out, &Refusal::card("card-set"));
     };
-    match board::set_all(&mut s.conn, card, &fields) {
+    match s.write(|w| w.set_all(card, &fields)) {
         Ok(()) => Ok(exit::OK),
         Err(CardError::Card) => refuse(out, &Refusal::card("card-set")),
         Err(CardError::Field(k)) => refuse(out, &bad_key("card-set", &k, card)),
@@ -776,7 +782,7 @@ fn import(board_dir: &Path, out: &mut impl Write) -> io::Result<u8> {
     let Some(mut s) = store(true)? else {
         unreachable!("store(true) creates the database");
     };
-    match board::import(&mut s.conn, board_dir, &board::now()) {
+    match s.import(board_dir, &board::now()) {
         Ok(n) => {
             writeln!(out, "import=ok cards={n}")?;
             Ok(exit::OK)
@@ -793,28 +799,21 @@ fn import(board_dir: &Path, out: &mut impl Write) -> io::Result<u8> {
 
 /// `f` on the publish run for `slug`, over the open board `s`.
 pub(crate) fn run_on<T>(
-    s: &mut Store,
+    s: &mut Board,
     config: &Config,
     slug: &str,
     f: impl FnOnce(&mut publish::Run) -> T,
 ) -> T {
     let layout = ferrule_core::project::Layout::new(project::main_checkout());
     let now = board::now();
-    let mut run = publish::Run {
-        conn: &mut s.conn,
-        layout: &layout,
-        config,
-        root: &layout.root,
-        slug,
-        now: &now,
-    };
+    let mut run = publish::Run::new(s, &layout, config, &layout.root, slug, &now);
     f(&mut run)
 }
 
 /// After a move, the run's draft PR body re-rendered and pushed when the
 /// run has a PR. A failure to reach the host does not undo the move.
 #[allow(clippy::redundant_closure_for_method_calls)]
-pub(crate) fn sync_draft(s: &mut Store, card: &str, out: &mut impl Write) -> io::Result<()> {
+pub(crate) fn sync_draft(s: &mut Board, card: &str, out: &mut impl Write) -> io::Result<()> {
     let config = Config::load(&project::main_checkout()).map_err(internal)?;
     match run_on(s, &config, publish::run_of(card), |r| r.sync_draft()) {
         Ok(Some(sync)) => writeln!(out, "{sync}"),
@@ -850,7 +849,11 @@ pub(super) fn commit(
         let Some(s) = super::board::store(false)? else {
             return refuse(out, &Refusal::card("commit"));
         };
-        match board::state(&s.conn, id).map_err(internal)? {
+        let run = board::CardId::parse(id).run;
+        let (state, want) = s
+            .read(|r| Ok::<_, StoreError>((r.state(id)?, r.field(run, "branch")?)))
+            .map_err(internal)?;
+        match state {
             None => return refuse(out, &Refusal::card("commit")),
             Some(State::InReview) => {}
             Some(other) => {
@@ -862,10 +865,7 @@ pub(super) fn commit(
                 return refuse(out, &r);
             }
         }
-        let run = board::CardId::parse(id).run;
-        let want = board::field(&s.conn, run, "branch")
-            .map_err(internal)?
-            .filter(|b| !b.is_empty());
+        let want = want.filter(|b| !b.is_empty());
         if let Some(want) = want
             && branch.as_deref() != Some(want.as_str())
         {
@@ -896,13 +896,7 @@ pub(super) fn commit(
     let sha = ferrule_core::git::out(&here, &["rev-parse", "--short", "HEAD"]).unwrap_or_default();
     write!(out, "commit=done sha={sha}")?;
     if let (Some(mut s), Some(id)) = (store, card) {
-        if let Err(e) = board::log(
-            &mut s.conn,
-            id,
-            &format!("commit={sha}"),
-            &[],
-            &board::now(),
-        ) {
+        if let Err(e) = s.write(|w| w.log(id, &format!("commit={sha}"), &[], &board::now())) {
             writeln!(out, " card-log=failed")?;
             eprintln!("stage commit: committed {sha} but could not log it on {id}: {e}");
             return Ok(exit::REFUSED);

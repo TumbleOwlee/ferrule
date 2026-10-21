@@ -10,6 +10,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 use crate::card::typed::{Change, Name, Typed, Verdict};
 use crate::card::vocab::{self, Context, Reject};
+use crate::store::{Board, Reader, Writer};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
@@ -1252,6 +1253,112 @@ pub fn import(conn: &mut Connection, board: &Path, now: &str) -> Result<usize, I
     }
     tx.commit()?;
     Ok(files.len())
+}
+
+/// The board reads, over a snapshot; each is the free function of the
+/// same name.
+impl Reader<'_> {
+    pub fn state(&self, id: &str) -> rusqlite::Result<Option<State>> {
+        state(self.conn(), id)
+    }
+
+    pub fn field(&self, id: &str, key: &str) -> rusqlite::Result<Option<String>> {
+        field(self.conn(), id, key)
+    }
+
+    pub fn fields(&self, id: &str) -> rusqlite::Result<Vec<(String, String)>> {
+        fields(self.conn(), id)
+    }
+
+    pub fn events(&self, id: &str, names: &[Name]) -> rusqlite::Result<Vec<Event>> {
+        events(self.conn(), id, names)
+    }
+
+    pub fn run_events(&self, run: &str, names: &[Name]) -> rusqlite::Result<Vec<Event>> {
+        run_events(self.conn(), run, names)
+    }
+
+    pub fn last_logged(&self, id: &str, key: &str) -> rusqlite::Result<Option<String>> {
+        last_logged(self.conn(), id, key)
+    }
+
+    pub fn pass_shas(&self, id: &str) -> rusqlite::Result<Vec<String>> {
+        pass_shas(self.conn(), id)
+    }
+
+    pub fn reworded_ids(&self, run: &str) -> rusqlite::Result<HashSet<String>> {
+        reworded_ids(self.conn(), run)
+    }
+
+    pub fn log_lines(
+        &self,
+        id: &str,
+        event: Option<&str>,
+    ) -> rusqlite::Result<Vec<(String, String)>> {
+        log_lines(self.conn(), id, event)
+    }
+
+    pub fn run_log_lines(
+        &self,
+        run: &str,
+        event: Option<&str>,
+    ) -> rusqlite::Result<Vec<(String, String, String)>> {
+        run_log_lines(self.conn(), run, event)
+    }
+
+    pub fn show(&self, id: &str) -> rusqlite::Result<Option<String>> {
+        show(self.conn(), id)
+    }
+
+    pub fn all(&self) -> rusqlite::Result<Vec<(String, State)>> {
+        all(self.conn())
+    }
+}
+
+/// The board writes, inside the writer's transaction; each is the free
+/// function of the same name.
+impl Writer<'_> {
+    pub fn create(
+        &self,
+        id: &str,
+        state: State,
+        fields: &[(String, String)],
+        now: &str,
+    ) -> Result<(), CardError> {
+        insert(self.conn(), id, state, fields, now)
+    }
+
+    pub fn set_all(&self, id: &str, fields: &[(String, String)]) -> Result<(), CardError> {
+        set_in(self.conn(), id, fields)
+    }
+
+    pub fn log(&self, id: &str, event: &str, args: &[String], now: &str) -> Result<(), LogError> {
+        self.log_with_budget(id, event, args, now, vocab::READ_BUDGET, false)
+    }
+
+    pub fn log_with_budget(
+        &self,
+        id: &str,
+        event: &str,
+        args: &[String],
+        now: &str,
+        read_budget: usize,
+        agent: bool,
+    ) -> Result<(), LogError> {
+        append(self.conn(), id, event, args, now, read_budget, agent)
+    }
+
+    pub fn move_card(&self, id: &str, to: State, now: &str) -> Result<(), MoveError> {
+        move_in(self.conn(), id, to, now)
+    }
+}
+
+impl Board {
+    /// [`import`] into this board: one transaction of its own around the
+    /// file reads.
+    pub fn import(&mut self, board: &Path, now: &str) -> Result<usize, ImportError> {
+        import(self.conn_mut(), board, now)
+    }
 }
 
 #[cfg(test)]

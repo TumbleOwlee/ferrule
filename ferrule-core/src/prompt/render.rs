@@ -13,6 +13,7 @@ use crate::card::board::{self, State};
 use crate::card::typed::{Grant, Name, Typed, Verdict};
 use crate::project::Layout;
 use crate::prompt::{approval, lines};
+use crate::store::Board;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
@@ -482,6 +483,19 @@ fn quoted(
 /// Renders the stop; `view` opens the files it shows and records them as
 /// the approval marker.
 pub fn render(
+    db: &mut Board,
+    layout: &Layout,
+    kind: Kind,
+    slug: &str,
+    args: &[(String, String)],
+    now: &str,
+    view: &mut dyn FnMut(&[PathBuf]) -> Result<Viewed, u8>,
+) -> Result<Vec<String>, Error> {
+    render_in(db.conn_mut(), layout, kind, slug, args, now, view)
+}
+
+/// [`render`] over a connection core code already holds.
+pub(crate) fn render_in(
     conn: &mut Connection,
     layout: &Layout,
     kind: Kind,

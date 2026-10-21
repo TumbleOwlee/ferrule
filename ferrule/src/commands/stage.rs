@@ -215,7 +215,8 @@ fn sha_hint(m: core_run::Mismatch, slug: &str, stage: u32) -> String {
 
 fn sha_check(slug: &str, stage: u32, sha: &str, out: &mut impl Write) -> io::Result<u8> {
     let verdict = match store(false)? {
-        Some(s) => core_run::sha_check(&s.conn, &layout(), slug, &format!("s{stage}"), sha)
+        Some(s) => s
+            .read(|r| core_run::sha_check(r, &layout(), slug, &format!("s{stage}"), sha))
             .map_err(internal)?,
         None => Err(core_run::Mismatch::Card),
     };
@@ -239,7 +240,7 @@ fn stage_stop(slug: &str, stage: u32, threads: u32, out: &mut impl Write) -> io:
         return refuse(out, &Refusal::card("stage-stop"));
     };
     match core_run::stage_stop(
-        &mut s.conn,
+        &mut s,
         &layout,
         &config,
         slug,
@@ -267,11 +268,11 @@ fn replan(
     };
     let now = board::now();
     let result = match step {
-        ReplanStep::Start => gate::replan_start(&mut s.conn, &layout, slug, &now)
+        ReplanStep::Start => gate::replan_start(&mut s, &layout, slug, &now)
             .map(|from| format!("replan=started from=s{from}")),
         ReplanStep::Approve => {
             let stops = gate::stop_arg(stops);
-            gate::replan_approve(&mut s.conn, &layout, slug, &stops, &now)
+            gate::replan_approve(&mut s, &layout, slug, &stops, &now)
                 .map(|(from, n)| format!("replan=approved from=s{from} stages={n}"))
         }
     };

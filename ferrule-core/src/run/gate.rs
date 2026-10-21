@@ -28,6 +28,7 @@ use crate::prompt::{
 };
 use crate::refusal::Refusal;
 use crate::remote::{self, Item};
+use crate::store::Board;
 
 /// Why `run init`, `gate approve` or `stage replan` refused.
 #[derive(Debug)]
@@ -206,13 +207,14 @@ fn comments(item: &Item) -> String {
 /// gets its `**Part of epic**` line and the epic as it stands, and the card
 /// records `kind: slice` and `epic`. Returns the epic of a slice.
 pub fn init(
-    conn: &mut Connection,
+    db: &mut Board,
     layout: &Layout,
     config: &Config,
     slug: &str,
     issue: Option<&str>,
     now: &str,
 ) -> Result<Option<String>, Error> {
+    let conn = db.conn_mut();
     if board::state(conn, slug)?.is_some() || !board::stages(conn, slug)?.is_empty() {
         return Err(Error::Refused(GateRefusal::Exists));
     }
@@ -580,7 +582,7 @@ fn approve_gate2(
 /// not approved or the parent card is in a state the gate is not approved
 /// in. Approving a gate again keeps its date (`recorded`).
 pub fn approve(
-    conn: &mut Connection,
+    db: &mut Board,
     layout: &Layout,
     config: &Config,
     gate: Gate,
@@ -588,6 +590,7 @@ pub fn approve(
     args: &[(String, String)],
     now: &str,
 ) -> Result<Approved, Error> {
+    let conn = db.conn_mut();
     let Some(state) = board::state(conn, slug)? else {
         return Err(Error::Refused(GateRefusal::Card));
     };
@@ -647,11 +650,12 @@ pub fn approve(
         set_all(conn, slug, &fields)?;
     }
     let mut no_view = |_: &[std::path::PathBuf]| Ok(Viewed::Opened);
-    let record = prompt::render::render(conn, layout, Kind::Approved, slug, &[], now, &mut no_view)
-        .map_err(|e| match e {
-            prompt::render::Error::Sql(e) => Error::Sql(e),
-            _ => Error::Refused(GateRefusal::Card),
-        })?;
+    let record =
+        prompt::render::render_in(conn, layout, Kind::Approved, slug, &[], now, &mut no_view)
+            .map_err(|e| match e {
+                prompt::render::Error::Sql(e) => Error::Sql(e),
+                _ => Error::Refused(GateRefusal::Card),
+            })?;
     record
         .first()
         .and_then(|l| l.strip_prefix("approved"))
@@ -675,12 +679,8 @@ fn replan_from(conn: &Connection, slug: &str) -> rusqlite::Result<u32> {
 
 /// Starts a re-plan: logs `replan from=s<n>` and snapshots plan.md as
 /// plan.prev.md. Asked at gate 4, the parent moves back to inprogress.
-pub fn replan_start(
-    conn: &mut Connection,
-    layout: &Layout,
-    slug: &str,
-    now: &str,
-) -> Result<u32, Error> {
+pub fn replan_start(db: &mut Board, layout: &Layout, slug: &str, now: &str) -> Result<u32, Error> {
+    let conn = db.conn_mut();
     let Some(st) = board::state(conn, slug)? else {
         return Err(Error::Refused(GateRefusal::Card));
     };
@@ -717,12 +717,13 @@ pub fn replan_start(
 /// new plan's, their `spec-delta … added` lines re-logged on the parent so
 /// the IDs stay retired, and `replan=approved` logged.
 pub fn replan_approve(
-    conn: &mut Connection,
+    db: &mut Board,
     layout: &Layout,
     slug: &str,
     stops: &[u32],
     now: &str,
 ) -> Result<(u32, usize), Error> {
+    let conn = db.conn_mut();
     // Only a start logged after the last approval is pending; approving
     // again would recreate stages that have since progressed.
     let from: u32 = board::events(conn, slug, &[Name::Replan, Name::ReplanApproved])?

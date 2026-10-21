@@ -4,7 +4,7 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
 use clap::Subcommand;
-use ferrule_core::card::board::{self, State};
+use ferrule_core::card::board::State;
 use ferrule_core::config::Config;
 use ferrule_core::hook::attribution::{self, Rewrite};
 use ferrule_core::hook::guard;
@@ -273,6 +273,7 @@ fn attribution(cmd: &str, cwd: &Path, tool_input: &Value) -> Option<Verdict> {
 }
 
 /// Unfinished runs: any card in inprogress or inreview. Silent otherwise.
+#[allow(clippy::redundant_closure_for_method_calls)]
 fn session_start(out: &mut impl Write) -> io::Result<u8> {
     if let Some(m) = install::version_mismatch(&project::main_checkout()) {
         writeln!(out, "[ferrule] {}", m.message())?;
@@ -280,7 +281,7 @@ fn session_start(out: &mut impl Write) -> io::Result<u8> {
     let Ok(Some(s)) = super::board::store(false) else {
         return Ok(exit::OK);
     };
-    let Ok(cards) = board::all(&s.conn) else {
+    let Ok(cards) = s.read(|r| r.all()) else {
         return Ok(exit::OK);
     };
     let open: Vec<_> = cards

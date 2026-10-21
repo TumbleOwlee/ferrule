@@ -2,7 +2,6 @@ use std::io::{self, Write};
 use std::path::Path;
 
 use clap::{Args, Subcommand};
-use ferrule_core::card::board;
 use ferrule_core::config::Config;
 use ferrule_core::guide::{self, Context, Lane};
 use ferrule_core::project::{self, Layout};
@@ -204,10 +203,20 @@ fn context(layout: &Layout, args: &ShowArgs) -> io::Result<Context> {
             None => slug.clone(),
         };
         ctx.vars.push(("card", card));
-        if let Some(s) = store(false)?
-            && board::state(&s.conn, &slug).map_err(internal)?.is_some()
-        {
-            for (k, v) in board::fields(&s.conn, &slug).map_err(internal)? {
+        let held = match store(false)? {
+            Some(s) => s
+                .read(|r| match r.state(&slug)? {
+                    Some(_) => Ok::<_, ferrule_core::store::Error>(Some((
+                        r.fields(&slug)?,
+                        r.events(&slug, &[])?,
+                    ))),
+                    None => Ok(None),
+                })
+                .map_err(internal)?,
+            None => None,
+        };
+        if let Some((fields, events)) = held {
+            for (k, v) in fields {
                 match k.as_str() {
                     "lane" => ctx.lane = Lane::parse(&v),
                     "branch" => ctx.vars.push(("branch", v.clone())),
@@ -217,7 +226,7 @@ fn context(layout: &Layout, args: &ShowArgs) -> io::Result<Context> {
                 }
                 ctx.done.push(format!("{k}={v}"));
             }
-            for e in board::events(&s.conn, &slug, &[]).map_err(internal)? {
+            for e in events {
                 if let Some(v) = &e.value {
                     ctx.done.push(format!("{}{v}", e.name));
                 }

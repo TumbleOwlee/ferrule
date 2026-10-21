@@ -11,6 +11,7 @@ use crate::card::vocab;
 use crate::guide::Topic;
 use crate::project::Layout;
 use crate::refusal::{Exit, Refusal};
+use crate::store::Board;
 
 /// Where in the run the status line comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -254,13 +255,14 @@ fn is_replan(e: &Event) -> bool {
 
 /// Decides the next step; returns the lines to print.
 pub fn next(
-    conn: &mut Connection,
+    db: &mut Board,
     layout: &Layout,
     slug: &str,
     at: At,
     status: &Status,
     now: &str,
 ) -> Result<Vec<String>, Error> {
+    let conn = db.conn_mut();
     let word = match at {
         At::Ci => status.ci.clone().ok_or(Error::Usage)?,
         _ => status.status.clone().ok_or(Error::Usage)?,

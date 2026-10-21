@@ -18,7 +18,7 @@ pub(super) fn init(slug: &str, issue: Option<&str>, out: &mut impl Write) -> io:
     let Some(mut s) = store(true)? else {
         return Ok(exit::REFUSED);
     };
-    match gate::init(&mut s.conn, &layout, &config, slug, issue, &board::now()) {
+    match gate::init(&mut s, &layout, &config, slug, issue, &board::now()) {
         Ok(epic) => {
             write!(out, "init=done slug={slug}")?;
             if let Some(e) = epic {
@@ -35,7 +35,7 @@ pub(super) fn reconcile(slug: &str, local: bool, out: &mut impl Write) -> io::Re
     let layout = layout();
     let mut store = store(false)?;
     let result = match &store {
-        Some(s) => core_run::reconcile(&s.conn, &layout, slug),
+        Some(s) => s.read(|r| core_run::reconcile(r, &layout, slug)),
         None => Err(Error::Card),
     };
     let mut r = match result {
@@ -101,15 +101,7 @@ pub(super) fn rebuild(issue: &str, pr: &str, out: &mut impl Write) -> io::Result
     let Some(mut s) = store(true)? else {
         return Ok(exit::REFUSED);
     };
-    match rebuild::rebuild(
-        &mut s.conn,
-        &layout,
-        &main,
-        issue,
-        pr,
-        &source,
-        &board::now(),
-    ) {
+    match rebuild::rebuild(&mut s, &layout, &main, issue, pr, &source, &board::now()) {
         Ok((slug, n, next)) => {
             writeln!(
                 out,

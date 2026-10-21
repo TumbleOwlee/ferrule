@@ -16,6 +16,7 @@ use crate::card::typed::Typed;
 use crate::git;
 use crate::project::Layout;
 use crate::refusal::Refusal;
+use crate::store::{Board, Reader, Writer};
 
 /// Why a run's metrics are refused: its CI is not known green.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -193,7 +194,8 @@ fn ci(events: &[Event]) -> Result<String, CiRefusal> {
 
 /// The run's metrics line, recorded (replacing a line for the same run and
 /// start) unless its CI is not known green.
-pub fn metrics(conn: &Connection, slug: &str, now: &str) -> Result<String, Error> {
+pub fn metrics(w: &Writer<'_>, slug: &str, now: &str) -> Result<String, Error> {
+    let conn = w.conn();
     if board::state(conn, slug)?.is_none() {
         return Err(Error::Card);
     }
@@ -257,7 +259,8 @@ pub fn metrics(conn: &Connection, slug: &str, now: &str) -> Result<String, Error
 }
 
 /// Every metrics line recorded, oldest run first.
-pub fn metrics_log(conn: &Connection) -> rusqlite::Result<Vec<String>> {
+pub fn metrics_log(r: &Reader<'_>) -> rusqlite::Result<Vec<String>> {
+    let conn = r.conn();
     let mut st = conn.prepare("SELECT line FROM metrics ORDER BY start, run")?;
     st.query_map([], |r| r.get(0))?.collect()
 }
@@ -406,12 +409,8 @@ fn finish(conn: &Connection, layout: &Layout, slug: &str, todo: &Pending) -> Res
 /// marking the worktree, the local branch and the run directory as still to
 /// remove, and then removes them. A rerun after a failure there finishes
 /// only what the archive still marks. Returns what was done.
-pub fn cleanup(
-    conn: &mut Connection,
-    layout: &Layout,
-    slug: &str,
-    now: &str,
-) -> Result<Cleaned, Error> {
+pub fn cleanup(db: &mut Board, layout: &Layout, slug: &str, now: &str) -> Result<Cleaned, Error> {
+    let conn = db.conn_mut();
     if let Some(todo) = pending(conn, slug)? {
         finish(conn, layout, slug, &todo)?;
         return Ok(Cleaned {
@@ -434,7 +433,7 @@ pub fn cleanup(
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let has_parent = board::state(&tx, slug)?.is_some();
     if has_parent {
-        metrics(&tx, slug, now)?;
+        metrics(&Writer::new(&tx), slug, now)?;
     }
     let mut cards: Vec<String> = Vec::new();
     if has_parent {
@@ -487,7 +486,8 @@ pub fn cleanup(
 }
 
 /// A run's archives as `(id, archived_at)`, oldest first.
-pub fn archives(conn: &Connection, slug: &str) -> rusqlite::Result<Vec<(i64, String)>> {
+pub fn archives(r: &Reader<'_>, slug: &str) -> rusqlite::Result<Vec<(i64, String)>> {
+    let conn = r.conn();
     let mut st = conn.prepare("SELECT id, archived_at FROM archives WHERE run = ?1 ORDER BY id")?;
     st.query_map([slug], |r| Ok((r.get(0)?, r.get(1)?)))?
         .collect()
@@ -496,11 +496,12 @@ pub fn archives(conn: &Connection, slug: &str) -> rusqlite::Result<Vec<(i64, Str
 /// Writes archive `id` of run `slug` (its latest when `None`) below `dest`.
 /// Returns the archive written, `None` when the run has none.
 pub fn export(
-    conn: &Connection,
+    r: &Reader<'_>,
     slug: &str,
     id: Option<i64>,
     dest: &Path,
 ) -> Result<Option<(i64, PathBuf)>, Error> {
+    let conn = r.conn();
     let id = match id {
         Some(id) => conn
             .query_row(
@@ -560,7 +561,7 @@ mod tests {
         board::insert_body(&s.conn, "r", at, "stop kind=question gate=gate2");
         board::insert_body(&s.conn, "r", at, "note stop kind=blocked");
         board::log(&mut s.conn, "r", "ci=0", &[], at).unwrap();
-        let line = metrics(&s.conn, "r", "2026-10-04T12:00").unwrap();
+        let line = metrics(&Writer::new(&s.conn), "r", "2026-10-04T12:00").unwrap();
         assert!(
             line.contains(" stops=2 question=1 approval=1 stage=0 blocked=0 "),
             "{line}"

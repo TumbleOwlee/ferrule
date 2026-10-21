@@ -160,8 +160,10 @@ impl From<Error> for OpenError {
     }
 }
 
-pub struct Store {
-    pub conn: Connection,
+/// The open database. Its connection stays inside this crate: callers go
+/// through [`Board`], whose reads and writes are each one transaction.
+pub(crate) struct Store {
+    pub(crate) conn: Connection,
 }
 
 impl Store {
@@ -190,6 +192,122 @@ impl Store {
         conn.pragma_update(None, "foreign_keys", "ON")?;
         migrate(&mut conn)?;
         Ok(Store { conn })
+    }
+}
+
+/// The board's database as callers outside this crate see it: no SQL and
+/// no connection, only reads in one snapshot, writes in one transaction,
+/// and the core operations that take the board whole.
+pub struct Board {
+    store: Store,
+}
+
+impl Board {
+    /// The database under `root/.ferrule/`; `None` when there is none and
+    /// `create` is not set, which reads as an empty board.
+    pub fn open(root: &Path, create: bool) -> Result<Option<Self>, OpenError> {
+        match Store::open(root, create) {
+            Ok(store) => Ok(Some(Board { store })),
+            Err(OpenError::Missing(_)) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// An empty in-memory board.
+    pub fn memory() -> Result<Self, OpenError> {
+        Ok(Board {
+            store: Store::memory()?,
+        })
+    }
+
+    /// `f` inside one deferred read transaction: every read it makes sees
+    /// the same snapshot, whatever another connection commits meanwhile.
+    pub fn read<T, E: From<Error>>(
+        &self,
+        f: impl FnOnce(&Reader<'_>) -> Result<T, E>,
+    ) -> Result<T, E> {
+        snapshot(&self.store.conn, f)
+    }
+
+    /// `f` inside one immediate write transaction, committed when it
+    /// returns `Ok` and rolled back otherwise.
+    pub fn write<T, E: From<Error>>(
+        &mut self,
+        f: impl FnOnce(&Writer<'_>) -> Result<T, E>,
+    ) -> Result<T, E> {
+        let tx = self
+            .store
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let out = f(&Writer {
+            reader: Reader { conn: &tx },
+        })?;
+        tx.commit()?;
+        Ok(out)
+    }
+
+    /// The connection, for core operations that bring their own
+    /// transactions or run commands between them.
+    pub(crate) fn conn(&self) -> &Connection {
+        &self.store.conn
+    }
+
+    pub(crate) fn conn_mut(&mut self) -> &mut Connection {
+        &mut self.store.conn
+    }
+}
+
+/// `f` over `conn` in one read snapshot: a deferred transaction of its
+/// own, or the transaction `conn` is already in.
+pub(crate) fn snapshot<T, E: From<Error>>(
+    conn: &Connection,
+    f: impl FnOnce(&Reader<'_>) -> Result<T, E>,
+) -> Result<T, E> {
+    if !conn.is_autocommit() {
+        return f(&Reader { conn });
+    }
+    let tx = conn.unchecked_transaction()?;
+    let out = f(&Reader { conn: &tx })?;
+    tx.commit()?;
+    Ok(out)
+}
+
+/// Reads inside [`Board::read`], or inside a [`Writer`]'s transaction.
+pub struct Reader<'a> {
+    conn: &'a Connection,
+}
+
+impl<'a> Reader<'a> {
+    /// A reader over `conn`, for core code that already holds one.
+    pub(crate) fn new(conn: &'a Connection) -> Self {
+        Reader { conn }
+    }
+
+    pub(crate) fn conn(&self) -> &'a Connection {
+        self.conn
+    }
+}
+
+/// Writes inside [`Board::write`]; it reads through [`Reader`]'s methods.
+pub struct Writer<'a> {
+    reader: Reader<'a>,
+}
+
+impl<'a> Writer<'a> {
+    /// A writer over `conn`, for core code that already holds one inside
+    /// its own transaction.
+    pub(crate) fn new(conn: &'a Connection) -> Self {
+        Writer {
+            reader: Reader { conn },
+        }
+    }
+}
+
+impl<'a> std::ops::Deref for Writer<'a> {
+    type Target = Reader<'a>;
+
+    fn deref(&self) -> &Reader<'a> {
+        &self.reader
     }
 }
 
@@ -311,5 +429,46 @@ mod tests {
             Store::open(dir.path(), false),
             Err(OpenError::Newer { found: 99, .. })
         ));
+    }
+
+    #[test]
+    fn ut_board_open_without_a_database_is_none() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(Board::open(dir.path(), false).unwrap().is_none());
+        assert!(Board::open(dir.path(), true).unwrap().is_some());
+        assert!(Board::open(dir.path(), false).unwrap().is_some());
+    }
+
+    #[test]
+    fn ut_read_sees_one_snapshot_while_another_connection_commits() {
+        use crate::card::board::State;
+
+        let dir = tempfile::tempdir().unwrap();
+        let board = Board::open(dir.path(), true).unwrap().unwrap();
+        let mut other = Board::open(dir.path(), false).unwrap().unwrap();
+        let (before, during) = board
+            .read(|r| {
+                let before = r.state("r")?;
+                other
+                    .write(|w| w.create("r", State::Open, &[], "t"))
+                    .unwrap();
+                Ok::<_, Error>((before, r.state("r")?))
+            })
+            .unwrap();
+        assert_eq!((before, during), (None, None));
+        assert_eq!(board.read(|r| r.state("r")).unwrap(), Some(State::Open));
+    }
+
+    #[test]
+    fn ut_write_rolls_back_on_error() {
+        use crate::card::board::{CardError, State};
+
+        let mut board = Board::memory().unwrap();
+        let r = board.write(|w| {
+            w.create("r", State::Open, &[], "t")?;
+            w.create("r", State::Open, &[], "t")
+        });
+        assert!(matches!(r, Err(CardError::Exists)));
+        assert_eq!(board.read(|r| r.state("r")).unwrap(), None);
     }
 }

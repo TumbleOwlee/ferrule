@@ -11,6 +11,7 @@ use crate::config::Config;
 use crate::git::{self, GitError};
 use crate::project::Layout;
 use crate::refusal::Refusal;
+use crate::store::Reader;
 
 /// Why an inspection gave no answer: a refusal, or an internal failure.
 #[derive(Debug)]
@@ -129,17 +130,18 @@ pub struct Status {
     pub last: Option<Logged>,
 }
 
-/// Where run `slug` stands; `conn` is the board, `None` when there is none.
+/// Where run `slug` stands; `r` reads the board, `None` when there is none.
 ///
 /// # Errors
 /// [`Error::Refused`] `status=refused reason=card` when the run has no
 /// card; [`Error::Sql`] when the board cannot be read.
 pub fn status(
-    conn: Option<&Connection>,
+    r: Option<&Reader<'_>>,
     layout: &Layout,
     main_branch: &str,
     slug: &str,
 ) -> Result<Status, Error> {
+    let conn = r.map(Reader::conn);
     let found = match conn {
         Some(c) => board::state(c, slug)?.map(|st| (c, st)),
         None => None,
@@ -231,12 +233,13 @@ pub struct Invocation {
 /// [`Error::Refused`] `diff=refused` with reason card, no-worktree or base;
 /// an internal [`Error`] when the board or ferrule.toml cannot be read.
 pub fn diff(
-    conn: Option<&Connection>,
+    r: Option<&Reader<'_>>,
     layout: &Layout,
     slug: &str,
     pick: &Pick,
     uncommitted: bool,
 ) -> Result<Invocation, Error> {
+    let conn = r.map(Reader::conn);
     let dir = run_worktree("diff", conn, layout, slug)?;
     let mut calls = Vec::new();
     let mut args = vec!["diff", "--no-color", "--no-ext-diff"];
@@ -263,11 +266,12 @@ pub fn diff(
 /// [`Error::Refused`] `log=refused` with reason card, no-worktree or base;
 /// an internal [`Error`] when the board or ferrule.toml cannot be read.
 pub fn log(
-    conn: Option<&Connection>,
+    r: Option<&Reader<'_>>,
     layout: &Layout,
     slug: &str,
     pick: &Pick,
 ) -> Result<Invocation, Error> {
+    let conn = r.map(Reader::conn);
     let dir = run_worktree("log", conn, layout, slug)?;
     let range = format!("{}..HEAD", base_in("log", layout, &dir, pick.base)?);
     let mut args = vec!["log", "--no-color", "--oneline"];
@@ -431,7 +435,7 @@ mod tests {
         board::insert_body(&s.conn, "r", "t2", "gauntlet=pass cov=? sha=abc1234");
         board::insert_body(&s.conn, "r", "t3", "ci=0");
 
-        let st = status(Some(&s.conn), &layout, "main", "r").unwrap();
+        let st = status(Some(&Reader::new(&s.conn)), &layout, "main", "r").unwrap();
         assert_eq!(
             st.parent,
             Parent {
@@ -491,10 +495,10 @@ mod tests {
             matches!(&r, Error::Refused(r) if r.to_string().starts_with("status=refused reason=card"))
         );
         let mut s = Store::memory().unwrap();
-        let r = status(Some(&s.conn), &layout, "main", "r").unwrap_err();
+        let r = status(Some(&Reader::new(&s.conn)), &layout, "main", "r").unwrap_err();
         assert!(matches!(r, Error::Refused(_)));
         board::create(&mut s.conn, "r", State::Open, &[], "t").unwrap();
-        let st = status(Some(&s.conn), &layout, "main", "r").unwrap();
+        let st = status(Some(&Reader::new(&s.conn)), &layout, "main", "r").unwrap();
         assert_eq!(
             st.worktree,
             Worktree::Missing {
@@ -516,7 +520,7 @@ mod tests {
             stat: true,
             base: None,
         };
-        let inv = diff(Some(&s.conn), &layout, "r", &pick, false).unwrap();
+        let inv = diff(Some(&Reader::new(&s.conn)), &layout, "r", &pick, false).unwrap();
         assert_eq!(inv.dir, wt);
         assert_eq!(
             inv.calls,
@@ -530,13 +534,13 @@ mod tests {
                 "docs/specs"
             ])]
         );
-        let inv = diff(Some(&s.conn), &layout, "r", &pick, true).unwrap();
+        let inv = diff(Some(&Reader::new(&s.conn)), &layout, "r", &pick, true).unwrap();
         assert_eq!(inv.calls[0], owned(&["status", "--short"]));
         assert_eq!(
             inv.calls[1][3..],
             owned(&["--stat", "HEAD", "--", "docs/specs"])
         );
-        let lines = log(Some(&s.conn), &layout, "r", &pick).unwrap();
+        let lines = log(Some(&Reader::new(&s.conn)), &layout, "r", &pick).unwrap();
         assert_eq!(
             lines.calls,
             [owned(&[
@@ -551,12 +555,12 @@ mod tests {
             base: Some("nope"),
             ..pick
         };
-        let e = log(Some(&s.conn), &layout, "r", &bad).unwrap_err();
+        let e = log(Some(&Reader::new(&s.conn)), &layout, "r", &bad).unwrap_err();
         assert!(matches!(&e, Error::Refused(r) if r.verb() == "log" && r.reason() == "base"));
-        let e = diff(Some(&s.conn), &layout, "x", &pick, false).unwrap_err();
+        let e = diff(Some(&Reader::new(&s.conn)), &layout, "x", &pick, false).unwrap_err();
         assert!(matches!(&e, Error::Refused(r) if r.reason() == "card"));
         board::create(&mut s.conn, "x", State::Open, &[], "t").unwrap();
-        let e = diff(Some(&s.conn), &layout, "x", &pick, false).unwrap_err();
+        let e = diff(Some(&Reader::new(&s.conn)), &layout, "x", &pick, false).unwrap_err();
         assert!(matches!(&e, Error::Refused(r) if r.reason() == "no-worktree"));
     }
 

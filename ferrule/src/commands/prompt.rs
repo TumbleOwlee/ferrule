@@ -289,9 +289,7 @@ pub fn open(files: &[PathBuf], err: &mut impl Write) -> io::Result<Result<Vec<Sh
         abs.push(f.canonicalize()?);
     }
     let runs = match store(true)? {
-        Some(mut s) => {
-            approval::record(&mut s.conn, &layout, &abs, &board::now()).map_err(internal)?
-        }
+        Some(mut s) => approval::record(&mut s, &layout, &abs, &board::now()).map_err(internal)?,
         None => vec![None; abs.len()],
     };
     let viewer = config.viewer.command.unwrap_or_default();
@@ -423,7 +421,7 @@ fn render(args: &PromptRenderArgs, out: &mut impl Write) -> io::Result<u8> {
         }
     };
     match prompt::render::render(
-        &mut s.conn,
+        &mut s,
         &layout,
         kind,
         slug,

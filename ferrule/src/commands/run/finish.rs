@@ -22,7 +22,7 @@ pub(super) fn metrics(
     last: Option<usize>,
     out: &mut impl Write,
 ) -> io::Result<u8> {
-    let Some(s) = store(false)? else {
+    let Some(mut s) = store(false)? else {
         if let Some(slug) = slug {
             eprintln!("metrics: no card for {slug}");
             return Ok(exit::REFUSED);
@@ -30,7 +30,7 @@ pub(super) fn metrics(
         return Ok(exit::OK);
     };
     let Some(slug) = slug else {
-        let mut lines = archive::metrics_log(&s.conn).map_err(internal)?;
+        let mut lines = s.read(archive::metrics_log).map_err(internal)?;
         if let Some(n) = last {
             lines.drain(..lines.len().saturating_sub(n));
         }
@@ -39,7 +39,7 @@ pub(super) fn metrics(
         }
         return Ok(exit::OK);
     };
-    match archive::metrics(&s.conn, slug, &board::now()) {
+    match s.write(|w| archive::metrics(w, slug, &board::now())) {
         Ok(line) => {
             writeln!(out, "{line}")?;
             Ok(exit::OK)
@@ -58,7 +58,7 @@ pub(super) fn cleanup(slug: &str, out: &mut impl Write) -> io::Result<u8> {
     let Some(mut s) = store(true)? else {
         unreachable!("store(true) creates the database");
     };
-    let refusal = match archive::cleanup(&mut s.conn, &layout, slug, &board::now()) {
+    let refusal = match archive::cleanup(&mut s, &layout, slug, &board::now()) {
         Ok(done) => {
             let id = done
                 .archive
@@ -88,7 +88,8 @@ pub(super) fn export(
     };
     let id = match id {
         Some(id) => Some(id),
-        None => archive::archives(&s.conn, slug)
+        None => s
+            .read(|r| archive::archives(r, slug))
             .map_err(internal)?
             .last()
             .map(|(id, _)| *id),
@@ -106,7 +107,7 @@ pub(super) fn export(
         },
         Path::to_path_buf,
     );
-    match archive::export(&s.conn, slug, Some(id), &dest) {
+    match s.read(|r| archive::export(r, slug, Some(id), &dest)) {
         Ok(Some((id, path))) => {
             writeln!(out, "export=done archive={id} path={}", path.display())?;
             Ok(exit::OK)

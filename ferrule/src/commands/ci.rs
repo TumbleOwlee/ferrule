@@ -9,7 +9,6 @@ use ferrule_core::pr::publish;
 use ferrule_core::refusal::Refusal;
 use ferrule_core::run::gauntlet::{self, Outcome};
 use ferrule_core::run::next::{self, At, Status};
-use ferrule_core::run::{self as core_run};
 use ferrule_core::{project, remote};
 
 use super::board::{run_on, store};
@@ -145,10 +144,12 @@ fn run_gauntlet(slug: &str, force: bool, out: &mut impl Write) -> io::Result<u8>
     let Some(s) = store(true)? else {
         unreachable!("store(true) creates the database");
     };
-    let wt = core_run::worktree(&s.conn, &layout, slug, slug).map_err(internal)?;
+    let wt = s
+        .read(|r| r.worktree(&layout, slug, slug))
+        .map_err(internal)?;
     let log = layout.run_dir(slug).join("gauntlet.log");
     let outcome = gauntlet::run(
-        &s.conn,
+        &s,
         slug,
         &wt,
         &log,
@@ -195,7 +196,8 @@ fn wait(slug: &str, out: &mut impl Write) -> io::Result<u8> {
     }
     writeln!(out)?;
     if code != 0 {
-        let branch = board::field(&s.conn, slug, "branch")
+        let branch = s
+            .read(|r| r.field(slug, "branch"))
             .map_err(internal)?
             .unwrap_or_default();
         if let Ok(lines) = remote::failed(
@@ -210,7 +212,7 @@ fn wait(slug: &str, out: &mut impl Write) -> io::Result<u8> {
         }
     }
     let status = Status::parse(&[format!("ci={code}")]);
-    match next::next(&mut s.conn, &layout, slug, At::Ci, &status, &now) {
+    match next::next(&mut s, &layout, slug, At::Ci, &status, &now) {
         Ok(lines) => {
             for l in lines {
                 writeln!(out, "{l}")?;

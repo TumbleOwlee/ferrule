@@ -22,6 +22,7 @@ use crate::pr::feedback;
 use crate::project::Layout;
 use crate::refusal::{Exit, Refusal};
 use crate::run::gauntlet::{self, Outcome};
+use crate::store::{Board, Reader, snapshot};
 use crate::{git, remote, run, spec};
 
 #[derive(Debug)]
@@ -211,13 +212,34 @@ type Posted = (Option<u64>, Option<String>, Option<u32>);
 
 /// The run's parent card, its artifacts and its hosts.
 pub struct Run<'a> {
-    pub conn: &'a mut Connection,
+    pub(crate) conn: &'a mut Connection,
     pub layout: &'a Layout,
     pub config: &'a Config,
     /// Where `gh` runs: the repository's checkout.
     pub root: &'a Path,
     pub slug: &'a str,
     pub now: &'a str,
+}
+
+impl<'a> Run<'a> {
+    /// The publish run for `slug` over the board `db`.
+    pub fn new(
+        db: &'a mut Board,
+        layout: &'a Layout,
+        config: &'a Config,
+        root: &'a Path,
+        slug: &'a str,
+        now: &'a str,
+    ) -> Self {
+        Run {
+            conn: db.conn_mut(),
+            layout,
+            config,
+            root,
+            slug,
+            now,
+        }
+    }
 }
 
 impl Run<'_> {
@@ -350,7 +372,7 @@ impl Run<'_> {
     }
 
     fn file_run(&mut self, reuse: Option<u64>) -> Result<(u64, Action), Error> {
-        let rendered = body::issue(self.conn, self.layout, self.slug, None)?;
+        let rendered = snapshot(self.conn, |r| body::issue(r, self.layout, self.slug, None))?;
         let (title, body) = split_title(&rendered);
         let tracker = self.config.backend.tracker;
         let current = numbers(self.field("issue")?.as_deref()).first().copied();
@@ -378,7 +400,9 @@ impl Run<'_> {
         if let Some(&Some(n)) = slots.get(at) {
             return Ok((n, Action::Recorded));
         }
-        let rendered = body::issue(self.conn, self.layout, self.slug, Some(slice))?;
+        let rendered = snapshot(self.conn, |r| {
+            body::issue(r, self.layout, self.slug, Some(slice))
+        })?;
         let (title, body) = split_title(&rendered);
         let (n, action) = self.adopt_or_create(&title, &body)?;
         if slots.len() <= at {
@@ -428,13 +452,15 @@ impl Run<'_> {
             return Ok((n, false));
         }
         let branch = self.field("branch")?.ok_or(Error::NoBranch)?;
-        let rendered = body::pr(
-            self.conn,
-            self.layout,
-            self.slug,
-            Form::Draft,
-            &self.config.main_branch,
-        )?;
+        let rendered = snapshot(self.conn, |r| {
+            body::pr(
+                r,
+                self.layout,
+                self.slug,
+                Form::Draft,
+                &self.config.main_branch,
+            )
+        })?;
         let (title, body) = split_title(&rendered);
         let ci = self.config.backend.ci;
         let adopted = remote::pr_find_open(ci, &branch, self.root)?;
@@ -468,13 +494,15 @@ impl Run<'_> {
         let Some(&n) = numbers(self.field("pr")?.as_deref()).first() else {
             return Ok(None);
         };
-        let rendered = match body::pr(
-            self.conn,
-            self.layout,
-            self.slug,
-            Form::Draft,
-            &self.config.main_branch,
-        ) {
+        let rendered = match snapshot(self.conn, |r| {
+            body::pr(
+                r,
+                self.layout,
+                self.slug,
+                Form::Draft,
+                &self.config.main_branch,
+            )
+        }) {
             Ok(r) => r,
             Err(body::Error::StageRef(t)) => return Ok(Some(Sync::Refused(t))),
             Err(e) => return Err(e.into()),
@@ -668,7 +696,7 @@ impl Run<'_> {
             return Ok(Err(PushRefused::Sha("card-commit".to_owned())));
         };
         if let Err(m) = run::sha_check(
-            self.conn,
+            &Reader::new(self.conn),
             self.layout,
             self.slug,
             &format!("s{stage}"),
@@ -677,7 +705,7 @@ impl Run<'_> {
             return Ok(Err(PushRefused::Sha(m.as_str().to_owned())));
         }
         let log = self.layout.run_dir(self.slug).join("gauntlet.log");
-        let outcome = gauntlet::run(
+        let outcome = gauntlet::run_in(
             self.conn,
             self.slug,
             &wt,
@@ -744,7 +772,9 @@ impl Run<'_> {
         if !hits.is_empty() {
             return Ok(Err(PublishRefused::Collide(hits)));
         }
-        let rendered = match body::pr(self.conn, self.layout, self.slug, Form::Full, &main) {
+        let rendered = match snapshot(self.conn, |r| {
+            body::pr(r, self.layout, self.slug, Form::Full, &main)
+        }) {
             Ok(r) => r,
             Err(body::Error::StageRef(t)) => return Ok(Err(PublishRefused::StageRef(t))),
             Err(e) => return Err(e.into()),
@@ -897,13 +927,15 @@ impl Run<'_> {
                     } else if ready && draft {
                         differ.push(format!("pr #{n} is a draft but pr=ready is logged"));
                     } else if !ready
-                        && let Ok(rendered) = body::pr(
-                            self.conn,
-                            self.layout,
-                            self.slug,
-                            Form::Draft,
-                            &self.config.main_branch,
-                        )
+                        && let Ok(rendered) = snapshot(self.conn, |r| {
+                            body::pr(
+                                r,
+                                self.layout,
+                                self.slug,
+                                Form::Draft,
+                                &self.config.main_branch,
+                            )
+                        })
                         && split_title(&rendered).1.trim_end() != current.trim_end()
                     {
                         differ.push(format!("pr #{n} body behind the board"));

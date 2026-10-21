@@ -8,13 +8,12 @@
 use std::fmt::Write as _;
 use std::path::Path;
 
-use rusqlite::Connection;
-
 use crate::card::board::{self, NewCard, State};
 use crate::git;
 use crate::project::Layout;
 use crate::refusal::Refusal;
 use crate::remote::Item;
+use crate::store::Board;
 
 /// Why nothing was written.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -330,7 +329,7 @@ fn slug_of(branch: &str) -> Result<String, Refused> {
 /// Recreates the board of the run on `pr`'s branch, `issue` its tracking
 /// issue. Returns the slug, the stage count and the next stage.
 pub fn rebuild(
-    conn: &mut Connection,
+    db: &mut Board,
     layout: &Layout,
     main: &str,
     issue_no: &str,
@@ -338,6 +337,7 @@ pub fn rebuild(
     source: &dyn Source,
     now: &str,
 ) -> Result<(String, usize, Option<String>), Error> {
+    let conn = db.conn_mut();
     let pr = source.pr().ok_or(Refused::NoPr)?;
     let st = stages(&pr.body);
     if !pr.body.lines().any(|l| l == "## Stages") {

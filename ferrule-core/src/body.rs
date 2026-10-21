@@ -19,6 +19,7 @@ use crate::spec::{
     self,
     diff::{Part, Render, SpecDiff},
 };
+use crate::store::Reader;
 use crate::{artifacts, git, markdown, pr};
 
 #[derive(Debug)]
@@ -329,11 +330,12 @@ fn md_section<'a>(text: &'a str, name: &str) -> Vec<&'a str> {
 
 /// The tracking issue's body, or slice `slice`'s own issue.
 pub fn issue(
-    conn: &Connection,
+    r: &Reader<'_>,
     layout: &Layout,
     slug: &str,
     slice: Option<u32>,
 ) -> Result<String, Error> {
+    let conn = r.conn();
     let c = Ctx {
         conn,
         dir: layout.run_dir(slug),
@@ -623,12 +625,13 @@ fn scenarios(diff: Option<&SpecDiff>) -> Option<(usize, String)> {
 
 /// The pull request's body.
 pub fn pr(
-    conn: &Connection,
+    r: &Reader<'_>,
     layout: &Layout,
     slug: &str,
     form: Form,
     main_branch: &str,
 ) -> Result<String, Error> {
+    let conn = r.conn();
     let c = Ctx {
         conn,
         dir: layout.run_dir(slug),

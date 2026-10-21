@@ -453,9 +453,9 @@ fn body(
     let layout = Layout::new(project::main_checkout());
     let s = match store(false)? {
         Some(s) => s,
-        None => ferrule_core::store::Store::memory().map_err(internal)?,
+        None => ferrule_core::store::Board::memory().map_err(internal)?,
     };
-    print_body(body::issue(&s.conn, &layout, slug, slice), style, out)
+    print_body(s.read(|r| body::issue(r, &layout, slug, slice)), style, out)
 }
 
 /// Prints the `<verb>=refused` line of a failed post, or what went wrong
