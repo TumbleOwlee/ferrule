@@ -268,6 +268,20 @@ fn through_gate2(p: &Project) {
         gh.log()
             .contains("issue create --title Reconnect dropped Modbus clients --body-file -")
     );
+
+    // The worktree directory lost: approving again recreates it on the
+    // existing branch and files nothing twice.
+    std::fs::remove_dir_all(p.worktree()).unwrap();
+    let again = p.ok(&["gate", "approve", "demo", "gate2"]);
+    assert!(
+        again.starts_with(
+            "approve=done gate=gate2 issue=12 worktree=.ferrule/worktrees/demo stages=3"
+        ),
+        "{again}"
+    );
+    assert!(p.worktree().join("docs").is_dir());
+    assert_eq!(p.field("demo", "issue"), "12");
+    assert_eq!(gh.log().matches("issue create").count(), 1);
 }
 
 /// s0 lands: the first push opens the draft PR, a move re-renders it, a

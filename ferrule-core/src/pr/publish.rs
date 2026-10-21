@@ -524,10 +524,7 @@ impl std::fmt::Display for PublishRefused {
 
 impl Run<'_> {
     fn worktree(&self) -> rusqlite::Result<PathBuf> {
-        Ok(self.field("worktree")?.map_or_else(
-            || self.layout.worktree(self.slug),
-            |w| self.layout.resolve(&w),
-        ))
+        crate::run::worktree(self.conn, self.layout, self.slug, self.slug)
     }
 
     /// Pushes the worktree's head once it is a stage's verified commit and

@@ -1,2 +1,0 @@
-rebuild=refused reason=worktree hint=git could not add the worktree; check `git worktree list`
-exit=1

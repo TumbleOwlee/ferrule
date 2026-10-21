@@ -242,7 +242,12 @@ fn it_rebuild_re_adds_a_missing_worktree_and_refuses_a_blocked_one() {
         &["worktree", "remove", "--force", wt.to_str().unwrap()],
     );
     std::fs::write(&wt, "").unwrap();
-    check("run-rebuild-worktree-refused", &r.rebuild());
+    let refused = r.rebuild();
+    assert!(
+        refused.starts_with("rebuild=refused reason=worktree detail=\"fatal: ")
+            && refused.contains("already exists\" hint=git could not add the worktree;"),
+        "{refused}"
+    );
     assert_eq!(
         r.ferrule(&["board", "show", "rb"]).text(),
         "card-show=refused reason=card hint=check the slug with `ferrule board list`\nexit=1"

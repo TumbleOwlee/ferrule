@@ -8,6 +8,7 @@ pub mod gauntlet;
 pub mod next;
 pub mod rebuild;
 
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
@@ -82,6 +83,53 @@ impl Mismatch {
     }
 }
 
+/// Makes `wt` a worktree on `branch`: reused when it already is one, else
+/// added after a prune, on the existing `branch` or a new one cut from
+/// `start`.
+///
+/// # Errors
+/// [`git::GitError`] when git cannot add it.
+pub fn ensure_worktree(
+    layout: &Layout,
+    wt: &Path,
+    branch: &str,
+    start: &str,
+) -> Result<(), git::GitError> {
+    let root = &layout.root;
+    if wt.is_dir()
+        && git::out(wt, &["rev-parse", "--show-toplevel"])
+            .is_some_and(|top| same_dir(Path::new(&top), wt))
+        && git::out(wt, &["symbolic-ref", "--short", "-q", "HEAD"]).as_deref() == Some(branch)
+    {
+        return Ok(());
+    }
+    let _ = git::ok(root, &["worktree", "prune"]);
+    let wt = wt.as_os_str();
+    let branch_ref = format!("refs/heads/{branch}");
+    if git::ok(root, &["rev-parse", "--verify", "-q", &branch_ref]) {
+        let add = [
+            OsStr::new("worktree"),
+            OsStr::new("add"),
+            OsStr::new("-q"),
+            wt,
+            OsStr::new(branch),
+        ];
+        git::run(root, &add)?;
+    } else {
+        let add = [
+            OsStr::new("worktree"),
+            OsStr::new("add"),
+            OsStr::new("-q"),
+            OsStr::new("-b"),
+            OsStr::new(branch),
+            wt,
+            OsStr::new(start),
+        ];
+        git::run(root, &add)?;
+    }
+    Ok(())
+}
+
 /// Checks an implementer's reported commit: it exists in the worktree, the
 /// run's branch contains it, and it is the stage card's last `commit=`.
 pub fn sha_check(
@@ -125,7 +173,7 @@ pub struct Reconciled {
     pub next: Option<String>,
 }
 
-fn same_dir(a: &Path, b: &Path) -> bool {
+pub(crate) fn same_dir(a: &Path, b: &Path) -> bool {
     match (a.canonicalize(), b.canonicalize()) {
         (Ok(a), Ok(b)) => a == b,
         _ => false,
@@ -142,7 +190,7 @@ pub fn reconcile(conn: &Connection, layout: &Layout, slug: &str) -> Result<Recon
     let root = &layout.root;
     let mut differ = Vec::new();
     let branch = board::field(conn, slug, "branch")?.filter(|b| !b.is_empty());
-    let wt = layout.worktree(slug);
+    let wt = worktree(conn, layout, slug, slug)?;
     if board::field(conn, slug, "gate2")?.is_some_and(|g| !g.is_empty()) {
         let registered = git::out(root, &["worktree", "list", "--porcelain"]).is_some_and(|out| {
             out.lines()

@@ -5,7 +5,6 @@
 //! (`<!-- s1 blocked-by s0 -->`); a ticked line is a landed stage with its
 //! commit in parentheses.
 
-use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::path::Path;
 
@@ -27,7 +26,7 @@ pub enum Refused {
     NoIssue,
     /// A ticked stage's commit is not in the repository.
     Sha(String),
-    Worktree,
+    Worktree(git::GitError),
 }
 
 impl Refused {
@@ -41,7 +40,7 @@ impl Refused {
             Refused::BoardExists => "board-exists",
             Refused::NoIssue => "no-issue",
             Refused::Sha(_) => "sha",
-            Refused::Worktree => "worktree",
+            Refused::Worktree(_) => "worktree",
         };
         let hint = match self {
             Refused::NoPr => "check the PR number and your host access",
@@ -52,11 +51,14 @@ impl Refused {
             Refused::BoardExists => "resume it with `ferrule run reconcile <slug>` instead",
             Refused::NoIssue => "check the tracking issue number",
             Refused::Sha(_) => "fetch the branch so the ticked stage's commit exists",
-            Refused::Worktree => "git could not add the worktree; check `git worktree list`",
+            Refused::Worktree(_) => "git could not add the worktree; check `git worktree list`",
         };
         let mut r = Refusal::new("rebuild", reason);
         if let Refused::Sha(sha) = self {
             r = r.field("sha", sha);
+        }
+        if let Refused::Worktree(e) = self {
+            r = r.detail(&e.stderr);
         }
         r.hint(hint)
     }
@@ -337,7 +339,13 @@ pub fn rebuild(
             return Err(Refused::Sha(sha).into());
         }
     }
-    worktree(layout, &slug, &branch)?;
+    super::ensure_worktree(
+        layout,
+        &layout.worktree(&slug),
+        &branch,
+        &format!("origin/{branch}"),
+    )
+    .map_err(Refused::Worktree)?;
 
     let lane = pr
         .body
@@ -400,52 +408,6 @@ pub fn rebuild(
     board::create_all(conn, &cards, now).map_err(Error::Board)?;
     artifacts(layout, &slug, &issue, &pr, &st, main, &branch)?;
     Ok((slug, st.len(), next))
-}
-
-/// Re-adds the run's worktree on the branch unless it is there.
-fn worktree(layout: &Layout, slug: &str, branch: &str) -> Result<(), Refused> {
-    let wt = layout.worktree(slug);
-    if wt.is_dir() {
-        return Ok(());
-    }
-    let root = &layout.root;
-    let _ = git::ok(root, &["worktree", "prune"]);
-    let wt = wt.as_os_str();
-    let ok = if git::ok(
-        root,
-        &[
-            "rev-parse",
-            "--verify",
-            "-q",
-            &format!("refs/heads/{branch}"),
-        ],
-    ) {
-        git::ok(
-            root,
-            &[
-                OsStr::new("worktree"),
-                OsStr::new("add"),
-                OsStr::new("-q"),
-                wt,
-                OsStr::new(branch),
-            ],
-        )
-    } else {
-        git::ok(
-            root,
-            &[
-                OsStr::new("worktree"),
-                OsStr::new("add"),
-                OsStr::new("-q"),
-                OsStr::new("--track"),
-                OsStr::new("-b"),
-                OsStr::new(branch),
-                wt,
-                OsStr::new(&format!("origin/{branch}")),
-            ],
-        )
-    };
-    if ok { Ok(()) } else { Err(Refused::Worktree) }
 }
 
 fn artifacts(

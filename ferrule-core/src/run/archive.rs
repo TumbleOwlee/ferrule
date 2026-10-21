@@ -325,7 +325,7 @@ pub fn cleanup(
     slug: &str,
     now: &str,
 ) -> Result<Option<i64>, Error> {
-    let wt = layout.worktree(slug);
+    let wt = super::worktree(conn, layout, slug, slug)?;
     let branch = if wt.is_dir() {
         Some(worktree_clean(&wt).map_err(Error::Refused)?)
     } else {

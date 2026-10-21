@@ -244,6 +244,33 @@ fn it_sha_check_and_reconcile() {
     assert_eq!(s.run(&["run", "reconcile", "nosuch"]).text(), "exit=2");
 }
 
+#[test]
+fn it_reconcile_follows_the_worktree_field() {
+    let s = Scratch::new(1);
+    let other = s.root.join("elsewhere/ss");
+    std::fs::create_dir_all(other.parent().unwrap()).unwrap();
+    git(
+        &s.root,
+        &[
+            "worktree",
+            "move",
+            s.wt.to_str().unwrap(),
+            other.to_str().unwrap(),
+        ],
+    );
+    s.ok(&[
+        "board",
+        "set",
+        "ss",
+        &format!("worktree={}", other.display()),
+    ]);
+    // s0 is done without a commit, which reconcile reports; the worktree
+    // at the field's path is not reported missing
+    let got = s.run(&["run", "reconcile", "ss"]).text();
+    assert!(!got.contains("row=worktree"), "{got}");
+    assert!(got.contains("next=s1"), "{got}");
+}
+
 /// Run `demo` from the fixture board with its worktree pushed to a bare
 /// remote, and its artifacts in `.ferrule/runs/demo/`.
 fn pushed_run() -> Scratch {
@@ -354,6 +381,34 @@ fn it_cleanup_refuses_until_pushed_and_green_then_archives() {
         s.say(&["run", "export", "nospec"])
             .starts_with("export=refused reason=no-archive hint=")
     );
+}
+
+#[test]
+fn it_cleanup_checks_the_worktree_field() {
+    let s = pushed_run();
+    let other = s.root.join("elsewhere/demo");
+    std::fs::create_dir_all(other.parent().unwrap()).unwrap();
+    git(
+        &s.root,
+        &[
+            "worktree",
+            "move",
+            s.wt.to_str().unwrap(),
+            other.to_str().unwrap(),
+        ],
+    );
+    s.ok(&[
+        "board",
+        "set",
+        "demo",
+        &format!("worktree={}", other.display()),
+    ]);
+    std::fs::write(other.join("y.txt"), "y\n").unwrap();
+    assert!(
+        s.say(&["run", "cleanup", "demo"])
+            .starts_with("cleanup=refused reason=uncommitted-changes hint=")
+    );
+    assert!(other.is_dir());
 }
 
 #[test]
