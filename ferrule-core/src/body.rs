@@ -233,45 +233,6 @@ fn section(issue: &str, name: &str) -> String {
     }
 }
 
-/// One slice of slices.md: its title and `key: value` lines.
-struct Slice {
-    n: u32,
-    title: String,
-    fields: Vec<(String, String)>,
-}
-
-impl Slice {
-    fn get(&self, key: &str) -> &str {
-        self.fields
-            .iter()
-            .find(|(k, _)| k == key)
-            .map_or("", |(_, v)| v.as_str())
-    }
-}
-
-fn slices(text: &str) -> Vec<Slice> {
-    let mut out: Vec<Slice> = Vec::new();
-    for line in text.lines() {
-        if let Some(rest) = line.strip_prefix("## Slice ")
-            && let Some((n, title)) = rest.split_once(": ")
-            && let Ok(n) = n.parse()
-        {
-            out.push(Slice {
-                n,
-                title: title.to_owned(),
-                fields: Vec::new(),
-            });
-        } else if let Some(s) = out.last_mut()
-            && let Some((k, v)) = line.split_once(": ")
-            && !k.is_empty()
-            && !k.starts_with(['#', '-', ' '])
-        {
-            s.fields.push((k.to_owned(), v.to_owned()));
-        }
-    }
-    out
-}
-
 fn render(diff: &SpecDiff, part: Part, only: Option<Vec<String>>) -> String {
     spec::diff::render(
         diff,
@@ -299,23 +260,14 @@ fn decide(summary: &str) -> &str {
         .unwrap_or("")
 }
 
-/// A `## <name>` section of a markdown file outside fenced blocks, fences
-/// inside it kept.
+/// The lines under every `## <name>` heading, up to the next heading of
+/// the same or a shallower level; headings in fenced blocks are text.
 fn md_section<'a>(text: &'a str, name: &str) -> Vec<&'a str> {
     let heading = format!("## {name}");
-    let mut on = false;
-    let mut out = Vec::new();
-    for line in markdown::classified(text) {
-        let l = line.text;
-        if !line.fenced && l.starts_with("## ") {
-            on = l == heading;
-            continue;
-        }
-        if on {
-            out.push(l);
-        }
-    }
-    out
+    markdown::section_lines(text, &heading, markdown::Match::Exact)
+        .into_iter()
+        .filter(|l| *l != heading)
+        .collect()
 }
 
 /// The tracking issue's body, or slice `slice`'s own issue.
@@ -340,7 +292,7 @@ pub fn issue(
 }
 
 fn slice_issue(c: &Ctx, issue: &str, n: u32) -> Result<String, Error> {
-    let all = slices(&c.need("slices.md")?);
+    let all = artifacts::slices(&c.need("slices.md")?);
     let Some(s) = all.iter().find(|s| s.n == n) else {
         return Err(Error::NoSlice(n));
     };
@@ -437,7 +389,7 @@ fn epic_parts(c: &Ctx, out: &mut String) -> Result<(), Error> {
     if let Some(text) = c.read("slices.md") {
         let slices_field = c.field("slices")?;
         out.push_str("## Slices\n");
-        for s in slices(&text) {
+        for s in artifacts::slices(&text) {
             let link = nth(slices_field.as_deref(), s.n as usize)
                 .map_or_else(|| "not filed yet".to_owned(), |n| format!("#{n}"));
             let _ = writeln!(out, "- [ ] **Slice {}: {}** — {link}", s.n, s.title);
@@ -540,31 +492,17 @@ fn spec_changes(
 /// under the spec changes.
 fn decisions(text: Option<&str>, changed: &HashSet<String>) -> String {
     let mut seen: Vec<String> = Vec::new();
-    for line in text.unwrap_or("").lines() {
-        let Some(item) = line.strip_prefix("- ") else {
-            continue;
+    for d in artifacts::decisions(text.unwrap_or(""), 0) {
+        let keep = match d.tag {
+            Some(("design", None)) => true,
+            Some(("spec", Some(id))) => d.by == artifacts::By::Chosen && !changed.contains(id),
+            _ => false,
         };
-        let found = ["(chosen)", "(user)"].iter().find_map(|w| {
-            let at = item.find(&format!(" {w} ["))?;
-            let after = &item[at + w.len() + 3..];
-            let tag = after.split_once(']')?.0;
-            let ok = matches!(tag, "design" | "process" | "scope")
-                || tag.strip_prefix("spec ").is_some_and(|id| {
-                    !id.is_empty()
-                        && id
-                            .bytes()
-                            .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'-')
-                });
-            ok.then(|| (&item[..at], &w[1..w.len() - 1], tag))
-        });
-        let Some((choice, who, tag)) = found else {
-            continue;
+        let who = match d.by {
+            artifacts::By::Chosen => "chosen",
+            artifacts::By::User => "user",
         };
-        let keep = tag == "design"
-            || tag
-                .strip_prefix("spec ")
-                .is_some_and(|id| who == "chosen" && !changed.contains(id));
-        let r = format!("- {choice} ({who})");
+        let r = format!("- {} ({who})", d.choice);
         if keep && !seen.contains(&r) {
             seen.push(r);
         }
@@ -695,10 +633,9 @@ fn draft(
     if let Some(sha) = board::pass_shas(c.conn, c.slug)?.pop() {
         let _ = write!(status, " · gauntlet green at {sha}");
     }
-    let goal = issue
-        .lines()
-        .skip_while(|l| *l != "## Goal")
-        .nth(1)
+    let goal = md_section(issue, "Goal")
+        .into_iter()
+        .find(|l| !l.trim().is_empty())
         .unwrap_or("");
     let _ = write!(out, "{status}\n\n## Why\n{goal}\n\n");
     if let Some((n, list)) = scenarios(diff.as_ref()) {

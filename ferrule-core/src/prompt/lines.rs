@@ -147,34 +147,32 @@ fn architecture(text: &str, out: &mut Vec<String>) {
 fn slices(text: &str, spec_diff: Option<&str>, out: &mut Vec<String>, confirm: &mut Vec<String>) {
     let mut lines: Vec<String> = Vec::new();
     let mut claims: Vec<(String, String)> = Vec::new();
-    let mut slice = String::new();
-    for l in text.lines() {
-        if let Some(rest) = l.strip_prefix("## Slice ")
-            && let Some((n, t)) = rest.split_once(": ")
-            && n.bytes().all(|b| b.is_ascii_digit())
-        {
-            lines.push(format!("- {n}: {t}"));
-            n.clone_into(&mut slice);
-        } else if let Some(cur) = lines.last_mut() {
-            if let Some(d) = l.strip_prefix("Depends on: ") {
-                let _ = write!(cur, " — depends on {d}");
-            } else if let Some(s) = l.strip_prefix("Scenarios: ") {
-                let _ = write!(cur, " — {s}");
-            } else if let Some(e) = l.strip_prefix("Entries: ") {
-                let _ = write!(cur, " · {e}");
+    for s in artifacts::slices(text) {
+        let mut cur = format!("- {}: {}", s.n, s.title);
+        for (k, v) in &s.fields {
+            match k.as_str() {
+                "Depends on" => {
+                    let _ = write!(cur, " — depends on {v}");
+                }
+                "Scenarios" => {
+                    let _ = write!(cur, " — {v}");
+                }
+                "Entries" => {
+                    let _ = write!(cur, " · {v}");
+                }
+                _ => continue,
             }
-        }
-        for key in ["Scenarios: ", "Entries: "] {
-            if let Some(v) = l.strip_prefix(key) {
+            if k != "Depends on" {
                 for id in v
                     .split(',')
                     .map(str::trim)
                     .filter(|w| !w.is_empty() && *w != "none")
                 {
-                    claims.push((id.to_owned(), slice.clone()));
+                    claims.push((id.to_owned(), s.n.to_string()));
                 }
             }
         }
+        lines.push(cur);
     }
     if !lines.is_empty() {
         out.push("Slices:".to_owned());
@@ -220,56 +218,24 @@ fn plan(text: &str, out: &mut Vec<String>) {
     }
 }
 
-/// `- <choice> (chosen)[ [<tag>[ <ID>]]][ — <why>][ · <agent>]` lines below
-/// line `seen`, as `- [<ID> — ]<choice>[ — <why>][ (<agent>)]`.
+/// The agents' decisions below line `seen`, as
+/// `- [<ID> — ]<choice>[ — <why>][ (<agent>)]`; the user's are settled.
 fn decisions(text: &str, seen: usize, confirm: &mut Vec<String>) {
-    for line in text.lines().skip(seen) {
-        let Some(item) = line.strip_prefix("- ") else {
+    for d in artifacts::decisions(text, seen) {
+        if d.by != artifacts::By::Chosen {
             continue;
-        };
-        let Some(at) = item.find(" (chosen)") else {
-            continue;
-        };
-        let choice = &item[..at];
-        let mut rest = &item[at + " (chosen)".len()..];
-        let mut id = String::new();
-        if let Some(tag) = rest.strip_prefix(" [").and_then(|r| r.split_once(']')) {
-            let (inner, after) = tag;
-            let mut words = inner.split(' ');
-            let kind = words.next().unwrap_or("");
-            let target = words.next();
-            let tag_ok = !kind.is_empty()
-                && kind.bytes().all(|b| b.is_ascii_lowercase())
-                && words.next().is_none()
-                && target.is_none_or(|t| {
-                    !t.is_empty()
-                        && t.bytes()
-                            .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'-')
-                });
-            if tag_ok {
-                if kind == "spec"
-                    && let Some(t) = target
-                {
-                    id = format!("{t} — ");
-                }
-                rest = after;
-            }
         }
-        let mut who = String::new();
-        if let Some((before, agent)) = rest.rsplit_once(" · ")
-            && !agent.is_empty()
-            && agent.bytes().all(|b| b.is_ascii_lowercase())
-        {
-            who = format!(" ({agent})");
-            rest = before;
-        }
-        let rest = rest.strip_prefix(" — ").unwrap_or(rest);
-        let why = if rest.is_empty() {
+        let id = match d.tag {
+            Some(("spec", Some(t))) => format!("{t} — "),
+            _ => String::new(),
+        };
+        let why = if d.why.is_empty() {
             String::new()
         } else {
-            format!(" — {rest}")
+            format!(" — {}", d.why)
         };
-        confirm.push(format!("- {id}{choice}{why}{who}"));
+        let who = d.agent.map_or_else(String::new, |a| format!(" ({a})"));
+        confirm.push(format!("- {id}{}{why}{who}", d.choice));
     }
 }
 

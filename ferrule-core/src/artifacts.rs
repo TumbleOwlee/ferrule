@@ -169,6 +169,152 @@ pub fn follow_ups(dir: &Path) -> Vec<(u32, PathBuf)> {
     out
 }
 
+/// Who settled a decision: an agent chose it, or the user did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum By {
+    Chosen,
+    User,
+}
+
+/// One decisions.md line:
+/// `- <choice> (chosen|user)[ [<kind>[ <ID>]]][ — <why>][ · <agent>]`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Decision<'a> {
+    pub choice: &'a str,
+    pub by: By,
+    /// The tag's kind (`design`, `process`, `scope`, `spec`) and target id.
+    pub tag: Option<(&'a str, Option<&'a str>)>,
+    pub why: &'a str,
+    pub agent: Option<&'a str>,
+}
+
+fn is_id(t: &str) -> bool {
+    !t.is_empty()
+        && t.bytes()
+            .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'-')
+}
+
+/// An agent name: lowercase words joined by `-` (`plan-reviewer`).
+fn is_agent(a: &str) -> bool {
+    !a.is_empty()
+        && !a.starts_with('-')
+        && !a.ends_with('-')
+        && a.bytes().all(|b| b.is_ascii_lowercase() || b == b'-')
+}
+
+impl<'a> Decision<'a> {
+    /// The line read as a decision; `None` for any other line.
+    #[must_use]
+    pub fn parse(line: &'a str) -> Option<Self> {
+        let item = line.strip_prefix("- ")?;
+        let (at, by, word) = [(" (chosen)", By::Chosen), (" (user)", By::User)]
+            .into_iter()
+            .filter_map(|(w, by)| item.find(w).map(|at| (at, by, w)))
+            .min_by_key(|(at, _, _)| *at)?;
+        let choice = &item[..at];
+        let mut rest = &item[at + word.len()..];
+        let mut tag = None;
+        if let Some((inner, after)) = rest.strip_prefix(" [").and_then(|r| r.split_once(']')) {
+            let mut words = inner.split(' ');
+            let kind = words.next().unwrap_or("");
+            let target = words.next();
+            if !kind.is_empty()
+                && kind.bytes().all(|b| b.is_ascii_lowercase())
+                && words.next().is_none()
+                && target.is_none_or(is_id)
+            {
+                tag = Some((kind, target));
+                rest = after;
+            }
+        }
+        let mut agent = None;
+        if let Some((before, a)) = rest.rsplit_once(" · ")
+            && is_agent(a)
+        {
+            agent = Some(a);
+            rest = before;
+        }
+        Some(Decision {
+            choice,
+            by,
+            tag,
+            why: rest.strip_prefix(" — ").unwrap_or(rest),
+            agent,
+        })
+    }
+}
+
+/// The decisions of decisions.md from line `from` on.
+#[must_use]
+pub fn decisions(text: &str, from: usize) -> Vec<Decision<'_>> {
+    text.lines()
+        .skip(from)
+        .filter_map(Decision::parse)
+        .collect()
+}
+
+/// One slice of slices.md: `## Slice <n>: <title>` and its `key: value`
+/// lines.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Slice {
+    pub n: u32,
+    pub title: String,
+    pub fields: Vec<(String, String)>,
+}
+
+impl Slice {
+    /// The value of `key`, empty when absent.
+    #[must_use]
+    pub fn get(&self, key: &str) -> &str {
+        self.fields
+            .iter()
+            .find(|(k, _)| k == key)
+            .map_or("", |(_, v)| v.as_str())
+    }
+}
+
+/// The slices of slices.md, outside fenced blocks.
+#[must_use]
+pub fn slices(text: &str) -> Vec<Slice> {
+    let mut out: Vec<Slice> = Vec::new();
+    for l in markdown::classified(text).filter(|l| !l.fenced && !l.delimiter) {
+        let line = l.text;
+        if let Some(rest) = line.strip_prefix("## Slice ")
+            && let Some((n, title)) = rest.split_once(": ")
+            && !n.is_empty()
+            && n.bytes().all(|b| b.is_ascii_digit())
+            && let Ok(n) = n.parse()
+        {
+            out.push(Slice {
+                n,
+                title: title.to_owned(),
+                fields: Vec::new(),
+            });
+        } else if let Some(s) = out.last_mut()
+            && let Some((k, v)) = line.split_once(": ")
+            && !k.is_empty()
+            && !k.starts_with(['#', '-', ' '])
+        {
+            s.fields.push((k.to_owned(), v.to_owned()));
+        }
+    }
+    out
+}
+
+/// The numbered questions of question.md: `## <n>. <question>` headings.
+#[must_use]
+pub fn questions(text: &str) -> usize {
+    markdown::classified(text)
+        .filter(|l| !l.fenced && !l.delimiter)
+        .filter(|l| {
+            l.text.strip_prefix("## ").is_some_and(|r| {
+                let d = r.bytes().take_while(u8::is_ascii_digit).count();
+                d > 0 && r[d..].starts_with(". ")
+            })
+        })
+        .count()
+}
+
 /// The lines of decisions.md, the count `decisions-seen=` records and
 /// reads back: `str::lines`, so a last line without a newline counts.
 #[must_use]
@@ -248,6 +394,34 @@ mod tests {
         }
         let ks: Vec<u32> = follow_ups(dir.path()).into_iter().map(|(k, _)| k).collect();
         assert_eq!(ks, [2, 10]);
+    }
+
+    #[test]
+    fn ut_decision_lines() {
+        let d =
+            Decision::parse("- keep retries (chosen) [spec MB-R-1] — fewer calls · plan-reviewer")
+                .unwrap();
+        assert_eq!(d.choice, "keep retries");
+        assert_eq!(d.by, By::Chosen);
+        assert_eq!(d.tag, Some(("spec", Some("MB-R-1"))));
+        assert_eq!(d.why, "fewer calls");
+        assert_eq!(d.agent, Some("plan-reviewer"));
+        let u = Decision::parse("- drop it (user) [design]").unwrap();
+        assert_eq!(
+            (u.by, u.tag, u.why, u.agent),
+            (By::User, Some(("design", None)), "", None)
+        );
+        assert_eq!(Decision::parse("- no marker here"), None);
+        assert_eq!(Decision::parse("text"), None);
+    }
+
+    #[test]
+    fn ut_slices_and_questions_need_a_number() {
+        let s = "## Slice : no\n## Slice 2: Core\nDepends on: 1\n## Slice x: no\n";
+        let got = slices(s);
+        assert_eq!(got.len(), 1);
+        assert_eq!((got[0].n, got[0].get("Depends on")), (2, "1"));
+        assert_eq!(questions("# Q\n## 1. a?\n## . b?\n## 2. c?\n"), 2);
     }
 
     #[test]

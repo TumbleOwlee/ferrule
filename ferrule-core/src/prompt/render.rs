@@ -596,15 +596,7 @@ fn header(
 /// question.md verbatim under the question header.
 fn question(run: &mut Run, args: &[(String, String)]) -> Result<Vec<String>, Error> {
     let q = std::fs::read_to_string(run.art("question.md")).unwrap_or_default();
-    let n = q
-        .lines()
-        .filter(|l| {
-            l.strip_prefix("## ").is_some_and(|r| {
-                let d = r.bytes().take_while(u8::is_ascii_digit).count();
-                r[d..].starts_with(". ")
-            })
-        })
-        .count();
+    let n = artifacts::questions(&q);
     run.log("stop", &["kind=question"])?;
     let mut out = vec![format!(
         "Question · {} · {} · {} · {n} decision{}",
@@ -823,13 +815,7 @@ fn arch(facts: &Facts) -> Approval {
 
 fn epic(run: &Run, args: &[(String, String)], facts: &Facts) -> Approval {
     let slices = std::fs::read_to_string(run.art("slices.md")).unwrap_or_default();
-    let n = slices
-        .lines()
-        .filter(|l| {
-            l.strip_prefix("## Slice ")
-                .is_some_and(|r| r.starts_with(|c: char| c.is_ascii_digit()))
-        })
-        .count();
+    let n = artifacts::slices(&slices).len();
     let issue = match arg(args, "issue") {
         None | Some("" | "new") => "file the epic issue".to_owned(),
         Some(i) => format!("rewrite issue #{i} as the epic"),
