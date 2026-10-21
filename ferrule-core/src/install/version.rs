@@ -67,8 +67,8 @@ pub fn version_mismatch(root: &Path) -> Option<Mismatch> {
 }
 
 /// `command` installs ferrule or runs `ferrule setup install` (or the old
-/// `ferrule setup install`): what a version mismatch asks for, so the guard lets it
-/// through.
+/// `ferrule install`, gone with `legacy.rs`): what a version mismatch asks
+/// for, so the guard lets it through.
 #[must_use]
 pub fn is_update(command: &str) -> bool {
     let words: Vec<&str> = command.split_whitespace().collect();

@@ -1,6 +1,9 @@
-//! The command names before the topic restructure, kept for one release:
+//! The command names before the topic restructure, which came after v0.1.0:
 //! [`rewrite`] turns an old command path into its new one before clap parses
-//! the arguments, so old calls run and help shows only the new names.
+//! the arguments, so old calls run and help shows only the new names. The
+//! release after v0.1.0 keeps them; delete this module, its call in main
+//! and the old `ferrule install` in `install::is_update` in the release
+//! after that.
 
 /// `[old path, new path]`, longest old path first.
 const PATHS: &[(&[&str], &[&str])] = &[
