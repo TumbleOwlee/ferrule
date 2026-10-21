@@ -343,9 +343,6 @@ const HINT_EXISTS: &str = "pick another id, or change the card with `ferrule boa
 fn hint_field(card: &str) -> String {
     board::fields_hint(board::CardId::parse(card).stage.is_some())
 }
-const HINT_GIT: &str =
-    "git commit failed; stage the changes with `git add` and read the message git prints on stderr";
-
 #[derive(Debug, Subcommand)]
 pub enum BoardCommand {
     /// List every card with its state and title.
@@ -886,85 +883,36 @@ pub(super) fn commit(
     message: &[String],
     out: &mut impl Write,
 ) -> io::Result<u8> {
+    use ferrule_core::run::commit;
     let here = std::env::current_dir()?;
-    let config = ferrule_core::config::Config::load(&project::main_checkout()).map_err(internal)?;
-    let branch = ferrule_core::git::out(&here, &["symbolic-ref", "--short", "-q", "HEAD"]);
-    if branch.as_deref() == Some(config.main_branch.as_str()) {
-        let hint = format!(
-            "commit on the run's branch, not {}: `ferrule gate approve <slug> gate2` creates it and its worktree; with --no-run, check out another branch first",
-            config.main_branch
-        );
-        let r = Refusal::new("commit", "main")
-            .field("branch", &config.main_branch)
-            .hint(hint);
-        return refuse(out, &r);
-    }
-    let mut store = None;
-    if let Some(id) = card {
-        let Some(s) = super::board::store()? else {
-            return refuse(out, &Refusal::card("commit"));
-        };
-        let run = board::CardId::parse(id).run;
-        let (state, want) = s
-            .read(|r| Ok::<_, StoreError>((r.state(id)?, r.field(run, "branch")?)))
-            .map_err(internal)?;
-        match state {
-            None => return refuse(out, &Refusal::card("commit")),
-            Some(State::InReview) => {}
-            Some(other) => {
-                let r = Refusal::new("commit", "state")
-                    .field("state", other)
-                    .hint(format!(
-                        "move the card to inreview first: `ferrule board move {id} inreview`"
-                    ));
-                return refuse(out, &r);
-            }
-        }
-        let want = want.filter(|b| !b.is_empty());
-        if let Some(want) = want
-            && branch.as_deref() != Some(want.as_str())
-        {
-            let r = Refusal::new("commit", "branch")
-                .field("want", &want)
-                .hint(format!(
-                    "check out {want}, the run's branch, and commit there"
-                ));
-            return refuse(out, &r);
-        }
-        store = Some(s);
-    }
-    let text = message.join("\n\n");
-    let text = ferrule_core::hook::attribution::strip(&text).unwrap_or(text);
-    let mut child = std::process::Command::new("git")
-        .arg("-C")
-        .arg(&here)
-        .args(["commit", "-q", "-F", "-"])
-        .stdin(std::process::Stdio::piped())
-        .spawn()?;
-    if let Some(mut stdin) = child.stdin.take() {
-        // git quitting before it read the message closes the pipe: its exit
-        // status, not the broken pipe, is the answer.
-        match stdin.write_all(format!("{text}\n").as_bytes()) {
-            Err(e) if e.kind() != io::ErrorKind::BrokenPipe => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(e);
-            }
-            _ => {}
-        }
-    }
-    if !child.wait()?.success() {
-        return refuse(out, &Refusal::new("commit", "git").hint(HINT_GIT));
-    }
-    let sha = ferrule_core::git::out(&here, &["rev-parse", "--short", "HEAD"]).unwrap_or_default();
-    write!(out, "commit=done sha={sha}")?;
-    if let (Some(mut s), Some(id)) = (store, card) {
-        if let Err(e) = s.write(|w| w.log(id, &format!("commit={sha}"), &[], &board::now())) {
+    let config = Config::load(&project::main_checkout()).map_err(internal)?;
+    let mut db = if card.is_some() { store()? } else { None };
+    let done = commit::commit(
+        db.as_mut(),
+        &here,
+        &config.main_branch,
+        card,
+        &message.join("\n\n"),
+        &board::now(),
+    )
+    .map_err(internal)?;
+    let c = match done {
+        Ok(c) => c,
+        Err(r) => return refuse(out, &r.refusal(card)),
+    };
+    write!(out, "commit=done sha={}", c.sha)?;
+    match c.logged {
+        None => {}
+        Some(Ok(id)) => write!(out, " card={id}")?,
+        Some(Err(e)) => {
             writeln!(out, " card-log=failed")?;
-            eprintln!("stage commit: committed {sha} but could not log it on {id}: {e}");
+            eprintln!(
+                "stage commit: committed {} but could not log it on {}: {e}",
+                c.sha,
+                card.unwrap_or("")
+            );
             return Ok(exit::REFUSED);
         }
-        write!(out, " card={id}")?;
     }
     writeln!(out)?;
     Ok(exit::OK)
