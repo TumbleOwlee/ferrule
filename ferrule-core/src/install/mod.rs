@@ -631,14 +631,26 @@ fn ensure_claude_md(root: &Path, lock: &mut Lock, report: &mut Report) -> std::i
     Ok(())
 }
 
-fn hooks_dir(root: &Path) -> Option<PathBuf> {
-    let dir = git::out(root, &["rev-parse", "--git-path", "hooks"])?;
-    Some(root.join(dir))
+/// Where git runs this repository's hooks, and whether that is inside its
+/// git directory: a `core.hooksPath` elsewhere (a global one) is shared
+/// with other repositories.
+fn hooks_dir(root: &Path) -> Option<(PathBuf, bool)> {
+    let dir = root.join(git::out(root, &["rev-parse", "--git-path", "hooks"])?);
+    let common = root.join(git::out(root, &["rev-parse", "--git-common-dir"])?);
+    let own = match (dir.canonicalize(), common.canonicalize()) {
+        (Ok(d), Ok(c)) => d.starts_with(c),
+        // Not there yet: git creates `hooks` under its own directory.
+        (Err(_), Ok(c)) => dir.parent().and_then(|p| p.canonicalize().ok()) == Some(c),
+        _ => false,
+    };
+    Some((dir, own))
 }
 
+/// A git hook calling the shim; a checkout without it (another repository
+/// sharing the hooks directory) is let through.
 fn git_hook_text(name: &str) -> String {
     format!(
-        "#!/bin/sh\n# {GENERATED} {VERSION}, edit .ferrule/ instead\nexec \"$(git rev-parse --show-toplevel)/.ferrule/ferrule\" hook git {name} \"$@\"\n"
+        "#!/bin/sh\n# {GENERATED} {VERSION}, edit .ferrule/ instead\nshim=\"$(git rev-parse --show-toplevel)/.ferrule/ferrule\"\n[ -x \"$shim\" ] || exit 0\nexec \"$shim\" hook git {name} \"$@\"\n"
     )
 }
 
@@ -666,13 +678,23 @@ fn ensure_git_hooks(root: &Path, report: &mut Report) -> std::io::Result<()> {
         }
         return Ok(());
     }
-    let Some(dir) = hooks_dir(root) else {
+    let Some((dir, own)) = hooks_dir(root) else {
         report.hooks = Some(Hooks::Manual);
         report
             .hints
             .push("hint=not a git repository: no git hooks written".to_owned());
         return Ok(());
     };
+    if !own {
+        report.hooks = Some(Hooks::Manual);
+        for name in GIT_HOOKS {
+            report.hints.push(format!(
+                "hint=core.hooksPath points outside the repository ({}): add to its {name}: .ferrule/ferrule hook git {name} \"$@\"",
+                dir.display()
+            ));
+        }
+        return Ok(());
+    }
     std::fs::create_dir_all(&dir)?;
     for name in GIT_HOOKS {
         let path = dir.join(name);
@@ -920,7 +942,9 @@ pub fn uninstall(root: &Path, purge: bool) -> Result<Removed, Error> {
             out.removed.push("CLAUDE.md".to_owned());
         }
     }
-    if let Some(dir) = hooks_dir(root) {
+    // Only this repository's own hooks directory: a shared one never got
+    // ferrule's hooks from this install.
+    if let Some((dir, true)) = hooks_dir(root) {
         for name in GIT_HOOKS {
             let path = dir.join(name);
             if std::fs::read_to_string(&path).is_ok_and(|t| t.contains(GENERATED)) {

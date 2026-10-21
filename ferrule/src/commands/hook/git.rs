@@ -25,7 +25,10 @@ Per hook (git passes its arguments and stdin):
                        stdin; refuses a push to the main branch: `ferrule:
                        push to '<main>' refused: merge to it by pull request
                        only.` (stderr, exit 1)
-Nothing is printed on stdout.
+pre-commit and pre-push refuse while ferrule.toml cannot be read:
+`ferrule: <error>; refusing until ferrule.toml reads` (stderr, exit 1).
+A hook in a checkout without .ferrule/ferrule exits 0 (a shared hooks
+directory). Nothing is printed on stdout.
 Exit codes: 0 ok, 1 refused (git aborts the operation), 2 usage,
 4 internal error.";
 
@@ -42,7 +45,15 @@ pub enum GitHook {
 /// Exit 1 refuses the git operation, with the reason on stderr.
 pub fn run(hook: GitHook, args: &[String], input: &mut impl Read) -> io::Result<u8> {
     let root = project::main_checkout();
-    let main = Config::load(&root).map_or_else(|_| "main".to_owned(), |c| c.main_branch);
+    // A config it cannot read refuses rather than guess the main branch.
+    let main = match Config::load(&root) {
+        Ok(c) => c.main_branch,
+        Err(e) if !matches!(hook, GitHook::CommitMsg) => {
+            eprintln!("ferrule: {e}; refusing until ferrule.toml reads");
+            return Ok(exit::REFUSED);
+        }
+        Err(_) => String::new(),
+    };
     match hook {
         GitHook::PreCommit => {
             let here = std::env::current_dir()?;

@@ -28,7 +28,9 @@ Output:
       What to do by hand: hint=run lefthook install; hint=add
       .ferrule/lefthook.yml to the extends list of the lefthook file;
       hint=add … to .husky/<hook>; hint=kept your .git/hooks/<hook> (call
-      ferrule's hook from it); hint=not a git repository; hint=no viewer
+      ferrule's hook from it); hint=not a git repository;
+      hint=core.hooksPath points outside the repository (a shared hooks
+      directory: no hook written, call ferrule's from yours); hint=no viewer
       (install glow and rerun).
 Refusals (stdout):
   install=refused reason=foreign path=<file> hint=--force overwrites it

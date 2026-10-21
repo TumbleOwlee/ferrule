@@ -443,3 +443,40 @@ fn it_install_refuses_a_settings_value_of_the_wrong_type() {
     );
     assert_eq!(read(root, ".claude/settings.json"), text);
 }
+
+#[test]
+fn it_install_leaves_a_shared_hooks_directory_alone() {
+    let dir = repo();
+    let root = dir.path();
+    let shared = tempfile::tempdir().unwrap();
+    let shared_dir = shared.path().to_str().unwrap();
+    git(root, &["config", "core.hooksPath", shared_dir]);
+    let out = ferrule(root, &["install"]);
+    assert!(out.contains(" hooks=manual "), "{out}");
+    assert!(
+        out.contains("hint=core.hooksPath points outside the repository ("),
+        "{out}"
+    );
+    assert!(!shared.path().join("pre-commit").exists());
+}
+
+#[test]
+fn it_git_hooks_pass_without_the_shim_and_refuse_without_a_config() {
+    let dir = repo();
+    let root = dir.path();
+    ferrule(root, &["install"]);
+    let hook = root.join(".git/hooks/pre-commit");
+    let other = tempfile::tempdir().unwrap();
+    git(other.path(), &["init", "-q", "-b", "main"]);
+    let status = Command::new(&hook)
+        .current_dir(other.path())
+        .status()
+        .unwrap();
+    assert!(status.success(), "a checkout without the shim passes");
+
+    git(root, &["checkout", "-q", "-b", "feat/x"]);
+    std::fs::write(root.join(".ferrule/ferrule.toml"), "main_branch = [\n").unwrap();
+    let (_, err, code) = stderr(root, &["hook", "git", "pre-commit"], "");
+    assert_eq!(code, 1, "{err}");
+    assert!(err.contains("refusing until ferrule.toml reads"), "{err}");
+}
