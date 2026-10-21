@@ -12,17 +12,42 @@ use serde_json::Value;
 use super::tracker::{Found, IssueTracker};
 use super::{Comment, Error, Item, ItemRef, MAX_PAGES, creds, curl, json};
 
-/// Every `text` leaf of an Atlassian document, joined by spaces.
+/// An Atlassian document as plain text, one line per paragraph, heading,
+/// list item and code line, so the line-based readers (`issue request`)
+/// find their lines: a hard break starts a new line, a list item is
+/// `- `, a mention or emoji is its text.
 fn adf_text(v: &Value) -> String {
-    fn walk(v: &Value, out: &mut Vec<String>) {
+    const BLOCKS: &[&str] = &[
+        "paragraph",
+        "heading",
+        "listItem",
+        "codeBlock",
+        "blockquote",
+        "rule",
+        "panel",
+        "tableRow",
+        "mediaSingle",
+    ];
+    fn walk(v: &Value, out: &mut String) {
         match v {
             Value::Object(m) => {
-                if let Some(Value::String(t)) = m.get("text") {
-                    out.push(t.clone());
-                }
-                for (k, x) in m {
-                    if k != "text" {
-                        walk(x, out);
+                let kind = m.get("type").and_then(Value::as_str).unwrap_or("");
+                match kind {
+                    "text" => out.push_str(m.get("text").and_then(Value::as_str).unwrap_or("")),
+                    "hardBreak" => out.push('\n'),
+                    "mention" | "emoji" => {
+                        out.push_str(m["attrs"]["text"].as_str().unwrap_or(""));
+                    }
+                    _ => {
+                        if kind == "listItem" {
+                            out.push_str("- ");
+                        }
+                        if let Some(c) = m.get("content") {
+                            walk(c, out);
+                        }
+                        if BLOCKS.contains(&kind) && !out.is_empty() && !out.ends_with('\n') {
+                            out.push('\n');
+                        }
                     }
                 }
             }
@@ -30,9 +55,9 @@ fn adf_text(v: &Value) -> String {
             _ => {}
         }
     }
-    let mut out = Vec::new();
+    let mut out = String::new();
     walk(v, &mut out);
-    out.join(" ")
+    out.trim_end().to_owned()
 }
 
 #[derive(Deserialize)]
@@ -203,12 +228,19 @@ mod tests {
     }
 
     #[test]
-    fn ut_adf_text_joins_leaves() {
+    fn ut_adf_text_keeps_lines() {
         let v: Value = serde_json::from_str(
-            r#"{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"a"},{"type":"text","text":"b"}]}]}"#,
+            r#"{"type":"doc","content":[
+                {"type":"heading","content":[{"type":"text","text":"Goal"}]},
+                {"type":"paragraph","content":[{"type":"text","text":"a "},{"type":"text","text":"b","marks":[{"type":"strong"}]},{"type":"hardBreak"},{"type":"text","text":"c"}]},
+                {"type":"bulletList","content":[
+                    {"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"one"}]}]},
+                    {"type":"listItem","content":[{"type":"paragraph","content":[{"type":"mention","attrs":{"text":"@al"}}]}]}
+                ]}
+            ]}"#,
         )
         .unwrap();
-        assert_eq!(adf_text(&v), "a b");
+        assert_eq!(adf_text(&v), "Goal\na b\nc\n- one\n- @al");
     }
 
     #[test]

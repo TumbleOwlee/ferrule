@@ -106,6 +106,20 @@ impl Bitbucket {
     }
 }
 
+/// The id of the top comment a reply hangs under, through any number of
+/// replies to replies; a broken or looping chain ends where it breaks.
+fn root_of<'a>(values: &[&'a Value], v: &'a Value) -> &'a Value {
+    let mut at = v;
+    for _ in 0..64 {
+        let parent = &at["parent"]["id"];
+        match values.iter().find(|c| c["id"] == *parent) {
+            Some(p) if !parent.is_null() => at = p,
+            _ => break,
+        }
+    }
+    &at["id"]
+}
+
 /// A Bitbucket pull request's state (`open`, `merged`; declined and
 /// superseded are `closed`), draft flag and description.
 fn status(pr: &Value) -> PrStatus {
@@ -237,7 +251,9 @@ impl CodeHost for Bitbucket {
                     values
                         .iter()
                         .filter(|v| {
-                            v["parent"]["id"] == r["id"] && v["deleted"] != Value::Bool(true)
+                            !v["parent"].is_null()
+                                && *root_of(&values, v) == r["id"]
+                                && v["deleted"] != Value::Bool(true)
                         })
                         .map(|v| comment(v)),
                 );
@@ -306,14 +322,10 @@ impl CodeHost for Bitbucket {
             };
             uuid
         };
-        let steps: Value = json(
-            &self.call(&["-g", &format!("{api}{uuid}/steps/")])?,
-            "bitbucket",
-        )?;
-        let failing: Vec<(&str, &str)> = steps["values"]
-            .as_array()
-            .into_iter()
-            .flatten()
+        // Every page: a failing step can sit past the first.
+        let steps = self.values(&format!("{api}{uuid}/steps/"))?;
+        let failing: Vec<(&str, &str)> = steps
+            .iter()
             .filter(|s| s["state"]["result"]["name"] == "FAILED")
             .filter_map(|s| Some((s["name"].as_str().unwrap_or(""), s["uuid"].as_str()?)))
             .collect();
@@ -325,6 +337,20 @@ impl CodeHost for Bitbucket {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ut_a_reply_to_a_reply_belongs_to_the_top_comment() {
+        let all: Vec<Value> = serde_json::from_str(
+            r#"[{"id":1},{"id":2,"parent":{"id":1}},{"id":3,"parent":{"id":2}},{"id":4,"parent":{"id":9}},{"id":5,"parent":{"id":6}},{"id":6,"parent":{"id":5}}]"#,
+        )
+        .unwrap();
+        let values: Vec<&Value> = all.iter().collect();
+        let root = |i: usize| root_of(&values, values[i]).as_u64();
+        assert_eq!(root(1), Some(1));
+        assert_eq!(root(2), Some(1));
+        assert_eq!(root(3), Some(4), "a missing parent ends the chain");
+        assert!(root(4).is_some(), "a loop ends");
+    }
 
     #[test]
     fn ut_bitbucket_pr_states() {
