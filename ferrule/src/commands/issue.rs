@@ -3,7 +3,6 @@ use std::io::{self, Write};
 
 use clap::{Args, Subcommand};
 use ferrule_core::body;
-use ferrule_core::config::Config;
 use ferrule_core::issue::request::{self, Part};
 use ferrule_core::pr::publish::{self, Target};
 use ferrule_core::project::{self, Layout};
@@ -13,7 +12,7 @@ use ferrule_core::term::{self, Style};
 
 use super::board::{run_on, store};
 use super::exit;
-use super::{internal, refuse};
+use super::{config, internal, refuse};
 
 const ISSUE_SEARCH_AFTER_LONG_HELP: &str = "\
 Output:
@@ -349,10 +348,6 @@ fn search(keywords: &[String], state: SearchState, out: &mut impl Write) -> io::
             Ok(exit::REFUSED)
         }
     }
-}
-
-fn config() -> io::Result<Config> {
-    Config::load(&project::main_checkout()).map_err(internal)
 }
 
 /// The configured issue tracker, in the current checkout.

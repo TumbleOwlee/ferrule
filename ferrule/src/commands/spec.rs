@@ -526,7 +526,7 @@ fn collisions(args: &CollisionsArgs, out: &mut impl Write) -> io::Result<u8> {
     let reference = if let Some(r) = &args.reference {
         r.clone()
     } else {
-        let config = Config::load(&project::main_checkout()).map_err(super::internal)?;
+        let config = super::config()?;
         format!("origin/{}", config.main_branch)
     };
     match spec::collisions(&args.worktree, &reference) {

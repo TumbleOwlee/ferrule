@@ -3,7 +3,6 @@ use std::io::{self, Write};
 use std::path::Path;
 
 use clap::{Args, Subcommand};
-use ferrule_core::config::Config;
 use ferrule_core::guide::{self, Context, Lane};
 use ferrule_core::project::{self, Layout};
 use ferrule_core::refusal::Refusal;
@@ -189,7 +188,7 @@ fn abs(p: &Path) -> String {
 }
 
 fn context(layout: &Layout, args: &ShowArgs) -> io::Result<Context> {
-    let config = Config::load(&layout.root).map_err(internal)?;
+    let config = super::config()?;
     let mut ctx = Context::default();
     ctx.vars.push(("main", config.main_branch));
     if let Some(stage) = &args.stage {

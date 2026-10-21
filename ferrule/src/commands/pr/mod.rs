@@ -257,7 +257,7 @@ pub enum PrCommand {
 }
 
 pub fn run(command: &PrCommand, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
-    let config = Config::load(&project::main_checkout()).map_err(internal)?;
+    let config = crate::commands::config()?;
     match command {
         PrCommand::View { pr, view } => {
             match remote::code_host(&config, &project::main_checkout()).view(pr) {

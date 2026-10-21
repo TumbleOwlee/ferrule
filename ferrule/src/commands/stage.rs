@@ -5,7 +5,6 @@ use std::io::{self, Write};
 
 use clap::{Subcommand, ValueEnum};
 use ferrule_core::card::board;
-use ferrule_core::config::Config;
 use ferrule_core::refusal::{CARD_HINT, Refusal};
 use ferrule_core::run::{self as core_run, Error, gate};
 
@@ -240,7 +239,7 @@ fn sha_check(slug: &str, stage: u32, sha: &str, out: &mut impl Write) -> io::Res
 
 fn stage_stop(slug: &str, stage: u32, threads: u32, out: &mut impl Write) -> io::Result<u8> {
     let layout = layout();
-    let config = Config::load(&layout.root).map_err(internal)?;
+    let config = super::config()?;
     let Some(mut s) = store()? else {
         return refuse(out, &Refusal::card("stage-stop"));
     };

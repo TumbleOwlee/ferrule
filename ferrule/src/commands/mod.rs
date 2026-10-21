@@ -24,6 +24,11 @@ pub fn layout() -> Layout {
     Layout::new(project::main_checkout())
 }
 
+/// The project's ferrule.toml, from the main checkout.
+pub fn config() -> io::Result<ferrule_core::config::Config> {
+    ferrule_core::config::Config::load(&project::main_checkout()).map_err(internal)
+}
+
 /// Prints a markdown document: as stored, or styled for the terminal.
 pub fn doc(out: &mut impl Write, style: Option<Style>, md: &str) -> io::Result<()> {
     match style {

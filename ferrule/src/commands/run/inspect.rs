@@ -3,7 +3,6 @@
 
 use std::io::{self, Write};
 
-use ferrule_core::config::Config;
 use ferrule_core::git;
 use ferrule_core::run::inspect::{self, Error, Invocation, Worktree};
 use ferrule_core::store::Reader;
@@ -65,7 +64,7 @@ fn or_dash(v: Option<&str>) -> &str {
 
 pub(super) fn status(slug: &str, out: &mut impl Write) -> io::Result<u8> {
     let layout = layout();
-    let config = Config::load(&layout.root).map_err(internal)?;
+    let config = crate::commands::config()?;
     let status = |r: Option<&Reader>| inspect::status(r, &layout, &config.main_branch, slug);
     let st = match store()? {
         Some(s) => s.read(|r| status(Some(r))),

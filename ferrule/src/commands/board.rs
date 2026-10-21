@@ -601,7 +601,7 @@ fn log(card: &str, event: &str, args: &[String], out: &mut impl Write) -> io::Re
     let Some(mut s) = store()? else {
         return refuse(out, &Refusal::card("card-log"));
     };
-    let config = Config::load(&project::main_checkout()).map_err(internal)?;
+    let config = super::config()?;
     match s.write(|w| {
         w.log_with_budget(
             card,
@@ -866,7 +866,7 @@ pub(crate) fn run_on<T>(
 /// run has a PR. A failure to reach the host does not undo the move.
 #[allow(clippy::redundant_closure_for_method_calls)]
 pub(crate) fn sync_draft(s: &mut Board, card: &str, out: &mut impl Write) -> io::Result<()> {
-    let config = Config::load(&project::main_checkout()).map_err(internal)?;
+    let config = super::config()?;
     match run_on(s, &config, publish::run_of(card), |r| r.sync_draft()) {
         Ok(Some(sync)) => writeln!(out, "{sync}"),
         Ok(None) => Ok(()),
@@ -885,7 +885,7 @@ pub(super) fn commit(
 ) -> io::Result<u8> {
     use ferrule_core::run::commit;
     let here = std::env::current_dir()?;
-    let config = Config::load(&project::main_checkout()).map_err(internal)?;
+    let config = super::config()?;
     let mut db = if card.is_some() { store()? } else { None };
     let done = commit::commit(
         db.as_mut(),

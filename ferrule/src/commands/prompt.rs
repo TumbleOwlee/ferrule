@@ -5,7 +5,6 @@ use std::process::{Command, Stdio};
 
 use clap::{Args, Subcommand, ValueEnum};
 use ferrule_core::card::board;
-use ferrule_core::config::Config;
 use ferrule_core::project::{self, Layout};
 use ferrule_core::prompt::render::{Kind, Viewed};
 use ferrule_core::prompt::{self, approval};
@@ -283,7 +282,7 @@ pub fn open(
     err: &mut impl Write,
 ) -> io::Result<Result<Vec<ShownFile>, u8>> {
     let layout = Layout::new(project::main_checkout());
-    let config = Config::load(&layout.root).map_err(internal)?;
+    let config = super::config()?;
     let mut abs = Vec::new();
     for f in files {
         let Ok(text) = std::fs::read_to_string(f) else {

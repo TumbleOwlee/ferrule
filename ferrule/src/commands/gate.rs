@@ -5,7 +5,6 @@ use std::io::{self, Write};
 
 use clap::{Args, Subcommand, ValueEnum};
 use ferrule_core::card::board;
-use ferrule_core::config::Config;
 use ferrule_core::refusal::Refusal;
 use ferrule_core::run::gate::{self, Gate};
 use ferrule_core::run::next::{self, At, Status};
@@ -294,7 +293,7 @@ fn approve(args: &ApproveArgs, out: &mut impl Write) -> io::Result<u8> {
         pairs.push(("kind".to_owned(), "epic".to_owned()));
     }
     let layout = layout();
-    let config = Config::load(&layout.root).map_err(internal)?;
+    let config = super::config()?;
     let Some(mut s) = store()? else {
         return refuse(out, &Refusal::card("approve"));
     };

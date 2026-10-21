@@ -4,7 +4,6 @@
 use std::io::{self, Write};
 
 use ferrule_core::card::board;
-use ferrule_core::config::Config;
 use ferrule_core::remote::{self, CodeHost, IssueTracker, Item, ItemRef};
 use ferrule_core::run::{self as core_run, Error, gate, rebuild};
 
@@ -13,7 +12,7 @@ use crate::commands::{exit, internal, layout, refuse};
 
 pub(super) fn init(slug: &str, issue: Option<&ItemRef>, out: &mut impl Write) -> io::Result<u8> {
     let layout = layout();
-    let config = Config::load(&layout.root).map_err(internal)?;
+    let config = crate::commands::config()?;
     let mut s = create_store()?;
     match gate::init(&mut s, &layout, &config, slug, issue, &board::now()) {
         Ok(epic) => {
@@ -44,7 +43,7 @@ pub(super) fn reconcile(slug: &str, local: bool, out: &mut impl Write) -> io::Re
         Err(Error::Sql(e)) => return Err(internal(e)),
     };
     if !local && let Some(s) = store.as_mut() {
-        let config = Config::load(&layout.root).map_err(internal)?;
+        let config = crate::commands::config()?;
         match run_on(s, &config, slug, |r| r.reconcile_remote()) {
             Ok(rows) => r.differ.extend(rows),
             Err(e) => r.differ.push(format!("host unreadable: {e}")),
@@ -102,7 +101,7 @@ impl rebuild::Source for Remote {
 
 pub(super) fn rebuild(issue: &ItemRef, pr: &ItemRef, out: &mut impl Write) -> io::Result<u8> {
     let layout = layout();
-    let config = Config::load(&layout.root).map_err(internal)?;
+    let config = crate::commands::config()?;
     let main = config.main_branch.clone();
     let source = Remote {
         host: remote::code_host(&config, &layout.root),

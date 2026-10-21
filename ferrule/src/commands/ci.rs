@@ -5,10 +5,9 @@ use std::io::{self, Write};
 
 use clap::Subcommand;
 use ferrule_core::card::board;
-use ferrule_core::config::Config;
 use ferrule_core::refusal::Refusal;
+use ferrule_core::remote;
 use ferrule_core::run::gauntlet::{self, Outcome};
-use ferrule_core::{project, remote};
 
 use super::board::store;
 use super::{exit, internal, layout, refuse};
@@ -128,7 +127,7 @@ pub fn run(command: &CiCommand, out: &mut impl Write) -> io::Result<u8> {
             job,
             context,
         } => {
-            let config = Config::load(&project::main_checkout()).map_err(internal)?;
+            let config = super::config()?;
             let query = remote::Query {
                 run: run.as_deref(),
                 job: job.as_deref(),
@@ -141,7 +140,7 @@ pub fn run(command: &CiCommand, out: &mut impl Write) -> io::Result<u8> {
 
 fn run_gauntlet(slug: &str, force: bool, out: &mut impl Write) -> io::Result<u8> {
     let layout = layout();
-    let config = Config::load(&layout.root).map_err(internal)?;
+    let config = super::config()?;
     // No board, no run: the gauntlet never creates one.
     let Some(s) = store()? else {
         return refuse(out, &Refusal::card("gauntlet"));
@@ -171,7 +170,7 @@ fn run_gauntlet(slug: &str, force: bool, out: &mut impl Write) -> io::Result<u8>
 fn wait(slug: &str, out: &mut impl Write) -> io::Result<u8> {
     use ferrule_core::run::ci;
     let layout = layout();
-    let config = Config::load(&layout.root).map_err(internal)?;
+    let config = super::config()?;
     let Some(mut s) = store()? else {
         return refuse(out, &Refusal::card("ci"));
     };
