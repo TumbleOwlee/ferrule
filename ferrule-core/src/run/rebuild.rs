@@ -26,6 +26,11 @@ pub enum Refused {
     NoIssue,
     /// A ticked stage's commit is not in the repository.
     Sha(String),
+    /// A ticked stage names no commit.
+    NoSha(String),
+    /// The branch is not `<prefix>/<slug>`: the slug would be empty or hold
+    /// a slash.
+    BadBranch(String),
     Worktree(git::GitError),
 }
 
@@ -40,6 +45,8 @@ impl Refused {
             Refused::BoardExists => "board-exists",
             Refused::NoIssue => "no-issue",
             Refused::Sha(_) => "sha",
+            Refused::NoSha(_) => "no-sha",
+            Refused::BadBranch(_) => "bad-branch",
             Refused::Worktree(_) => "worktree",
         };
         let hint = match self {
@@ -51,11 +58,23 @@ impl Refused {
             Refused::BoardExists => "resume it with `ferrule run reconcile <slug>` instead",
             Refused::NoIssue => "check the tracking issue number",
             Refused::Sha(_) => "fetch the branch so the ticked stage's commit exists",
+            Refused::NoSha(_) => {
+                "tick the stage as `- [x] <title> (<sha>) <!-- s<n> -->` with its commit, or untick it"
+            }
+            Refused::BadBranch(_) => {
+                "name the branch `<prefix>/<slug>` with a slug without slashes, e.g. feat/<slug>"
+            }
             Refused::Worktree(_) => "git could not add the worktree; check `git worktree list`",
         };
         let mut r = Refusal::new("rebuild", reason);
         if let Refused::Sha(sha) = self {
             r = r.field("sha", sha);
+        }
+        if let Refused::NoSha(stage) = self {
+            r = r.field("stage", stage);
+        }
+        if let Refused::BadBranch(branch) = self {
+            r = r.field("branch", branch);
         }
         if let Refused::Worktree(e) = self {
             r = r.detail(&e.stderr);
@@ -298,6 +317,16 @@ fn spec_entries(root: &Path, main: &str, branch: &str) -> Vec<String> {
     out
 }
 
+/// The run's slug from its branch `<prefix>/<slug>`; a slug is one path
+/// segment, so an empty one or one with a slash is refused.
+fn slug_of(branch: &str) -> Result<String, Refused> {
+    let slug = branch.split_once('/').map_or(branch, |(_, s)| s);
+    if slug.is_empty() || slug.contains('/') {
+        return Err(Refused::BadBranch(branch.to_owned()));
+    }
+    Ok(slug.to_owned())
+}
+
 /// Recreates the board of the run on `pr`'s branch, `issue` its tracking
 /// issue. Returns the slug, the stage count and the next stage.
 pub fn rebuild(
@@ -315,10 +344,7 @@ pub fn rebuild(
         return Err(Refused::NoStages.into());
     }
     let branch = source.branch().ok_or(Refused::NoBranch)?;
-    let slug = branch
-        .split_once('/')
-        .map_or(branch.as_str(), |(_, s)| s)
-        .to_owned();
+    let slug = slug_of(&branch)?;
     let exists = board::state(conn, &slug)?.is_some()
         || !board::stages(conn, &slug)?.is_empty()
         || layout.run_dir(&slug).exists();
@@ -334,7 +360,7 @@ pub fn rebuild(
         return Err(Refused::NoStages.into());
     }
     for s in st.iter().filter(|s| s.done) {
-        let sha = s.sha.clone().unwrap_or_default();
+        let sha = s.sha.clone().ok_or_else(|| Refused::NoSha(s.sid.clone()))?;
         if !git::ok(root, &["cat-file", "-e", &format!("{sha}^{{commit}}")]) {
             return Err(Refused::Sha(sha).into());
         }

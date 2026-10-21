@@ -174,6 +174,20 @@ enum StepResult {
     TimedOut,
 }
 
+/// Kills the step's whole process group; the child leads its own.
+#[cfg(unix)]
+fn kill_group(child: &std::process::Child) {
+    let _ = Command::new("kill")
+        .args(["-KILL", "--", &format!("-{}", child.id())])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
+#[cfg(not(unix))]
+fn kill_group(_: &std::process::Child) {}
+
 /// Runs one step with its output appended to `log`, killed after its
 /// timeout.
 fn run_step(wt: &Path, step: &Step, log: &Path) -> std::io::Result<StepResult> {
@@ -182,13 +196,17 @@ fn run_step(wt: &Path, step: &Step, log: &Path) -> std::io::Result<StepResult> {
     let Some((program, args)) = step.cmd.split_first() else {
         return Ok(StepResult::Failed);
     };
-    let child = Command::new(program)
+    let mut command = Command::new(program);
+    command
         .args(args)
         .current_dir(wt)
         .stdin(Stdio::null())
         .stdout(file.try_clone()?)
-        .stderr(file)
-        .spawn();
+        .stderr(file);
+    // Its own process group, so a timeout reaches what the step spawned.
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut command, 0);
+    let child = command.spawn();
     let Ok(mut child) = child else {
         return Ok(StepResult::Failed);
     };
@@ -202,6 +220,7 @@ fn run_step(wt: &Path, step: &Step, log: &Path) -> std::io::Result<StepResult> {
             });
         }
         if Instant::now() >= deadline {
+            kill_group(&child);
             let _ = child.kill();
             let _ = child.wait();
             return Ok(StepResult::TimedOut);
@@ -297,5 +316,38 @@ mod tests {
         let out = "Filename  Regions Missed Cover Functions Missed Executed Lines Missed Cover\nTOTAL 100 20 80.00% 10 1 90.00% 500 94 81.20%\n";
         assert_eq!(coverage(out).as_deref(), Some("81.20%"));
         assert_eq!(coverage("nothing\n"), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ut_timeout_kills_the_steps_grandchildren() {
+        let dir = tempfile::tempdir().unwrap();
+        let pidfile = dir.path().join("pid");
+        let step = Step {
+            name: "slow".into(),
+            cmd: vec![
+                "sh".into(),
+                "-c".into(),
+                format!("sh -c 'echo $$ > {}; sleep 100' & wait", pidfile.display()),
+            ],
+            timeout: Duration::from_secs(1),
+            coverage: None,
+        };
+        let log = dir.path().join("log");
+        assert!(matches!(
+            run_step(dir.path(), &step, &log).unwrap(),
+            StepResult::TimedOut
+        ));
+        let pid = std::fs::read_to_string(&pidfile).unwrap();
+        let alive = (0..20).any(|_| {
+            std::thread::sleep(Duration::from_millis(50));
+            Command::new("kill")
+                .args(["-0", pid.trim()])
+                .stderr(Stdio::null())
+                .status()
+                .unwrap()
+                .success()
+        });
+        assert!(!alive, "grandchild {pid} survived the timeout");
     }
 }

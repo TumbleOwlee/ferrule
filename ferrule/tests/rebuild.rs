@@ -254,3 +254,38 @@ fn it_rebuild_re_adds_a_missing_worktree_and_refuses_a_blocked_one() {
     );
     assert!(!r.root.join(".ferrule/runs/rb").exists());
 }
+
+#[test]
+fn it_rebuild_refuses_a_ticked_stage_without_a_sha() {
+    let r = Repo::new();
+    let text = std::fs::read_to_string(fixtures().join("pr/rebuild.txt"))
+        .unwrap()
+        .replace(" (SHA0)", "")
+        .replace("SHA1", &r.sha1);
+    r.gh.serve(&["pr", "view", "22", "--json", GH_FIELDS], &gh_json(&text));
+    let refused = r.rebuild();
+    assert!(
+        refused.starts_with("rebuild=refused reason=no-sha stage=s0 hint=tick the stage as"),
+        "{refused}"
+    );
+    assert!(!r.root.join(".ferrule/runs/rb").exists());
+}
+
+#[test]
+fn it_rebuild_refuses_a_nested_branch_name() {
+    let r = Repo::new();
+    for branch in ["feat/a/b", "feat/"] {
+        r.gh.serve(
+            &["api", "repos/{owner}/{repo}/pulls/22", "--jq", ".head.ref"],
+            &format!("{branch}\n"),
+        );
+        let refused = r.rebuild();
+        assert!(
+            refused.starts_with(&format!(
+                "rebuild=refused reason=bad-branch branch={branch} hint=name the branch"
+            )),
+            "{refused}"
+        );
+    }
+    assert!(!r.root.join(".ferrule/runs/rb").exists());
+}

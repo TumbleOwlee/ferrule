@@ -85,6 +85,12 @@ Refusals (nothing is written):
   rebuild=refused reason=no-issue      The tracking issue could not be read
   rebuild=refused reason=sha sha=<sha> A ticked stage's commit is not in the
                                        repository
+  rebuild=refused reason=no-sha stage=s<n>
+                                       A ticked stage line has no `(<sha>)`
+  rebuild=refused reason=bad-branch branch=<branch>
+                                       The branch is not `<prefix>/<slug>`; the
+                                       slug (after the first `/`) must be
+                                       non-empty and hold no slash
   rebuild=refused reason=worktree      `git worktree add` failed
 Refusals end in ` hint=<fix>`.
 Exit codes: 0 done, 1 refused, 2 usage, 4 internal error.
