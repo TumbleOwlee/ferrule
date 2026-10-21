@@ -82,10 +82,14 @@ impl Status {
             At::Ci => self.ci.clone().filter(|c| digits(c)),
             _ => self.status.clone(),
         };
-        let issue_ok = self
-            .issue
-            .as_deref()
-            .is_none_or(|i| i == "new" || digits(i));
+        let issue_ok = self.issue.as_deref().is_none_or(|i| {
+            i == "new"
+                || digits(i)
+                || matches!(
+                    crate::remote::ItemRef::parse(i),
+                    Ok(crate::remote::ItemRef::Key(_))
+                )
+        });
         let count_ok = word.as_deref() != Some("findings")
             || self
                 .count

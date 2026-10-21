@@ -175,7 +175,7 @@ impl IssueTracker for Jira {
         })
     }
 
-    fn create(&self, _title: &str, _body: &str) -> Result<u64, Error> {
+    fn create(&self, _title: &str, _body: &str) -> Result<ItemRef, Error> {
         Err(self.unsupported("issue create"))
     }
 
@@ -187,7 +187,7 @@ impl IssueTracker for Jira {
         Err(self.unsupported("issue comment"))
     }
 
-    fn find_open(&self, _title: &str) -> Result<Option<u64>, Error> {
+    fn find_open(&self, _title: &str) -> Result<Option<ItemRef>, Error> {
         Err(self.unsupported("issue search"))
     }
 

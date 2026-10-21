@@ -350,12 +350,12 @@ impl IssueTracker for Gh {
         Ok(item.into())
     }
 
-    fn create(&self, title: &str, body: &str) -> Result<u64, Error> {
+    fn create(&self, title: &str, body: &str) -> Result<ItemRef, Error> {
         let url = self.gh(
             &["issue", "create", "--title", title, "--body-file", "-"],
             Some(body),
         )?;
-        number_of(&url)
+        number_of(&url).map(ItemRef::Number)
     }
 
     fn edit(&self, issue: &ItemRef, title: &str, body: &str) -> Result<(), Error> {
@@ -382,7 +382,7 @@ impl IssueTracker for Gh {
         .map(drop)
     }
 
-    fn find_open(&self, title: &str) -> Result<Option<u64>, Error> {
+    fn find_open(&self, title: &str) -> Result<Option<ItemRef>, Error> {
         #[derive(Deserialize)]
         struct Hit {
             number: u64,
@@ -411,7 +411,7 @@ impl IssueTracker for Gh {
         Ok(found
             .into_iter()
             .find(|f| f.title == title)
-            .map(|f| f.number))
+            .map(|f| ItemRef::Number(f.number)))
     }
 
     fn search(&self, keywords: &[String], state: &str, limit: usize) -> Result<Vec<Found>, Error> {

@@ -20,7 +20,7 @@ use crate::spec::{
     diff::{Part, Render, SpecDiff},
 };
 use crate::store::Reader;
-use crate::{artifacts, git, markdown, pr};
+use crate::{artifacts, git, markdown, remote};
 
 #[derive(Debug)]
 pub enum Error {
@@ -211,13 +211,14 @@ fn first_line(text: &str) -> &str {
     text.lines().next().unwrap_or("")
 }
 
-/// `[71, -, 73]` → its n-th item, 1-based; `None` for `-`.
+/// `[71, -, KEY-3]` → its n-th item, 1-based, as a body cites it (`#71`,
+/// `KEY-3`); `None` for `-`.
 fn nth(list: Option<&str>, n: usize) -> Option<String> {
-    pr::publish::slots(list)
+    remote::slots(list)
         .get(n.checked_sub(1)?)
-        .copied()
+        .cloned()
         .flatten()
-        .map(|n| n.to_string())
+        .map(|r| r.cite())
 }
 
 /// An issue.md section's lines without blanks, under its heading.
@@ -305,7 +306,7 @@ fn slice_issue(c: &Ctx, issue: &str, n: u32) -> Result<String, Error> {
         .filter(|d| !d.is_empty() && *d != "none")
         .map(|d| {
             let num = d.parse().ok().and_then(|i| nth(slices_field.as_deref(), i));
-            num.map_or_else(|| format!("slice {d}"), |n| format!("#{n}"))
+            num.unwrap_or_else(|| format!("slice {d}"))
         })
         .collect();
     let deps = if deps.is_empty() {
@@ -391,7 +392,7 @@ fn epic_parts(c: &Ctx, out: &mut String) -> Result<(), Error> {
         out.push_str("## Slices\n");
         for s in artifacts::slices(&text) {
             let link = nth(slices_field.as_deref(), s.n as usize)
-                .map_or_else(|| "not filed yet".to_owned(), |n| format!("#{n}"));
+                .unwrap_or_else(|| "not filed yet".to_owned());
             let _ = writeln!(out, "- [ ] **Slice {}: {}** — {link}", s.n, s.title);
             let _ = writeln!(out, "  - {}", s.get("Goal"));
             let _ = writeln!(out, "  - depends on: {}", s.get("Depends on"));
@@ -585,8 +586,9 @@ fn spec_rev(c: &Ctx) -> Option<u32> {
 }
 
 fn issue_ref(c: &Ctx) -> Result<String, Error> {
-    Ok(c.field("issue")?
-        .map_or_else(|| "the tracking issue".to_owned(), |i| format!("#{i}")))
+    Ok(remote::refs(c.field("issue")?.as_deref())
+        .first()
+        .map_or_else(|| "the tracking issue".to_owned(), remote::ItemRef::cite))
 }
 
 /// The requirements table with its Issue column.
@@ -852,12 +854,9 @@ fn full(c: &Ctx, issue: &str, deltas: &[Delta]) -> Result<String, Error> {
         let _ = write!(status, " · review {review}");
     }
     if let Some(split) = c.field("split")? {
-        let list: Vec<String> = split
-            .trim_matches(|ch| ch == '[' || ch == ']')
-            .split(',')
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(|s| format!("#{s}"))
+        let list: Vec<String> = remote::refs(Some(&split))
+            .iter()
+            .map(remote::ItemRef::cite)
             .collect();
         let _ = write!(status, " · split off: {}", list.join(", "));
     }
@@ -954,11 +953,12 @@ mod tests {
 
     #[test]
     fn ut_nth() {
-        assert_eq!(nth(Some("[71, 72]"), 2).as_deref(), Some("72"));
+        assert_eq!(nth(Some("[71, 72]"), 2).as_deref(), Some("#72"));
+        assert_eq!(nth(Some("[71, KEY-2]"), 2).as_deref(), Some("KEY-2"));
         assert_eq!(nth(Some("[71]"), 2), None);
         assert_eq!(nth(None, 1), None);
         assert_eq!(nth(Some("[-, 72]"), 1), None);
-        assert_eq!(nth(Some("[-, 72]"), 2).as_deref(), Some("72"));
+        assert_eq!(nth(Some("[-, 72]"), 2).as_deref(), Some("#72"));
         assert_eq!(nth(Some("[71]"), 0), None);
     }
 }

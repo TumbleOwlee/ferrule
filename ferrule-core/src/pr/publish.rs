@@ -196,38 +196,8 @@ pub fn numbers(list: Option<&str>) -> Vec<u64> {
         .collect()
 }
 
-fn list(numbers: &[u64]) -> String {
-    let items: Vec<String> = numbers.iter().map(u64::to_string).collect();
-    format!("[{}]", items.join(", "))
-}
-
-/// `[71, -, 73]` by position: item n is slice n's issue, `-` one not
-/// filed yet.
-#[must_use]
-pub fn slots(list: Option<&str>) -> Vec<Option<u64>> {
-    let inner = list
-        .unwrap_or("")
-        .trim()
-        .trim_matches(|c| c == '[' || c == ']');
-    if inner.trim().is_empty() {
-        return Vec::new();
-    }
-    inner
-        .split(',')
-        .map(|n| n.trim().trim_start_matches('#').parse().ok())
-        .collect()
-}
-
-fn slot_list(slots: &[Option<u64>]) -> String {
-    let items: Vec<String> = slots
-        .iter()
-        .map(|n| n.map_or_else(|| "-".to_owned(), |n| n.to_string()))
-        .collect();
-    format!("[{}]", items.join(", "))
-}
-
 /// A `posted=` event's issue, sum and k.
-type Posted = (Option<u64>, Option<String>, Option<u32>);
+type Posted = (Option<ItemRef>, Option<String>, Option<u32>);
 
 /// The run's parent card, its artifacts and its hosts.
 pub struct Run<'a> {
@@ -303,31 +273,39 @@ impl Run<'_> {
                     issue,
                     sum,
                     k,
-                } if w == what => Some((issue, sum.map(str::to_owned), k)),
+                } if w == what => Some((
+                    issue.and_then(|i| ItemRef::parse(i).ok()),
+                    sum.map(str::to_owned),
+                    k,
+                )),
                 _ => None,
             })
             .collect())
     }
 
-    fn issue(&self) -> Result<u64, Error> {
-        numbers(self.field("issue")?.as_deref())
-            .first()
-            .copied()
+    fn issue(&self) -> Result<ItemRef, Error> {
+        remote::refs(self.field("issue")?.as_deref())
+            .into_iter()
+            .next()
             .ok_or(Error::NoIssue)
     }
 
     /// Adopts the user's open issue titled `title`, giving it `body`, else
     /// files a new one.
-    fn adopt_or_create(&self, title: &str, body: &str) -> Result<(u64, Action), Error> {
+    fn adopt_or_create(&self, title: &str, body: &str) -> Result<(ItemRef, Action), Error> {
         if let Some(n) = self.tracker.find_open(title)? {
-            self.tracker.edit(&ItemRef::Number(n), title, body)?;
+            self.tracker.edit(&n, title, body)?;
             return Ok((n, Action::Adopted));
         }
         Ok((self.tracker.create(title, body)?, Action::Created))
     }
 
     /// Posts `target`; the issue posted to and what happened.
-    pub fn file(&mut self, target: Target, reuse: Option<u64>) -> Result<(u64, Action), Error> {
+    pub fn file(
+        &mut self,
+        target: Target,
+        reuse: Option<ItemRef>,
+    ) -> Result<(ItemRef, Action), Error> {
         if board::state(self.conn, self.slug)?.is_none() {
             return Err(Error::Card);
         }
@@ -342,7 +320,7 @@ impl Run<'_> {
 
     /// follow-up-k.md, filed once: a `posted=follow-up k=<k>` names the
     /// issue it became.
-    fn file_follow_up(&mut self, k: u32) -> Result<(u64, Action), Error> {
+    fn file_follow_up(&mut self, k: u32) -> Result<(ItemRef, Action), Error> {
         let issue = self.issue()?;
         if let Some(n) = self
             .posted("follow-up")?
@@ -352,7 +330,7 @@ impl Run<'_> {
             return Ok((n, Action::Recorded));
         }
         let (title, body) = split_title(&self.artifact(&format!("follow-up-{k}.md"))?);
-        let body = format!("{}\n\nFound in #{issue}\n", body.trim_end());
+        let body = format!("{}\n\nFound in {}\n", body.trim_end(), issue.cite());
         let (n, action) = self.adopt_or_create(&title, &body)?;
         self.log(
             "posted=follow-up",
@@ -364,14 +342,16 @@ impl Run<'_> {
     /// issue-comment.md on the tracking issue and a slice's epic, each
     /// target once per text: a `posted=comment issue=<n> sum=<hash>`
     /// marks one done, so a rerun after a failure posts only the rest.
-    fn file_comment(&mut self) -> Result<(u64, Action), Error> {
+    fn file_comment(&mut self) -> Result<(ItemRef, Action), Error> {
         let issue = self.issue()?;
         let text = self.artifact("issue-comment.md")?;
         let text = attribution::strip(&text).unwrap_or(text);
         let sum = crate::install::hash(&text);
-        let mut targets = vec![issue];
+        let mut targets = vec![issue.clone()];
         if self.field("kind")?.as_deref() == Some("slice")
-            && let Some(&epic) = numbers(self.field("epic")?.as_deref()).first()
+            && let Some(epic) = remote::refs(self.field("epic")?.as_deref())
+                .into_iter()
+                .next()
         {
             targets.push(epic);
         }
@@ -384,18 +364,18 @@ impl Run<'_> {
         for t in targets {
             if done
                 .iter()
-                .any(|(n, s, _)| *n == Some(t) && s.as_deref() == Some(sum.as_str()))
+                .any(|(n, s, _)| n.as_ref() == Some(&t) && s.as_deref() == Some(sum.as_str()))
             {
                 continue;
             }
             let on_issue = self
                 .tracker
-                .view(&ItemRef::Number(t))?
+                .view(&t)?
                 .comments
                 .iter()
                 .any(|c| c.body.contains(&marker));
             if !on_issue {
-                self.tracker.comment(&ItemRef::Number(t), &body)?;
+                self.tracker.comment(&t, &body)?;
             }
             self.log(
                 "posted=comment",
@@ -406,17 +386,19 @@ impl Run<'_> {
         Ok((issue, action))
     }
 
-    fn file_run(&mut self, reuse: Option<u64>) -> Result<(u64, Action), Error> {
+    fn file_run(&mut self, reuse: Option<ItemRef>) -> Result<(ItemRef, Action), Error> {
         let rendered = snapshot(self.conn, |r| body::issue(r, self.layout, self.slug, None))?;
         let (title, body) = split_title(&rendered);
-        let current = numbers(self.field("issue")?.as_deref()).first().copied();
+        let current = remote::refs(self.field("issue")?.as_deref())
+            .into_iter()
+            .next();
         let (n, action) = match (reuse, current) {
             (Some(n), _) => {
-                self.tracker.edit(&ItemRef::Number(n), &title, &body)?;
+                self.tracker.edit(&n, &title, &body)?;
                 (n, Action::Edited)
             }
             (None, Some(n)) if self.field("kind")?.as_deref() == Some("epic") => {
-                self.tracker.edit(&ItemRef::Number(n), &title, &body)?;
+                self.tracker.edit(&n, &title, &body)?;
                 (n, Action::Edited)
             }
             (None, Some(n)) => (n, Action::Recorded),
@@ -426,13 +408,13 @@ impl Run<'_> {
         Ok((n, action))
     }
 
-    fn file_slice(&mut self, slice: u32) -> Result<(u64, Action), Error> {
+    fn file_slice(&mut self, slice: u32) -> Result<(ItemRef, Action), Error> {
         let Some(at) = (slice as usize).checked_sub(1) else {
             return Err(Error::Body(body::Error::NoSlice(slice)));
         };
-        let mut slots = slots(self.field("slices")?.as_deref());
-        if let Some(&Some(n)) = slots.get(at) {
-            return Ok((n, Action::Recorded));
+        let mut slots = remote::slots(self.field("slices")?.as_deref());
+        if let Some(Some(n)) = slots.get(at) {
+            return Ok((n.clone(), Action::Recorded));
         }
         let rendered = snapshot(self.conn, |r| {
             body::issue(r, self.layout, self.slug, Some(slice))
@@ -442,34 +424,40 @@ impl Run<'_> {
         if slots.len() <= at {
             slots.resize(at + 1, None);
         }
-        slots[at] = Some(n);
-        self.set("slices", &slot_list(&slots))?;
+        slots[at] = Some(n.clone());
+        self.set("slices", &remote::slot_list(&slots))?;
         Ok((n, action))
     }
 
-    fn file_split(&mut self) -> Result<(u64, Action), Error> {
-        let issue = self.issue()?;
+    fn file_split(&mut self) -> Result<(ItemRef, Action), Error> {
+        let issue = self.issue()?.cite();
         let (title, body) = split_title(&self.artifact("split-issue.md")?);
         let epic = if self.field("kind")?.as_deref() == Some("slice") {
-            numbers(self.field("epic")?.as_deref()).first().copied()
+            remote::refs(self.field("epic")?.as_deref())
+                .into_iter()
+                .next()
         } else {
             None
         };
         let mut text = String::new();
-        if let Some(e) = epic {
-            let _ = write!(text, "**Part of epic** #{e} · split from #{issue}\n\n");
+        if let Some(e) = &epic {
+            let _ = write!(
+                text,
+                "**Part of epic** {} · split from {issue}\n\n",
+                e.cite()
+            );
         }
         text.push_str(body.trim_end());
-        let _ = write!(text, "\n\nSplit from #{issue}\n");
+        let _ = write!(text, "\n\nSplit from {issue}\n");
         let (n, action) = self.adopt_or_create(&title, &text)?;
-        if let (Some(e), Action::Created) = (epic, action) {
-            let note = format!("Split off #{n} from #{issue}.\n");
-            self.tracker.comment(&ItemRef::Number(e), &note)?;
+        if let (Some(e), Action::Created) = (&epic, action) {
+            let note = format!("Split off {} from {issue}.\n", n.cite());
+            self.tracker.comment(e, &note)?;
         }
-        let mut split = numbers(self.field("split")?.as_deref());
+        let mut split = remote::refs(self.field("split")?.as_deref());
         if !split.contains(&n) {
-            split.push(n);
-            self.set("split", &list(&split))?;
+            split.push(n.clone());
+            self.set("split", &remote::ref_list(&split))?;
         }
         Ok((n, action))
     }
@@ -772,7 +760,7 @@ impl Run<'_> {
     pub fn publish(
         &mut self,
         keep: Option<&[u32]>,
-    ) -> Result<Result<(u64, Vec<u64>), PublishRefused>, Error> {
+    ) -> Result<Result<(u64, Vec<ItemRef>), PublishRefused>, Error> {
         if board::state(self.conn, self.slug)?.is_none() {
             return Err(Error::Card);
         }
@@ -833,7 +821,7 @@ impl Run<'_> {
             filed.push(n);
         }
         if new {
-            let list: Vec<String> = filed.iter().map(u64::to_string).collect();
+            let list: Vec<String> = filed.iter().map(ToString::to_string).collect();
             self.log(&format!("follow-ups=[{}]", list.join(",")), &[])?;
         }
         Ok(Ok((pr, filed)))
@@ -1093,8 +1081,14 @@ mod tests {
         let config = Config::default();
         let mut run = run_on(&mut db, &layout, &config, &host);
         run.tracker = Box::new(tracker.clone());
-        assert_eq!(run.file(Target::Run, None).unwrap(), (31, Action::Adopted));
-        assert_eq!(run.file(Target::Run, None).unwrap(), (31, Action::Recorded));
+        assert_eq!(
+            run.file(Target::Run, None).unwrap(),
+            (ItemRef::Number(31), Action::Adopted)
+        );
+        assert_eq!(
+            run.file(Target::Run, None).unwrap(),
+            (ItemRef::Number(31), Action::Recorded)
+        );
         assert_eq!(
             tracker.calls(),
             ["find_open Retry clients", "edit 31 Retry clients"],
@@ -1116,8 +1110,14 @@ mod tests {
         let config = Config::default();
         let mut run = run_on(&mut db, &layout, &config, &host);
         run.tracker = Box::new(tracker.clone());
-        assert_eq!(run.file(Target::Run, None).unwrap(), (8, Action::Created));
-        assert_eq!(run.file(Target::Run, None).unwrap(), (8, Action::Recorded));
+        assert_eq!(
+            run.file(Target::Run, None).unwrap(),
+            (ItemRef::Number(8), Action::Created)
+        );
+        assert_eq!(
+            run.file(Target::Run, None).unwrap(),
+            (ItemRef::Number(8), Action::Recorded)
+        );
         assert_eq!(
             tracker.calls(),
             ["find_open Retry clients", "create Retry clients"]
@@ -1135,11 +1135,11 @@ mod tests {
         run.tracker = Box::new(tracker.clone());
         assert_eq!(
             run.file(Target::Comment, None).unwrap(),
-            (12, Action::Commented)
+            (ItemRef::Number(12), Action::Commented)
         );
         assert_eq!(
             run.file(Target::Comment, None).unwrap(),
-            (12, Action::Recorded)
+            (ItemRef::Number(12), Action::Recorded)
         );
         assert_eq!(
             tracker.calls(),
@@ -1259,14 +1259,5 @@ mod tests {
     fn ut_numbers() {
         assert_eq!(numbers(Some("[71, #72]")), [71, 72]);
         assert!(numbers(None).is_empty());
-        assert_eq!(list(&[1, 2]), "[1, 2]");
-    }
-
-    #[test]
-    fn ut_slots_keep_positions() {
-        assert_eq!(slots(Some("[71, -, #73]")), [Some(71), None, Some(73)]);
-        assert!(slots(Some("[]")).is_empty());
-        assert!(slots(None).is_empty());
-        assert_eq!(slot_list(&[None, Some(72)]), "[-, 72]");
     }
 }

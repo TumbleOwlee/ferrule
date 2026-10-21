@@ -212,13 +212,13 @@ impl IssueTracker for FakeTracker {
         })
     }
 
-    fn create(&self, title: &str, _body: &str) -> Result<u64, Error> {
+    fn create(&self, title: &str, _body: &str) -> Result<ItemRef, Error> {
         self.write("issue create", format!("create {title}"))?;
         let mut s = self.0.borrow_mut();
         let n = s.next;
         s.open.push((n, title.to_owned()));
         s.next += 1;
-        Ok(n)
+        Ok(ItemRef::Number(n))
     }
 
     fn edit(&self, issue: &ItemRef, title: &str, _body: &str) -> Result<(), Error> {
@@ -233,7 +233,7 @@ impl IssueTracker for FakeTracker {
         Ok(())
     }
 
-    fn find_open(&self, title: &str) -> Result<Option<u64>, Error> {
+    fn find_open(&self, title: &str) -> Result<Option<ItemRef>, Error> {
         self.write("issue search", format!("find_open {title}"))?;
         Ok(self
             .0
@@ -241,7 +241,7 @@ impl IssueTracker for FakeTracker {
             .open
             .iter()
             .find(|(_, t)| t == title)
-            .map(|(n, _)| *n))
+            .map(|(n, _)| ItemRef::Number(*n)))
     }
 
     fn search(&self, keywords: &[String], state: &str, _limit: usize) -> Result<Vec<Found>, Error> {

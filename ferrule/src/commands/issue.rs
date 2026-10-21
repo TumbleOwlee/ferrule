@@ -258,10 +258,10 @@ pub enum IssueCommand {
         slug: Slug,
         #[command(flatten)]
         target: FileTarget,
-        /// Reuse issue n as the tracking issue: its title and body are
-        /// replaced.
-        #[arg(long, value_name = "N", conflicts_with_all = ["slice", "split", "follow_up", "comment"])]
-        reuse: Option<u64>,
+        /// Reuse this issue (a number or tracker key) as the tracking
+        /// issue: its title and body are replaced.
+        #[arg(long, value_name = "ISSUE", conflicts_with_all = ["slice", "split", "follow_up", "comment"])]
+        reuse: Option<ItemRef>,
     },
 }
 
@@ -313,7 +313,7 @@ pub fn run(command: &IssueCommand, style: Option<Style>, out: &mut impl Write) -
             slug,
             target,
             reuse,
-        } => file(slug, *target, *reuse, out),
+        } => file(slug, *target, reuse.clone(), out),
     }
 }
 
@@ -557,7 +557,7 @@ pub fn post_failed(e: publish::Error, verb: &'static str, out: &mut impl Write) 
     }
 }
 
-fn file(slug: &str, t: FileTarget, reuse: Option<u64>, out: &mut impl Write) -> io::Result<u8> {
+fn file(slug: &str, t: FileTarget, reuse: Option<ItemRef>, out: &mut impl Write) -> io::Result<u8> {
     let target = match (t.slice, t.split, t.follow_up, t.comment) {
         (Some(n), ..) => Target::Slice(n),
         (_, true, ..) => Target::Split,

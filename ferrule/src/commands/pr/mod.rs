@@ -399,7 +399,7 @@ fn publish_pr(
     match with_run(config, slug, |r| r.publish(keep.as_deref()))? {
         None | Some(Err(publish::Error::Card)) => refuse(out, &Refusal::card("publish")),
         Some(Ok(Ok((pr, filed)))) => {
-            let list: Vec<String> = filed.iter().map(|n| format!("#{n}")).collect();
+            let list: Vec<String> = filed.iter().map(ItemRef::cite).collect();
             let list = if list.is_empty() {
                 "none".to_owned()
             } else {

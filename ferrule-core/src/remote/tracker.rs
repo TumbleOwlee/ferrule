@@ -38,8 +38,8 @@ pub trait IssueTracker {
     /// An issue with its comments: a GitHub number or URL, or a Jira key.
     fn view(&self, issue: &ItemRef) -> Result<Item, Error>;
 
-    /// Files an issue; its number.
-    fn create(&self, title: &str, body: &str) -> Result<u64, Error>;
+    /// Files an issue; its number or key.
+    fn create(&self, title: &str, body: &str) -> Result<ItemRef, Error>;
 
     /// Replaces an issue's title and body.
     fn edit(&self, issue: &ItemRef, title: &str, body: &str) -> Result<(), Error>;
@@ -48,7 +48,7 @@ pub trait IssueTracker {
 
     /// The open issue titled exactly `title`, if one exists among the
     /// first [`FIND_LIMIT`] hits of its quoted title.
-    fn find_open(&self, title: &str) -> Result<Option<u64>, Error>;
+    fn find_open(&self, title: &str) -> Result<Option<ItemRef>, Error>;
 
     /// Issues whose title or body mention every keyword (one with a space
     /// as a phrase), in `state` (`open`, `closed` or `all`); at most

@@ -200,7 +200,8 @@ pub enum Typed<'a> {
     /// `issue`) or `follow-up` (follow-up-`k`.md, filed as `issue`).
     Posted {
         what: &'a str,
-        issue: Option<u64>,
+        /// The issue as stored: a number or a tracker key.
+        issue: Option<&'a str>,
         sum: Option<&'a str>,
         k: Option<u32>,
     },
@@ -314,7 +315,7 @@ impl Event {
             Name::TestRed => Typed::TestRed,
             Name::Posted => Typed::Posted {
                 what: value?,
-                issue: key("issue").and_then(|n| n.parse().ok()),
+                issue: key("issue"),
                 sum: key("sum"),
                 k: key("k").and_then(|n| n.parse().ok()),
             },

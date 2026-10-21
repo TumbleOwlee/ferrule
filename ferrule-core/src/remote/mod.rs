@@ -17,7 +17,7 @@ mod tracker;
 pub use bitbucket::Bitbucket;
 pub use github::Gh;
 pub use host::{CodeHost, PrStatus, code_host};
-pub use item_ref::ItemRef;
+pub use item_ref::{ItemRef, ref_list, refs, slot_list, slots};
 pub use jira::Jira;
 pub use tracker::{FIND_LIMIT, Found, IssueTracker, issue_tracker, title_query};
 

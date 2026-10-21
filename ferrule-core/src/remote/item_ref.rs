@@ -126,6 +126,60 @@ impl FromStr for ItemRef {
     }
 }
 
+impl ItemRef {
+    /// How a body cites it: `#12` for a number or URL, the key itself.
+    #[must_use]
+    pub fn cite(&self) -> String {
+        match self {
+            ItemRef::Number(n) | ItemRef::Url { number: n, .. } => format!("#{n}"),
+            ItemRef::Key(k) => k.clone(),
+        }
+    }
+}
+
+/// A card's `[71, KEY-2]` as references; an item that is none is skipped.
+#[must_use]
+pub fn refs(list: Option<&str>) -> Vec<ItemRef> {
+    slots(list).into_iter().flatten().collect()
+}
+
+/// References as a card stores them: `[71, KEY-2]`.
+#[must_use]
+pub fn ref_list(refs: &[ItemRef]) -> String {
+    let items: Vec<String> = refs.iter().map(ToString::to_string).collect();
+    format!("[{}]", items.join(", "))
+}
+
+/// A card's `[71, -, KEY-3]` by position: item n is slice n's issue, `-`
+/// one not filed yet.
+#[must_use]
+pub fn slots(list: Option<&str>) -> Vec<Option<ItemRef>> {
+    let inner = list
+        .unwrap_or("")
+        .trim()
+        .trim_matches(|c| c == '[' || c == ']');
+    if inner.trim().is_empty() {
+        return Vec::new();
+    }
+    inner
+        .split(',')
+        .map(|n| ItemRef::parse(n.trim()).ok())
+        .collect()
+}
+
+/// Slots as a card stores them: `[-, 72]`.
+#[must_use]
+pub fn slot_list(slots: &[Option<ItemRef>]) -> String {
+    let items: Vec<String> = slots
+        .iter()
+        .map(|n| {
+            n.as_ref()
+                .map_or_else(|| "-".to_owned(), ToString::to_string)
+        })
+        .collect();
+    format!("[{}]", items.join(", "))
+}
+
 /// The number, key or URL as given (`#` dropped).
 impl fmt::Display for ItemRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -140,6 +194,34 @@ impl fmt::Display for ItemRef {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ut_card_lists_hold_numbers_and_keys() {
+        assert_eq!(
+            refs(Some("[71, #72, KEY-3]")),
+            [
+                ItemRef::Number(71),
+                ItemRef::Number(72),
+                ItemRef::Key("KEY-3".into())
+            ]
+        );
+        assert!(refs(None).is_empty());
+        assert_eq!(
+            ref_list(&[ItemRef::Number(1), ItemRef::Key("A-2".into())]),
+            "[1, A-2]"
+        );
+        assert_eq!(
+            slots(Some("[71, -, KEY-3]")),
+            [
+                Some(ItemRef::Number(71)),
+                None,
+                Some(ItemRef::Key("KEY-3".into()))
+            ]
+        );
+        assert_eq!(slot_list(&[None, Some(ItemRef::Number(72))]), "[-, 72]");
+        assert_eq!(ItemRef::Key("A-3".into()).cite(), "A-3");
+        assert_eq!(ItemRef::Number(4).cite(), "#4");
+    }
 
     #[test]
     fn ut_item_ref_parses_numbers_keys_and_urls() {

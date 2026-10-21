@@ -482,7 +482,7 @@ pub fn stop_arg(v: Option<&str>) -> Vec<u32> {
 pub struct Approved {
     /// The `prompt render approved` record (`spec-rev=… decisions-seen=…`).
     pub record: String,
-    pub issue: Option<u64>,
+    pub issue: Option<ItemRef>,
     pub worktree: Option<String>,
     pub stages: Option<usize>,
     /// The gate was approved already: its date is kept.
