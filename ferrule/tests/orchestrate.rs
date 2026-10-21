@@ -770,6 +770,50 @@ fn it_replan_swaps_the_uncommitted_stages() {
 }
 
 #[test]
+fn it_replan_keeps_a_stage_committed_past_an_uncommitted_one() {
+    let p = Project::new();
+    p.ok(&["run", "init", "demo"]);
+    p.artifacts();
+    p.ok(&["board", "set", "demo", "lane=fast", "arch=skipped"]);
+    serve(
+        &p.gh,
+        &find("Reconnect dropped Modbus clients"),
+        r#"[{"number":12,"title":"Reconnect dropped Modbus clients"}]"#,
+    );
+    serve(
+        &p.gh,
+        &edit_issue("12", "Reconnect dropped Modbus clients"),
+        "",
+    );
+    p.ok(&["gate", "approve", "demo", "gate2"]);
+    seed_log(&p.root, "2026-10-05T09:00", "demo.s2", &["commit=abc1234"]);
+    assert_eq!(
+        p.ok(&["stage", "replan", "demo", "start"]),
+        "replan=started from=s0"
+    );
+    // Redefining the committed s2 is refused and changes nothing.
+    std::fs::write(p.run_dir().join("plan.md"), PLAN).unwrap();
+    assert_eq!(
+        p.ferrule(&["stage", "replan", "demo", "approve"]).text(),
+        "replan=refused reason=committed stage=s2 \
+         hint=s2 is committed and stays; number the new plan's stages around it\nexit=1"
+    );
+    std::fs::write(
+        p.run_dir().join("plan.md"),
+        PLAN.replace("| s2 | Show status | src/tab.rs, src/view.rs | s1 |\n", ""),
+    )
+    .unwrap();
+    assert_eq!(
+        p.ok(&["stage", "replan", "demo", "approve"]),
+        "replan=approved from=s0 stages=2"
+    );
+    assert!(
+        p.ok(&["board", "show", "demo.s2"])
+            .contains("commit=abc1234")
+    );
+}
+
+#[test]
 fn it_replan_approve_is_refused_twice() {
     let p = Project::new();
     p.ok(&["run", "init", "demo"]);

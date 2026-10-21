@@ -59,6 +59,8 @@ pub enum GateRefusal {
     Epic,
     /// gate2's `--branch` differs from the branch the card records.
     Branch(String),
+    /// The new plan redefines a stage already committed.
+    Committed(u32),
 }
 
 impl GateRefusal {
@@ -78,6 +80,7 @@ impl GateRefusal {
             GateRefusal::State { .. } => "state",
             GateRefusal::Epic => "epic",
             GateRefusal::Branch(_) => "branch",
+            GateRefusal::Committed(_) => "committed",
         }
     }
 
@@ -119,6 +122,9 @@ impl GateRefusal {
             )),
             GateRefusal::Branch(card) => r.field("branch", card).hint(format!(
                 "the run's branch is {card}; drop --branch or pass --branch {card}"
+            )),
+            GateRefusal::Committed(n) => r.field("stage", format!("s{n}")).hint(format!(
+                "s{n} is committed and stays; number the new plan's stages around it"
             )),
         }
     }
@@ -761,6 +767,14 @@ pub fn replan_approve(
     let mut relog = Vec::new();
     for (n, id, _) in board::stages(conn, slug)? {
         if n < from {
+            continue;
+        }
+        // A stage committed after the first uncommitted one is work on the
+        // branch: its card stays, and the new plan may not reuse its number.
+        if board::last_value(conn, &id, Name::Commit)?.is_some() {
+            if fresh.iter().any(|s| s.n == n) {
+                return Err(Error::Refused(GateRefusal::Committed(n)));
+            }
             continue;
         }
         for e in board::events(conn, &id, &[Name::SpecDelta])? {

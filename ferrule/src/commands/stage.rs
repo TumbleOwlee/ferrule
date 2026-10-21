@@ -93,8 +93,9 @@ Output:
                                    gate4 dates are removed: both are
                                    approved anew
   replan=approved from=s<n> stages=<n>
-                                   The stage cards from s<n> on are replaced
-                                   by the new plan's <n> stages; each
+                                   The uncommitted stage cards from s<n> on
+                                   are replaced by the new plan's <n>
+                                   stages (a committed one stays); each
                                    `spec-delta <id> added origin=<o>` line of
                                    the dropped stages is logged again on the
                                    parent, so the ids stay retired
@@ -109,6 +110,9 @@ Refusals:
   replan=refused reason=no-replan  approve without a start after the last approval
   replan=refused reason=no-plan    approve: plan.md is missing
   replan=refused reason=no-stages  approve: the plan has no stage from s<n> on
+  replan=refused reason=committed stage=s<n>
+                                   approve: the new plan redefines s<n>,
+                                   which is committed and stays
 Refusals end in ` hint=<fix>`.
 Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
 See: ferrule guide show replan";
