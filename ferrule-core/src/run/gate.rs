@@ -420,13 +420,10 @@ pub fn plan_stages(plan: &str) -> Vec<PlanStage> {
 /// The stages plan.summary.md's `Stop` column marks `yes`.
 #[must_use]
 pub fn summary_stops(summary: &str) -> Vec<u32> {
-    summary
-        .lines()
-        .filter_map(|l| {
-            let cells: Vec<&str> = l.split('|').map(str::trim).collect();
-            let n: u32 = cells.get(1)?.strip_prefix('s')?.parse().ok()?;
-            cells.get(5)?.starts_with("yes").then_some(n)
-        })
+    crate::artifacts::rows(summary)
+        .iter()
+        .filter(|r| r.stop().is_some())
+        .map(|r| r.n)
         .collect()
 }
 

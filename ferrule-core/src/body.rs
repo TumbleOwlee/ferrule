@@ -285,21 +285,11 @@ fn render(diff: &SpecDiff, part: Part, only: Option<Vec<String>>) -> String {
 }
 
 /// `Decide:` line, the summary's component table, the public surface.
-fn surface(summary: &str) -> Vec<&str> {
-    let mut on = false;
-    let mut out = Vec::new();
-    for l in summary.lines() {
-        if l.starts_with("Public surface:") {
-            on = true;
-        } else if on && l.starts_with("- ") {
-            if l != "- none" {
-                out.push(l);
-            }
-        } else {
-            on = false;
-        }
-    }
-    out
+fn surface(summary: &str) -> Vec<String> {
+    artifacts::list(summary, "Public surface:")
+        .iter()
+        .map(|it| format!("- {}", it.text))
+        .collect()
 }
 
 fn decide(summary: &str) -> &str {
@@ -734,43 +724,18 @@ fn draft(
 
 /// `(sid, what)` of the plan summary's stage table.
 fn plan_stages(summary: &str) -> Vec<(String, String)> {
-    summary
-        .lines()
-        .filter(|l| {
-            l.strip_prefix("| s")
-                .is_some_and(|r| r.starts_with(|c: char| c.is_ascii_digit()))
-        })
-        .map(|l| {
-            let cells: Vec<&str> = l.split('|').collect();
-            (
-                cells.get(1).map_or("", |s| s.trim()).replace(' ', ""),
-                cells.get(2).map_or("", |s| s.trim()).to_owned(),
-            )
-        })
+    artifacts::rows(summary)
+        .iter()
+        .map(|r| (r.sid(), r.cell(2).to_owned()))
         .collect()
 }
 
 /// A stage's verification beyond unit tests, as sub-items of its line.
 fn verification(summary: &str, sid: &str) -> Vec<String> {
-    let mut on = false;
-    let mut cur = false;
     let mut out = Vec::new();
-    for l in summary.lines() {
-        if l.starts_with("Verification beyond unit tests:") {
-            on = true;
-        } else if on && let Some(item) = l.strip_prefix("- ") {
-            let (ids, rest) = item.split_once(" — ").unwrap_or((item, ""));
-            cur = artifacts::verification_ids(ids).is_some_and(|ids| ids.contains(&sid));
-            if cur {
-                out.push(format!("  - beyond unit tests: {rest}"));
-            }
-        } else if on && l.starts_with("  - ") {
-            if cur {
-                out.push(format!("  {l}"));
-            }
-        } else {
-            on = false;
-        }
+    for (what, nested) in artifacts::verifications(summary, sid) {
+        out.push(format!("  - beyond unit tests: {what}"));
+        out.extend(nested.iter().map(|n| format!("    - {n}")));
     }
     out
 }

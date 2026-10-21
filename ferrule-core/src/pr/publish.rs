@@ -1001,21 +1001,10 @@ impl Run<'_> {
 /// The `k` of every follow-up-k.md in the run's directory, sorted.
 #[must_use]
 pub fn follow_up_numbers(dir: &Path) -> Vec<u32> {
-    let mut ks: Vec<u32> = std::fs::read_dir(dir)
-        .map(|d| {
-            d.filter_map(Result::ok)
-                .filter_map(|e| {
-                    let name = e.file_name().to_string_lossy().into_owned();
-                    name.strip_prefix("follow-up-")?
-                        .strip_suffix(".md")?
-                        .parse()
-                        .ok()
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    ks.sort_unstable();
-    ks
+    crate::artifacts::follow_ups(dir)
+        .into_iter()
+        .map(|(k, _)| k)
+        .collect()
 }
 
 /// What re-rendering the draft PR body did.

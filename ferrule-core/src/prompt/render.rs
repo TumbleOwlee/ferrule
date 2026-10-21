@@ -295,28 +295,12 @@ fn number<T: std::str::FromStr + Default>(v: Option<String>) -> T {
     v.and_then(|v| v.parse().ok()).unwrap_or_default()
 }
 
-fn is_stage_row(l: &str) -> bool {
-    l.strip_prefix("| s")
-        .is_some_and(|r| r.starts_with(|c: char| c.is_ascii_digit()))
-}
-
-/// The run's `follow-up-<k>.md` files, sorted.
+/// The run's `follow-up-<k>.md` files, by `k`.
 fn follow_ups(dir: &Path) -> Vec<PathBuf> {
-    let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
-        .map(|d| {
-            d.filter_map(Result::ok)
-                .map(|e| e.path())
-                .filter(|p| {
-                    p.file_stem()
-                        .and_then(|n| n.to_str())
-                        .is_some_and(|n| n.starts_with("follow-up-"))
-                        && p.extension().is_some_and(|e| e == "md")
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    v.sort();
-    v
+    artifacts::follow_ups(dir)
+        .into_iter()
+        .map(|(_, p)| p)
+        .collect()
 }
 
 fn plural(n: usize) -> &'static str {
@@ -340,7 +324,7 @@ impl Run<'_> {
             number(self.value(Name::SpecRev)?)
         };
         let summary = std::fs::read_to_string(self.art("plan.summary.md")).unwrap_or_default();
-        let rows: Vec<&str> = summary.lines().filter(|l| is_stage_row(l)).collect();
+        let rows = artifacts::rows(&summary);
         Ok(Facts {
             lane: self.field("lane")?.unwrap_or_default(),
             brief_pending,
@@ -348,10 +332,7 @@ impl Run<'_> {
                 && (brief_pending || rev_of(&spec).is_some_and(|r| r > since)),
             seen: number(self.value(Name::DecisionsSeen)?),
             stages: rows.len(),
-            first: rows
-                .first()
-                .and_then(|l| l.split('|').nth(1))
-                .map(|s| s.replace(' ', "")),
+            first: rows.first().map(artifacts::Row::sid),
             decide: summary
                 .lines()
                 .find_map(|l| l.strip_prefix("Decide: "))
@@ -665,23 +646,12 @@ fn delta(run: &mut Run, args: &[(String, String)]) -> Result<Vec<String>, Error>
     run.log("stop", &["kind=approval", "gate=delta"])?;
     let verdict = std::fs::read_to_string(run.art("review.verdict.md")).unwrap_or_default();
     let mut items = Vec::new();
-    let mut on = false;
     let mut n = 0;
-    for l in verdict.lines() {
-        if l.starts_with("Needs user") {
-            on = true;
-        } else if on && let Some(t) = l.strip_prefix("- ") {
-            if l == "- none" {
-                continue;
-            }
-            n += 1;
-            items.push(format!("## {n}. {t}"));
-            items.push("Options:".to_owned());
-        } else if on && let Some(t) = l.strip_prefix("  - ") {
-            items.push(format!("- {t}"));
-        } else {
-            on = false;
-        }
+    for it in artifacts::list(&verdict, "Needs user") {
+        n += 1;
+        items.push(format!("## {n}. {}", it.text));
+        items.push("Options:".to_owned());
+        items.extend(it.nested.iter().map(|t| format!("- {t}")));
     }
     let mut out = vec![format!(
         "Question · {} · delta {sid} · fe-reviewer · {n} decision{}",
@@ -975,8 +945,7 @@ pub(crate) fn seen(
         }
     }
     if let Ok(d) = std::fs::read_to_string(layout.run_dir(slug).join("decisions.md")) {
-        let n = d.bytes().filter(|&b| b == b'\n').count();
-        out.push(format!("decisions-seen={n}"));
+        out.push(format!("decisions-seen={}", artifacts::line_count(&d)));
     }
     Ok(out)
 }

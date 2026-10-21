@@ -3,6 +3,7 @@
 //! given: slices no slice or two slices claim, and the decisions the user
 //! has not seen.
 
+use crate::artifacts;
 use std::fmt::Write as _;
 use std::path::Path;
 
@@ -27,19 +28,14 @@ fn heading(line: &str) -> Option<(&str, &str)> {
     Some((id, after))
 }
 
-/// A `## <section>` block's lines starting `- ` or (with `nested`) `  - `.
-fn block<'a>(text: &'a str, header: &str, nested: bool) -> Vec<&'a str> {
-    let mut on = false;
+/// The items under a line starting `header`, as `- ` lines and (with
+/// `nested`) their `  - ` sub-items.
+fn block(text: &str, header: &str, nested: bool) -> Vec<String> {
     let mut out = Vec::new();
-    for line in text.lines() {
-        if line.starts_with(header) {
-            on = true;
-        } else if on && (line.starts_with("- ") || (nested && line.starts_with("  - "))) {
-            if line != "- none" {
-                out.push(line);
-            }
-        } else {
-            on = false;
+    for it in artifacts::list(text, header) {
+        out.push(format!("- {}", it.text));
+        if nested {
+            out.extend(it.nested.iter().map(|s| format!("  - {s}")));
         }
     }
     out
@@ -142,7 +138,7 @@ fn architecture(text: &str, out: &mut Vec<String>) {
     let surface = block(text, "Public surface:", false);
     if !surface.is_empty() {
         out.push("Surface:".to_owned());
-        out.extend(surface.iter().map(|&s| s.to_owned()));
+        out.extend(surface);
     }
 }
 
@@ -209,20 +205,10 @@ fn slices(text: &str, spec_diff: Option<&str>, out: &mut Vec<String>, confirm: &
 fn plan(text: &str, out: &mut Vec<String>) {
     prefixed(text, "Decide: ", "Plan: ", out);
     prefixed(text, "Spec since architecture: ", "Spec since arch: ", out);
-    let mut stops = Vec::new();
-    for l in text.lines().filter(|l| {
-        l.strip_prefix("| s")
-            .is_some_and(|r| r.starts_with(|c: char| c.is_ascii_digit()))
-    }) {
-        let cells: Vec<&str> = l.split('|').collect();
-        let (sid, stop) = (
-            cells.get(1).map_or("", |c| c.trim()),
-            cells.get(5).map_or("", |c| c.trim()),
-        );
-        if stop.starts_with("yes") {
-            stops.push(format!("- {sid} — {stop}"));
-        }
-    }
+    let stops: Vec<String> = artifacts::rows(text)
+        .iter()
+        .filter_map(|r| Some(format!("- {} — {}", r.sid(), r.stop()?)))
+        .collect();
     if !stops.is_empty() {
         out.push("Stops:".to_owned());
         out.extend(stops);
@@ -230,7 +216,7 @@ fn plan(text: &str, out: &mut Vec<String>) {
     let v = block(text, "Verification beyond unit tests:", true);
     if !v.is_empty() {
         out.push("Verification:".to_owned());
-        out.extend(v.iter().map(|&s| s.to_owned()));
+        out.extend(v);
     }
 }
 
@@ -302,13 +288,13 @@ fn verdict(text: &str, out: &mut Vec<String>) {
         let minors = block(text, header, false);
         if !minors.is_empty() {
             out.push(header.to_owned());
-            out.extend(minors.iter().map(|&s| s.to_owned()));
+            out.extend(minors);
         }
     }
     let needs = block(text, "Needs user", true);
     if !needs.is_empty() {
         out.push("Needs user:".to_owned());
-        out.extend(needs.iter().map(|&s| s.to_owned()));
+        out.extend(needs);
     }
 }
 
