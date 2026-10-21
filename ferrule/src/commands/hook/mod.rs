@@ -45,7 +45,7 @@ Refuses:
                        source or eval, a variable or substitution where the
                        program or a git/gh subcommand goes, cd into a glob
   every call but `ferrule setup install` while the binary and the project's pin
-                       or lock disagree: `ferrule=refused reason=version ...`
+                       or lock disagree: `ferrule=refused reason=version ... hint=<fix>`
 Errors (stderr):
   ferrule hook: unreadable PreToolUse payload (...); refusing the call
                        exit 2, which blocks the call; fix the hook command
@@ -97,7 +97,7 @@ Refuses:
                        then; record what you needed to probe as a finding for
                        the implementer instead
   every call but `ferrule setup install` while the binary and the project's pin
-                       or lock disagree: `ferrule=refused reason=version ...`
+                       or lock disagree: `ferrule=refused reason=version ... hint=<fix>`
   deny when ferrule.toml cannot be read: ferrule hook reviewer: <error>
 Errors (stderr):
   ferrule hook: unreadable PreToolUse payload (...); refusing the call

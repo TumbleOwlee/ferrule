@@ -477,3 +477,265 @@ fn help_issue_pr() {
 fn help_prompt_hook() {
     check_group(&["prompt", "hook"]);
 }
+
+// Help to code: every refusal the long help documents can be produced.
+
+/// Core files that build refusals and have no `SOURCES` entry of their own,
+/// with the commands whose help documents them.
+const REFUSAL_SOURCES: &[(&str, &[&str])] = &[
+    (
+        "ferrule-core/src/body.rs",
+        &[
+            "board move",
+            "gate approve",
+            "issue post",
+            "pr open",
+            "pr push",
+            "stage replan",
+        ],
+    ),
+    ("ferrule-core/src/card/vocab.rs", &["board move"]),
+    (
+        "ferrule-core/src/install/mod.rs",
+        &["hook shell", "hook reviewer"],
+    ),
+    ("ferrule-core/src/pr/publish.rs", &["gate approve"]),
+    ("ferrule-core/src/run/gauntlet.rs", &["pr push"]),
+];
+
+/// `(command, verb, reason)` entries that are documented but built from
+/// runtime values the scanner cannot see, and why.
+const DYNAMIC: &[(&str, &str, &str)] = &[];
+
+/// Documented refusal lines that carry no `hint=` of their own, and why.
+const NO_HINT: &[(&str, &str)] = &[];
+
+/// Index of the `)` closing the call whose `(` is at `open`.
+fn close_of(chars: &[char], open: usize) -> usize {
+    let mut depth = 0;
+    let mut i = open;
+    while i < chars.len() {
+        match chars[i] {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return i;
+                }
+            }
+            '"' => {
+                i += 1;
+                while i < chars.len() && chars[i] != '"' {
+                    i += usize::from(chars[i] == '\\') + 1;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    chars.len()
+}
+
+/// The arguments of a call at depth zero, trimmed.
+fn args_of(text: &str) -> Vec<String> {
+    let mut out = vec![String::new()];
+    let (mut depth, mut quoted, mut escaped) = (0, false, false);
+    for c in text.chars() {
+        if quoted {
+            quoted = c != '"' || escaped;
+            escaped = c == '\\' && !escaped;
+        } else {
+            match c {
+                '"' => quoted = true,
+                '(' | '[' | '{' => depth += 1,
+                ')' | ']' | '}' => depth -= 1,
+                ',' if depth == 0 => {
+                    out.push(String::new());
+                    continue;
+                }
+                _ => {}
+            }
+        }
+        out.last_mut().expect("one argument").push(c);
+    }
+    out.iter().map(|a| a.trim().to_string()).collect()
+}
+
+/// The text of a lone `"..."` literal argument.
+fn literal_arg(arg: &str) -> Option<&str> {
+    let inner = arg.strip_prefix('"')?.strip_suffix('"')?;
+    (!inner.contains('"')).then_some(inner)
+}
+
+/// What the code can refuse with: `(verb, reason)` pairs from literal
+/// `Refusal::new`/`Refusal::card` calls, and reasons alone where the verb is
+/// a variable or the reason a typed enum's slug (`=> "reason"` arms).
+#[derive(Default)]
+struct Reasons {
+    pairs: BTreeSet<(String, String)>,
+    reasons: BTreeSet<String>,
+}
+
+fn scan_reasons(file: &str, into: &mut Reasons) {
+    let src = std::fs::read_to_string(workspace().join(file)).expect("read source");
+    let code = src.split("#[cfg(test)]").next().unwrap_or_default();
+    let chars: Vec<char> = code.chars().collect();
+    for (call, card) in [("Refusal::new(", false), ("Refusal::card(", true)] {
+        let mut from = 0;
+        while let Some(at) = code[from..].find(call) {
+            let open = code[..from + at].chars().count() + call.chars().count() - 1;
+            let end = close_of(&chars, open);
+            let inner: String = chars[open + 1..end].iter().collect();
+            let args = args_of(&inner);
+            let verb = args.first().and_then(|a| literal_arg(a));
+            let reason = if card {
+                Some("card")
+            } else {
+                args.get(1).and_then(|a| literal_arg(a))
+            };
+            match (verb, reason) {
+                (Some(v), Some(r)) => {
+                    into.pairs.insert((v.to_string(), r.to_string()));
+                }
+                (None, Some(r)) => {
+                    into.reasons.insert(r.to_string());
+                }
+                _ => {}
+            }
+            from += at + call.len();
+        }
+    }
+    for text in code.lines() {
+        if let Some(rest) = text.trim().split("=> \"").nth(1) {
+            let word: String = rest.chars().take_while(|&c| is_key(c)).collect();
+            if !word.is_empty() && rest[word.len()..].starts_with('"') {
+                into.reasons.insert(word);
+            }
+        }
+    }
+}
+
+/// A documented refusal: `<verb>=refused|reject reason=<a>|<b>`.
+struct Documented {
+    verb: String,
+    reasons: Vec<String>,
+}
+
+fn documented(help: &str) -> Vec<Documented> {
+    let mut out = Vec::new();
+    for marker in ["=refused reason=", "=reject reason="] {
+        for (at, _) in help.match_indices(marker) {
+            let mut verb: Vec<char> = help[..at]
+                .chars()
+                .rev()
+                .take_while(|&c| is_key(c))
+                .collect();
+            verb.reverse();
+            let list: String = help[at + marker.len()..]
+                .chars()
+                .take_while(|&c| is_key(c) || c == '|')
+                .collect();
+            out.push(Documented {
+                verb: verb.into_iter().collect(),
+                reasons: list
+                    .split('|')
+                    .filter(|r| !r.is_empty())
+                    .map(str::to_string)
+                    .collect(),
+            });
+        }
+    }
+    out
+}
+
+/// Every command named in `SOURCES` or `REFUSAL_SOURCES`, sorted.
+fn commands() -> BTreeSet<&'static str> {
+    SOURCES
+        .iter()
+        .chain(REFUSAL_SOURCES)
+        .flat_map(|&(_, cs)| cs.iter().copied())
+        .collect()
+}
+
+#[test]
+fn documented_refusals_are_producible() {
+    let mut stale = Vec::new();
+    for command in commands() {
+        let mut found = Reasons::default();
+        for &(file, cs) in SOURCES.iter().chain(REFUSAL_SOURCES) {
+            if cs.contains(&command) {
+                scan_reasons(file, &mut found);
+            }
+        }
+        for d in documented(&help_of(command)) {
+            for reason in &d.reasons {
+                let known = found.pairs.contains(&(d.verb.clone(), reason.clone()))
+                    || found.reasons.contains(reason)
+                    || DYNAMIC
+                        .iter()
+                        .any(|&(c, v, r)| c == command && v == d.verb && r == reason);
+                if !known {
+                    stale.push(format!("{command}: {}=refused reason={reason}", d.verb));
+                }
+            }
+        }
+    }
+    stale.sort();
+    stale.dedup();
+    assert!(
+        stale.is_empty(),
+        "documented refusals no source can produce:\n{}",
+        stale.join("\n")
+    );
+}
+
+/// Whether the entry on line `at` of `lines` is a literal line (not a
+/// description column) and so shows its own `hint=`.
+fn literal_entry(lines: &[&str], at: usize) -> bool {
+    let line = lines[at].trim();
+    let rest = line.split(" reason=").nth(1).unwrap_or_default();
+    let after_reason = rest.split_once(' ').map_or("", |(_, r)| r);
+    let fields_only = after_reason.split_whitespace().all(|t| t.contains('='));
+    let continues = lines
+        .get(at + 1)
+        .is_some_and(|n| n.starts_with("      ") && !n.contains("=refused"));
+    !rest.contains("  ") && !after_reason.is_empty() && fields_only && !continues
+}
+
+#[test]
+fn documented_refusals_end_in_hint() {
+    let mut bare = Vec::new();
+    for command in commands() {
+        let help = help_of(command);
+        let lines: Vec<&str> = help.lines().collect();
+        let mut entries = 0;
+        for (i, line) in lines.iter().enumerate() {
+            let line = line.trim();
+            if !(line.contains("=refused reason=") || line.contains("=reject reason=")) {
+                continue;
+            }
+            entries += 1;
+            let listed = line.starts_with(is_key) && !line.contains("=done");
+            if listed
+                && literal_entry(&lines, i)
+                && !line.contains("hint=")
+                && !NO_HINT
+                    .iter()
+                    .any(|&(c, l)| c == command && line.starts_with(l))
+            {
+                bare.push(format!("{command}: {line}"));
+            }
+        }
+        // Column entries state the rule in prose: `hint=` appears somewhere.
+        if entries > 0 && !help.contains("hint=") {
+            bare.push(format!("{command}: refusals documented, `hint=` never"));
+        }
+    }
+    bare.sort();
+    bare.dedup();
+    assert!(
+        bare.is_empty(),
+        "refusal lines without `hint=`:\n{}",
+        bare.join("\n")
+    );
+}
