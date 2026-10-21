@@ -74,7 +74,7 @@ Commands print `key=value` status lines; exit codes are 0 done, 1 refused, 2 usa
 
 ## Guide
 
-The workflow's instructions ship inside the binary as topics (`crates/ferrule-core/guide/<topic>.md`): one per orchestrator step (`gate2`, `stages`, `gate4`, …) and one per agent (`implementer`, `planner`, …). `ferrule gate next` names the topic for what comes next as a `guide:` line.
+The workflow's instructions ship inside the binary as topics (`ferrule-core/guide/<topic>.md`): one per orchestrator step (`gate2`, `stages`, `gate4`, …) and one per agent (`implementer`, `planner`, …). `ferrule gate next` names the topic for what comes next as a `guide:` line.
 
 - `<!-- lane: fast -->` (or `full`) on the line above a block keeps it for that lane only; above a heading it covers the heading's section. Without a lane both are printed, labelled.
 - `<!-- done: <token> -->` marks a block `(done)` once the run's parent card carries the token (`pr=ready`, or a bare field name such as `gate2`).
@@ -169,4 +169,4 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-Golden tests compare a command's stdout and exit code with `crates/ferrule/tests/fixtures/expected/<name>.out`. `UPDATE=1 cargo test` rewrites them from the current output; review every rewritten file before committing.
+Golden tests compare a command's stdout and exit code with `ferrule/tests/fixtures/expected/<name>.out`. `UPDATE=1 cargo test` rewrites them from the current output; review every rewritten file before committing.

@@ -42,7 +42,7 @@ jobs:
         with:
           # The repo root is a virtual workspace manifest; point the action at the
           # binary package so `cargo read-manifest` resolves a target.
-          SRC_DIR: "crates/ferrule"
+          SRC_DIR: "ferrule"
           RUSTTARGET: ${{ matrix.target }}
           EXTRA_FILES: "README.md LICENSE"
           # The toolchain rust-toolchain.toml pins and CI tests with.
