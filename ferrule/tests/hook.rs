@@ -473,9 +473,16 @@ fn it_attribution_in_a_message_file_is_refused() {
 #[test]
 fn it_unreadable_payload_blocks() {
     let p = tempfile::tempdir().unwrap();
-    let out = run_hook("shell", p.path(), b"not json");
-    assert_eq!(out.status.code(), Some(2));
-    assert!(out.stdout.is_empty());
+    for hook in ["shell", "reviewer", "attribution"] {
+        for payload in [
+            &b"not json"[..],
+            b"{\"tool_name\": \"Bash\", \"tool_input\": {\"command\": \"ls \xff\"}}",
+        ] {
+            let out = run_hook(hook, p.path(), payload);
+            assert_eq!(out.status.code(), Some(2), "{hook}");
+            assert!(out.stdout.is_empty());
+        }
+    }
 }
 
 #[test]

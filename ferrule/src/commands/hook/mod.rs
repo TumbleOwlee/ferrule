@@ -49,7 +49,8 @@ Refuses:
 Errors (stderr):
   ferrule hook: unreadable PreToolUse payload (...); refusing the call
                        exit 2, which blocks the call; fix the hook command
-Exit codes: 0 ok, 2 blocked or unreadable payload, 4 internal error.";
+Exit codes: 0 ok, 2 blocked, unreadable payload or internal error (a
+failing guard refuses the call).";
 
 /// Shown after `ferrule hook attribution --help`.
 const ATTRIBUTION_AFTER_LONG_HELP: &str = "\
@@ -68,7 +69,8 @@ Refuses:
 Errors (stderr):
   ferrule hook: unreadable PreToolUse payload (...); refusing the call
                        exit 2, which blocks the call
-Exit codes: 0 ok, 2 blocked or unreadable payload, 4 internal error.";
+Exit codes: 0 ok, 2 blocked, unreadable payload or internal error (a
+failing guard refuses the call).";
 
 /// Shown after `ferrule hook reviewer --help`.
 const REVIEWER_AFTER_LONG_HELP: &str = "\
@@ -102,7 +104,8 @@ Refuses:
 Errors (stderr):
   ferrule hook: unreadable PreToolUse payload (...); refusing the call
                        exit 2, which blocks the call
-Exit codes: 0 ok, 2 blocked or unreadable payload, 4 internal error.";
+Exit codes: 0 ok, 2 blocked, unreadable payload or internal error (a
+failing guard refuses the call).";
 
 /// Shown after `ferrule hook session-start --help`.
 const SESSION_START_AFTER_LONG_HELP: &str = "\
@@ -164,17 +167,39 @@ struct Payload {
     cwd: Option<PathBuf>,
 }
 
-/// Exit 2 blocks the tool call with stderr as the reason; a guard that
-/// cannot read its payload refuses instead of letting the call through.
+/// Exit 2 blocks the tool call with stderr as the reason; Claude Code lets
+/// a call through on any other non-zero exit, so a `PreToolUse` guard that
+/// cannot read its payload, fails or panics refuses with 2 instead.
 pub fn run(command: &HookCommand, input: &mut impl Read, out: &mut impl Write) -> io::Result<u8> {
     match command {
         HookCommand::SessionStart => return session_start(out),
         HookCommand::Git { hook, args } => return git::run(*hook, args, input),
         _ => {}
     }
-    let mut raw = String::new();
-    input.read_to_string(&mut raw)?;
-    let payload: Payload = match serde_json::from_str(&raw) {
+    let guarded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        pre_tool_use(command, input, out)
+    }));
+    match guarded {
+        Ok(Ok(code)) => Ok(code),
+        Ok(Err(e)) => {
+            eprintln!("ferrule hook: {e}; refusing the call");
+            Ok(exit::USAGE)
+        }
+        Err(_) => {
+            eprintln!("ferrule hook: internal error; refusing the call");
+            Ok(exit::USAGE)
+        }
+    }
+}
+
+fn pre_tool_use(
+    command: &HookCommand,
+    input: &mut impl Read,
+    out: &mut impl Write,
+) -> io::Result<u8> {
+    let mut raw = Vec::new();
+    input.read_to_end(&mut raw)?;
+    let payload: Payload = match serde_json::from_slice(&raw) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("ferrule hook: unreadable PreToolUse payload ({e}); refusing the call");
