@@ -3,7 +3,10 @@
 //! body. Every body is rendered in memory, stripped of attribution lines
 //! and posted; the number posted to is recorded on the parent card. An
 //! open issue already titled exactly as the one to file is adopted, never
-//! filed twice, so a run resumed after a crash cannot duplicate one.
+//! filed twice, and an open PR of the run's branch is adopted, never
+//! opened twice, so a run resumed after a crash cannot duplicate one. Each
+//! comment target and follow-up done is logged (`posted=`), so a rerun
+//! after a partial failure does only what is missing.
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -116,7 +119,8 @@ pub enum Target {
     /// The run's tracking issue; an epic's is edited again to link its
     /// slices.
     Run,
-    /// Slice n's own issue, appended to the parent's `slices:`.
+    /// Slice n's own issue, recorded at position n of the parent's
+    /// `slices:`.
     Slice(u32),
     /// split-issue.md, appended to the parent's `split:`.
     Split,
@@ -177,6 +181,34 @@ fn list(numbers: &[u64]) -> String {
     format!("[{}]", items.join(", "))
 }
 
+/// `[71, -, 73]` by position: item n is slice n's issue, `-` one not
+/// filed yet.
+#[must_use]
+pub fn slots(list: Option<&str>) -> Vec<Option<u64>> {
+    let inner = list
+        .unwrap_or("")
+        .trim()
+        .trim_matches(|c| c == '[' || c == ']');
+    if inner.trim().is_empty() {
+        return Vec::new();
+    }
+    inner
+        .split(',')
+        .map(|n| n.trim().trim_start_matches('#').parse().ok())
+        .collect()
+}
+
+fn slot_list(slots: &[Option<u64>]) -> String {
+    let items: Vec<String> = slots
+        .iter()
+        .map(|n| n.map_or_else(|| "-".to_owned(), |n| n.to_string()))
+        .collect();
+    format!("[{}]", items.join(", "))
+}
+
+/// A `posted=` event's issue, sum and k.
+type Posted = (Option<u64>, Option<String>, Option<u32>);
+
 /// The run's parent card, its artifacts and its hosts.
 pub struct Run<'a> {
     pub conn: &'a mut Connection,
@@ -213,6 +245,22 @@ impl Run<'_> {
         std::fs::read_to_string(&p).map_err(|_| Error::Missing(p))
     }
 
+    /// The `posted=<what>` events logged: `(issue, sum, k)` each.
+    fn posted(&self, what: &str) -> rusqlite::Result<Vec<Posted>> {
+        Ok(board::events(self.conn, self.slug, &[Name::Posted])?
+            .iter()
+            .filter_map(|e| match e.typed() {
+                Typed::Posted {
+                    what: w,
+                    issue,
+                    sum,
+                    k,
+                } if w == what => Some((issue, sum.map(str::to_owned), k)),
+                _ => None,
+            })
+            .collect())
+    }
+
     fn issue(&self) -> Result<u64, Error> {
         numbers(self.field("issue")?.as_deref())
             .first()
@@ -241,26 +289,64 @@ impl Run<'_> {
             Target::Run => self.file_run(reuse),
             Target::Slice(n) => self.file_slice(n),
             Target::Split => self.file_split(),
-            Target::FollowUp(k) => {
-                let issue = self.issue()?;
-                let (title, body) = split_title(&self.artifact(&format!("follow-up-{k}.md"))?);
-                let body = format!("{}\n\nFound in #{issue}\n", body.trim_end());
-                self.adopt_or_create(&title, &body)
-            }
-            Target::Comment => {
-                let issue = self.issue()?;
-                let text = self.artifact("issue-comment.md")?;
-                let text = attribution::strip(&text).unwrap_or(text);
-                let tracker = self.config.backend.tracker;
-                remote::issue_comment(tracker, issue, &text, self.root)?;
-                if self.field("kind")?.as_deref() == Some("slice")
-                    && let Some(&epic) = numbers(self.field("epic")?.as_deref()).first()
-                {
-                    remote::issue_comment(tracker, epic, &text, self.root)?;
-                }
-                Ok((issue, Action::Commented))
-            }
+            Target::FollowUp(k) => self.file_follow_up(k),
+            Target::Comment => self.file_comment(),
         }
+    }
+
+    /// follow-up-k.md, filed once: a `posted=follow-up k=<k>` names the
+    /// issue it became.
+    fn file_follow_up(&mut self, k: u32) -> Result<(u64, Action), Error> {
+        let issue = self.issue()?;
+        if let Some(n) = self
+            .posted("follow-up")?
+            .into_iter()
+            .find_map(|(n, _, kk)| if kk == Some(k) { n } else { None })
+        {
+            return Ok((n, Action::Recorded));
+        }
+        let (title, body) = split_title(&self.artifact(&format!("follow-up-{k}.md"))?);
+        let body = format!("{}\n\nFound in #{issue}\n", body.trim_end());
+        let (n, action) = self.adopt_or_create(&title, &body)?;
+        self.log(
+            "posted=follow-up",
+            &[format!("issue={n}"), format!("k={k}")],
+        )?;
+        Ok((n, action))
+    }
+
+    /// issue-comment.md on the tracking issue and a slice's epic, each
+    /// target once per text: a `posted=comment issue=<n> sum=<hash>`
+    /// marks one done, so a rerun after a failure posts only the rest.
+    fn file_comment(&mut self) -> Result<(u64, Action), Error> {
+        let issue = self.issue()?;
+        let text = self.artifact("issue-comment.md")?;
+        let text = attribution::strip(&text).unwrap_or(text);
+        let sum = crate::install::hash(&text);
+        let mut targets = vec![issue];
+        if self.field("kind")?.as_deref() == Some("slice")
+            && let Some(&epic) = numbers(self.field("epic")?.as_deref()).first()
+        {
+            targets.push(epic);
+        }
+        let done = self.posted("comment")?;
+        let tracker = self.config.backend.tracker;
+        let mut action = Action::Recorded;
+        for t in targets {
+            if done
+                .iter()
+                .any(|(n, s, _)| *n == Some(t) && s.as_deref() == Some(sum.as_str()))
+            {
+                continue;
+            }
+            remote::issue_comment(tracker, t, &text, self.root)?;
+            self.log(
+                "posted=comment",
+                &[format!("issue={t}"), format!("sum={sum}")],
+            )?;
+            action = Action::Commented;
+        }
+        Ok((issue, action))
     }
 
     fn file_run(&mut self, reuse: Option<u64>) -> Result<(u64, Action), Error> {
@@ -285,17 +371,21 @@ impl Run<'_> {
     }
 
     fn file_slice(&mut self, slice: u32) -> Result<(u64, Action), Error> {
-        let mut slices = numbers(self.field("slices")?.as_deref());
-        if let Some(&n) = slices.get(slice as usize - 1) {
+        let Some(at) = (slice as usize).checked_sub(1) else {
+            return Err(Error::Body(body::Error::NoSlice(slice)));
+        };
+        let mut slots = slots(self.field("slices")?.as_deref());
+        if let Some(&Some(n)) = slots.get(at) {
             return Ok((n, Action::Recorded));
         }
         let rendered = body::issue(self.conn, self.layout, self.slug, Some(slice))?;
         let (title, body) = split_title(&rendered);
         let (n, action) = self.adopt_or_create(&title, &body)?;
-        if !slices.contains(&n) {
-            slices.push(n);
+        if slots.len() <= at {
+            slots.resize(at + 1, None);
         }
-        self.set("slices", &list(&slices))?;
+        slots[at] = Some(n);
+        self.set("slices", &slot_list(&slots))?;
         Ok((n, action))
     }
 
@@ -327,7 +417,9 @@ impl Run<'_> {
     }
 
     /// Opens the draft PR from the rendered draft body unless the card has
-    /// one; its number and whether it was opened now.
+    /// one; its number and whether it was opened (or adopted) now. An open
+    /// PR of the branch, one a crash left unrecorded, is adopted and its
+    /// body synced, never opened twice.
     pub fn open_pr(&mut self) -> Result<(u64, bool), Error> {
         if board::state(self.conn, self.slug)?.is_none() {
             return Err(Error::Card);
@@ -344,16 +436,29 @@ impl Run<'_> {
             &self.config.main_branch,
         )?;
         let (title, body) = split_title(&rendered);
-        let n = remote::pr_create_draft(
-            self.config.backend.ci,
-            &branch,
-            &self.config.main_branch,
-            &title,
-            &body,
-            self.root,
-        )?;
+        let ci = self.config.backend.ci;
+        let adopted = remote::pr_find_open(ci, &branch, self.root)?;
+        let n = match adopted {
+            Some(n) => n,
+            None => remote::pr_create_draft(
+                ci,
+                &branch,
+                &self.config.main_branch,
+                &title,
+                &body,
+                self.root,
+            )?,
+        };
         self.set("pr", &n.to_string())?;
-        self.log("pr=draft", &[])?;
+        if !board::events(self.conn, self.slug, &[Name::Pr])?
+            .iter()
+            .any(|e| e.typed() == Typed::Pr(PrState::Draft))
+        {
+            self.log("pr=draft", &[])?;
+        }
+        if adopted.is_some() {
+            self.sync_draft()?;
+        }
         Ok((n, true))
     }
 
@@ -605,7 +710,9 @@ impl Run<'_> {
     /// Gate 4 approved (refused without its `gate4` date): checks the
     /// threads and the fixed IDs, replaces the draft's title and body with
     /// the full form, marks it ready, logs `pr=ready` and files the kept
-    /// follow-ups (`None`: all of them).
+    /// follow-ups (`None`: all of them). Rerun after a failure, a PR that
+    /// is ready with `pr=ready` logged is left alone and a follow-up
+    /// already filed is not filed again.
     pub fn publish(
         &mut self,
         keep: Option<&[u32]>,
@@ -643,17 +750,31 @@ impl Run<'_> {
             Err(e) => return Err(e.into()),
         };
         let (title, body) = split_title(&rendered);
-        remote::pr_edit(ci, pr, Some(&title), &body, self.root)?;
-        remote::pr_ready(ci, pr, self.root)?;
-        self.log("pr=ready", &[])?;
+        let logged = board::events(self.conn, self.slug, &[Name::Pr])?
+            .iter()
+            .any(|e| e.typed() == Typed::Pr(PrState::Ready));
+        let ready = logged && {
+            let (state, draft, _) = remote::pr_status(ci, pr, self.root)?;
+            state == "open" && !draft
+        };
+        if !ready {
+            remote::pr_edit(ci, pr, Some(&title), &body, self.root)?;
+            remote::pr_ready(ci, pr, self.root)?;
+        }
+        if !logged {
+            self.log("pr=ready", &[])?;
+        }
         let mut filed = Vec::new();
+        let mut new = false;
         for k in follow_up_numbers(&self.layout.run_dir(self.slug)) {
             if keep.is_some_and(|keep| !keep.contains(&k)) {
                 continue;
             }
-            filed.push(self.file(Target::FollowUp(k), None)?.0);
+            let (n, action) = self.file(Target::FollowUp(k), None)?;
+            new |= action != Action::Recorded;
+            filed.push(n);
         }
-        if !filed.is_empty() {
+        if new {
             let list: Vec<String> = filed.iter().map(u64::to_string).collect();
             self.log(&format!("follow-ups=[{}]", list.join(",")), &[])?;
         }
@@ -863,5 +984,13 @@ mod tests {
         assert_eq!(numbers(Some("[71, #72]")), [71, 72]);
         assert!(numbers(None).is_empty());
         assert_eq!(list(&[1, 2]), "[1, 2]");
+    }
+
+    #[test]
+    fn ut_slots_keep_positions() {
+        assert_eq!(slots(Some("[71, -, #73]")), [Some(71), None, Some(73)]);
+        assert!(slots(Some("[]")).is_empty());
+        assert!(slots(None).is_empty());
+        assert_eq!(slot_list(&[None, Some(72)]), "[-, 72]");
     }
 }

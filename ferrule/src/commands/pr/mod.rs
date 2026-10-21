@@ -70,7 +70,9 @@ const PR_OPEN_AFTER_LONG_HELP: &str = "\
 Output:
   pr=<n> state=draft
       The run's draft PR <n>; opened now, or the one the card already names.
-      Opening records `pr:` on the card and logs `pr=draft`.
+      Opening records `pr:` on the card and logs `pr=draft`. An open PR of
+      the run's branch that the card does not name (one opened before a
+      crash) is adopted and its body synced, never opened twice.
 Refusals (stdout, exit 1):
   open=refused reason=card hint=check the slug with `ferrule board list`
       No card for the slug.
@@ -95,7 +97,8 @@ Output:
       token sits in a card's `spec-delta` why or a `decisions.md` line.
       Fix: have the agent that wrote it reword it, then push again.
   push=done sha=<sha> gauntlet=pass [cached] pr-body=opened pr=<n>
-      The first push: it also opened draft PR <n> and recorded it.
+      The first push: it also opened draft PR <n> and recorded it (or
+      adopted the branch's open PR, as `pr open` does).
   push=done branch=<branch>
       `--no-run`: `git push -u origin <branch>`; no gauntlet, no PR.
 Refusals (stdout, exit 1):
@@ -133,7 +136,11 @@ Output:
   publish=done pr=<n> follow-ups=<list>
       The PR carries the full title and body and is ready for review (logs
       `pr=ready`). <list> is the filed follow-up issues, `#12,#13`, or
-      `none`; they are logged as `follow-ups=[...]`.
+      `none`; they are logged as `follow-ups=[...]`. Each is logged as
+      `posted=follow-up issue=<n> k=<k>` once filed. Rerun after a failure
+      (a follow-up the tracker refused), a PR already ready with `pr=ready`
+      logged is not edited again, `pr=ready` is not logged twice and a
+      follow-up filed before is listed, not filed again.
 Refusals (stdout, exit 1 unless noted):
   publish=refused reason=gate4 hint=approve gate4 first: ferrule gate approve <slug> gate4
       The parent card has no `gate4` date. Fix: approve gate 4 first.

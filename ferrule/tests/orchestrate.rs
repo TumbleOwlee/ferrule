@@ -187,6 +187,33 @@ fn graphql(pr: &str) -> Vec<String> {
     .to_vec()
 }
 
+/// `gh issue list` looking for an open issue titled `title`.
+fn find(title: &str) -> Vec<String> {
+    [
+        "issue",
+        "list",
+        "--state",
+        "open",
+        "--limit",
+        "100",
+        "--search",
+        &format!("\"{title}\" in:title"),
+        "--json",
+        "number,title",
+    ]
+    .map(str::to_owned)
+    .to_vec()
+}
+
+/// `gh pr list` looking for the open PR of `branch`.
+fn pr_list(branch: &str) -> Vec<String> {
+    [
+        "pr", "list", "--head", branch, "--state", "open", "--json", "number",
+    ]
+    .map(str::to_owned)
+    .to_vec()
+}
+
 fn serve(gh: &FakeGh, args: &[String], text: &str) {
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     gh.serve(&args, text);
@@ -268,19 +295,7 @@ fn through_gate2(p: &Project) {
     );
     assert_eq!(p.field("demo", "lane"), "full");
 
-    gh.serve(
-        &[
-            "issue",
-            "list",
-            "--state",
-            "open",
-            "--search",
-            "Reconnect dropped Modbus clients in:title",
-            "--json",
-            "number,title",
-        ],
-        "[]",
-    );
+    serve(gh, &find("Reconnect dropped Modbus clients"), "[]");
     gh.serve(
         &[
             "issue",
@@ -381,6 +396,7 @@ fn first_stage(p: &Project) {
         ],
         "https://github.com/o/r/pull/34\n",
     );
+    serve(gh, &pr_list("feat/demo"), "[]");
     let pushed = p.ok(&["pr", "push", "demo"]);
     assert!(pushed.starts_with("push=done sha="), "{pushed}");
     assert!(
@@ -441,19 +457,6 @@ fn publish_and_ci(p: &Project) {
         ],
         "",
     );
-    gh.serve(
-        &[
-            "issue",
-            "list",
-            "--state",
-            "open",
-            "--search",
-            "Share the backoff helper with the RTU client in:title",
-            "--json",
-            "number,title",
-        ],
-        r#"[{"number":40,"title":"Share the backoff helper with the RTU client"}]"#,
-    );
     assert_eq!(
         p.ferrule(&["pr", "publish", "demo"]).text(),
         "publish=refused reason=gate4 \
@@ -463,17 +466,43 @@ fn publish_and_ci(p: &Project) {
     let gate4 = p.ok(&["gate", "approve", "demo", "gate4"]);
     assert!(gate4.starts_with("approve=done gate=gate4"), "{gate4}");
     assert_eq!(p.field("demo", "gate4"), "2026-10-05");
-    let published = p.ok(&["pr", "publish", "demo"]);
-    assert_eq!(published, "publish=done pr=34 follow-ups=#40");
-    assert!(
-        gh.log()
-            .contains("pr edit 34 --body-file - --title Reconnect dropped Modbus clients")
+    // The tracker fails on the follow-up: the PR is ready, the follow-up
+    // is not filed.
+    let failed = p.ferrule(&["pr", "publish", "demo"]).text();
+    assert!(failed.ends_with("exit=1"), "{failed}");
+    assert_eq!(gh.log().matches("pr ready 34").count(), 1);
+    // Rerun: the ready PR is left alone, pr=ready is logged once, the
+    // follow-up is filed; a third run files nothing again.
+    gh.serve(
+        &["pr", "view", "34", "--json", "state,isDraft,body"],
+        r#"{"state":"OPEN","isDraft":false,"body":"full"}"#,
+    );
+    serve(
+        gh,
+        &find("Share the backoff helper with the RTU client"),
+        r#"[{"number":40,"title":"Share the backoff helper with the RTU client"}]"#,
+    );
+    for _ in 0..2 {
+        let published = p.ok(&["pr", "publish", "demo"]);
+        assert_eq!(published, "publish=done pr=34 follow-ups=#40");
+    }
+    let log = gh.log();
+    assert_eq!(
+        log.matches("pr edit 34 --body-file - --title Reconnect dropped Modbus clients")
+            .count(),
+        1,
+        "{log}"
+    );
+    assert_eq!(log.matches("pr ready 34").count(), 1, "{log}");
+    assert_eq!(
+        log.matches("--search \"Share the backoff helper").count(),
+        2,
+        "{log}"
     );
     let shown = p.ok(&["board", "show", "demo"]);
-    assert!(
-        shown.contains("pr=ready") && shown.contains("follow-ups=[40]"),
-        "{shown}"
-    );
+    assert_eq!(shown.matches("pr=ready").count(), 1, "{shown}");
+    assert_eq!(shown.matches("follow-ups=[40]").count(), 1, "{shown}");
+    assert!(shown.contains("posted=follow-up issue=40 k=1"), "{shown}");
 
     gh.serve_exit(
         &["pr", "checks", "34", "--watch"],
@@ -605,17 +634,9 @@ fn it_replan_swaps_the_uncommitted_stages() {
     p.ok(&["run", "init", "demo"]);
     p.artifacts();
     p.ok(&["board", "set", "demo", "lane=fast", "arch=skipped"]);
-    p.gh.serve(
-        &[
-            "issue",
-            "list",
-            "--state",
-            "open",
-            "--search",
-            "Reconnect dropped Modbus clients in:title",
-            "--json",
-            "number,title",
-        ],
+    serve(
+        &p.gh,
+        &find("Reconnect dropped Modbus clients"),
         r#"[{"number":12,"title":"Reconnect dropped Modbus clients"}]"#,
     );
     let gate2 = p.ok(&["gate", "approve", "demo", "gate2"]);
@@ -682,17 +703,9 @@ fn it_replan_approve_is_refused_twice() {
     p.ok(&["run", "init", "demo"]);
     p.artifacts();
     p.ok(&["board", "set", "demo", "lane=fast", "arch=skipped"]);
-    p.gh.serve(
-        &[
-            "issue",
-            "list",
-            "--state",
-            "open",
-            "--search",
-            "Reconnect dropped Modbus clients in:title",
-            "--json",
-            "number,title",
-        ],
+    serve(
+        &p.gh,
+        &find("Reconnect dropped Modbus clients"),
         r#"[{"number":12,"title":"Reconnect dropped Modbus clients"}]"#,
     );
     p.ok(&["gate", "approve", "demo", "gate2"]);
@@ -756,19 +769,7 @@ fn it_issue_file_variants() {
     );
     p.ok(&["board", "set", "demo", "issue=12"]);
     assert_eq!(p.ok(&["issue", "post", "demo"]), "issue=12 action=recorded");
-    gh.serve(
-        &[
-            "issue",
-            "list",
-            "--state",
-            "open",
-            "--search",
-            "RTU clients reconnect in:title",
-            "--json",
-            "number,title",
-        ],
-        "[]",
-    );
+    serve(gh, &find("RTU clients reconnect"), "[]");
     gh.serve(
         &[
             "issue",
@@ -899,4 +900,159 @@ fn it_card_commit_checks_the_card_and_the_branch() {
         on_main,
         "commit=refused reason=main branch=main hint=commit on the run's branch, not main: `ferrule gate approve <slug> gate2` creates it and its worktree; with --no-run, check out another branch first\nexit=1"
     );
+}
+
+#[test]
+fn it_pr_open_adopts_the_branch_pr_a_crash_left() {
+    let p = Project::new();
+    let gh = &p.gh;
+    p.ok(&["run", "init", "demo"]);
+    p.artifacts();
+    p.ok(&["board", "set", "demo", "issue=12", "branch=feat/demo"]);
+    gh.serve(
+        &[
+            "pr",
+            "create",
+            "--draft",
+            "--head",
+            "feat/demo",
+            "--base",
+            "main",
+            "--title",
+            "Reconnect dropped Modbus clients",
+            "--body-file",
+            "-",
+        ],
+        "https://github.com/o/r/pull/34\n",
+    );
+    serve(gh, &pr_list("feat/demo"), "[]");
+    assert_eq!(p.ok(&["pr", "open", "demo"]), "pr=34 state=draft");
+    // A crash before the card recorded it: the PR exists, the card has
+    // none. The rerun adopts the branch's open PR and opens none.
+    p.ok(&["board", "set", "demo", "pr="]);
+    serve(gh, &pr_list("feat/demo"), r#"[{"number":34}]"#);
+    gh.serve(
+        &["pr", "view", "34", "--json", "state,isDraft,body"],
+        r#"{"state":"OPEN","isDraft":true,"body":"stale"}"#,
+    );
+    gh.serve(&["pr", "edit", "34", "--body-file", "-"], "");
+    assert_eq!(p.ok(&["pr", "open", "demo"]), "pr=34 state=draft");
+    assert_eq!(p.field("demo", "pr"), "34");
+    let log = gh.log();
+    assert_eq!(log.matches("pr create").count(), 1, "{log}");
+    assert!(log.contains("pr edit 34 --body-file -"), "{log}");
+    let shown = p.ok(&["board", "show", "demo"]);
+    assert_eq!(shown.matches("pr=draft").count(), 1, "{shown}");
+}
+
+#[test]
+fn it_issue_post_retries_post_only_what_is_missing() {
+    let p = Project::new();
+    let gh = &p.gh;
+    p.ok(&["run", "init", "demo"]);
+    p.artifacts();
+    p.ok(&["board", "set", "demo", "issue=12", "kind=slice", "epic=70"]);
+
+    // A title with qualifier-like words: searched as one phrase, adopted
+    // only on an exact match.
+    let title = "Add -v and is:closed modes";
+    std::fs::write(
+        p.run_dir().join("follow-up-2.md"),
+        format!("# {title}\n\n## Goal\nx\n"),
+    )
+    .unwrap();
+    serve(
+        gh,
+        &find(title),
+        &format!(r#"[{{"number":50,"title":"{title} too"}},{{"number":51,"title":"{title}"}}]"#),
+    );
+    assert_eq!(
+        p.ok(&["issue", "post", "demo", "--follow-up", "2"]),
+        "issue=51 action=adopted"
+    );
+    assert_eq!(
+        p.ok(&["issue", "post", "demo", "--follow-up", "2"]),
+        "issue=51 action=recorded"
+    );
+    assert_eq!(gh.log().matches("issue list").count(), 1);
+
+    // The epic's comment fails after the issue's: the rerun posts only the
+    // epic's, a third run nothing.
+    std::fs::write(
+        p.run_dir().join("issue-comment.md"),
+        "MB-R-161 now retries forever.\n",
+    )
+    .unwrap();
+    gh.serve(&["issue", "comment", "12", "--body-file", "-"], "");
+    let failed = p.ferrule(&["issue", "post", "demo", "--comment"]).text();
+    assert!(failed.ends_with("exit=1"), "{failed}");
+    gh.serve(&["issue", "comment", "70", "--body-file", "-"], "");
+    assert_eq!(
+        p.ok(&["issue", "post", "demo", "--comment"]),
+        "issue=12 action=commented"
+    );
+    assert_eq!(
+        p.ok(&["issue", "post", "demo", "--comment"]),
+        "issue=12 action=recorded"
+    );
+    let log = gh.log();
+    assert_eq!(log.matches("issue comment 12").count(), 1, "{log}");
+    assert_eq!(log.matches("issue comment 70").count(), 2, "{log}");
+    // A new comment text is posted again, to both.
+    std::fs::write(p.run_dir().join("issue-comment.md"), "MB-R-162 too.\n").unwrap();
+    assert_eq!(
+        p.ok(&["issue", "post", "demo", "--comment"]),
+        "issue=12 action=commented"
+    );
+    assert_eq!(gh.log().matches("issue comment 12").count(), 2);
+}
+
+#[test]
+fn it_slices_keep_their_position() {
+    let p = Project::new();
+    let gh = &p.gh;
+    p.ok(&["run", "init", "lb"]);
+    let dir = p.root.join(".ferrule/runs/lb");
+    for e in std::fs::read_dir(fixtures().join("board/artifacts/lb")).unwrap() {
+        let e = e.unwrap();
+        std::fs::copy(e.path(), dir.join(e.file_name())).unwrap();
+    }
+    p.ok(&["board", "set", "lb", "kind=epic", "issue=70"]);
+    for (n, title) in [(72, "Batteries"), (71, "Walking skeleton")] {
+        let title = format!("Load balancing core: {title}");
+        serve(gh, &find(&title), "[]");
+        gh.serve(
+            &["issue", "create", "--title", &title, "--body-file", "-"],
+            &format!("https://github.com/o/r/issues/{n}\n"),
+        );
+    }
+    assert_eq!(
+        p.ok(&["issue", "post", "lb", "--slice", "2"]),
+        "issue=72 action=created"
+    );
+    assert_eq!(p.field("lb", "slices"), "[-, 72]");
+    let epic = p.ok(&["issue", "body", "lb"]);
+    assert!(
+        epic.contains("**Slice 1: Walking skeleton** — not filed yet"),
+        "{epic}"
+    );
+    assert_eq!(
+        p.ok(&["issue", "post", "lb", "--slice", "1"]),
+        "issue=71 action=created"
+    );
+    assert_eq!(p.field("lb", "slices"), "[71, 72]");
+    assert_eq!(
+        p.ok(&["issue", "post", "lb", "--slice", "2"]),
+        "issue=72 action=recorded"
+    );
+    let body3 = p.ok(&["issue", "body", "lb", "--slice", "3"]);
+    assert!(body3.contains("#71, #72"), "{body3}");
+    let zero = p.ferrule(&["issue", "post", "lb", "--slice", "0"]).output();
+    assert_eq!(zero.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&zero.stderr).contains("body: no slice 0 in slices.md"),
+        "{}",
+        String::from_utf8_lossy(&zero.stderr)
+    );
+    assert_eq!(p.field("lb", "slices"), "[71, 72]");
 }

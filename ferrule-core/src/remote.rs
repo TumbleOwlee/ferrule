@@ -557,7 +557,19 @@ pub fn issue_comment(tracker: Tracker, n: u64, body: &str, root: &Path) -> Resul
     .map(drop)
 }
 
-/// The open issue titled exactly `title`, if one exists.
+/// The most hits [`issue_find_open`] reads.
+pub const FIND_LIMIT: usize = 100;
+
+/// The search [`issue_find_open`] sends: the title as one quoted phrase
+/// (its own double quotes dropped), so words like `-v` or `is:closed` in
+/// it are matched, never read as qualifiers.
+#[must_use]
+pub fn title_query(title: &str) -> String {
+    format!("\"{}\" in:title", title.replace('"', "").trim())
+}
+
+/// The open issue titled exactly `title`, if one exists among the first
+/// [`FIND_LIMIT`] hits of its quoted title.
 pub fn issue_find_open(tracker: Tracker, title: &str, root: &Path) -> Result<Option<u64>, Error> {
     #[derive(Deserialize)]
     struct Found {
@@ -572,8 +584,10 @@ pub fn issue_find_open(tracker: Tracker, title: &str, root: &Path) -> Result<Opt
             "list",
             "--state",
             "open",
+            "--limit",
+            &FIND_LIMIT.to_string(),
             "--search",
-            &format!("{title} in:title"),
+            &title_query(title),
             "--json",
             "number,title",
         ],
@@ -667,6 +681,26 @@ pub fn pr_create_draft(
         root,
     )?;
     number_of(&url)
+}
+
+/// The open pull request whose head is `branch`, if one exists: the one
+/// a crash between opening it and recording it left behind.
+pub fn pr_find_open(ci: Ci, branch: &str, root: &Path) -> Result<Option<u64>, Error> {
+    #[derive(Deserialize)]
+    struct Found {
+        number: u64,
+    }
+    github_ci(ci, "pr list")?;
+    let out = run(
+        "gh",
+        &[
+            "pr", "list", "--head", branch, "--state", "open", "--json", "number",
+        ],
+        None,
+        root,
+    )?;
+    let found: Vec<Found> = json(&out, "gh pr list")?;
+    Ok(found.first().map(|f| f.number))
 }
 
 /// Replaces a pull request's body, and its title when given.
@@ -988,6 +1022,14 @@ mod tests {
         );
         assert_eq!(number_of("https://github.com/o/r/pull/41\n").unwrap(), 41);
         assert!(number_of("nope").is_err());
+    }
+
+    #[test]
+    fn ut_title_query_quotes_the_title() {
+        assert_eq!(
+            title_query("Add -v and is:closed \"modes\""),
+            "\"Add -v and is:closed modes\" in:title"
+        );
     }
 
     #[test]

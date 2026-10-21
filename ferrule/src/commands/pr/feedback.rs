@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use clap::Subcommand;
 use ferrule_core::card::board;
 use ferrule_core::config::Config;
-use ferrule_core::pr::feedback::{self, Kind};
+use ferrule_core::pr::feedback::{self, Kind, Posted};
 use ferrule_core::pr::publish;
 use ferrule_core::project::{self, Layout};
 use ferrule_core::refusal::Refusal;
@@ -56,6 +56,10 @@ Output:
       order. `fixed` resolves the thread; `declined` leaves it open. <open> is
       the file's threads minus the fixed ones. The same line is printed, with
       exit 1, when a post fails part way (the earlier ones stay posted).
+      Each step done is written into the file under its reply as
+      `posted: replied` (posted) or `posted: resolved` (fixed and resolved);
+      a rerun skips what a `posted:` line records and counts it, so nothing
+      is posted twice.
 Errors (stderr):
   pr feedback: no such file: <file>                 exit 1
   pr feedback: thread <id>: <the host's error>      exit 1
@@ -149,7 +153,9 @@ fn reply(
         return Ok(exit::REFUSED);
     };
     let (replies, total) = feedback::replies(&text);
-    let fixed_any = replies.iter().any(|r| r.kind == Kind::Fixed);
+    let fixed_any = replies
+        .iter()
+        .any(|r| r.kind == Kind::Fixed && r.posted.is_none());
     let (stage, sha) = match (stage, sha) {
         (Some(st), Some(sh)) => (st, sh),
         _ if fixed_any => {
@@ -159,9 +165,27 @@ fn reply(
         _ => ("", ""),
     };
     let (mut fixed, mut declined) = (0, 0);
+    let ci = config.backend.ci;
+    let root = project::root();
+    let mut text = text;
     for r in &replies {
-        let body = feedback::reply_text(r, stage, sha);
-        if let Err(e) = feedback::post(config.backend.ci, pr, r, &body, &project::root()) {
+        let mut step = || -> Result<(), ferrule_core::remote::Error> {
+            if r.posted.is_none() {
+                let body = feedback::reply_text(r, stage, sha);
+                feedback::post(ci, pr, r, &body, &root)?;
+                text = feedback::mark(&text, &r.thread, Posted::Replied);
+                std::fs::write(file, &text)
+                    .map_err(|e| ferrule_core::remote::Error::Command(e.to_string()))?;
+            }
+            if r.kind == Kind::Fixed && r.posted != Some(Posted::Resolved) {
+                feedback::resolve(ci, pr, r, &root)?;
+                text = feedback::mark(&text, &r.thread, Posted::Resolved);
+                std::fs::write(file, &text)
+                    .map_err(|e| ferrule_core::remote::Error::Command(e.to_string()))?;
+            }
+            Ok(())
+        };
+        if let Err(e) = step() {
             eprintln!("pr feedback: thread {}: {e}", r.thread);
             writeln!(
                 out,

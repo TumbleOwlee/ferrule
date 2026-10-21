@@ -17,6 +17,6 @@ It fetches the unresolved threads into `{run_dir}/pr-feedback.md` and prints `pr
 ferrule pr feedback reply {pr} {run_dir}/pr-feedback.md s<n> <sha>
 ```
 
-posts every filled reply block (`<stage> <sha>`: the stage and the pushed head), resolving `fixed` threads and leaving `declined` ones open for the user. A comment asking for behavior the spec doesn't cover is a spec change the implementer makes (`ferrule guide show spec-changes`); the review classifies it. `status=blocked` (a comment is a question, or ambiguous) → relay `reason=` to the user as a question, never answer on the PR for them.
+posts every filled reply block (`<stage> <sha>`: the stage and the pushed head), resolving `fixed` threads and leaving `declined` ones open for the user. It writes `posted: replied` / `posted: resolved` under each reply as it goes, so after a failure (exit 1) the same command reruns safely: nothing already posted is posted again. A comment asking for behavior the spec doesn't cover is a spec change the implementer makes (`ferrule guide show spec-changes`); the review classifies it. `status=blocked` (a comment is a question, or ambiguous) → relay `reason=` to the user as a question, never answer on the PR for them.
 
 A thread the user resolves themselves, or one whose `reply:` they answer on the PR, drops out of the next fetch. Gate 4 does not run while `threads>0`.

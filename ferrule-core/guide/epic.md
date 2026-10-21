@@ -10,7 +10,7 @@ A feature too big for one run: the author answered `size=epic`, or the architect
 4. **Epic stop** — `ferrule prompt render {slug} epic [--issue <n>]` (`<n>`: the author answered `reuse`); its `Confirm:` names every brief ID no slice or two slices claim. Approved → `ferrule gate approve {slug} epic` (records `arch`, and `gate1` while pending).
 5. **On approval, in order** — no further stop:
    1. File or rewrite the epic issue: `ferrule issue post {slug} [--reuse <n>]` (`ferrule guide show issue`); it records `issue`.
-   2. Per slice, in `slices.md` order: `ferrule issue post {slug} --slice <n>`. An open issue already titled exactly as the slice's is adopted, never filed twice; the number is appended to the parent card's `slices:` — a later slice's `Depends on` links it.
+   2. Per slice, in `slices.md` order: `ferrule issue post {slug} --slice <n>`. An open issue already titled exactly as the slice's is adopted, never filed twice; the number is recorded at the slice's position in the parent card's `slices:` (`[71, -, 73]`, `-` not filed yet) — a later slice's `Depends on` links it.
    3. `ferrule issue post {slug}` once more: an epic whose `issue` is set is rewritten — the one exception to `ferrule guide show issue`'s never-rewritten rule — so its `## Slices` list links every child.
    4. `ferrule run cleanup {slug}` — no worktree, no CI; it records the metrics; cards and artifacts are archived.
    5. One notice line: `Epic · {slug} · #<e> · slices #a, #b, … filed · start with /fe-feature on #a`.

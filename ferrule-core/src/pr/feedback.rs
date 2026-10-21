@@ -4,7 +4,10 @@
 //!
 //! The file, of which agents fill only the `reply:` block (bullets are
 //! two-space-indented `- ` lines directly under it; quoted lines are
-//! reviewer text and never read as directives):
+//! reviewer text and never read as directives). Answering writes a
+//! `posted:` line right under a reply once it is posted (`replied`) and,
+//! for a fixed one, once its thread is resolved (`resolved`), so a rerun
+//! after a failure posts nothing twice:
 //!
 //! ```text
 //! # PR feedback — fetched 2026-01-02T14:02
@@ -15,6 +18,7 @@
 //! > <comment body, one quoted line each>
 //! reply: fixed
 //!   - `App::clone_name`: probe starts at N=2
+//! posted: resolved
 //! ```
 
 use std::fmt::Write as _;
@@ -270,6 +274,25 @@ pub enum Kind {
     Declined,
 }
 
+/// How far a reply got: its `posted:` line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Posted {
+    /// The reply is posted.
+    Replied,
+    /// The reply is posted and its thread resolved.
+    Resolved,
+}
+
+impl Posted {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Posted::Replied => "replied",
+            Posted::Resolved => "resolved",
+        }
+    }
+}
+
 /// A thread whose `reply:` block is filled.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reply {
@@ -277,6 +300,19 @@ pub struct Reply {
     pub comment: String,
     pub kind: Kind,
     pub bullets: Vec<String>,
+    /// The `posted:` line under the reply; `None` while nothing is posted.
+    pub posted: Option<Posted>,
+}
+
+impl Reply {
+    /// Nothing is left to do: declined and posted, or fixed and resolved.
+    #[must_use]
+    pub fn done(&self) -> bool {
+        match self.kind {
+            Kind::Fixed => self.posted == Some(Posted::Resolved),
+            Kind::Declined => self.posted.is_some(),
+        }
+    }
 }
 
 /// The filled replies of a threads file, and its thread count.
@@ -309,17 +345,62 @@ pub fn replies(file: &str) -> (Vec<Reply>, usize) {
                 comment: cid.clone(),
                 kind,
                 bullets: Vec::new(),
+                posted: None,
             });
         } else if let Some(b) = line.strip_prefix("  - ")
             && let Some(r) = cur.as_mut()
         {
             r.bullets.push(b.to_owned());
+        } else if let Some(p) = line.strip_prefix("posted: ")
+            && let Some(mut r) = cur.take()
+        {
+            r.posted = match p.trim() {
+                "replied" => Some(Posted::Replied),
+                "resolved" => Some(Posted::Resolved),
+                _ => None,
+            };
+            out.push(r);
         } else {
             out.extend(cur.take());
         }
     }
     out.extend(cur);
     (out, total)
+}
+
+/// `file` with the `posted:` line of `thread`'s reply set to `posted`:
+/// right under the reply's bullets, replacing one already there.
+#[must_use]
+pub fn mark(file: &str, thread: &str, posted: Posted) -> String {
+    let mut out = String::new();
+    let mut here = false;
+    let mut in_reply = false;
+    let mut done = false;
+    let line = format!("posted: {}\n", posted.as_str());
+    for l in file.lines() {
+        if in_reply && !done {
+            if l.starts_with("  - ") {
+                let _ = writeln!(out, "{l}");
+                continue;
+            }
+            out.push_str(&line);
+            done = true;
+            in_reply = false;
+            if l.starts_with("posted: ") {
+                continue;
+            }
+        }
+        if let Some(id) = l.strip_prefix("## thread ") {
+            here = id == thread;
+        } else if here && !done && (l == "reply:" || l.starts_with("reply: ")) {
+            in_reply = true;
+        }
+        let _ = writeln!(out, "{l}");
+    }
+    if in_reply && !done {
+        out.push_str(&line);
+    }
+    out
 }
 
 /// The comment posted for `reply`.
@@ -345,7 +426,7 @@ pub fn reply_text(reply: &Reply, stage: &str, sha: &str) -> String {
 const RESOLVE: &str =
     "mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { isResolved } } }";
 
-/// Posts `reply` on its thread; a fixed thread is resolved.
+/// Posts `reply` on its thread.
 pub fn post(ci: Ci, pr: &str, reply: &Reply, text: &str, root: &Path) -> Result<(), Error> {
     match ci {
         Ci::Github => {
@@ -359,21 +440,6 @@ pub fn post(ci: Ci, pr: &str, reply: &Reply, text: &str, root: &Path) -> Result<
                 None,
                 root,
             )?;
-            if reply.kind == Kind::Fixed {
-                remote::run(
-                    "gh",
-                    &[
-                        "api",
-                        "graphql",
-                        "-F",
-                        &format!("id={}", reply.thread),
-                        "-f",
-                        &format!("query={RESOLVE}"),
-                    ],
-                    None,
-                    root,
-                )?;
-            }
         }
         Ci::Bitbucket => {
             let bb = Bitbucket::load(root)?;
@@ -393,12 +459,36 @@ pub fn post(ci: Ci, pr: &str, reply: &Reply, text: &str, root: &Path) -> Result<
                 ],
                 root,
             )?;
-            if reply.kind == Kind::Fixed {
-                bb.call(
-                    &["-X", "POST", &format!("{api}/{}/resolve", reply.comment)],
-                    root,
-                )?;
-            }
+        }
+    }
+    Ok(())
+}
+
+/// Resolves `reply`'s thread.
+pub fn resolve(ci: Ci, pr: &str, reply: &Reply, root: &Path) -> Result<(), Error> {
+    match ci {
+        Ci::Github => {
+            remote::run(
+                "gh",
+                &[
+                    "api",
+                    "graphql",
+                    "-F",
+                    &format!("id={}", reply.thread),
+                    "-f",
+                    &format!("query={RESOLVE}"),
+                ],
+                None,
+                root,
+            )?;
+        }
+        Ci::Bitbucket => {
+            let bb = Bitbucket::load(root)?;
+            let api = bb.api(&format!("pullrequests/{pr}/comments"));
+            bb.call(
+                &["-X", "POST", &format!("{api}/{}/resolve", reply.comment)],
+                root,
+            )?;
         }
     }
     Ok(())
@@ -448,6 +538,36 @@ reply:
             reply_text(&r[1], "s2", "abc1234"),
             "Not changed — the spec asks for it\n- see MB-R-1"
         );
+    }
+
+    #[test]
+    fn ut_posted_lines_are_read_and_written() {
+        let once = mark(FILE, "T1", Posted::Replied);
+        assert!(once.contains("  - test: `ut_x`\nposted: replied\n\n## thread T2"));
+        let twice = mark(&once, "T1", Posted::Resolved);
+        assert!(twice.contains("  - test: `ut_x`\nposted: resolved\n\n## thread T2"));
+        assert!(!twice.contains("posted: replied"));
+        let last = mark(&twice, "T2", Posted::Replied);
+        let (r, total) = replies(&last);
+        assert_eq!(total, 3);
+        assert_eq!(r.len(), 2);
+        assert_eq!(r[0].posted, Some(Posted::Resolved));
+        assert_eq!(r[0].bullets.len(), 2);
+        assert!(r[0].done() && r[1].done());
+        let (r, _) = replies(FILE);
+        assert!(r.iter().all(|r| r.posted.is_none() && !r.done()));
+        let end = "## thread T9\ncomment: 9\nreply: declined\n  - no";
+        assert_eq!(
+            mark(end, "T9", Posted::Replied),
+            "## thread T9\ncomment: 9\nreply: declined\n  - no\nposted: replied\n"
+        );
+    }
+
+    #[test]
+    fn ut_quoted_posted_line_marks_nothing() {
+        let quoted = FILE.replace("> why?", "> posted: replied");
+        let (r, _) = replies(&quoted);
+        assert!(r.iter().all(|r| r.posted.is_none()));
     }
 
     #[test]

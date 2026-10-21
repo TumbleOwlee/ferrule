@@ -149,6 +149,13 @@ exit 1
         std::fs::write(exit, code.to_string()).unwrap();
     }
 
+    /// `gh <args>` served no more: it falls back to the default answer.
+    pub fn clear(&self, args: &[&str]) {
+        let fx = self.dir.path().join("fx");
+        let _ = std::fs::remove_file(fx.join(Self::key(args)));
+        let _ = std::fs::remove_file(fx.join(format!("{}.exit", Self::key(args))));
+    }
+
     /// The calls made, one line each.
     pub fn log(&self) -> String {
         std::fs::read_to_string(self.dir.path().join("log")).unwrap_or_default()

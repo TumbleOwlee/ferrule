@@ -210,6 +210,15 @@ pub const VOCABULARY: &[Event] = &[
     ev(Parent, "rebuild", V::None, P::None, &["reason"], Text::No)
         .by("ferrule run rebuild <issue> <pr>"),
     ev(Parent, "follow-ups=", V::Any, P::None, &[], Text::No).by("ferrule pr push <slug>"),
+    ev(
+        Parent,
+        "posted=",
+        V::OneOf(&["comment", "follow-up"]),
+        P::None,
+        &["issue", "sum", "k"],
+        Text::No,
+    )
+    .by("ferrule issue post <slug>"),
     ev(Parent, "ci=", V::Any, P::None, &[], Text::No).by("ferrule ci wait <slug>"),
     ev(Parent, "ci-waived", V::None, P::None, &[], Text::Required),
 ];

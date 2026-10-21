@@ -210,11 +210,13 @@ fn first_line(text: &str) -> &str {
     text.lines().next().unwrap_or("")
 }
 
-/// `[71, 72]` → its n-th item, 1-based.
+/// `[71, -, 73]` → its n-th item, 1-based; `None` for `-`.
 fn nth(list: Option<&str>, n: usize) -> Option<String> {
-    pr::publish::numbers(list)
+    pr::publish::slots(list)
         .get(n.checked_sub(1)?)
-        .map(u64::to_string)
+        .copied()
+        .flatten()
+        .map(|n| n.to_string())
 }
 
 /// An issue.md section's lines without blanks, under its heading.
@@ -1050,5 +1052,8 @@ mod tests {
         assert_eq!(nth(Some("[71, 72]"), 2).as_deref(), Some("72"));
         assert_eq!(nth(Some("[71]"), 2), None);
         assert_eq!(nth(None, 1), None);
+        assert_eq!(nth(Some("[-, 72]"), 1), None);
+        assert_eq!(nth(Some("[-, 72]"), 2).as_deref(), Some("72"));
+        assert_eq!(nth(Some("[71]"), 0), None);
     }
 }

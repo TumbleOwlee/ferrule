@@ -95,13 +95,26 @@ const ISSUE_POST_AFTER_LONG_HELP: &str = "\
 Output:
   issue=<n> action=<action>
       Filed or updated issue <n>; the card's `issue:` (or `slices:` /
-      `split:`) records it. <action> is one of:
+      `split:`) records it. `--slice <n>` records it at position n of
+      `slices:` (`[71, -, 73]`, `-` for a slice not filed yet), whatever
+      order the slices are filed in. <action> is one of:
         created    A new issue was filed
-        adopted    An open issue with the same title became the run's
+        adopted    An open issue titled exactly the same became the run's
+                   (searched as one quoted phrase, among the first 100 hits)
         edited     The tracking issue's title and body were replaced (an
                    epic's, or `--reuse`)
         commented  `--comment` posted issue-comment.md
-        recorded   The card already names the issue; nothing was posted
+        recorded   Nothing was posted: the card already names the issue,
+                   the follow-up was filed before, or every target already
+                   carries this issue-comment.md
+      Each host write that can be retried is logged on the card, so a rerun
+      after a failure does only what is missing:
+        posted=comment issue=<n> sum=<hash>
+                   `--comment` posted this text (by its hash) to issue <n>:
+                   the tracking issue, then a slice's epic
+        posted=follow-up issue=<n> k=<k>
+                   `--follow-up <k>` (or `pr publish`) filed follow-up-k.md
+                   as issue <n>
 Refusals (stdout, exit 1):
   post=refused reason=card hint=check the slug with `ferrule board list`
       No card for the slug.
@@ -111,8 +124,9 @@ Refusals (stdout, exit 1):
   post=refused reason=stage-ref stage-ref=<token> hint=reword the source text so it names no stage or agent
       The tracking or slice body names a stage or an agent. Exit 3. Fix:
       reword the source file (see `issue body`).
-Errors (stderr, exit 1): `missing <path>` for an absent run file; the tracker's
-error when the host call fails.
+Errors (stderr, exit 1): `missing <path>` for an absent run file;
+`body: no slice <n> in slices.md` for a slice slices.md lacks (or 0); the
+tracker's error when the host call fails.
 Exit codes: 0 ok, 1 refused, 3 content, 4 internal error.
 Backend: writes are GitHub-only (`gh`); with another tracker configured the
 command refuses.
@@ -215,7 +229,8 @@ pub enum IssueCommand {
 #[derive(Debug, Clone, Copy, clap::Args)]
 #[group(multiple = false)]
 pub struct FileTarget {
-    /// File slice n of slices.md; appended to the card's `slices:`.
+    /// File slice n of slices.md (from 1); recorded at position n of the
+    /// card's `slices:`.
     #[arg(long, value_name = "N")]
     pub slice: Option<u32>,
     /// File split-issue.md; appended to the card's `split:`.

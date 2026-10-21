@@ -363,3 +363,58 @@ fn it_issue_search_lists_matches_and_caps_them() {
         "issue-search=too-many max=40 hint=rerun with more or more specific keywords\nexit=1"
     );
 }
+
+#[test]
+fn it_feedback_reply_retries_post_nothing_twice() {
+    let gh = FakeGh::new();
+    let p = tempfile::tempdir().unwrap();
+    let file = p.path().join("threads.md");
+    let f = file.to_str().unwrap();
+    std::fs::write(
+        &file,
+        "# PR feedback — fetched now\n## thread T1\ncomment: 11\npath: src/a.rs:42\n[al @ t]\n> rename it\nreply: fixed\n  - renamed\n\n## thread T3\ncomment: 13\npath: src/c.rs:?\n[al @ t]\n> why?\nreply: declined\n  - the spec asks for it\n",
+    )
+    .unwrap();
+    let resolve = [
+        "api",
+        "graphql",
+        "-F",
+        "id=T1",
+        "-f",
+        "query=mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { isResolved } } }",
+    ];
+    gh.serve_exit(&resolve, "", 1);
+    let reply = |args: &[&str]| {
+        let mut all = vec!["pr", "feedback", "reply", "22", f];
+        all.extend_from_slice(args);
+        ferrule(&gh, p.path(), &all).text()
+    };
+    // The reply posts, the resolve fails: the file records the post.
+    assert_eq!(
+        reply(&["s2", "abc1234"]),
+        "pr=22 fixed=0 declined=0 open=2\nexit=1"
+    );
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(
+        text.contains("  - renamed\nposted: replied\n\n## thread T3"),
+        "{text}"
+    );
+    gh.clear(&resolve);
+    // The rerun resolves without posting again and posts the declined
+    // one; a third run posts nothing and needs no stage.
+    assert_eq!(
+        reply(&["s2", "abc1234"]),
+        "pr=22 fixed=1 declined=1 open=1\nexit=0"
+    );
+    assert_eq!(reply(&[]), "pr=22 fixed=1 declined=1 open=1\nexit=0");
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(
+        text.contains("  - renamed\nposted: resolved\n\n")
+            && text.ends_with("  - the spec asks for it\nposted: replied\n"),
+        "{text}"
+    );
+    let log = gh.log();
+    assert_eq!(log.matches("comments/11/replies").count(), 1, "{log}");
+    assert_eq!(log.matches("comments/13/replies").count(), 1, "{log}");
+    assert_eq!(log.matches("id=T1").count(), 2, "{log}");
+}

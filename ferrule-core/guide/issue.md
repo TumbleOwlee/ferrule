@@ -23,6 +23,8 @@ Every requirement or scenario change kept after filing, detail or meaningful (`f
 ferrule issue post {slug} --comment     # a slice run: on the epic too
 ```
 
+Each target posted is logged (`posted=comment issue=<n> sum=<hash>`); after a failure, rerun the same command — it posts only to the targets still missing that text (`action=recorded` when none is).
+
 Exit 3 (`body=refused reason=stage-ref stage-ref=…`): the visible text names a stage or an agent; resume `fe-author` to reword `issue.md`, never edit the body by hand.
 
 The PR link is never added by hand: the PR's `Closes #<n>` line makes GitHub cross-link issue and PR.

@@ -28,10 +28,11 @@ pub enum Name {
     Read,
     Overturned,
     TestRed,
+    Posted,
 }
 
 impl Name {
-    pub const ALL: [Name; 20] = [
+    pub const ALL: [Name; 21] = [
         Name::Commit,
         Name::Gauntlet,
         Name::Pr,
@@ -52,6 +53,7 @@ impl Name {
         Name::Read,
         Name::Overturned,
         Name::TestRed,
+        Name::Posted,
     ];
 
     /// The name as stored, `=` included for a valued event.
@@ -78,6 +80,7 @@ impl Name {
             Name::Read => "read",
             Name::Overturned => "overturned",
             Name::TestRed => "test-red",
+            Name::Posted => "posted=",
         }
     }
 
@@ -91,6 +94,7 @@ impl Name {
             Name::SpecDelta => &["origin", "quote"],
             Name::Read => &["path"],
             Name::Overturned => &["count"],
+            Name::Posted => &["issue", "sum", "k"],
             _ => &[],
         }
     }
@@ -192,6 +196,14 @@ pub enum Typed<'a> {
         count: Option<u64>,
     },
     TestRed,
+    /// A host write done: `comment` (issue-comment.md, its `sum`, on
+    /// `issue`) or `follow-up` (follow-up-`k`.md, filed as `issue`).
+    Posted {
+        what: &'a str,
+        issue: Option<u64>,
+        sum: Option<&'a str>,
+        k: Option<u32>,
+    },
     Other,
 }
 
@@ -220,6 +232,7 @@ impl Typed<'_> {
             Typed::Read { .. } => Name::Read,
             Typed::Overturned { .. } => Name::Overturned,
             Typed::TestRed => Name::TestRed,
+            Typed::Posted { .. } => Name::Posted,
             Typed::Other => return None,
         })
     }
@@ -299,6 +312,12 @@ impl Event {
                 count: key("count").and_then(|c| c.parse().ok()),
             },
             Name::TestRed => Typed::TestRed,
+            Name::Posted => Typed::Posted {
+                what: value?,
+                issue: key("issue").and_then(|n| n.parse().ok()),
+                sum: key("sum"),
+                k: key("k").and_then(|n| n.parse().ok()),
+            },
         })
     }
 }

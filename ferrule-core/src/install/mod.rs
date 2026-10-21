@@ -250,7 +250,7 @@ pub struct Report {
 }
 
 /// FNV-1a over the bytes: stable across versions and platforms.
-fn hash(text: &str) -> String {
+pub(crate) fn hash(text: &str) -> String {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in text.bytes() {
         h ^= u64::from(b);
