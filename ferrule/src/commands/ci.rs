@@ -32,6 +32,8 @@ Failures:
   gauntlet=fail step=<name> sha=<sha> reason=timeout log=<path>
       The step ran past its timeout and was killed.
 Refusals (nothing ran):
+  gauntlet=refused reason=card hint=check the slug with `ferrule board list`
+      There is no board yet, so no run; nothing is created.
   gauntlet=refused reason=no-worktree hint=<fix>
       The run has no worktree; `ferrule gate approve <slug> gate2` adds it.
   gauntlet=refused reason=no-steps hint=<fix>
@@ -142,8 +144,9 @@ pub fn run(command: &CiCommand, out: &mut impl Write) -> io::Result<u8> {
 fn run_gauntlet(slug: &str, force: bool, out: &mut impl Write) -> io::Result<u8> {
     let layout = layout();
     let config = Config::load(&layout.root).map_err(internal)?;
-    let Some(s) = store(true)? else {
-        unreachable!("store(true) creates the database");
+    // No board, no run: the gauntlet never creates one.
+    let Some(s) = store(false)? else {
+        return refuse(out, &Refusal::card("gauntlet"));
     };
     let wt = s
         .read(|r| r.worktree(&layout, slug, slug))

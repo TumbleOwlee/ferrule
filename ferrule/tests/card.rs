@@ -730,3 +730,24 @@ fn it_import_refuses_a_bad_stamp() {
     );
     assert!(got.ends_with("exit=2"), "{got}");
 }
+
+#[cfg(unix)]
+#[test]
+fn it_log_takes_a_word_that_is_not_utf8_without_a_panic() {
+    use std::os::unix::ffi::OsStrExt;
+    let dir = tempfile::tempdir().unwrap();
+    let bad = std::ffi::OsStr::from_bytes(b"x\xff");
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_ferrule"))
+        .args([
+            std::ffi::OsStr::new("board"),
+            "log".as_ref(),
+            "nosuch".as_ref(),
+            "read".as_ref(),
+            bad,
+        ])
+        .env("CLAUDE_PROJECT_DIR", dir.path())
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert_ne!(out.status.code(), Some(101), "{out:?}");
+}

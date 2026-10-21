@@ -239,48 +239,61 @@ fn lines(files: &[PathBuf], seen: usize, out: &mut impl Write) -> io::Result<u8>
 pub enum Shown {
     Viewer(String),
     Stdout,
-    Failed,
+    /// The viewer did not start or failed: why, from its error output.
+    Failed(String),
 }
 
-/// Runs the viewer on `path` with its output kept out of the caller's.
+/// Runs the viewer on `path` with its output kept out of the caller's;
+/// when it fails, the last line it wrote to stderr says why.
 fn view(viewer: &[String], path: &Path) -> Shown {
     let Some((program, args)) = viewer.split_first() else {
         return Shown::Stdout;
     };
-    let ok = Command::new(program)
+    let ran = Command::new(program)
         .args(args)
         .arg(path)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success());
-    if ok {
-        Shown::Viewer(program.clone())
-    } else {
-        Shown::Failed
+        .stderr(Stdio::piped())
+        .output();
+    match ran {
+        Ok(o) if o.status.success() => Shown::Viewer(program.clone()),
+        Ok(o) => {
+            let err = String::from_utf8_lossy(&o.stderr);
+            let why = err.lines().rev().find(|l| !l.trim().is_empty());
+            Shown::Failed(match why {
+                Some(l) => format!("{program}: {}", l.trim()),
+                None => format!("{program} exited {}", o.status.code().unwrap_or(1)),
+            })
+        }
+        Err(e) => Shown::Failed(format!("{program}: {e}")),
     }
 }
 
 /// A file shown, how, and the run whose approval marker it joined.
 pub type ShownFile = (PathBuf, Shown, Option<String>);
 
-/// Validates, records and opens `files`; the shown line per file. Refuses
-/// everything when one file is unreadable (exit 1) or a summary is over
-/// its cap (exit 3).
-pub fn open(files: &[PathBuf], err: &mut impl Write) -> io::Result<Result<Vec<ShownFile>, u8>> {
+/// Validates, records (with `record`) and opens `files`; the shown line
+/// per file. Refuses everything when one file is unreadable (exit 1) or a
+/// summary is over its cap (exit 3), its message under `label`.
+pub fn open(
+    files: &[PathBuf],
+    label: &str,
+    record: bool,
+    err: &mut impl Write,
+) -> io::Result<Result<Vec<ShownFile>, u8>> {
     let layout = Layout::new(project::main_checkout());
     let config = Config::load(&layout.root).map_err(internal)?;
     let mut abs = Vec::new();
     for f in files {
         let Ok(text) = std::fs::read_to_string(f) else {
-            writeln!(err, "prompt show: not readable: {}", f.display())?;
+            writeln!(err, "{label}: not readable: {}", f.display())?;
             return Ok(Err(exit::REFUSED));
         };
         if let Some((lines, bytes)) = approval::over_cap(f, &text, &config.thresholds) {
             writeln!(
                 err,
-                "prompt show: refused: {} is {lines} lines / {bytes} bytes, cap is {} lines / {} bytes; have the agent that wrote it trim it, never show the full file instead",
+                "{label}: refused: {} is {lines} lines / {bytes} bytes, cap is {} lines / {} bytes; have the agent that wrote it trim it, never show the full file instead",
                 f.display(),
                 config.thresholds.summary_max_lines,
                 config.thresholds.summary_max_bytes
@@ -289,7 +302,10 @@ pub fn open(files: &[PathBuf], err: &mut impl Write) -> io::Result<Result<Vec<Sh
         }
         abs.push(f.canonicalize()?);
     }
-    let runs = match store(true)? {
+    // Showing a file records it on the run that owns it; with no board
+    // there is none, and showing creates none.
+    let board = if record { store(false)? } else { None };
+    let runs = match board {
         Some(mut s) => approval::record(&mut s, &layout, &abs, &board::now()).map_err(internal)?,
         None => vec![None; abs.len()],
     };
@@ -305,7 +321,7 @@ pub fn open(files: &[PathBuf], err: &mut impl Write) -> io::Result<Result<Vec<Sh
 }
 
 fn show(files: &[PathBuf], with_lines: bool, out: &mut impl Write) -> io::Result<u8> {
-    let shown = match open(files, &mut io::stderr())? {
+    let shown = match open(files, "prompt show", true, &mut io::stderr())? {
         Ok(s) => s,
         Err(code) => return Ok(code),
     };
@@ -320,12 +336,13 @@ fn show(files: &[PathBuf], with_lines: bool, out: &mut impl Write) -> io::Result
                 "prompt show: opened with {v}: {}{marker}",
                 path.display()
             )?,
-            Shown::Failed => {
+            Shown::Failed(why) => {
                 writeln!(
                     out,
                     "prompt show: viewer failed: {}{marker}",
                     path.display()
                 )?;
+                eprintln!("prompt show: {why}");
                 code = exit::REFUSED;
             }
             Shown::Stdout => {
@@ -403,12 +420,21 @@ fn render(args: &PromptRenderArgs, out: &mut impl Write) -> io::Result<u8> {
     };
     let layout = Layout::new(project::main_checkout());
     let mut view = |files: &[PathBuf]| -> Result<Viewed, u8> {
-        let shown = match open(files, &mut io::stderr()) {
+        // Core render records what was shown on its own connection.
+        let shown = match open(files, "prompt render", false, &mut io::stderr()) {
             Ok(Ok(s)) => s,
             Ok(Err(code)) => return Err(code),
             Err(_) => return Ok(Viewed::Failed),
         };
-        if shown.iter().any(|(_, how, _)| matches!(how, Shown::Failed)) {
+        for (_, how, _) in &shown {
+            if let Shown::Failed(why) = how {
+                eprintln!("prompt render: {why}");
+            }
+        }
+        if shown
+            .iter()
+            .any(|(_, how, _)| matches!(how, Shown::Failed(_)))
+        {
             Ok(Viewed::Failed)
         } else if shown
             .iter()

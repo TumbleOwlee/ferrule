@@ -417,14 +417,21 @@ impl Run<'_> {
 }
 
 /// The note under the header when the viewer did not open the files.
+/// The files shown are recorded as the stop's approval marker on the
+/// render's own connection.
 fn viewer_note(
+    run: &mut Run,
     view: &mut dyn FnMut(&[PathBuf]) -> Result<Viewed, u8>,
     show: &[PathBuf],
 ) -> Result<Option<String>, Error> {
     if show.is_empty() {
         return Ok(None);
     }
-    match view(show) {
+    let viewed = view(show);
+    if viewed.is_ok() {
+        approval::record_in(run.conn, run.layout, show, run.now)?;
+    }
+    match viewed {
         Ok(Viewed::Opened) => Ok(None),
         Ok(Viewed::Failed) => Ok(Some("Viewer: failed — open the files manually".to_owned())),
         Ok(Viewed::Unavailable(paths)) => {
@@ -526,7 +533,7 @@ pub(crate) fn render_in(
         }
         _ => {}
     }
-    let note = viewer_note(view, &show)?;
+    let note = viewer_note(&mut run, view, &show)?;
     let approval = approval_text(&run, kind, args, &facts)?;
     if kind == Kind::Stage {
         run.log("stop", &["kind=stage"])?;

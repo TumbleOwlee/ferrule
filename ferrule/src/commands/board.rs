@@ -507,7 +507,11 @@ fn key_values(args: &[String]) -> Result<Vec<(String, String)>, String> {
 /// that comes right after the event as its own escape, so it is taken back
 /// from the raw arguments, whose tail the parsed words are.
 fn with_separator(args: &[String]) -> Vec<String> {
-    let raw: Vec<String> = std::env::args().collect();
+    // Lossy, as main reads them: `env::args` panics on a word that is not
+    // UTF-8.
+    let raw: Vec<String> = std::env::args_os()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
     let separated = raw
         .len()
         .checked_sub(args.len() + 1)

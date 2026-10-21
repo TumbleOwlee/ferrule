@@ -55,8 +55,8 @@ pub(super) fn metrics(
 
 pub(super) fn cleanup(slug: &str, out: &mut impl Write) -> io::Result<u8> {
     let layout = layout();
-    let Some(mut s) = store(true)? else {
-        unreachable!("store(true) creates the database");
+    let Some(mut s) = store(false)? else {
+        return refuse(out, &Refusal::card("cleanup"));
     };
     let refusal = match archive::cleanup(&mut s, &layout, slug, &board::now()) {
         Ok(done) => {

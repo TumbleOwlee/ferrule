@@ -42,7 +42,16 @@ pub fn record(
     files: &[PathBuf],
     now: &str,
 ) -> rusqlite::Result<Vec<Option<String>>> {
-    let conn = db.conn_mut();
+    record_in(db.conn_mut(), layout, files, now)
+}
+
+/// [`record`] over a connection core code already holds.
+pub(crate) fn record_in(
+    conn: &mut Connection,
+    layout: &Layout,
+    files: &[PathBuf],
+    now: &str,
+) -> rusqlite::Result<Vec<Option<String>>> {
     let runs: Vec<Option<String>> = files.iter().map(|f| run_of(layout, f)).collect();
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let mut cleared: Vec<&str> = Vec::new();

@@ -285,3 +285,43 @@ fn it_render_usage() {
     assert_eq!(render(p, &["nosuch", "gate1"]).text(), "exit=2");
     assert_eq!(render(p, &["demo", "auto"]).text(), "exit=2");
 }
+
+#[test]
+fn it_reading_without_a_board_creates_none() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path();
+    std::fs::create_dir_all(p.join(".ferrule")).unwrap();
+    config(p, "[viewer]\ncommand = [\"true\"]\n");
+    let note = p.join("note.md");
+    std::fs::write(&note, "# Note\n").unwrap();
+    let shown = ferrule(p, &["prompt", "show", note.to_str().unwrap()]).text();
+    assert!(shown.ends_with("exit=0"), "{shown}");
+    let gauntlet = ferrule(p, &["ci", "gauntlet", "demo"]).text();
+    assert!(
+        gauntlet.starts_with("gauntlet=refused reason=card"),
+        "{gauntlet}"
+    );
+    let cleanup = ferrule(p, &["run", "cleanup", "demo"]).text();
+    assert!(
+        cleanup.starts_with("cleanup=refused reason=card"),
+        "{cleanup}"
+    );
+    assert!(!p.join(".ferrule/state.db").exists());
+}
+
+#[test]
+fn it_show_says_why_the_viewer_failed() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path();
+    std::fs::create_dir_all(p.join(".ferrule")).unwrap();
+    config(
+        p,
+        "[viewer]\ncommand = [\"sh\", \"-c\", \"echo no display >&2; exit 1\", \"sh\"]\n",
+    );
+    let note = p.join("note.md");
+    std::fs::write(&note, "# Note\n").unwrap();
+    let out = ferrule(p, &["prompt", "show", note.to_str().unwrap()]).output();
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("prompt show: sh: no display"), "{err}");
+    assert_eq!(out.status.code(), Some(1));
+}
