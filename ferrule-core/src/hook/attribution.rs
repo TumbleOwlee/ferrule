@@ -123,6 +123,9 @@ pub enum Rewrite {
     /// The attribution sits in a file the command reads; the file has to
     /// change, which a guard must not do.
     InFile(String),
+    /// The attribution sits in a word holding a `$` or backtick expansion:
+    /// re-quoting it would commit the expansion's text, not its value.
+    Expanding,
 }
 
 /// `command` without its attribution: message words and heredoc bodies
@@ -168,6 +171,10 @@ pub fn rewrite(command: &str, cwd: &Path) -> Rewrite {
                 continue;
             }
             if let Some(clean) = strip(w) {
+                let raw = &chars[c.spans[i].clone()];
+                if raw.iter().any(|&ch| ch == '$' || ch == '`') {
+                    return Rewrite::Expanding;
+                }
                 edits.push((c.spans[i].clone(), single_quoted(&clean)));
             }
             i += 1;
@@ -251,6 +258,22 @@ mod tests {
         assert_eq!(
             stripped("git commit -m \"fix: x\n\nCo-Authored-By: S <a@b.c>\" && git push"),
             "git commit -m 'fix: x' && git push"
+        );
+    }
+
+    #[test]
+    fn ut_rewrite_refuses_a_message_word_that_expands() {
+        for cmd in [
+            "git commit -m \"Bump to $NEW_VERSION\n\nCo-Authored-By: X <x@y>\"",
+            "git commit -m \"fix: $(date +%F) done\n\nCo-Authored-By: X\"",
+            "git commit -m \"fix: `date` done\n\nCo-Authored-By: X\"",
+        ] {
+            assert_eq!(rewrite(cmd, Path::new(".")), Rewrite::Expanding, "{cmd}");
+        }
+        let plain = "git commit -m \"fix: done\n\nCo-Authored-By: X\"";
+        assert_eq!(
+            rewrite(plain, Path::new(".")),
+            Rewrite::Stripped("git commit -m 'fix: done'".to_owned())
         );
     }
 

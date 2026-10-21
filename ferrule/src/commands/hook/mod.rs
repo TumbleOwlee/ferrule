@@ -72,6 +72,10 @@ Refuses:
   a command that commits or posts from a file carrying such a trailer:
                        deny with the file's path; remove those lines from
                        the file and retry
+  a message word carrying such a trailer next to a $ or backtick
+                       expansion (\"$VERSION\", $(date)): deny, since the
+                       rewrite would quote the expansion; drop the trailer
+                       lines and retry
 Errors (stderr):
   ferrule hook: unreadable PreToolUse payload (...); refusing the call
                        exit 2, which blocks the call
@@ -295,6 +299,9 @@ fn attribution(cmd: &str, cwd: &Path, tool_input: &Value) -> Option<Verdict> {
         Rewrite::InFile(path) => Some(Verdict::Deny(format!(
             "{path} carries a tool-attribution trailer (Co-Authored-By / \"Generated with\"), which this repo never carries. Remove those lines from the file and retry."
         ))),
+        Rewrite::Expanding => Some(Verdict::Deny(
+            "The message carries a tool-attribution trailer (Co-Authored-By / \"Generated with\"), which this repo never carries, next to a $ or backtick expansion a rewrite would turn into plain text. Drop the trailer lines from the command and retry.".to_owned(),
+        )),
         Rewrite::Stripped(clean) => {
             let mut input = tool_input.clone();
             input["command"] = Value::String(clean);
