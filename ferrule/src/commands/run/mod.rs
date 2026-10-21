@@ -66,13 +66,13 @@ Output:
       `pr=draft`; each done stage logs its `commit=<sha>`. `next` is the
       first stage not done; run `ferrule run reconcile <slug>` before resuming.
 Refusals (nothing is written):
-  rebuild=refused reason=no-pr         The PR could not be read
+  rebuild=refused reason=no-pr         The host has no such PR
   rebuild=refused reason=no-stages     The PR body has no `## Stages` list
   rebuild=refused reason=no-branch     The PR's branch is unknown or cannot be
                                        fetched from origin
   rebuild=refused reason=board-exists  The run still has a card, stage cards
                                        or run directory; use reconcile
-  rebuild=refused reason=no-issue      The tracking issue could not be read
+  rebuild=refused reason=no-issue      The tracker has no such issue
   rebuild=refused reason=sha sha=<sha> A ticked stage's commit is not in the
                                        repository
   rebuild=refused reason=no-sha stage=s<n>
@@ -86,6 +86,9 @@ Refusals (nothing is written):
                                        `<!-- s<n> -->`, repeats a stage, or
                                        blocks on one that is not `s<n>`
   rebuild=refused reason=worktree      `git worktree add` failed
+  rebuild=refused reason=host detail=\"<error>\"
+                                       The host or tracker failed (auth,
+                                       network, an answer it could not read)
 Refusals end in ` hint=<fix>`.
 Exit codes: 0 done, 1 refused, 2 usage, 4 internal error.
 See: ferrule guide show resume";

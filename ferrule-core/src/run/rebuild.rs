@@ -34,6 +34,9 @@ pub enum Refused {
     /// twice, or blocks on one that is not `s<n>`.
     BadStage(String),
     Worktree(git::GitError),
+    /// The host or tracker failed for another reason than a missing item
+    /// (auth, network): its error.
+    Host(String),
 }
 
 impl Refused {
@@ -51,6 +54,7 @@ impl Refused {
             Refused::BadBranch(_) => "bad-branch",
             Refused::BadStage(_) => "bad-stage",
             Refused::Worktree(_) => "worktree",
+            Refused::Host(_) => "host",
         };
         let hint = match self {
             Refused::NoPr => "check the PR number and your host access",
@@ -71,6 +75,7 @@ impl Refused {
                 "mark each `## Stages` line once with `<!-- s<n> -->`, blocking only on `s<n>` stages"
             }
             Refused::Worktree(_) => "git could not add the worktree; check `git worktree list`",
+            Refused::Host(_) => "the host did not answer; check your login and network, then retry",
         };
         let mut r = Refusal::new("rebuild", reason);
         if let Refused::Sha(sha) = self {
@@ -84,6 +89,9 @@ impl Refused {
         }
         if let Refused::Worktree(e) = self {
             r = r.detail(&e.stderr);
+        }
+        if let Refused::Host(e) = self {
+            r = r.detail(e);
         }
         r.hint(hint)
     }
@@ -145,11 +153,13 @@ impl From<std::io::Error> for Error {
 
 /// Where the run's issue, PR and branch come from; each asked only when
 /// the rebuild gets that far.
+/// Where a rebuild reads the run from: `Ok(None)` for an item the host
+/// does not have, `Err` with the host's error for any other failure.
 pub trait Source {
-    fn pr(&self) -> Option<Item>;
+    fn pr(&self) -> Result<Option<Item>, String>;
     /// The PR's head branch.
-    fn branch(&self) -> Option<String>;
-    fn issue(&self) -> Option<Item>;
+    fn branch(&self) -> Result<Option<String>, String>;
+    fn issue(&self) -> Result<Option<Item>, String>;
 }
 
 /// One `## Stages` line.
@@ -364,12 +374,15 @@ pub fn rebuild(
     now: &str,
 ) -> Result<(String, usize, Option<String>), Error> {
     let conn = db.conn_mut();
-    let pr = source.pr().ok_or(Refused::NoPr)?;
+    let pr = source.pr().map_err(Refused::Host)?.ok_or(Refused::NoPr)?;
     let st = stages(&pr.body);
     if !pr.body.lines().any(|l| l == "## Stages") {
         return Err(Refused::NoStages.into());
     }
-    let branch = source.branch().ok_or(Refused::NoBranch)?;
+    let branch = source
+        .branch()
+        .map_err(Refused::Host)?
+        .ok_or(Refused::NoBranch)?;
     let slug = slug_of(&branch)?;
     let exists = board::state(conn, &slug)?.is_some()
         || !board::stages(conn, &slug)?.is_empty()
@@ -381,7 +394,10 @@ pub fn rebuild(
     if !git::ok(root, &["fetch", "-q", "origin", &branch]) {
         return Err(Refused::NoBranch.into());
     }
-    let issue = source.issue().ok_or(Refused::NoIssue)?;
+    let issue = source
+        .issue()
+        .map_err(Refused::Host)?
+        .ok_or(Refused::NoIssue)?;
     if st.is_empty() {
         return Err(Refused::NoStages.into());
     }

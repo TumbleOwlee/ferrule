@@ -135,9 +135,14 @@ impl Repo {
         };
         let key = ["issue", "view", "21", "--json", GH_FIELDS];
         if present {
+            self.gh.clear(&key);
             self.gh.serve(&key, &json);
         } else {
-            self.gh.serve(&key, "not json");
+            self.gh.serve_err(
+                &key,
+                "GraphQL: Could not resolve to an issue or pull request with the number of 21. (repository.issue)\n",
+                1,
+            );
         }
     }
 
@@ -219,6 +224,17 @@ fn it_rebuild_refuses_and_writes_nothing() {
     r.serve_pr("pr/rebuild.txt", None);
     r.serve_issue(false);
     check("run-rebuild-no-issue", &r.rebuild());
+    // A host that fails otherwise says so instead of reading as no issue.
+    r.gh.serve_err(
+        &["issue", "view", "21", "--json", GH_FIELDS],
+        "HTTP 401: Bad credentials (https://api.github.com/graphql)\n",
+        1,
+    );
+    let failed = r.rebuild();
+    assert!(
+        failed.starts_with("rebuild=refused reason=host detail=\"HTTP 401: Bad credentials"),
+        "{failed}"
+    );
     r.serve_issue(true);
     std::fs::create_dir_all(r.root.join(".ferrule/runs/rb")).unwrap();
     check("run-rebuild-exists-artifacts", &r.rebuild());

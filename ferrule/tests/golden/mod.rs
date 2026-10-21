@@ -103,6 +103,7 @@ printf '%s\n' "$*" >> "$GH_DIR/log"
 key=$(printf '%s' "$*" | tr -c 'A-Za-z0-9=._-' '_' | cut -c1-120)
 if [ -f "$GH_DIR/fx/$key" ]; then
   cat "$GH_DIR/fx/$key"
+  [ -f "$GH_DIR/fx/$key.err" ] && cat "$GH_DIR/fx/$key.err" >&2
   [ -f "$GH_DIR/fx/$key.exit" ] && exit "$(cat "$GH_DIR/fx/$key.exit")"
   exit 0
 fi
@@ -152,11 +153,23 @@ exit 1
         std::fs::write(exit, code.to_string()).unwrap();
     }
 
+    /// `gh <args>` fails with exit `code`, `text` on stderr.
+    pub fn serve_err(&self, args: &[&str], text: &str, code: i32) {
+        self.serve_exit(args, "", code);
+        let err = self
+            .dir
+            .path()
+            .join("fx")
+            .join(format!("{}.err", Self::key(args)));
+        std::fs::write(err, text).unwrap();
+    }
+
     /// `gh <args>` served no more: it falls back to the default answer.
     pub fn clear(&self, args: &[&str]) {
         let fx = self.dir.path().join("fx");
         let _ = std::fs::remove_file(fx.join(Self::key(args)));
         let _ = std::fs::remove_file(fx.join(format!("{}.exit", Self::key(args))));
+        let _ = std::fs::remove_file(fx.join(format!("{}.err", Self::key(args))));
     }
 
     /// The calls made, one line each.

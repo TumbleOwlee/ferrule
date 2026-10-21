@@ -73,17 +73,32 @@ struct Remote {
     issue: ItemRef,
 }
 
+/// A missing item is `None`; any other failure is the host's error. `gh`
+/// reports a missing item only in its message.
+fn found<T>(r: Result<T, remote::Error>) -> Result<Option<T>, String> {
+    match r {
+        Ok(v) => Ok(Some(v)),
+        Err(remote::Error::NotFound(_)) => Ok(None),
+        Err(remote::Error::Command(m))
+            if m.contains("Could not resolve to") || m.to_lowercase().contains("not found") =>
+        {
+            Ok(None)
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 impl rebuild::Source for Remote {
-    fn pr(&self) -> Option<Item> {
-        self.host.view(&self.pr).ok()
+    fn pr(&self) -> Result<Option<Item>, String> {
+        found(self.host.view(&self.pr))
     }
 
-    fn branch(&self) -> Option<String> {
-        self.host.branch(&self.pr).ok()
+    fn branch(&self) -> Result<Option<String>, String> {
+        found(self.host.branch(&self.pr))
     }
 
-    fn issue(&self) -> Option<Item> {
-        self.tracker.view(&self.issue).ok()
+    fn issue(&self) -> Result<Option<Item>, String> {
+        found(self.tracker.view(&self.issue))
     }
 }
 
