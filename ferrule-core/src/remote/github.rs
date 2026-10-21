@@ -63,19 +63,34 @@ impl CodeHost for Gh {
         Ok(branch)
     }
 
+    /// The open PR from `branch` of this repository: `--head` matches the
+    /// branch name only, so a fork's PR with the same name is skipped.
     fn find_open(&self, branch: &str) -> Result<Option<u64>, Error> {
         #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
         struct Found {
             number: u64,
+            #[serde(default)]
+            is_cross_repository: bool,
         }
         let out = self.gh(
             &[
-                "pr", "list", "--head", branch, "--state", "open", "--json", "number",
+                "pr",
+                "list",
+                "--head",
+                branch,
+                "--state",
+                "open",
+                "--json",
+                "number,isCrossRepository",
             ],
             None,
         )?;
         let found: Vec<Found> = json(&out, "gh pr list")?;
-        Ok(found.first().map(|f| f.number))
+        Ok(found
+            .iter()
+            .find(|f| !f.is_cross_repository)
+            .map(|f| f.number))
     }
 
     fn create_draft(
@@ -352,12 +367,16 @@ impl IssueTracker for Gh {
             number: u64,
             title: String,
         }
+        // Only the user's own issues: another's with the same title is not
+        // the one a crash left.
         let out = self.gh(
             &[
                 "issue",
                 "list",
                 "--state",
                 "open",
+                "--author",
+                "@me",
                 "--limit",
                 &FIND_LIMIT.to_string(),
                 "--search",

@@ -305,9 +305,11 @@ impl Run<'_> {
             .ok_or(Error::NoIssue)
     }
 
-    /// Adopts the open issue titled `title`, else files a new one.
+    /// Adopts the user's open issue titled `title`, giving it `body`, else
+    /// files a new one.
     fn adopt_or_create(&self, title: &str, body: &str) -> Result<(u64, Action), Error> {
         if let Some(n) = self.tracker.find_open(title)? {
+            self.tracker.edit(&ItemRef::Number(n), title, body)?;
             return Ok((n, Action::Adopted));
         }
         Ok((self.tracker.create(title, body)?, Action::Created))
@@ -1067,8 +1069,8 @@ mod tests {
         assert_eq!(run.file(Target::Run, None).unwrap(), (31, Action::Recorded));
         assert_eq!(
             tracker.calls(),
-            ["find_open Retry clients"],
-            "adopted by its exact title, never filed"
+            ["find_open Retry clients", "edit 31 Retry clients"],
+            "adopted by its exact title and given the run's body, never filed"
         );
         assert_eq!(
             board::field(db.conn_mut(), "r", "issue")

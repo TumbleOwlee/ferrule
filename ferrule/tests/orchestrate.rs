@@ -199,6 +199,8 @@ fn find(title: &str) -> Vec<String> {
         "list",
         "--state",
         "open",
+        "--author",
+        "@me",
         "--limit",
         "100",
         "--search",
@@ -210,10 +212,24 @@ fn find(title: &str) -> Vec<String> {
     .to_vec()
 }
 
+/// `gh issue edit` giving adopted issue `n` the run's title and body.
+fn edit_issue(n: &str, title: &str) -> Vec<String> {
+    ["issue", "edit", n, "--title", title, "--body-file", "-"]
+        .map(str::to_owned)
+        .to_vec()
+}
+
 /// `gh pr list` looking for the open PR of `branch`.
 fn pr_list(branch: &str) -> Vec<String> {
     [
-        "pr", "list", "--head", branch, "--state", "open", "--json", "number",
+        "pr",
+        "list",
+        "--head",
+        branch,
+        "--state",
+        "open",
+        "--json",
+        "number,isCrossRepository",
     ]
     .map(str::to_owned)
     .to_vec()
@@ -503,6 +519,11 @@ fn publish_and_ci(p: &Project) {
         &find("Share the backoff helper with the RTU client"),
         r#"[{"number":40,"title":"Share the backoff helper with the RTU client"}]"#,
     );
+    serve(
+        gh,
+        &edit_issue("40", "Share the backoff helper with the RTU client"),
+        "",
+    );
     for _ in 0..2 {
         let published = p.ok(&["pr", "publish", "demo"]);
         assert_eq!(published, "publish=done pr=34 follow-ups=#40");
@@ -669,6 +690,11 @@ fn it_replan_swaps_the_uncommitted_stages() {
         &find("Reconnect dropped Modbus clients"),
         r#"[{"number":12,"title":"Reconnect dropped Modbus clients"}]"#,
     );
+    serve(
+        &p.gh,
+        &edit_issue("12", "Reconnect dropped Modbus clients"),
+        "",
+    );
     let gate2 = p.ok(&["gate", "approve", "demo", "gate2"]);
     assert!(gate2.contains("issue=12 "), "adopted: {gate2}");
     assert_eq!(p.field("demo", "gate1"), "2026-10-05", "pending: dated");
@@ -737,6 +763,11 @@ fn it_replan_approve_is_refused_twice() {
         &p.gh,
         &find("Reconnect dropped Modbus clients"),
         r#"[{"number":12,"title":"Reconnect dropped Modbus clients"}]"#,
+    );
+    serve(
+        &p.gh,
+        &edit_issue("12", "Reconnect dropped Modbus clients"),
+        "",
     );
     p.ok(&["gate", "approve", "demo", "gate2"]);
     let sha0 = p.land("s0", "docs/specs/modbus/requirements.md");
@@ -996,6 +1027,7 @@ fn it_issue_post_retries_post_only_what_is_missing() {
         &find(title),
         &format!(r#"[{{"number":50,"title":"{title} too"}},{{"number":51,"title":"{title}"}}]"#),
     );
+    serve(gh, &edit_issue("51", title), "");
     assert_eq!(
         p.ok(&["issue", "post", "demo", "--follow-up", "2"]),
         "issue=51 action=adopted"
