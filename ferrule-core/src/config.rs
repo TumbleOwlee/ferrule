@@ -227,7 +227,7 @@ impl std::error::Error for Error {
 impl Config {
     /// `<root>/.ferrule/ferrule.toml`, or the defaults when it is absent.
     pub fn load(root: &Path) -> Result<Self, Error> {
-        let path = root.join(crate::store::DIR).join(FILE);
+        let path = root.join(crate::project::DIR).join(FILE);
         match std::fs::read_to_string(&path) {
             Ok(text) => toml::from_str(&text).map_err(Error::Parse),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Config::default()),

@@ -1453,6 +1453,20 @@ impl Reader<'_> {
     }
 }
 
+/// Card `card`'s worktree: its `worktree` field, or run `slug`'s default
+/// place under `.ferrule/worktrees/`.
+pub fn worktree(
+    conn: &Connection,
+    layout: &crate::project::Layout,
+    slug: &str,
+    card: &str,
+) -> rusqlite::Result<std::path::PathBuf> {
+    Ok(
+        field(conn, card, "worktree")?
+            .map_or_else(|| layout.worktree(slug), |w| layout.resolve(&w)),
+    )
+}
+
 /// The board writes, inside the writer's transaction; each is the free
 /// function of the same name.
 impl Writer<'_> {

@@ -419,10 +419,13 @@ fn push_branch(config: &Config, out: &mut impl Write) -> io::Result<u8> {
         );
     };
     if branch == config.main_branch {
-        return refuse(out, &publish::PushRefused::Main.refusal());
+        return refuse(out, &ferrule_core::run::push::PushRefused::Main.refusal());
     }
     if let Err(e) = ferrule_core::git::run(&here, &["push", "-q", "-u", "origin", &branch]) {
-        return refuse(out, &publish::PushRefused::Push(e).refusal());
+        return refuse(
+            out,
+            &ferrule_core::run::push::PushRefused::Push(e).refusal(),
+        );
     }
     writeln!(out, "push=done branch={branch}")?;
     Ok(exit::OK)

@@ -9,7 +9,7 @@ use rusqlite::Connection;
 
 pub use rusqlite::Error;
 
-pub const DIR: &str = ".ferrule";
+pub use crate::project::DIR;
 pub const FILE: &str = "state.db";
 
 /// One schema migration: SQL, or Rust for what SQL alone cannot do. Each

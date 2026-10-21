@@ -7,6 +7,7 @@ pub mod gate;
 pub mod gauntlet;
 pub mod inspect;
 pub mod next;
+pub mod push;
 pub mod rebuild;
 
 use std::ffi::OsStr;
@@ -53,16 +54,7 @@ impl From<rusqlite::Error> for Error {
     }
 }
 
-/// A stage's worktree: its card's `worktree:`, else the run's default.
-pub fn worktree(
-    conn: &Connection,
-    layout: &Layout,
-    slug: &str,
-    card: &str,
-) -> rusqlite::Result<PathBuf> {
-    Ok(board::field(conn, card, "worktree")?
-        .map_or_else(|| layout.worktree(slug), |w| layout.resolve(&w)))
-}
+pub use crate::card::board::worktree;
 
 impl Reader<'_> {
     /// [`worktree`] over this snapshot.

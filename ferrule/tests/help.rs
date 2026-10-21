@@ -20,7 +20,57 @@ const SOURCES: &[(&str, &[&str])] = &[
         &["setup install", "setup check"],
     ),
     (
-        "ferrule-core/src/pr/publish.rs",
+        "ferrule-core/src/pr/publish/gate4.rs",
+        &[
+            "issue post",
+            "pr open",
+            "pr push",
+            "pr publish",
+            "pr feedback route",
+        ],
+    ),
+    (
+        "ferrule-core/src/pr/publish/mod.rs",
+        &[
+            "issue post",
+            "pr open",
+            "pr push",
+            "pr publish",
+            "pr feedback route",
+        ],
+    ),
+    (
+        "ferrule-core/src/pr/publish/open.rs",
+        &[
+            "issue post",
+            "pr open",
+            "pr push",
+            "pr publish",
+            "pr feedback route",
+        ],
+    ),
+    (
+        "ferrule-core/src/pr/publish/post.rs",
+        &[
+            "issue post",
+            "pr open",
+            "pr push",
+            "pr publish",
+            "pr feedback route",
+        ],
+    ),
+    (
+        "ferrule-core/src/pr/publish/route.rs",
+        &[
+            "issue post",
+            "pr open",
+            "pr push",
+            "pr publish",
+            "pr feedback route",
+        ],
+    ),
+    (
+        "ferrule-core/src/run/push.rs",
         &[
             "issue post",
             "pr open",
@@ -517,7 +567,8 @@ const REFUSAL_SOURCES: &[(&str, &[&str])] = &[
         "ferrule-core/src/install/mod.rs",
         &["hook shell", "hook reviewer"],
     ),
-    ("ferrule-core/src/pr/publish.rs", &["gate approve"]),
+    ("ferrule-core/src/pr/publish/mod.rs", &["gate approve"]),
+    ("ferrule-core/src/pr/publish/post.rs", &["gate approve"]),
     ("ferrule-core/src/run/gauntlet.rs", &["pr push"]),
 ];
 

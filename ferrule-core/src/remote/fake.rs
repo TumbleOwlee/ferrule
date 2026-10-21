@@ -7,7 +7,7 @@ use std::rc::Rc;
 use super::host::{Checks, CodeHost, PrStatus};
 use super::tracker::{Found, IssueTracker};
 use super::{Error, Item, ItemRef, Query};
-use crate::pr::feedback::{Fetched, Thread};
+use super::{Fetched, Thread};
 
 /// What the fake serves, and the calls it received.
 #[derive(Debug, Default)]

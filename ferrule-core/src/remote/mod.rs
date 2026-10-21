@@ -29,7 +29,7 @@ use std::process::{Command, Stdio};
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::store::DIR;
+use crate::project::DIR;
 
 #[derive(Debug)]
 pub enum Error {
@@ -177,6 +177,26 @@ pub fn run(program: &str, args: &[&str], stdin: Option<&str>, cwd: &Path) -> Res
 
 pub(crate) fn json<T: for<'de> Deserialize<'de>>(text: &str, what: &str) -> Result<T, Error> {
     serde_json::from_str(text).map_err(|e| Error::Shape(format!("{what}: {e}")))
+}
+
+/// One unresolved inline review thread of a pull request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Thread {
+    pub id: String,
+    pub comment: String,
+    /// `path:line`.
+    pub path: String,
+    /// `(author, at, body)`.
+    pub comments: Vec<(String, String, String)>,
+}
+
+/// A pull request's unresolved threads, as [`CodeHost::threads`] reads
+/// them, with its state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Fetched {
+    pub state: String,
+    pub draft: bool,
+    pub threads: Vec<Thread>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -10,7 +10,7 @@ use super::tracker::{FIND_LIMIT, Found, IssueTracker, SearchState, title_query};
 use super::{
     Error, GH_FIELDS, GhItem, Item, ItemRef, Query, json, number_of, pick_job, run, run_bounded,
 };
-use crate::pr::feedback::{Fetched, Thread};
+use super::{Fetched, Thread};
 
 /// `gh` in the repository's checkout.
 pub struct Gh {

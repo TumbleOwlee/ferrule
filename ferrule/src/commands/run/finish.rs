@@ -4,9 +4,9 @@ use std::io::{self, Write};
 use std::path::Path;
 
 use ferrule_core::card::board;
+use ferrule_core::project::DIR;
 use ferrule_core::refusal::Refusal;
 use ferrule_core::run::archive::{self, Error as ArchiveError};
-use ferrule_core::store::DIR;
 
 use crate::commands::board::store;
 use crate::commands::{exit, internal, layout, refuse};

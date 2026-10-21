@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 
+pub const DIR: &str = ".ferrule";
+
 /// `git rev-parse <args>` run in `dir`, its trimmed output.
 fn rev_parse(dir: &Path, args: &[&str]) -> Option<PathBuf> {
     let out = Command::new("git")
@@ -90,16 +92,13 @@ impl Layout {
     /// `.ferrule/runs/<slug>/`, the run's agent-written artifacts.
     #[must_use]
     pub fn run_dir(&self, slug: &str) -> PathBuf {
-        self.root.join(crate::store::DIR).join("runs").join(slug)
+        self.root.join(DIR).join("runs").join(slug)
     }
 
     /// `.ferrule/worktrees/<slug>/`, the run's git worktree.
     #[must_use]
     pub fn worktree(&self, slug: &str) -> PathBuf {
-        self.root
-            .join(crate::store::DIR)
-            .join("worktrees")
-            .join(slug)
+        self.root.join(DIR).join("worktrees").join(slug)
     }
 
     /// A path as a card states it: absolute, or under the main checkout.

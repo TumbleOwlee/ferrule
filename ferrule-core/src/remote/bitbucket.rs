@@ -13,7 +13,7 @@ use super::host::{Checks, CodeHost, PrState, PrStatus, comment_id};
 use super::{
     Comment, Error, Item, ItemRef, Query, creds, curl, follow_next, json, non_empty, pick_job,
 };
-use crate::pr::feedback::{Fetched, Thread};
+use super::{Fetched, Thread};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]

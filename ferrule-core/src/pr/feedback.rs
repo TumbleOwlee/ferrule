@@ -26,23 +26,7 @@
 
 use std::fmt::Write as _;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Thread {
-    pub id: String,
-    pub comment: String,
-    /// `path:line`.
-    pub path: String,
-    /// `(author, at, body)`.
-    pub comments: Vec<(String, String, String)>,
-}
-
-/// What `fetch` found.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Fetched {
-    pub state: String,
-    pub draft: bool,
-    pub threads: Vec<Thread>,
-}
+pub use crate::remote::{Fetched, Thread};
 
 impl Fetched {
     /// The threads file.

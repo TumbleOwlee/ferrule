@@ -4,11 +4,11 @@
 
 use std::path::Path;
 
+use super::Fetched;
 use super::bitbucket::Bitbucket;
 use super::github::Gh;
 use super::{Error, Item, ItemRef, Query, error_lines};
 use crate::config::{Config, Host};
-use crate::pr::feedback::Fetched;
 
 /// Where a pull request is in its life; a declined or superseded one is
 /// closed.
