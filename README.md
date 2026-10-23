@@ -2,7 +2,7 @@
 
 **A spec-driven workflow for coding agents, enforced by one binary.**
 
-ferrule turns a behavior change into a gated run: a brief, an architecture, a plan, test-driven stages in an isolated worktree, an independent review and a pull request. Each step is done by a dedicated agent and approved by you. The rules that hold it together (the task board, spec IDs, approvals, which git and GitHub calls are allowed) live in typed, tested Rust instead of in prompts and shell scripts, so an agent cannot quietly skip them.
+Ferrule turns a behavior change into a gated run: a brief, an architecture, a plan, test-driven stages in an isolated worktree, an independent review and a pull request. Each step is done by a dedicated agent and approved by you. The rules that hold it together (the task board, spec IDs, approvals, which git and GitHub calls are allowed) live in typed, tested Rust instead of in prompts and shell scripts, so an agent cannot quietly skip them.
 
 > **Status:** early and under active development (v0.1). Commands and file formats may still change between releases.
 
@@ -21,7 +21,7 @@ ferrule turns a behavior change into a gated run: a brief, an architecture, a pl
 
 Coding agents are good at writing code and bad at following process. Ask one to work spec-first and it will, until a shortcut looks faster: a commit straight to main, a review it runs on its own code, a spec edited after the fact. Instructions alone do not hold.
 
-ferrule moves the process out of the prompt:
+Ferrule moves the process out of the prompt:
 
 - **State is on a board, not in the conversation.** Every step moves a card in `.ferrule/state.db`, so an interrupted run can be resumed, reconciled with git and the host, or rebuilt.
 - **Instructions arrive per step.** After each agent reports, `ferrule gate next` names the one guide topic that applies now. No agent reads ahead or carries the whole workflow in context.
@@ -54,7 +54,7 @@ flowchart LR
 
 Merging stays with you, outside the workflow.
 
-**Lanes.** Small changes take the *fast* lane: fewer stops, with the brief, architecture and plan approved together. Larger changes take the *full* lane, with a stop at every gate. ferrule proposes a lane by size and you settle it at the first stop.
+**Lanes.** Small changes take the *fast* lane: fewer stops, with the brief, architecture and plan approved together. Larger changes take the *full* lane, with a stop at every gate. Ferrule proposes a lane by size and you settle it at the first stop.
 
 **Epics.** A feature too big for one run becomes an epic: its run settles the shared core and cuts the feature into slices, each filed as an issue and later done as a normal run.
 
@@ -190,7 +190,7 @@ A slug is ASCII letters, digits, `-`, `_` and single dots, starts with a letter 
 
 ## The guard
 
-ferrule installs two layers that keep an agent on the workflow.
+Ferrule installs two layers that keep an agent on the workflow.
 
 **The session guard** checks each Bash command's text before it runs. It refuses:
 
@@ -208,7 +208,7 @@ Some calls are refused only in some forms: `git update-ref` on branches, `gh api
 
 ## Development
 
-ferrule is a Cargo workspace: `ferrule-core` holds the logic and the shipped guide topics, `ferrule` the command line.
+Ferrule is a Cargo workspace: `ferrule-core` holds the logic and the shipped guide topics, `ferrule` the command line.
 
 ```sh
 cargo fmt --check
