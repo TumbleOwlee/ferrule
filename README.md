@@ -8,18 +8,6 @@ Ferrule turns a behavior change into a gated run: a brief, an architecture, a pl
 
 > **Status:** early and under active development (v0.1). Commands and file formats may still change between releases.
 
-## Contents
-
-- [Motivation](#motivation)
-- [Workflow](#workflow)
-- [Quick start](#quick-start)
-- [Installed files](#installed-files)
-- [Commands](#commands)
-- [Guide topics](#guide-topics)
-- [Configuration](#configuration)
-- [The guard](#the-guard)
-- [Development](#development)
-
 ## Motivation
 
 Coding agents are good at writing code and bad at following process. Ask one to work spec-first and it will, until a shortcut looks faster: a commit straight to main, a review it runs on its own code, a spec edited after the fact. Instructions alone do not hold.
