@@ -1,4 +1,4 @@
-# ferrule
+# Ferrule
 
 **A spec-driven workflow for coding agents, enforced by one binary.**
 
@@ -8,16 +8,16 @@ ferrule turns a behavior change into a gated run: a brief, an architecture, a pl
 
 ## Contents
 
-- [Why ferrule](#why-ferrule)
-- [How a run works](#how-a-run-works)
+- [Motivation](#motivation)
+- [Workflow](#workflow)
 - [Quick start](#quick-start)
-- [What gets installed](#what-gets-installed)
+- [Installed files](#installed-files)
 - [Commands](#commands)
 - [Configuration](#configuration)
 - [The guard](#the-guard)
 - [Development](#development)
 
-## Why ferrule
+## Motivation
 
 Coding agents are good at writing code and bad at following process. Ask one to work spec-first and it will, until a shortcut looks faster: a commit straight to main, a review it runs on its own code, a spec edited after the fact. Instructions alone do not hold.
 
@@ -29,7 +29,7 @@ ferrule moves the process out of the prompt:
 - **Verification is re-run, not trusted.** A reported commit is checked, the gauntlet runs in the worktree, and the reviewer is always a different agent from the implementer.
 - **Shortcuts are refused.** A shell guard blocks the raw git and `gh` calls ferrule replaces, and git hooks keep main untouchable whatever slipped through.
 
-## How a run works
+## Workflow
 
 A run starts with `/fe-feature` in Claude Code. You approve at each gate; between gates, agents work on their own.
 
@@ -87,7 +87,7 @@ Then, in Claude Code:
 1. Run `/fe-bootstrap` once, so the repository has a spec to work against.
 2. Run `/fe-feature` with the change you want.
 
-## What gets installed
+## Installed files
 
 `ferrule setup install` detects the project's stack and writes:
 
@@ -177,7 +177,7 @@ search_max = 40              # spec related/refs and issue search refuse more hi
 ci_wait = "2h"               # ci wait gives up on the PR's checks after this
 ```
 
-### Where state lives
+### State
 
 | Path | Holds |
 |---|---|
