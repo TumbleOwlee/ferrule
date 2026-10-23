@@ -1,3 +1,5 @@
+![Banner](./images/ferrule-banner.svg)
+
 # Ferrule
 
 **A spec-driven workflow for coding agents, enforced by one binary.**
@@ -13,6 +15,7 @@ Ferrule turns a behavior change into a gated run: a brief, an architecture, a pl
 - [Quick start](#quick-start)
 - [Installed files](#installed-files)
 - [Commands](#commands)
+- [Guide topics](#guide-topics)
 - [Configuration](#configuration)
 - [The guard](#the-guard)
 - [Development](#development)
@@ -112,26 +115,202 @@ Then, in Claude Code:
 
 ## Commands
 
-Commands are grouped by what they act on. Most are run by the orchestrating agent, not by hand; the ones you are likely to type yourself are `board list`, `run status` and `guide show`.
+Commands are grouped by what they act on. Most are run by the orchestrating agent, not by hand; the ones you are likely to type yourself are `board list`, `run status` and `guide show`. `ferrule <command> --help` prints the full help for a command, with its `Output:`, `Refusals:` and `See: ferrule guide show <topic>` sections.
 
-| Group | Covers |
+### Setup
+
+| Command | Does |
 |---|---|
-| `setup` | Install, check and uninstall the project's ferrule files |
-| `guide` | Show, list and check the workflow's instructions |
-| `run` | Start, inspect, reconcile, rebuild, clean up and export runs |
-| `gate` | Record approvals and name the next step |
-| `stage` | Verify, commit, stop and re-plan implementation stages |
-| `ci` | The local gauntlet and the PR's remote checks |
-| `board` | Cards, fields and events in the state database |
-| `spec` | Find, number and render spec entries |
-| `file` | Read long markdown files by heading |
-| `prompt` | Render the approval stops shown to you |
-| `issue`, `pr` | Read, render and post issues, pull requests and review feedback |
-| `hook` | The guards Claude Code and git call |
+| `ferrule setup install [--stack s] [--force]` | Set up or upgrade `.ferrule/` and the Claude Code adapters |
+| `ferrule setup check` | Fail on drift between the installed files and the binary |
+| `ferrule setup uninstall [--purge]` | Remove what `setup install` added |
 
-Every command prints `key=value` status lines and exits `0` done, `1` refused, `2` usage, `3` content, `4` internal error. A refusal ends in `hint=<fix>`. Documents are styled in a terminal and printed as plain markdown when piped.
+### Guide
 
-The full list, with every flag, is in [docs/commands.md](docs/commands.md). Writing or overriding guide topics is covered in [docs/guide-topics.md](docs/guide-topics.md).
+| Command | Does |
+|---|---|
+| `ferrule guide show <topic> [--section <heading>…] [--slug <s>] [--stage s<n>] [--lane fast\|full]` | One topic, or some of its sections, cut to the run's lane, steps the card shows done marked, placeholders filled |
+| `ferrule guide list` | Every topic, grouped into orchestrator and agent topics |
+| `ferrule guide check` | Fail on a broken topic reference, section reference or tag |
+
+### Run
+
+| Command | Does |
+|---|---|
+| `ferrule run init <slug> [--issue <n>]` | Start a run: parent card, run directory, the named issue's request and brief; a slice's epic |
+| `ferrule run status <slug>` | Where a run stands: parent and stage cards, worktree, gauntlet, CI, last event |
+| `ferrule run diff <slug> [--specs] [--stat] [--base <ref>]` | The run branch's diff against main, in its worktree; `--uncommitted` for the work not yet committed |
+| `ferrule run log <slug>` | The run branch's commits against main |
+| `ferrule run plan-diff <slug>` | What changed in `plan.md` since the last plan review |
+| `ferrule run reconcile <slug> [--local]` | Cards against git, and the issue, PR and PR body on the host, before an interrupted run resumes |
+| `ferrule run rebuild <issue> <pr>` | Recreate a lost board from the issue, the draft PR and git; re-adds the worktree |
+| `ferrule run cleanup <slug>` | Remove worktree and branch, archive cards and artifacts |
+| `ferrule run metrics [<slug>]` | A run's metrics line (needs green CI), or every line recorded |
+| `ferrule run export <slug> [--archive id] [--to dir]` | Write an archive back out as files |
+
+### Gate
+
+| Command | Does |
+|---|---|
+| `ferrule gate approve <slug> <gate> [--<flag>…]` | Record an approval; gate 2 files the issue, adds the worktree and creates the stage cards from `plan.md`'s `## Shared` table |
+| `ferrule gate next <slug> <gate2\|replan\|gate3\|gate4\|ci> <status…>` | The next step after an agent's status line, with the guide topic to read |
+
+### Stage
+
+| Command | Does |
+|---|---|
+| `ferrule stage verify <slug> s<n> <sha>` | Verify a reported commit before anything is pushed |
+| `ferrule stage stop <slug> s<n> [--threads n]` | Stop or auto-continue a clean stage, logged on its card |
+| `ferrule stage commit <card> -m <msg>` | Commit for a stage in review: never on the main branch, trailers stripped, `commit=` logged |
+| `ferrule stage commit --no-run -m <msg>` | The same outside a run |
+| `ferrule stage replan <slug> start\|approve [--stops s1,…]` | Snapshot the plan and log `from=`; swap the uncommitted stage cards for the new plan's |
+
+### CI
+
+| Command | Does |
+|---|---|
+| `ferrule ci gauntlet <slug> [--force]` | Run the `ferrule.toml` gauntlet steps in the run's worktree, cached by tree |
+| `ferrule ci wait <slug>` | Wait for the PR's checks, log `ci=`, print the next step and the failed run's errors |
+| `ferrule ci failed [<branch>] [--run <id>] [--job <name>] [--context <n>]` | The error lines of a failed CI run, the branch's latest unless `--run` names one, each with `n` lines after it |
+
+### Board
+
+| Command | Does |
+|---|---|
+| `ferrule board list` | Every card |
+| `ferrule board show <card>` | A card as markdown |
+| `ferrule board vocab` | The event vocabulary |
+| `ferrule board field <card> <field>` | A frontmatter field, `log:<key>`, `pass-sha` or `state` |
+| `ferrule board events <slug> [--event <name>]` | One event's log lines across a run's parent and stage cards |
+| `ferrule board new <card> [--state s] [k=v…]` | Create a card |
+| `ferrule board set <card> k=v…` | Set or clear a card's fields |
+| `ferrule board log <card> <event> [pos…] [k=v…] [-- text]` | Append one event the vocabulary accepts |
+| `ferrule board move <card> <state>` | Move a card, refusing what the board's rules forbid; re-renders the run's draft PR body |
+| `ferrule board import <board-dir>` | Load a markdown board into `.ferrule/state.db`, all or nothing |
+
+### Spec
+
+| Command | Does |
+|---|---|
+| `ferrule spec id [--dir <dir>] <ID>…` | Find spec entries by fixed ID as `file:line:text` |
+| `ferrule spec related <keyword>…` | Spec entries mentioning every keyword; refused past `search_max` hits |
+| `ferrule spec next <PREFIX> [--edge] [--count <n>] [--run <slug>]` | The next free fixed ID(s), counted from main (and the run) |
+| `ferrule spec refs <ID>… [--path <p>] [--ref <ref>]` | Every tracked line citing the IDs; refused past `search_max` hits |
+| `ferrule spec collisions <worktree> [<ref>]` | Fixed IDs both this branch and the target ref (default `origin/<main_branch>`) define |
+| `ferrule spec render <spec-diff> <part> [--only <ids>] [--with-unnumbered] [--issue-ids]` | Render scenarios, requirements, entries, changes or deferred points of a spec diff |
+
+### File
+
+| Command | Does |
+|---|---|
+| `ferrule file headings <file>…` | List a markdown file's headings, fenced code skipped |
+| `ferrule file section [--prefix] <heading>… <file>` | Print sections by heading text (`Status`, any case; `## Status` pins the level) |
+
+### Prompt
+
+| Command | Does |
+|---|---|
+| `ferrule prompt lines [--seen n] <file>…` | The lines of approval files a prompt quotes, then `Confirm:` |
+| `ferrule prompt show [--no-lines] <file>…` | Open files in the `[viewer]` (else stdout) and record the run's approval marker; exit 3 for a summary over its cap |
+| `ferrule prompt render <slug> <kind> [--<flag>…]` | A stop's whole message (approval, question, notice) or the `approved` record; logs the stop |
+
+### Issue
+
+| Command | Does |
+|---|---|
+| `ferrule issue search [--state open\|closed\|all] <keyword>…` | Issues mentioning every keyword, as `#n [STATE] title`; refused past `search_max` hits |
+| `ferrule issue view <n\|url\|KEY>` | An issue's title, body and a one-line index of its comments; `--comment <n\|a-b>` or `--comments` prints them in full |
+| `ferrule issue request <n> [--spec\|--epic\|--slice-line\|--comments]` | A reused issue's original request, or the part named |
+| `ferrule issue body <slug> [--slice <n>]` | The tracking issue's body from the run's artifacts; exit 3 when it names a stage or an agent |
+| `ferrule issue post <slug> [--slice <n>\|--split\|--follow-up <k>\|--comment] [--reuse <n>]` | Post an issue or comment from the run's files; adopts an open issue with the same title |
+
+### PR
+
+| Command | Does |
+|---|---|
+| `ferrule pr view <n>` | A PR's title, body and a one-line index of its comments; `--comment <n\|a-b>` or `--comments` prints them in full |
+| `ferrule pr body <slug> draft\|full` | The PR body from the run's artifacts and cards; exit 3 when it names a stage or an agent |
+| `ferrule pr open <slug>` | Open the draft PR from the rendered draft body |
+| `ferrule pr push <slug>` | Push a verified, gauntlet-green head; update the draft body (the first push opens the PR) |
+| `ferrule pr push --no-run` | Push the current branch outside a run, never the main one |
+| `ferrule pr publish <slug> [--follow-ups 1,3\|none]` | Gate 4: threads, ID collisions, full body, ready, follow-ups filed |
+| `ferrule pr feedback route <slug>` | Fetch the threads, log `feedback=`, move the stages owning the commented files back |
+| `ferrule pr feedback fetch <n> <out>` | Unresolved review threads into a file |
+| `ferrule pr feedback reply <n> <file> [<stage> <sha>]` | Post the filled replies, resolving fixed threads |
+
+### Hook
+
+| Command | Does |
+|---|---|
+| `ferrule hook shell` | Session-wide Bash guard: refuses writes to `.ferrule/state.db` and the lock, output floods, and the raw git and `gh` calls ferrule runs itself, naming the command to run instead |
+| `ferrule hook attribution` | Hands the Bash command back with attribution trailers removed |
+| `ferrule hook reviewer` | Read-only Bash guard for the reviewer agent |
+| `ferrule hook session-start` | Names the cards an interrupted run left in progress |
+| `ferrule hook git pre-commit\|commit-msg\|pre-push` | Git hooks: no commit or push to the main branch; trailers stripped from commit messages |
+
+### Output
+
+| Exit code | Meaning |
+|---|---|
+| 0 | Done |
+| 1 | Refused |
+| 2 | Usage error |
+| 3 | Content refused (a body naming a stage, a summary over its cap) |
+| 4 | Internal error: the state database, git, the filesystem or `ferrule.toml` failed; stderr `ferrule: <error>` |
+
+Every command prints `key=value` status lines. A refusal's status line ends in `hint=<fix>` (always the last key, free text to the end of the line) unless it already names its fix.
+
+Commands that print a document (`guide show`, `file section`, `file headings`, `spec render`, `board show`, `board list`, `issue view|request|body`, `pr view|body`) style it when stdout is a terminal: headings indent their sections, `file headings` draws a tree, lists and tables are aligned and wrapped to the terminal's width, and a table too wide becomes one record per row. Piped or redirected, which is what agents and scripts get, they print markdown unchanged. `--format text|md` overrides the choice; `NO_COLOR` keeps the layout without colours. `prompt` output is already shaped for the user and prints as is.
+
+### Renamed commands
+
+The names before the topic split still run for one release, hidden from help:
+
+| Old | New |
+|---|---|
+| `card …` | `board …` |
+| `card commit` | `stage commit` |
+| `install`, `uninstall` | `setup install`, `setup uninstall` |
+| `guide <topic>`, `--list`, `--check` | `guide show`, `guide list`, `guide check` |
+| `run approve`, `run next` | `gate approve`, `gate next` |
+| `run sha-check`, `run stage-stop`, `run replan` | `stage verify`, `stage stop`, `stage replan` |
+| `run gauntlet`, `run ci`, `pr failed` | `ci gauntlet`, `ci wait`, `ci failed` |
+| `spec section`, `spec sections` | `file section`, `file headings` |
+| `issue file` | `issue post` |
+
+## Guide topics
+
+The workflow's instructions ship inside the binary as topics (`ferrule-core/guide/<topic>.md`): one per orchestrator step (`gate2`, `stages`, `gate4`, …) and one per agent (`implementer`, `planner`, …). `ferrule gate next` names the topic for what comes next as a `guide:` line, so an agent reads each step's instructions when it gets there and never ahead.
+
+### Tags and placeholders
+
+| Syntax | Effect |
+|---|---|
+| `<!-- lane: fast -->` or `<!-- lane: full -->` | On the line above a block, keeps it for that lane only; above a heading it covers the heading's section. Without a lane both are printed, labelled |
+| `<!-- done: <token> -->` | Marks a block `(done)` once the run's parent card carries the token (`pr=ready`, or a bare field name such as `gate2`) |
+| `{slug}`, `{stage}`, `{card}`, `{run_dir}`, `{worktree}`, `{branch}`, `{issue}`, `{pr}`, `{main}` | Filled from the run; unknown ones print as `<slug>` |
+
+A topic points at part of another as `ferrule guide show <topic> --section '<heading>'`.
+
+### Project overrides
+
+A project overrides a topic with `.ferrule/guide/<topic>.md`:
+
+- Without headings, the file replaces the topic.
+- With headings, each of its sections replaces the default's section of the same heading, and a section the default lacks is appended.
+- A file naming no shipped topic is a topic of the project's own; its first line is `# <topic> — <summary>`.
+
+`ferrule guide check` fails when a topic names a topic or a `--section` that does not exist, or carries a malformed tag.
+
+### Stage table
+
+`plan.md`'s `## Shared` section opens with the stage table that `ferrule gate approve <slug> gate2` creates the stage cards from (`ferrule guide show planner` defines it):
+
+```
+| Stage | Title | Files | Blocked by |
+|---|---|---|---|
+| s1 | Add backoff | src/client.rs, tests/client.rs | s0 |
+```
 
 ## Configuration
 
