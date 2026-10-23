@@ -1,8 +1,8 @@
 ![Banner](./images/ferrule-banner.svg)
 
-# Ferrule
+# Ferrule - A spec-driven workflow for coding agents
 
-**A spec-driven workflow for coding agents, enforced by one binary.**
+[![Claude](https://img.shields.io/badge/Claude-D97757?logo=claude&logoColor=fff)](#) [![Release](https://github.com/TumbleOwlee/ferrule/actions/workflows/release.yml/badge.svg)](https://github.com/TumbleOwlee/ferrule/actions/workflows/release.yml)
 
 Ferrule turns a behavior change into a gated run: a brief, an architecture, a plan, test-driven stages in an isolated worktree, an independent review and a pull request. Each step is done by a dedicated agent and approved by you. The rules that hold it together (the task board, spec IDs, approvals, which git and GitHub calls are allowed) live in typed, tested Rust instead of in prompts and shell scripts, so an agent cannot quietly skip them.
 
@@ -307,9 +307,9 @@ A project overrides a topic with `.ferrule/guide/<topic>.md`:
 `plan.md`'s `## Shared` section opens with the stage table that `ferrule gate approve <slug> gate2` creates the stage cards from (`ferrule guide show planner` defines it):
 
 ```
-| Stage | Title | Files | Blocked by |
-|---|---|---|---|
-| s1 | Add backoff | src/client.rs, tests/client.rs | s0 |
+| Stage | Title       | Files                          | Blocked by |
+|-------|-------------|--------------------------------|------------|
+| s1    | Add backoff | src/client.rs, tests/client.rs | s0         |
 ```
 
 ## Configuration
