@@ -1,0 +1,92 @@
+<svg width="100%" viewBox="0 0 684 232" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>Ferrule banner</title>
+<desc>A wide README banner: a pencil with a brass ferrule of four crimped rings stands on a steel rail, having drawn a line along it; to the right are the wordmark ferrule, a tagline, and tags for spec, gates, tdd, worktree, board and review.</desc>
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#1A1F24"/>
+<stop offset="1" stop-color="#0C0F12"/>
+</linearGradient>
+<linearGradient id="eraser" x1="0" y1="0" x2="1" y2="0">
+<stop offset="0" stop-color="#8A6049"/>
+<stop offset="0.4" stop-color="#B98B6E"/>
+<stop offset="1" stop-color="#7A5340"/>
+</linearGradient>
+<linearGradient id="brass" x1="0" y1="0" x2="1" y2="0">
+<stop offset="0" stop-color="#7E6040"/>
+<stop offset="0.35" stop-color="#DDBA80"/>
+<stop offset="0.6" stop-color="#C49A63"/>
+<stop offset="1" stop-color="#6E5236"/>
+</linearGradient>
+<linearGradient id="wood" x1="0" y1="0" x2="1" y2="0">
+<stop offset="0" stop-color="#B49C7E"/>
+<stop offset="0.45" stop-color="#E3D3BB"/>
+<stop offset="1" stop-color="#A48C6E"/>
+</linearGradient>
+</defs>
+
+<rect x="6" y="6" width="668" height="228" rx="22" fill="url(#bg)" stroke="#12161A" stroke-width="2"/>
+<rect x="14" y="14" width="652" height="212" rx="16" fill="none" stroke="#E0CDB4" stroke-opacity="0.12" stroke-width="1"/>
+
+<g fill="#C49A63" fill-opacity="0.07">
+<rect x="566" y="26" width="22" height="8" rx="1"/><rect x="594" y="26" width="22" height="8" rx="1"/><rect x="622" y="26" width="22" height="8" rx="1"/>
+<rect x="566" y="38" width="22" height="8" rx="1"/><rect x="594" y="38" width="22" height="8" rx="1"/><rect x="622" y="38" width="22" height="8" rx="1"/>
+<rect x="566" y="50" width="22" height="8" rx="1"/><rect x="622" y="50" width="22" height="8" rx="1"/>
+<rect x="622" y="62" width="22" height="8" rx="1"/>
+</g>
+
+<ellipse cx="122" cy="116" rx="96" ry="104" fill="#C9A87E" fill-opacity="0.04"/>
+
+<line x1="46" y1="206.2" x2="113" y2="206.2" stroke="#C49A63" stroke-opacity="0.75" stroke-width="1.4" stroke-linecap="round"/>
+<ellipse cx="118" cy="207.5" rx="14" ry="1.6" fill="#000000" fill-opacity="0.35"/>
+
+<g transform="rotate(12 115 207)" stroke="#12161A" stroke-width="1" stroke-linejoin="round">
+<path d="M96 64 V42 Q96 34 104 34 H126 Q134 34 134 42 V64 Z" fill="url(#eraser)"/>
+<rect x="93" y="58" width="44" height="44" rx="3" fill="url(#brass)"/>
+<g stroke="none">
+<rect x="93" y="65" width="44" height="2.5" fill="#5A4329" fill-opacity="0.55"/>
+<rect x="93" y="67.5" width="44" height="1" fill="#F1DBAE" fill-opacity="0.35"/>
+<rect x="93" y="74.5" width="44" height="2.5" fill="#5A4329" fill-opacity="0.55"/>
+<rect x="93" y="77" width="44" height="1" fill="#F1DBAE" fill-opacity="0.35"/>
+<rect x="93" y="84" width="44" height="2.5" fill="#5A4329" fill-opacity="0.55"/>
+<rect x="93" y="86.5" width="44" height="1" fill="#F1DBAE" fill-opacity="0.35"/>
+<rect x="93" y="93.5" width="44" height="2.5" fill="#5A4329" fill-opacity="0.55"/>
+<rect x="93" y="96" width="44" height="1" fill="#F1DBAE" fill-opacity="0.35"/>
+<circle cx="129" cy="62" r="1.6" fill="#8FB39A"/>
+<circle cx="129" cy="71.3" r="1.6" fill="#8FB39A"/>
+<circle cx="129" cy="80.8" r="1.6" fill="#8FB39A"/>
+<circle cx="129" cy="90.3" r="1.6" fill="#343A41"/>
+</g>
+<path d="M96 170 H134 L119.5 197 H110.5 Z" fill="url(#wood)"/>
+<path d="M96 102 H108 V170 Q102 177 96 170 Z" fill="#2A3036"/>
+<path d="M108 102 H122 V170 Q115 178 108 170 Z" fill="#3A4148"/>
+<path d="M122 102 H134 V170 Q128 177 122 170 Z" fill="#22272C"/>
+<rect x="113.5" y="110" width="3" height="50" rx="1" fill="#C49A63" fill-opacity="0.55" stroke="none"/>
+<path d="M110.5 197 H119.5 L115 207 Z" fill="#171B1E"/>
+</g>
+
+<line x1="216" y1="58" x2="216" y2="184" stroke="#C49A63" stroke-opacity="0.18" stroke-width="1"/>
+
+<text x="234" y="102" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="54" font-weight="500" letter-spacing="3" fill="#E7D8C2">ferrule</text>
+<text x="236" y="134" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="14" letter-spacing="2" fill="#9C8A72">spec-driven workflow · coding agents</text>
+
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="11" letter-spacing="1">
+<rect x="234" y="152" width="44" height="20" rx="5" fill="#272C32" stroke="#6E5F4E" stroke-width="1"/>
+<text x="256" y="166" text-anchor="middle" fill="#C49A63">spec</text>
+<rect x="288" y="152" width="52" height="20" rx="5" fill="#272C32" stroke="#6E5F4E" stroke-width="1"/>
+<text x="314" y="166" text-anchor="middle" fill="#C49A63">gates</text>
+<rect x="350" y="152" width="38" height="20" rx="5" fill="#272C32" stroke="#6E5F4E" stroke-width="1"/>
+<text x="369" y="166" text-anchor="middle" fill="#C49A63">tdd</text>
+<rect x="398" y="152" width="76" height="20" rx="5" fill="#272C32" stroke="#6E5F4E" stroke-width="1"/>
+<text x="436" y="166" text-anchor="middle" fill="#C49A63">worktree</text>
+<rect x="484" y="152" width="52" height="20" rx="5" fill="#272C32" stroke="#6E5F4E" stroke-width="1"/>
+<text x="510" y="166" text-anchor="middle" fill="#C49A63">board</text>
+<rect x="546" y="152" width="60" height="20" rx="5" fill="#272C32" stroke="#6E5F4E" stroke-width="1"/>
+<text x="576" y="166" text-anchor="middle" fill="#8FB39A">review</text>
+</g>
+
+<rect x="40" y="208" width="600" height="6" rx="3" fill="#444B52" stroke="#262C31" stroke-width="1"/>
+<rect x="44" y="209" width="592" height="1.5" rx="1" fill="#5E6970"/>
+<circle cx="70" cy="211" r="2.5" fill="#20262B"/>
+<circle cx="380" cy="211" r="2.5" fill="#20262B"/>
+<circle cx="600" cy="211" r="2.5" fill="#20262B"/>
+</svg>
