@@ -265,6 +265,9 @@ fn it_render_stage_says_what_follows() {
     assert!(last.contains(
         "Approving will:\n- commit s2, push, update the draft PR\n- next stop: gate 4\nAnswer: approve · change <what> · stop"
     ));
+    let general = render(p, &["demo", "stage", "--reason", "plan-marked"]).text();
+    assert!(general.contains("- spawn the next stage\nAnswer: approve · change <what> · stop"));
+    assert!(!general.contains("gate 4"));
 }
 
 #[test]

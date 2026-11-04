@@ -12,6 +12,6 @@
 
 **GA-R-005** — The stage stop's `Approving will:` list names committing and pushing the stage on every stage.
 
-**GA-R-006** — The stage stop's `Approving will:` list names spawning the next stage while a later stage exists.
+**GA-R-006** — The stage stop's `Approving will:` list names spawning the next stage only while a later stage exists.
 
-**GA-R-007** — The stage stop's `Approving will:` list names gate 4 as the next stop, and no next stage, on the last code stage.
+**GA-R-007** — The stage stop's `Approving will:` list names gate 4 as the next stop on the last code stage.
