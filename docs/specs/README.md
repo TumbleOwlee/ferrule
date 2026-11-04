@@ -6,6 +6,7 @@ The authoritative description of what this project does, one directory per capab
 
 | Area | Directory | ID prefix |
 |---|---|---|
+| Gates | gates/ | GA |
 
 ## Per-area files
 
