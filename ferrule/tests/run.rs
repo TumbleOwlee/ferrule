@@ -634,6 +634,28 @@ fn it_run_diff_and_log_read_the_branch_against_main() {
 }
 
 #[test]
+fn it_run_diff_uncommitted_reads_the_specs_a_base_diff_omits() {
+    let s = Scratch::new(1);
+    std::fs::create_dir_all(s.wt.join("docs/specs")).unwrap();
+    s.commit_in_worktree("docs/specs/a.md", "**MB-R-002** — Polls.\n", "spec");
+    s.commit_in_worktree("f1.txt", "one\n", "add f1");
+    std::fs::write(
+        s.wt.join("docs/specs/a.md"),
+        "**MB-R-002** — Polls twice.\n",
+    )
+    .unwrap();
+    std::fs::write(s.wt.join("docs/specs/b.md"), "**MB-R-003** — New.\n").unwrap();
+    std::fs::write(s.wt.join("f1.txt"), "changed\n").unwrap();
+    let base = s.say(&["run", "diff", "ss", "--specs"]);
+    assert!(!base.contains("Polls twice"), "{base}");
+    let wip = s.say(&["run", "diff", "ss", "--uncommitted", "--specs"]);
+    assert!(wip.contains("+**MB-R-002** — Polls twice."), "{wip}");
+    assert!(wip.contains("?? docs/specs/b.md\n"), "{wip}");
+    assert!(!wip.contains("MB-R-003"), "{wip}");
+    assert!(!wip.contains("+changed"), "{wip}");
+}
+
+#[test]
 fn it_plan_diff_compares_the_snapshot() {
     let s = Scratch::new(1);
     assert_eq!(

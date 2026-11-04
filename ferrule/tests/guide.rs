@@ -161,3 +161,31 @@ fn it_stage_review_guide_pushes_before_gate4() {
         "{text}"
     );
 }
+
+/// GA-R-008, GA-R-009, GA-R-010 — the branch review reads an uncommitted last stage and its spec changes.
+#[test]
+fn it_reviewer_guide_reads_the_uncommitted_stage() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let section = |name| {
+        ok(
+            root,
+            &["guide", "reviewer", "--slug", "demo", "--section", name],
+        )
+    };
+    let scope = section("Scope");
+    assert!(
+        scope.contains(
+            "`ferrule run diff demo --base <base>` and `ferrule run diff demo --uncommitted`"
+        ),
+        "{scope}"
+    );
+    assert!(scope.contains("read every `??` path whole"), "{scope}");
+    let specs = section("Spec changes");
+    assert!(
+        specs.contains("`ferrule run diff demo --uncommitted --specs`"),
+        "{specs}"
+    );
+    assert!(specs.contains("a `??` path under `docs/specs/`"), "{specs}");
+}

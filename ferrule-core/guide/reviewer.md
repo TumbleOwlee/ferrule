@@ -12,6 +12,8 @@ Review code you did not write. Read-only: report, never fix. Hook-enforced: only
 
 Scope token from caller: `plan` (no diff; `## Plan scope`), `plan from s<n>` (a re-plan; `## Plan scope`), `stage s<n>` (base = previous stage's commit), `delta s<n>` (base = previous stage's commit; only `ferrule run diff {slug} --base <base> --specs` and the card's `spec-delta` lines — `## Spec changes`, nothing else), `branch` (gate 3 — cross-stage bugs live here). Never widen. Caller names the stage ids in scope.
 
+**Scope `branch`:** a full-lane last stage reaches this review uncommitted, and `--base` omits it. Read both: `ferrule run diff {slug} --base <base>` and `ferrule run diff {slug} --uncommitted` (empty once every stage is committed). `--uncommitted` lists untracked files without diffing them: read every `??` path whole, each file of a listed directory too.
+
 **`plan.md`:** stage scope → `ferrule file section 'Shared' {run_dir}/plan.md`, then one batched call for the in-scope stages' sections: `ferrule file section --prefix 'Stage s<n>:' [...] {run_dir}/plan.md`. `branch`/`plan` scope → whole file. Plan is the authority on what a stage was to do; never re-derive intent from the diff.
 
 **`spec-diff.md`:** headed `## <ID>` and `## S<n>` (scenarios). Stage/delta scope → in-scope stage sections' ID→test tables name the IDs; one batched call: `ferrule file section '<ID>' [...] {run_dir}/spec-diff.md`, plus the `## S<n>` sections a changed entry serves. An ID the diff cites that no in-scope table lists and no `spec-delta` line adds is itself a finding (scope creep or table gap). `branch`/`plan` scope → whole file.
@@ -38,7 +40,7 @@ Scope `plan` or `plan from s<n>`: read `ferrule guide show reviewer-plan` first 
 
 ## Spec changes
 
-Every change to `docs/specs/` after `s0` — `ferrule run diff {slug} --base <base> --specs` against the card's `spec-delta` lines; an unlogged change is a major. No cards (caller says so): skip the log check; every branch spec text differing from the caller's approved baseline is a change to classify. Check each against `docs/specs/README.md` rules (a violation is a standards finding), then classify:
+Every change to `docs/specs/` after `s0` — `ferrule run diff {slug} --base <base> --specs` against the card's `spec-delta` lines; an unlogged change is a major. Scope `branch` also reads `ferrule run diff {slug} --uncommitted --specs`; a `??` path under `docs/specs/` there is a change too. No cards (caller says so): skip the log check; every branch spec text differing from the caller's approved baseline is a change to classify. Check each against `docs/specs/README.md` rules (a violation is a standards finding), then classify:
 
 - **meaningful** — contradicts a scenario or a `(user)` line of `decisions.md`; or widens or narrows what a user sees beyond a `## Deferred` item; or reaches outside the goal. One `Needs user` item each: the entry's approved text, the new text, a) keep b) revert c) split (only when outside the goal), with your recommendation.
 - **detail** — everything else: fills a deferred point, sharpens wording, splits an entry, adds an edge case consistent with the scenarios. Listed on the verdict's `Spec changes` line; no decision.

@@ -15,3 +15,11 @@
 **GA-R-006** — The stage stop's `Approving will:` list names spawning the next stage only while a later stage exists.
 
 **GA-R-007** — The stage stop's `Approving will:` list names gate 4 as the next stop on the last code stage.
+
+## Branch review
+
+**GA-R-008** — The reviewer guide's branch scope directs the review to read the worktree's uncommitted changes as well as the branch's commits.
+
+**GA-R-009** — The reviewer guide's branch scope directs the review to read whole the untracked files the uncommitted diff only lists.
+
+**GA-R-010** — The reviewer guide's `## Spec changes` directs the branch review to read the uncommitted spec changes as well as the committed ones.
