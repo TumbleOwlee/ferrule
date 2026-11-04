@@ -189,3 +189,36 @@ fn it_reviewer_guide_reads_the_uncommitted_stage() {
     );
     assert!(specs.contains("a `??` path under `docs/specs/`"), "{specs}");
 }
+
+/// GA-R-011, GA-R-012, GA-R-013 — the per-stage review reads its uncommitted stage and its spec changes.
+#[test]
+fn it_reviewer_guide_reads_the_uncommitted_stage_in_stage_scope() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let section = |name| {
+        ok(
+            root,
+            &["guide", "reviewer", "--slug", "demo", "--section", name],
+        )
+    };
+    let scope = section("Scope");
+    let line = scope
+        .lines()
+        .find(|l| l.contains("**Scope `stage s<n>` or `branch`:**"))
+        .expect("the stage scope's paragraph");
+    assert!(
+        line.contains(
+            "`ferrule run diff demo --base <base>` and `ferrule run diff demo --uncommitted`"
+        ),
+        "{line}"
+    );
+    assert!(line.contains("read every `??` path whole"), "{line}");
+    let specs = section("Spec changes");
+    assert!(
+        specs.contains(
+            "Scopes `stage s<n>` and `branch` also read `ferrule run diff demo --uncommitted --specs`"
+        ),
+        "{specs}"
+    );
+}
