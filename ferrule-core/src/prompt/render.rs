@@ -732,17 +732,7 @@ fn approval_text(
         Kind::Arch => arch(facts),
         Kind::Epic => epic(run, args, facts),
         Kind::Gate2 => gate2(run, args, facts)?,
-        Kind::Stage => {
-            let sid = arg(args, "stage").unwrap_or("");
-            Approval::new(
-                format!("Stage {sid}"),
-                vec![
-                    format!("- commit {sid}, push, update the draft PR"),
-                    "- spawn the next stage".to_owned(),
-                ],
-                Vec::new(),
-            )
-        }
+        Kind::Stage => stage(run, args)?,
         Kind::Replan => {
             let from = arg(args, "from").unwrap_or("");
             Approval::new(
@@ -763,6 +753,28 @@ fn approval_text(
         Kind::Gate4 => gate4(run, args)?,
         _ => return Err(Error::Usage),
     })
+}
+
+/// Only the last stage has no next stage to spawn. Without `--stage`
+/// there is no stage to tell apart, so the text stays the general one.
+fn stage(run: &Run, args: &[(String, String)]) -> Result<Approval, Error> {
+    let sid = arg(args, "stage").unwrap_or("");
+    let last = match sid.trim_start_matches('s').parse() {
+        Ok(me) => next_stage(run, me)?.is_none(),
+        Err(_) => false,
+    };
+    Ok(Approval::new(
+        format!("Stage {sid}"),
+        vec![
+            format!("- commit {sid}, push, update the draft PR"),
+            if last {
+                "- next stop: gate 4".to_owned()
+            } else {
+                "- spawn the next stage".to_owned()
+            },
+        ],
+        Vec::new(),
+    ))
 }
 
 fn gate1(args: &[(String, String)]) -> Approval {
@@ -944,6 +956,15 @@ pub(crate) fn seen(
     Ok(out)
 }
 
+/// The stage after `me`, if any.
+fn next_stage(run: &Run, me: u32) -> Result<Option<u32>, Error> {
+    Ok(run
+        .stages()?
+        .into_iter()
+        .map(|(n, _, _)| n)
+        .find(|&n| n > me))
+}
+
 /// The one-line notice of a stage that auto-continues.
 fn auto(run: &Run, args: &[(String, String)]) -> Result<Vec<String>, Error> {
     let sid = arg(args, "stage").ok_or(Error::Usage)?;
@@ -951,12 +972,7 @@ fn auto(run: &Run, args: &[(String, String)]) -> Result<Vec<String>, Error> {
         .trim_start_matches('s')
         .parse()
         .map_err(|_| Error::Usage)?;
-    let next = run
-        .stages()?
-        .into_iter()
-        .map(|(n, _, _)| n)
-        .find(|&n| n > me)
-        .map_or_else(|| "gate 4".to_owned(), |n| format!("s{n}"));
+    let next = next_stage(run, me)?.map_or_else(|| "gate 4".to_owned(), |n| format!("s{n}"));
     let events = board::events(run.conn, run.slug, &[Name::Gauntlet])?;
     let (cov, sha) = events
         .iter()
