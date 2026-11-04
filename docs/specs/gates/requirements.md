@@ -31,3 +31,17 @@
 **GA-R-012** — The reviewer guide's stage scope directs the review to read whole the untracked files the uncommitted diff only lists.
 
 **GA-R-013** — The reviewer guide's `## Spec changes` directs the stage review to read the uncommitted spec changes as well as the committed ones.
+
+## Review rules
+
+**GA-R-014** — The reviewer guide reads from the specs README only `Rules for writing specs`.
+
+**GA-R-015** — The implementer guide's `## TDD` section states the fixed test-first order.
+
+**GA-R-016** — The reviewer guide's TDD honesty axis states the TDD rules itself, without sending the review to another guide.
+
+**GA-R-017** — The reviewer guide's Standards axis checks the code conventions `AGENTS.md` states, under any heading.
+
+**GA-R-018** — The reviewer guide takes a comment violation's severity from the project's comment rule.
+
+**GA-R-019** — The reviewer guide rates a comment violation a minor when the project states no comment rule.

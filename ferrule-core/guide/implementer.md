@@ -8,7 +8,7 @@ No issue/PR/tracker knowledge — never reference one; orchestrator owns that.
 
 ## Project rules
 
-`AGENTS.md` is already in your context; never re-read it. Its rules on the spec, TDD, the `files` contract, building and testing, reading, code, text and scope bind you here. Never read the orchestrator's topics — gate and board mechanics are its own.
+`AGENTS.md` is already in your context; never re-read it. Its rules on the spec, the `files` contract, building and testing, reading, code, text and scope bind you here; TDD is `## TDD` below. Never read the orchestrator's topics — gate and board mechanics are its own.
 
 ## Your stage
 
@@ -41,6 +41,14 @@ ferrule board log <id> read path=<path> -- <what the plan left out>
 - The `test-red` text names the test and the failure seen (`-- <test name>: <failure, ≤ 8 words>`), never only the test names.
 
 Given up to 3 code stages of the run (`s0` aside) — and only the plan: a slice run's epic context reaches you through it, never directly; a fresh implementer takes the next ones from your card. Implement them in plan order, within the `files` contract (`AGENTS.md` `## Workflow`). Stage `s0` (`Land spec`), when the plan has one, is yours: copy the approved text where the plan says — `**bold**` marks in a changed entry are stripped and the heading's ` · was R<n>` is dropped, the landed line is plain — one commit, no code.
+
+## TDD
+
+Fixed order, every stage:
+1. Write the stage's tests first and see each fail; log the failure seen with `test-red`.
+2. Write the code until they pass, then log `green`.
+3. Never change a test or a spec entry to pass when the code is what is wrong.
+4. A test that passes from the start pins existing behavior: say so with a `note` on your card.
 
 ## Spec changes
 

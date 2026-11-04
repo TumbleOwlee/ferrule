@@ -6,7 +6,7 @@ Review code you did not write. Read-only: report, never fix. Hook-enforced: only
 
 ## Project rules
 
-`AGENTS.md` is already in your context; never re-read it. Standards and TDD axes are checked against its rules on the spec, TDD, the `files` contract, building and testing, and conventions. Read `ferrule file section 'Rules for writing specs' 'Requirements intentionally not unit-tested' docs/specs/README.md` — review against these, not the caller's summary. Never reference an issue or PR. Diff: `ferrule run diff {slug} --base <base>` (`--stat` for the file list first). Commits: `ferrule run log {slug} --base <base>`. Both run in the run's worktree; without `--base` they compare with `{main}`.
+`AGENTS.md` is already in your context; never re-read it. The Standards axis is checked against its rules on the spec, the `files` contract, building and testing, and conventions; TDD honesty against that axis's own text. Read `ferrule file section 'Rules for writing specs' docs/specs/README.md` — review against these, not the caller's summary. Never reference an issue or PR. Diff: `ferrule run diff {slug} --base <base>` (`--stat` for the file list first). Commits: `ferrule run log {slug} --base <base>`. Both run in the run's worktree; without `--base` they compare with `{main}`.
 
 ## Scope
 
@@ -32,9 +32,9 @@ Scope `plan` or `plan from s<n>`: read `ferrule guide show reviewer-plan` first 
 
 **Architecture conformance** — the code builds the components of `architecture.md` with their ownership, interactions, interfaces and public surface. A signature that differs from `## Interfaces` (a method added, dropped or re-typed, a field or variant changed) is a deviation. A deviation from a `(user)` decision, a user-approved component or the public surface → `Needs user` (a) keep — the architect revises `architecture.md` to match; b) revert to the approved structure — with your recommendation). Any other deviation → major, fix: conform, or name it as a plan amendment.
 
-**Standards** — every bullet of `AGENTS.md` `## Conventions — code`; test naming and ID citation placement; unflagged semver-relevant public surface changes. Comment severity: a violation of the comment bullet = minor, except a workflow citation (that bullet's list) = major, it rots on contact.
+**Standards** — every code convention `AGENTS.md` states, under any heading; test naming and ID citation placement; unflagged semver-relevant public surface changes. Comment severity: a comment rule the project states sets its own severity, otherwise a minor.
 
-**TDD honesty** — every rule of `## TDD — fixed order, every stage`, plus what only the diff reveals: tests passing against an empty/stub implementation; tests same-commit as their code in an order suggesting after-the-fact authorship.
+**TDD honesty** — the fixed order, from the stage card's log (`ferrule board show {slug}.s<n>`) and the diff: every test was seen failing first (a `test-red` line naming the test and the failure, before `green`); the code came after, until the tests passed; no test or spec entry changed to pass when the code was what was wrong; a test passing from the start pins existing behavior, and a `note` says so. No cards (caller says so): the diff alone. Plus what only the diff reveals: tests passing against an empty/stub implementation; tests same-commit as their code in an order suggesting after-the-fact authorship.
 
 **Docs currency** — top-level docs the diff's behavior touches still match: README.md (flags, config keys, protocols/modes, setup), ARCHITECTURE.md (crate graph, data flow, concurrency), PRD.md (scope), CONTRIBUTING.md (workflow). Scoped to what this change affects, not a full audit. Stale doc = finding.
 

@@ -222,3 +222,108 @@ fn it_reviewer_guide_reads_the_uncommitted_stage_in_stage_scope() {
         "{specs}"
     );
 }
+
+/// GA-R-014 — the review's read of the spec rules succeeds on the shipped README.
+#[test]
+fn it_reviewer_guide_reads_only_sections_the_shipped_readme_has() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    std::fs::create_dir_all(root.join("docs/specs")).unwrap();
+    std::fs::write(
+        root.join("docs/specs/README.md"),
+        include_str!("../../ferrule-core/install/specs-readme.md"),
+    )
+    .unwrap();
+    let rules = ok(
+        root,
+        &[
+            "guide",
+            "reviewer",
+            "--slug",
+            "demo",
+            "--section",
+            "Project rules",
+        ],
+    );
+    assert!(
+        rules.contains("`ferrule file section 'Rules for writing specs' docs/specs/README.md`"),
+        "{rules}"
+    );
+    assert!(
+        !rules.contains("Requirements intentionally not unit-tested"),
+        "{rules}"
+    );
+    let read = ok(
+        root,
+        &[
+            "file",
+            "section",
+            "Rules for writing specs",
+            "docs/specs/README.md",
+        ],
+    );
+    assert!(read.contains("**Requirements are testable.**"), "{read}");
+}
+
+/// GA-R-015, GA-R-016, GA-R-017, GA-R-018, GA-R-019 — each guide states the rules its agent works or reviews by.
+#[test]
+fn it_guides_state_the_tdd_and_standards_rules() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let tdd = ok(
+        root,
+        &["guide", "implementer", "--slug", "demo", "--section", "TDD"],
+    );
+    assert!(tdd.contains("1. Write the stage's tests first and see each fail; log the failure seen with `test-red`."), "{tdd}");
+    assert!(
+        tdd.contains("2. Write the code until they pass, then log `green`."),
+        "{tdd}"
+    );
+    assert!(
+        tdd.contains(
+            "3. Never change a test or a spec entry to pass when the code is what is wrong."
+        ),
+        "{tdd}"
+    );
+    assert!(tdd.contains("4. A test that passes from the start pins existing behavior: say so with a `note` on your card."), "{tdd}");
+    let axes = ok(
+        root,
+        &[
+            "guide",
+            "reviewer",
+            "--slug",
+            "demo",
+            "--section",
+            "Axes, reported separately",
+        ],
+    );
+    assert!(
+        axes.contains("a `test-red` line naming the test and the failure, before `green`"),
+        "{axes}"
+    );
+    assert!(
+        axes.contains("the code came after, until the tests passed"),
+        "{axes}"
+    );
+    assert!(
+        axes.contains("no test or spec entry changed to pass when the code was what was wrong"),
+        "{axes}"
+    );
+    assert!(
+        axes.contains("a test passing from the start pins existing behavior, and a `note` says so"),
+        "{axes}"
+    );
+    assert!(!axes.contains("## TDD"), "{axes}");
+    assert!(!axes.contains("ferrule guide show implementer"), "{axes}");
+    assert!(
+        axes.contains("every code convention `AGENTS.md` states, under any heading"),
+        "{axes}"
+    );
+    assert!(!axes.contains("## Conventions — code"), "{axes}");
+    assert!(
+        axes.contains("a comment rule the project states sets its own severity, otherwise a minor"),
+        "{axes}"
+    );
+}
