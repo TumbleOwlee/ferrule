@@ -849,3 +849,12 @@ fn documented_refusals_end_in_hint() {
         bare.join("\n")
     );
 }
+
+/// GA-R-003 — the help lists `inprogress` and `inreview` for the stage gate.
+#[test]
+fn gate_approve_help_lists_the_stage_gate_parent_states() {
+    assert!(
+        help_of("gate approve")
+            .contains("stage    -       gate2                     inprogress, inreview")
+    );
+}

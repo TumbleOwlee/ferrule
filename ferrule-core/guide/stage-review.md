@@ -13,6 +13,6 @@ Full lane. Every green stage, before its approval stop:
 ## Stage stop
 
 A green, clean-reviewed stage: `ferrule stage stop {slug} s<n> --threads <n>` (`--threads` from `ferrule pr feedback route {slug}`, `ferrule guide show feedback`) decides and logs it on the card. Its rules, first hit wins: a `Needs user` item, Verification beyond unit tests, open PR threads, a plan-marked stage, a diff over 400 lines or 8 files, three auto-continues since the last stop; `s0` never stops.
-- The last code stage: `auto` → commit, `ferrule pr push {slug}`, gate 4; `stop=1` → `ferrule prompt render {slug} gate3`; any other `stop=` → the `stage` stop; approval (`ferrule gate approve {slug} stage`) commits it, then gate 4.
+- The last code stage: `auto` → commit, `ferrule pr push {slug}`, gate 4; `stop=1` → `ferrule prompt render {slug} gate3`; any other `stop=` → the `stage` stop; approved → `ferrule gate approve {slug} stage`, commit, `ferrule pr push {slug}`, gate 4.
 - `auto` → the commit and push of `ferrule guide show stages --section 'Full lane'` steps 2–3, then `ferrule prompt render {slug} auto --stage s<n>`: one line naming the pushed sha, no answer awaited, the card move having updated the draft PR. A user message while a stage is running is read before the next auto-continue; `stop` holds at the next green.
 - `stop=<rule> reason=<word> [detail=…]` → `ferrule prompt render {slug} stage --stage s<n> --reason <word> [--detail …]`; approved → `ferrule gate approve {slug} stage`, the commit and push of *Full lane* steps 2–3.

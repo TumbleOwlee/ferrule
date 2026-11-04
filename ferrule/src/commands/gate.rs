@@ -28,7 +28,7 @@ parent states each is approved in:
   epic     arch    kind: epic (gate1 --epic) open
   gate2    gate2   arch (date, no-arch or    open, inprogress
                    skipped)
-  stage    -       gate2                     inprogress
+  stage    -       gate2                     inprogress, inreview
   replan   -       gate2                     inprogress, inreview
   delta    -       gate2                     inprogress, inreview
   gate3    gate3   gate2                     inprogress, inreview

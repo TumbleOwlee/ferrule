@@ -136,3 +136,28 @@ fn it_guide_check_flags_unknown_topics_and_bad_tags() {
     );
     assert!(ferrule(root, root, &["guide"]).ends_with("exit=2"));
 }
+
+/// GA-R-004 — the last stage's approved stop commits and pushes before gate 4.
+#[test]
+fn it_stage_review_guide_pushes_before_gate4() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let text = ok(
+        root,
+        &[
+            "guide",
+            "stage-review",
+            "--slug",
+            "demo",
+            "--section",
+            "Stage stop",
+        ],
+    );
+    assert!(
+        text.contains(
+            "approved → `ferrule gate approve demo stage`, commit, `ferrule pr push demo`, gate 4"
+        ),
+        "{text}"
+    );
+}

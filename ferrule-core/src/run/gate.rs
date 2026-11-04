@@ -330,8 +330,7 @@ impl Gate {
             Gate::Gate1 | Gate::Arch | Gate::Epic => &[State::Open],
             // Re-approving gate2 resumes a run that died after it.
             Gate::Gate2 => &[State::Open, State::InProgress],
-            Gate::Stage => &[State::InProgress],
-            Gate::Replan | Gate::Delta | Gate::Gate3 | Gate::Gate4 => {
+            Gate::Stage | Gate::Replan | Gate::Delta | Gate::Gate3 | Gate::Gate4 => {
                 &[State::InProgress, State::InReview]
             }
         }
