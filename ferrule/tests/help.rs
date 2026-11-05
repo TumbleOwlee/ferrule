@@ -486,7 +486,7 @@ fn help_of(command: &str) -> String {
 }
 
 #[test]
-fn every_status_file_is_mapped() {
+fn it_every_status_file_is_mapped() {
     let unmapped: Vec<String> = all_sources()
         .into_iter()
         .filter(|f| !wanted(f).is_empty() && !SOURCES.iter().any(|&(s, _)| s == f))
@@ -498,7 +498,7 @@ fn every_status_file_is_mapped() {
 }
 
 #[test]
-fn dash_h_equals_long_help() {
+fn it_dash_h_equals_long_help() {
     for command in [
         vec![],
         vec!["run"],
@@ -540,27 +540,27 @@ fn check_group(groups: &[&str]) {
 }
 
 #[test]
-fn help_board() {
+fn it_help_board() {
     check_group(&["board"]);
 }
 
 #[test]
-fn help_run_gate_stage_ci() {
+fn it_help_run_gate_stage_ci() {
     check_group(&["run", "gate", "stage", "ci"]);
 }
 
 #[test]
-fn help_spec_file_guide_setup() {
+fn it_help_spec_file_guide_setup() {
     check_group(&["spec", "file", "guide", "setup"]);
 }
 
 #[test]
-fn help_issue_pr() {
+fn it_help_issue_pr() {
     check_group(&["issue", "pr"]);
 }
 
 #[test]
-fn help_prompt_hook() {
+fn it_help_prompt_hook() {
     check_group(&["prompt", "hook"]);
 }
 
@@ -768,7 +768,7 @@ fn commands() -> BTreeSet<&'static str> {
 }
 
 #[test]
-fn documented_refusals_are_producible() {
+fn it_documented_refusals_are_producible() {
     let mut stale = Vec::new();
     for command in commands() {
         let mut found = Reasons::default();
@@ -813,7 +813,7 @@ fn literal_entry(lines: &[&str], at: usize) -> bool {
 }
 
 #[test]
-fn documented_refusals_end_in_hint() {
+fn it_documented_refusals_end_in_hint() {
     let mut bare = Vec::new();
     for command in commands() {
         let help = help_of(command);

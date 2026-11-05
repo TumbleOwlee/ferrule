@@ -837,7 +837,7 @@ fn it_run_status_summarises_cards_and_worktree() {
 /// An unreadable ferrule.toml or state database is an internal error:
 /// exit 4 with `ferrule: <error>` on stderr, never a refusal.
 #[test]
-fn internal_errors_exit_4() {
+fn it_internal_errors_exit_4() {
     let s = Scratch::new(1);
     s.config("main_branch = [");
     let out = s.run(&["run", "status", "ss"]).output();

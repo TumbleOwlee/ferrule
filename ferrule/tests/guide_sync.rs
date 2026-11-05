@@ -238,6 +238,8 @@ fn it_guides_cite_no_agents_heading_or_readme_rule() {
         "`AGENTS.md` routing table",
         "README.md` rule ",
         "per docs/specs/README.md",
+        "`## Workflow`",
+        "README rule ",
     ];
     let mut problems = Vec::new();
     for (name, text) in sources() {
