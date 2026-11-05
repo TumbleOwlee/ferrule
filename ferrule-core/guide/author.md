@@ -6,7 +6,7 @@ Grill the user to a common understanding of the feature and write it down as the
 
 ## Project rules
 
-`AGENTS.md` is already in your context; never re-read it. Its rules on the spec, reading, code, text and scope bind you here. Read, one batched call: `ferrule file section 'Rules for writing specs' 'Per-area files' docs/specs/README.md`; then the sections of the affected area's `requirements.md`, `edge-cases.md`, `api-contract.md`/`data-contract.md` the goal touches. **Never read source code.** Gate 1 is existing spec + the request; whether code already matches is the implementer's discovery, how it is built the architect's.
+`AGENTS.md` is already in your context; never re-read it. The rules it states bind you here. Read, one batched call: `ferrule file section 'Rules for writing specs' 'Per-area files' docs/specs/README.md`; then the sections of the affected area's `requirements.md`, `edge-cases.md`, `api-contract.md`/`data-contract.md` the goal touches. **Never read source code.** Gate 1 is existing spec + the request; whether code already matches is the implementer's discovery, how it is built the architect's.
 
 ## Grilling — gate 1
 
@@ -84,7 +84,7 @@ Change: <≤ 12 words, what moved>
 - <open point, one line> — <architecture | plan | implementation>
 ```
 
-- **Local IDs** (`AGENTS.md` `## Spec-driven`): each series from 1. A changed, dropped or violated existing entry keeps its fixed ID.
+- **Local IDs**: `R<n>` for a requirement, `E<n>` for an edge case, each series from 1. A changed, dropped or violated existing entry keeps its fixed ID.
 - **Scenarios** are the agreed anchors: one flow each, `Given`/`When`/`Then` one line each (`And` lines allowed). Later agents never contradict one without asking the user. They never land in `docs/specs/`; the issue carries them.
 - **Entries** state one observable rule each; `docs/specs/README.md` binds their text only once it lands. No public signatures, error variants or config-key spelling unless the user decided them — that is the architect's.
 - `Revisions:` only from rev 2 on, one line per revision, newest last; nothing else in the file says what an earlier revision looked like. A revision made while the issue is **filed** carries its date, `- rev 5 (2026-10-16) — <a>; <b> (<by>)`: `ferrule spec render <spec-diff.md> changes` renders those ending (user), (review) or (impl) into the PR's `## Spec changes since filing`; other authors' dated lines stay in `spec-diff.md`.
@@ -93,11 +93,11 @@ Change: <≤ 12 words, what moved>
 - `## Deferred`: every point you did not ask, with the agent that settles it. Later agents remove the items they resolve.
 - `no-diff`: the violated entries, each `## <ID> — violated · <file> `## <heading>`` with its current text; no `Change:`.
 - A change request after `ready` edits the same file.
-- Area whose `requirements.md`/`edge-cases.md` costs real context: ask before drafting. Along a real sub-capability seam already present in the area (e.g. `client` → `client-transport` + `client-retry`), never a line-count cut. New prefix for the new sub-area; moved entries keep their original ID (IDs are cited in tests); only entries added after the split take the new prefix; `AGENTS.md` routing table updated.
+- Area whose `requirements.md`/`edge-cases.md` costs real context: ask before drafting. Along a real sub-capability seam already present in the area (e.g. `client` → `client-transport` + `client-retry`), never a line-count cut. New prefix for the new sub-area; moved entries keep their original ID (IDs are cited in tests); only entries added after the split take the new prefix; the area table of `docs/specs/README.md` updated.
 
 ## Tracking issue — `issue.md`
 
-Given candidate issues: read each (`ferrule issue view`, `## Conventions — GitHub`), write `issue.md`, then answer `reuse issue=<n> file=…` or `new file=…`. The issue the user named at gate 1 is already `request.md`.
+Given candidate issues: read each (`ferrule issue view <n>`: the body, then one line per comment; `--comment <n|a-b>` prints those comments in full), write `issue.md`, then answer `reuse issue=<n> file=…` or `new file=…`. The issue the user named at gate 1 is already `request.md`.
 
 `issue.md` is the title, the goal and what is out of scope; `ferrule issue body` assembles the body from it, `spec-diff.md` and the parent card — goal, requirements with local IDs, scenarios, out of scope. The issue never shows architecture or decisions (an epic: skeleton architecture and slices). No stage id or agent name in `issue.md`: `ferrule issue body` refuses it.
 

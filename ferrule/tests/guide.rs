@@ -318,12 +318,87 @@ fn it_guides_state_the_tdd_and_standards_rules() {
     assert!(!axes.contains("## TDD"), "{axes}");
     assert!(!axes.contains("ferrule guide show implementer"), "{axes}");
     assert!(
-        axes.contains("every code convention `AGENTS.md` states, under any heading"),
+        axes.contains("every rule `AGENTS.md` states, under any heading"),
         "{axes}"
     );
     assert!(!axes.contains("## Conventions — code"), "{axes}");
     assert!(
         axes.contains("a comment rule the project states sets its own severity, otherwise a minor"),
         "{axes}"
+    );
+}
+
+/// GA-R-020 — the agent guides name no category of rule.
+#[test]
+fn it_agent_guides_take_the_rules_agents_md_states() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let rules = |topic| {
+        ok(
+            root,
+            &[
+                "guide",
+                topic,
+                "--slug",
+                "demo",
+                "--section",
+                "Project rules",
+            ],
+        )
+    };
+    for topic in ["author", "architect", "planner", "implementer"] {
+        let text = rules(topic);
+        assert!(
+            text.contains("The rules it states bind you here."),
+            "{text}"
+        );
+        assert!(!text.contains("rules on the spec"), "{text}");
+    }
+    let text = rules("reviewer");
+    assert!(
+        text.contains("The Standards axis is checked against the rules it states;"),
+        "{text}"
+    );
+    assert!(!text.contains("rules on the spec"), "{text}");
+}
+
+/// GA-R-023, GA-R-024, GA-R-025, GA-R-026, GA-R-027, GA-R-028 — each guide states what its own reader needs.
+#[test]
+fn it_guides_state_what_their_reader_needs() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let guide = |topic| ok(root, &["guide", topic, "--slug", "demo"]);
+    let principles = guide("principles");
+    assert!(principles.contains("**A non-behavior change, a change that needs no observable behavior to change, skips gate 1**"), "{principles}");
+    for topic in ["author", "architect", "planner"] {
+        let text = guide(topic);
+        assert!(
+            text.contains("`R<n>` for a requirement, `E<n>` for an edge case, each series from 1"),
+            "{topic}"
+        );
+    }
+    let implementer = guide("implementer");
+    assert!(
+        implementer.contains("changing only the files their `files` lists name"),
+        "{implementer}"
+    );
+    let reviewer = guide("reviewer");
+    assert!(
+        reviewer.contains(
+            "**Any file in the diff outside the in-scope stages' `files` lists is a blocker**."
+        ),
+        "{reviewer}"
+    );
+    let author = guide("author");
+    assert!(
+        author.contains("`ferrule issue view <n>`: the body, then one line per comment"),
+        "{author}"
+    );
+    let planner = guide("planner");
+    assert!(
+        planner.contains("split so each entry holds one rule"),
+        "{planner}"
     );
 }

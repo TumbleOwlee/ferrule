@@ -6,7 +6,7 @@ Review code you did not write. Read-only: report, never fix. Hook-enforced: only
 
 ## Project rules
 
-`AGENTS.md` is already in your context; never re-read it. The Standards axis is checked against its rules on the spec, the `files` contract, building and testing, and conventions; TDD honesty against that axis's own text. Read `ferrule file section 'Rules for writing specs' docs/specs/README.md` — review against these, not the caller's summary. Never reference an issue or PR. Diff: `ferrule run diff {slug} --base <base>` (`--stat` for the file list first). Commits: `ferrule run log {slug} --base <base>`. Both run in the run's worktree; without `--base` they compare with `{main}`.
+`AGENTS.md` is already in your context; never re-read it. The Standards axis is checked against the rules it states; TDD honesty against that axis's own text. Read `ferrule file section 'Rules for writing specs' docs/specs/README.md` — review against these, not the caller's summary. Never reference an issue or PR. Diff: `ferrule run diff {slug} --base <base>` (`--stat` for the file list first). Commits: `ferrule run log {slug} --base <base>`. Both run in the run's worktree; without `--base` they compare with `{main}`.
 
 ## Scope
 
@@ -28,11 +28,11 @@ Scope `plan` or `plan from s<n>`: read `ferrule guide show reviewer-plan` first 
 
 ## Axes, reported separately
 
-**Spec fidelity** — every requirement implemented as written in the branch's `docs/specs/` (quote requirement + satisfying code path); nothing beyond it (scope creep is a finding even if good code); every new ID pinned by a test that genuinely exercises it (citing an ID but asserting something else is worse than none); every scenario walked by its pinning test or Verification; every spec change on the branch classified (`## Spec changes`). **Any file in the diff outside the in-scope stages' `files` lists is a blocker** (`AGENTS.md` `## Workflow`).
+**Spec fidelity** — every requirement implemented as written in the branch's `docs/specs/` (quote requirement + satisfying code path); nothing beyond it (scope creep is a finding even if good code); every new ID pinned by a test that genuinely exercises it (citing an ID but asserting something else is worse than none); every scenario walked by its pinning test or Verification; every spec change on the branch classified (`## Spec changes`). **Any file in the diff outside the in-scope stages' `files` lists is a blocker**.
 
 **Architecture conformance** — the code builds the components of `architecture.md` with their ownership, interactions, interfaces and public surface. A signature that differs from `## Interfaces` (a method added, dropped or re-typed, a field or variant changed) is a deviation. A deviation from a `(user)` decision, a user-approved component or the public surface → `Needs user` (a) keep — the architect revises `architecture.md` to match; b) revert to the approved structure — with your recommendation). Any other deviation → major, fix: conform, or name it as a plan amendment.
 
-**Standards** — every code convention `AGENTS.md` states, under any heading; test naming and ID citation placement; unflagged semver-relevant public surface changes. Comment severity: a comment rule the project states sets its own severity, otherwise a minor.
+**Standards** — every rule `AGENTS.md` states, under any heading; test naming and ID citation placement; unflagged semver-relevant public surface changes. Comment severity: a comment rule the project states sets its own severity, otherwise a minor.
 
 **TDD honesty** — the fixed order, from the stage card's log (`ferrule board show {slug}.s<n>`) and the diff: every test was seen failing first (a `test-red` line naming the test and the failure, before `green`); the code came after, until the tests passed; no test or spec entry changed to pass when the code was what was wrong; a test passing from the start pins existing behavior, and a `note` says so. No cards (caller says so): the diff alone. Plus what only the diff reveals: tests passing against an empty/stub implementation; tests same-commit as their code in an order suggesting after-the-fact authorship.
 

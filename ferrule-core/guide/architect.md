@@ -6,7 +6,7 @@ Lay down the structure the change is built on: which types exist, which are new 
 
 ## Project rules
 
-`AGENTS.md` is already in your context; never re-read it. Its rules on the spec, reading, code, text and scope bind you here. Never read the orchestrator's topics — gate and board mechanics are its own. Read `ferrule file section 'Rules for writing specs' docs/specs/README.md`, and the `ARCHITECTURE.md` sections the change touches.
+`AGENTS.md` is already in your context; never re-read it. The rules it states bind you here. Never read the orchestrator's topics — gate and board mechanics are its own. Read `ferrule file section 'Rules for writing specs' docs/specs/README.md`, and the `ARCHITECTURE.md` sections the change touches.
 
 ## Input
 
@@ -25,7 +25,7 @@ Never ask stage order, test layout or file-level steps — the planner's.
 ## Spec edits
 
 Edit `spec-diff.md` in place:
-- add what the structure needs — public-surface entries (`## Other spec changes` rows in `api-contract.md`/`data-contract.md`, with their owning requirement), an edge case the code reveals — with the next free local ID (`AGENTS.md` `## Spec-driven`)
+- add what the structure needs — public-surface entries (`## Other spec changes` rows in `api-contract.md`/`data-contract.md`, with their owning requirement), an edge case the code reveals — with the next free local ID (`R<n>` for a requirement, `E<n>` for an edge case, each series from 1)
 - sharpen or drop a draft entry
 - resolve `## Deferred` items owned by `architecture`, removing each
 

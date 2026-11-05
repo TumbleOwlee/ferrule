@@ -17,7 +17,7 @@ Every run, `/fe-request` included.
 
 Gate 2 onward.
 
-- **Non-behavior change (`AGENTS.md` `## Workflow`) skips gate 1** and starts at `ferrule guide show architecture`: no `spec-diff.md`; parent card records `gate1: skipped`. Architecture or planning finds a behavior change (`status=behavior-change`) → stop, run gate 1 with the reason, resume the same agent with the `spec-diff.md` path.
+- **A non-behavior change, a change that needs no observable behavior to change, skips gate 1** and starts at `ferrule guide show architecture`: no `spec-diff.md`; parent card records `gate1: skipped`. Architecture or planning finds a behavior change (`status=behavior-change`) → stop, run gate 1 with the reason, resume the same agent with the `spec-diff.md` path.
 - Gate 2 onward delegates to agents. **All agents Sonnet or better.**
 - **The draft PR is the user's review surface** (`ferrule guide show stages --section 'Every stage'`; promoted at gate 4, `ferrule guide show gate4`). Feedback re-enters the run only through `ferrule guide show feedback`.
 - **One git worktree per run**, `{worktree}` — inside the project directory (agent-reachable), ignored with the rest of `.ferrule/`. Created only by `ferrule gate approve {slug} gate2` (first thing to touch disk); removed by `ferrule run cleanup` at the end of the run.

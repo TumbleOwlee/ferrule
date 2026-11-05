@@ -51,7 +51,7 @@ Existing IDs only, never a planned one. No issue number anywhere — the orchest
 
 ## Tests
 <n> of <m> entries pinned
-- <ID> — <exception: pinned by a real-view test | not unit-testable per docs/specs/README.md | …>
+- <ID> — <exception: pinned by a real-view test | not unit-testable | …>
 
 ## Verification beyond the gauntlet
 - <manual run, what was done and seen>

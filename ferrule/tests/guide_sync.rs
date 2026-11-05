@@ -227,3 +227,25 @@ fn it_slash_commands_and_scripts_in_the_text_exist() {
     }
     assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
+
+/// GA-R-021, GA-R-022 — a guide states a rule rather than citing a heading or a rule number for it.
+#[test]
+fn it_guides_cite_no_agents_heading_or_readme_rule() {
+    const CITATIONS: &[&str] = &[
+        "`AGENTS.md` `## ",
+        "`## Spec-driven`",
+        "`## Conventions — GitHub`",
+        "`AGENTS.md` routing table",
+        "README.md` rule ",
+        "per docs/specs/README.md",
+    ];
+    let mut problems = Vec::new();
+    for (name, text) in sources() {
+        for citation in CITATIONS {
+            if text.contains(citation) {
+                problems.push(format!("{name}: {citation}"));
+            }
+        }
+    }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+}

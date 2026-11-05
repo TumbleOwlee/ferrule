@@ -40,8 +40,28 @@
 
 **GA-R-016** — The reviewer guide's TDD honesty axis states the TDD rules itself, without sending the review to another guide.
 
-**GA-R-017** — The reviewer guide's Standards axis checks the code conventions `AGENTS.md` states, under any heading.
+**GA-R-017** — The reviewer guide's Standards axis checks every rule `AGENTS.md` states, under any heading.
 
 **GA-R-018** — The reviewer guide takes a comment violation's severity from the project's comment rule.
 
 **GA-R-019** — The reviewer guide rates a comment violation a minor when the project states no comment rule.
+
+## Guide rules
+
+**GA-R-020** — The author, architect, planner, implementer and reviewer guides each take the rules `AGENTS.md` states as binding, naming no category of rule.
+
+**GA-R-021** — No shipped guide cites an `AGENTS.md` heading for a rule.
+
+**GA-R-022** — No shipped guide cites a numbered rule of the specs README.
+
+**GA-R-023** — The principles guide defines a non-behavior change as a change that needs no observable behavior to change.
+
+**GA-R-024** — The author, architect and planner guides each state the local ID forms and their numbering.
+
+**GA-R-025** — The implementer guide states that a stage changes only the files its `files` list names.
+
+**GA-R-026** — The reviewer guide rates a file in the diff outside the in-scope stages' `files` lists a blocker.
+
+**GA-R-027** — The author guide states how to read an issue's body and comments.
+
+**GA-R-028** — The planner guide states that an entry too coarse is split so each entry holds one rule.

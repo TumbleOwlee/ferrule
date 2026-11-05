@@ -8,7 +8,7 @@ No issue/PR/tracker knowledge — never reference one; orchestrator owns that.
 
 ## Project rules
 
-`AGENTS.md` is already in your context; never re-read it. Its rules on the spec, the `files` contract, building and testing, reading, code, text and scope bind you here; TDD is `## TDD` below. Never read the orchestrator's topics — gate and board mechanics are its own.
+`AGENTS.md` is already in your context; never re-read it. The rules it states bind you here. Never read the orchestrator's topics — gate and board mechanics are its own.
 
 ## Your stage
 
@@ -40,7 +40,7 @@ ferrule board log <id> read path=<path> -- <what the plan left out>
 - The `spec-delta` why names no stage id (`s3`) and no agent: the draft PR renders it and its stage-ref scan refuses the body otherwise; the decision line under `## Ask or stop` carries the same ban.
 - The `test-red` text names the test and the failure seen (`-- <test name>: <failure, ≤ 8 words>`), never only the test names.
 
-Given up to 3 code stages of the run (`s0` aside) — and only the plan: a slice run's epic context reaches you through it, never directly; a fresh implementer takes the next ones from your card. Implement them in plan order, within the `files` contract (`AGENTS.md` `## Workflow`). Stage `s0` (`Land spec`), when the plan has one, is yours: copy the approved text where the plan says — `**bold**` marks in a changed entry are stripped and the heading's ` · was R<n>` is dropped, the landed line is plain — one commit, no code.
+Given up to 3 code stages of the run (`s0` aside) — and only the plan: a slice run's epic context reaches you through it, never directly; a fresh implementer takes the next ones from your card. Implement them in plan order, changing only the files their `files` lists name; another file: `## Ask or stop`. Stage `s0` (`Land spec`), when the plan has one, is yours: copy the approved text where the plan says — `**bold**` marks in a changed entry are stripped and the heading's ` · was R<n>` is dropped, the landed line is plain — one commit, no code.
 
 ## TDD
 
