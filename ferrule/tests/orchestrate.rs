@@ -6,7 +6,7 @@ mod golden;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use golden::{FakeGh, GH_FIELDS, Run, fixtures, gh_json, seed_log, seed_set};
+use golden::{FakeGh, GH_FIELDS, Run, fixtures, gh_json, seed_card, seed_log, seed_set};
 
 fn git(dir: &Path, args: &[&str]) -> String {
     let out = Command::new("git")
@@ -106,6 +106,20 @@ impl Project {
             .env("CLAUDE_PROJECT_DIR", &self.root)
             .env("FERRULE_NOW", "2026-10-05T09:00")
             .cwd(&self.root)
+    }
+
+    /// `ferrule` run inside the run's worktree, with a git identity.
+    fn in_wt(&self, args: &[&str]) -> String {
+        self.gh
+            .on(Run::new(args))
+            .env("CLAUDE_PROJECT_DIR", &self.root)
+            .env("FERRULE_NOW", "2026-10-05T09:00")
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t")
+            .cwd(self.worktree())
+            .text()
     }
 
     /// `ferrule` run with the clock at `now`.
@@ -587,6 +601,110 @@ fn publish_and_ci(p: &Project) {
     let green = p.ok(&["ci", "wait", "demo"]);
     assert!(green.starts_with("ci=0\n"), "{green}");
     assert!(green.contains("ferrule run cleanup demo"), "{green}");
+}
+
+/// GA-R-001 — the stage gate approves while the parent is `inprogress` or
+/// `inreview`.
+#[test]
+fn it_stage_gate_approves_during_implementation_and_review() {
+    let p = Project::new();
+    through_gate2(&p);
+    first_stage(&p);
+    p.ok(&["board", "move", "demo.s0", "inreview"]);
+    p.ok(&["board", "move", "demo.s0", "done"]);
+    std::fs::write(
+        p.run_dir().join("review.verdict.md"),
+        "# demo — review verdict (stage s1, pass 1)\n\nVerdict: clean\n",
+    )
+    .unwrap();
+    std::fs::write(
+        p.run_dir().join("plan.summary.md"),
+        "# demo — plan summary (rev 1)\n\nDecide: 3 stages, s0 → s1 → s2.\n\n\
+         | Stage | What | Pins | Files | Stop |\n|---|---|---|---|---|\n\
+         | s0 | Land spec | all 4 entries | 2 (docs/specs/modbus) | — |\n\
+         | s1 | Retry with backoff | MB-R-161 (1) | 1 (src/client.rs) | — |\n\
+         | s2 | Render reconnecting | MB-R-042 (1) | 1 (src/tab.rs) | — |\n\n\
+         Verification beyond unit tests:\n- none\n\n\
+         Out of scope, raise separately:\n- none\n\nOpen: none\n",
+    )
+    .unwrap();
+    seed_set(&p.root, "demo.s2", &["stop=yes"]);
+
+    // s1, the parent in progress.
+    p.ok(&["board", "move", "demo.s1", "inprogress"]);
+    std::fs::create_dir_all(p.worktree().join("src")).unwrap();
+    std::fs::write(p.worktree().join("src/client.rs"), "s1\n").unwrap();
+    git(&p.worktree(), &["add", "."]);
+    p.ok(&["board", "move", "demo.s1", "inreview"]);
+    let stop = p.ferrule(&["stage", "stop", "demo", "s1"]).text();
+    assert!(stop.starts_with("stop=5 reason=plan-marked"), "{stop}");
+    p.ok(&[
+        "prompt",
+        "render",
+        "demo",
+        "stage",
+        "--stage",
+        "s1",
+        "--reason",
+        "plan-marked",
+    ]);
+    let approved = p.ferrule(&["gate", "approve", "demo", "stage"]).text();
+    assert!(
+        approved.starts_with("approve=done gate=stage"),
+        "{approved}"
+    );
+    let done = p.in_wt(&["stage", "commit", "demo.s1", "-m", "Add backoff"]);
+    assert!(done.starts_with("commit=done sha="), "{done}");
+    p.ok(&["pr", "push", "demo"]);
+    p.ok(&["board", "move", "demo.s1", "done"]);
+
+    // s2, the parent in review.
+    p.ok(&["board", "move", "demo", "inreview"]);
+    p.ok(&["board", "move", "demo.s2", "inprogress"]);
+    std::fs::write(p.worktree().join("src/tab.rs"), "s2\n").unwrap();
+    git(&p.worktree(), &["add", "."]);
+    p.ok(&["board", "move", "demo.s2", "inreview"]);
+    let stop = p.ferrule(&["stage", "stop", "demo", "s2"]).text();
+    assert!(stop.starts_with("stop=5 reason=plan-marked"), "{stop}");
+    p.ok(&[
+        "prompt",
+        "render",
+        "demo",
+        "stage",
+        "--stage",
+        "s2",
+        "--reason",
+        "plan-marked",
+    ]);
+    let approved = p.ferrule(&["gate", "approve", "demo", "stage"]).text();
+    assert!(
+        approved.starts_with("approve=done gate=stage"),
+        "{approved}"
+    );
+    assert_eq!(p.field("demo", "state"), "inreview");
+    let done = p.in_wt(&["stage", "commit", "demo.s2", "-m", "Show status"]);
+    assert!(done.starts_with("commit=done sha="), "{done}");
+    let pushed = p.ferrule(&["pr", "push", "demo"]).text();
+    assert!(pushed.starts_with("push=done sha="), "{pushed}");
+    p.ok(&["board", "move", "demo.s2", "done"]);
+    let g4 = p.ferrule(&["gate", "approve", "demo", "gate4"]).text();
+    assert!(g4.starts_with("approve=done gate=gate4"), "{g4}");
+    assert_eq!(p.field("demo", "gate4"), "2026-10-05");
+}
+
+/// GA-R-002 — the stage gate refuses any other parent state.
+#[test]
+fn it_stage_gate_refuses_other_parent_states() {
+    for state in ["open", "done"] {
+        let p = Project::new();
+        seed_card(&p.root, "demo", state, &["gate2=2026-10-05"]);
+        assert_eq!(
+            p.ferrule(&["gate", "approve", "demo", "stage"]).text(),
+            format!(
+                "approve=refused reason=state state={state} hint=stage is approved only while the parent card is inprogress or inreview; see `ferrule run status demo`\nexit=1"
+            )
+        );
+    }
 }
 
 #[test]

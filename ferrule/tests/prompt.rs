@@ -244,6 +244,32 @@ fn it_render_every_stop() {
     check("prompt-render-stops", &stops(p));
 }
 
+/// GA-R-005, GA-R-006, GA-R-007 — the stage stop names what follows the approval.
+#[test]
+fn it_render_stage_says_what_follows() {
+    let p = project();
+    let p = p.path();
+    let middle = render(
+        p,
+        &["demo", "stage", "--stage", "s1", "--reason", "plan-marked"],
+    )
+    .text();
+    let last = render(
+        p,
+        &["demo", "stage", "--stage", "s2", "--reason", "plan-marked"],
+    )
+    .text();
+    assert!(middle.contains(
+        "Approving will:\n- commit s1, push, update the draft PR\n- spawn the next stage\nAnswer: approve · change <what> · stop"
+    ));
+    assert!(last.contains(
+        "Approving will:\n- commit s2, push, update the draft PR\n- next stop: gate 4\nAnswer: approve · change <what> · stop"
+    ));
+    let general = render(p, &["demo", "stage", "--reason", "plan-marked"]).text();
+    assert!(general.contains("- spawn the next stage\nAnswer: approve · change <what> · stop"));
+    assert!(!general.contains("gate 4"));
+}
+
 #[test]
 fn it_render_approved_records_what_was_shown() {
     let p = project();

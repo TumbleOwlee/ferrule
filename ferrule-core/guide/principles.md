@@ -10,14 +10,14 @@ Every run, `/fe-request` included.
 - **Gate 1 is a best-effort grilling, drafted by `fe-author`.** Existing spec + the request's user stories, nothing about current code. It settles scope, scenarios and the edge cases the user cares about; every other point is deferred to the agent that settles it, never anticipated.
 - **Issue and PR are the orchestrator's alone**, assembled by ferrule from the run's files (`ferrule issue post`, `ferrule pr push`, `ferrule pr publish`), never retyped. Issue = goal, requirements, scenarios; PR = everything about how; neither names a stage or an agent. No agent but `fe-author` learns an issue or PR number exists — spawn briefs never carry one.
 - **An agent's self-reported verification is not verification.** Re-run the tools.
-- **A split of an area whose spec costs real context is `fe-author`'s to propose** at gate 1 (rules in `ferrule guide show author`) and the user's to approve, never silent.
+- **A split of an area whose spec costs real context is `fe-author`'s to propose** at gate 1 and the user's to approve, never silent.
 - **Instructions arrive per step.** `ferrule gate next` names the topic for what comes next as `guide: ferrule guide show <topic> --slug {slug}`; read it then, not before.
 
 ## Principles — implementation
 
 Gate 2 onward.
 
-- **Non-behavior change (`AGENTS.md` `## Workflow`) skips gate 1** and starts at `ferrule guide show architecture`: no `spec-diff.md`; parent card records `gate1: skipped`. Architecture or planning finds a behavior change (`status=behavior-change`) → stop, run gate 1 with the reason, resume the same agent with the `spec-diff.md` path.
+- **A non-behavior change, a change that needs no observable behavior to change, skips gate 1** and starts at `ferrule guide show architecture`: no `spec-diff.md`; parent card records `gate1: skipped`. Architecture or planning finds a behavior change (`status=behavior-change`) → stop, run gate 1 with the reason, resume the same agent with the `spec-diff.md` path.
 - Gate 2 onward delegates to agents. **All agents Sonnet or better.**
 - **The draft PR is the user's review surface** (`ferrule guide show stages --section 'Every stage'`; promoted at gate 4, `ferrule guide show gate4`). Feedback re-enters the run only through `ferrule guide show feedback`.
 - **One git worktree per run**, `{worktree}` — inside the project directory (agent-reachable), ignored with the rest of `.ferrule/`. Created only by `ferrule gate approve {slug} gate2` (first thing to touch disk); removed by `ferrule run cleanup` at the end of the run.

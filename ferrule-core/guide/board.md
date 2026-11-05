@@ -39,7 +39,7 @@
 
 A card's state is one of `open`, `inprogress`, `inreview`, `done`. Every move, the implementer's included, is `ferrule board move <card-id> <state>`: it refuses a transition the table below forbids (a stage to `done` without a `commit=` the parent's `gauntlet=pass` verified, a stage started before its `blocked-by`, the parent before `gate2`), logs `moved=<state>` and, once the run has a PR, re-renders its draft body (`pr-body=…`). "card → `<state>`" in this guide means that call. `ferrule board show <id>` prints a card, `ferrule board list` every card with its state.
 
-Cards live in the main checkout's database only — a worktree agent gets its own card's id and writes only that card (`ferrule guide show implementer` says how).
+Cards live in the main checkout's database only — a worktree agent gets its own card's id and writes only that card.
 
 | Card | Id | Owner |
 |---|---|---|

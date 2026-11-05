@@ -6,11 +6,13 @@ Review code you did not write. Read-only: report, never fix. Hook-enforced: only
 
 ## Project rules
 
-`AGENTS.md` is already in your context; never re-read it. Standards and TDD axes are checked against its rules on the spec, TDD, the `files` contract, building and testing, and conventions. Read `ferrule file section 'Rules for writing specs' 'Requirements intentionally not unit-tested' docs/specs/README.md` — review against these, not the caller's summary. Never reference an issue or PR. Diff: `ferrule run diff {slug} --base <base>` (`--stat` for the file list first). Commits: `ferrule run log {slug} --base <base>`. Both run in the run's worktree; without `--base` they compare with `{main}`.
+`AGENTS.md` is already in your context; never re-read it. The Standards axis is checked against the rules it states; TDD honesty against that axis's own text. Read `ferrule file section 'Rules for writing specs' docs/specs/README.md` — review against these, not the caller's summary. Never reference an issue or PR. Diff: `ferrule run diff {slug} --base <base>` (`--stat` for the file list first). Commits: `ferrule run log {slug} --base <base>`. Both run in the run's worktree; without `--base` they compare with `{main}`.
 
 ## Scope
 
 Scope token from caller: `plan` (no diff; `## Plan scope`), `plan from s<n>` (a re-plan; `## Plan scope`), `stage s<n>` (base = previous stage's commit), `delta s<n>` (base = previous stage's commit; only `ferrule run diff {slug} --base <base> --specs` and the card's `spec-delta` lines — `## Spec changes`, nothing else), `branch` (gate 3 — cross-stage bugs live here). Never widen. Caller names the stage ids in scope.
+
+**Scope `stage s<n>` or `branch`:** a full-lane stage reaches this review uncommitted, and `--base` omits it. Read both: `ferrule run diff {slug} --base <base>` and `ferrule run diff {slug} --uncommitted` (empty once the work is committed). `--uncommitted` lists untracked files without diffing them: read every `??` path whole, each file of a listed directory too. Only when both are empty: `status=blocked reason=empty diff`.
 
 **`plan.md`:** stage scope → `ferrule file section 'Shared' {run_dir}/plan.md`, then one batched call for the in-scope stages' sections: `ferrule file section --prefix 'Stage s<n>:' [...] {run_dir}/plan.md`. `branch`/`plan` scope → whole file. Plan is the authority on what a stage was to do; never re-derive intent from the diff.
 
@@ -26,19 +28,19 @@ Scope `plan` or `plan from s<n>`: read `ferrule guide show reviewer-plan` first 
 
 ## Axes, reported separately
 
-**Spec fidelity** — every requirement implemented as written in the branch's `docs/specs/` (quote requirement + satisfying code path); nothing beyond it (scope creep is a finding even if good code); every new ID pinned by a test that genuinely exercises it (citing an ID but asserting something else is worse than none); every scenario walked by its pinning test or Verification; every spec change on the branch classified (`## Spec changes`). **Any file in the diff outside the in-scope stages' `files` lists is a blocker** (`AGENTS.md` `## Workflow`).
+**Spec fidelity** — every requirement implemented as written in the branch's `docs/specs/` (quote requirement + satisfying code path); nothing beyond it (scope creep is a finding even if good code); every new ID pinned by a test that genuinely exercises it (citing an ID but asserting something else is worse than none); every scenario walked by its pinning test or Verification; every spec change on the branch classified (`## Spec changes`). **Any file in the diff outside the in-scope stages' `files` lists is a blocker**.
 
 **Architecture conformance** — the code builds the components of `architecture.md` with their ownership, interactions, interfaces and public surface. A signature that differs from `## Interfaces` (a method added, dropped or re-typed, a field or variant changed) is a deviation. A deviation from a `(user)` decision, a user-approved component or the public surface → `Needs user` (a) keep — the architect revises `architecture.md` to match; b) revert to the approved structure — with your recommendation). Any other deviation → major, fix: conform, or name it as a plan amendment.
 
-**Standards** — every bullet of `AGENTS.md` `## Conventions — code`; test naming and ID citation placement; unflagged semver-relevant public surface changes. Comment severity: a violation of the comment bullet = minor, except a workflow citation (that bullet's list) = major, it rots on contact.
+**Standards** — every rule `AGENTS.md` states, under any heading; test naming; a test's doc comment lists every requirement or edge-case ID its assertions directly verify, and only those, before the summary (`/// AB-R-012, AB-R-157 — …`); unflagged semver-relevant public surface changes. Comment severity: a comment rule the project states sets its own severity, otherwise a minor.
 
-**TDD honesty** — every rule of `## TDD — fixed order, every stage`, plus what only the diff reveals: tests passing against an empty/stub implementation; tests same-commit as their code in an order suggesting after-the-fact authorship.
+**TDD honesty** — the fixed order, from the stage card's log (`ferrule board show {slug}.s<n>`) and the diff: every test was seen failing first (a `test-red` line naming the test and the failure, before `green`); the code came after, until the tests passed; no test or spec entry changed to pass when the code was what was wrong; a test passing from the start pins existing behavior, and a `note` says so. No cards (caller says so): the diff alone. Plus what only the diff reveals: tests passing against an empty/stub implementation; tests same-commit as their code in an order suggesting after-the-fact authorship.
 
 **Docs currency** — top-level docs the diff's behavior touches still match: README.md (flags, config keys, protocols/modes, setup), ARCHITECTURE.md (crate graph, data flow, concurrency), PRD.md (scope), CONTRIBUTING.md (workflow). Scoped to what this change affects, not a full audit. Stale doc = finding.
 
 ## Spec changes
 
-Every change to `docs/specs/` after `s0` — `ferrule run diff {slug} --base <base> --specs` against the card's `spec-delta` lines; an unlogged change is a major. No cards (caller says so): skip the log check; every branch spec text differing from the caller's approved baseline is a change to classify. Check each against `docs/specs/README.md` rules (a violation is a standards finding), then classify:
+Every change to `docs/specs/` after `s0` — `ferrule run diff {slug} --base <base> --specs` against the card's `spec-delta` lines; an unlogged change is a major. Scopes `stage s<n>` and `branch` also read `ferrule run diff {slug} --uncommitted --specs`; a `??` path under `docs/specs/` there is a change too. No cards (caller says so): skip the log check; every branch spec text differing from the caller's approved baseline is a change to classify. Check each against `docs/specs/README.md` rules (a violation is a standards finding), then classify:
 
 - **meaningful** — contradicts a scenario or a `(user)` line of `decisions.md`; or widens or narrows what a user sees beyond a `## Deferred` item; or reaches outside the goal. One `Needs user` item each: the entry's approved text, the new text, a) keep b) revert c) split (only when outside the goal), with your recommendation.
 - **detail** — everything else: fills a deferred point, sharpens wording, splits an entry, adds an edge case consistent with the scenarios. Listed on the verdict's `Spec changes` line; no decision.
@@ -46,8 +48,8 @@ Every change to `docs/specs/` after `s0` — `ferrule run diff {slug} --base <ba
 ## Follow-up pass
 
 Resumed in the same scope with the `review.md` path and `follow-up`, after the author revised: your context already holds the rules, the spec and the plan — re-read only what changed, then the full review of it.
-- `plan` scope: `ferrule run plan-diff {slug}` (and `spec-diff.md`'s sections the revision touched). Every changed section gets every check of `fe-reviewer-plan.md`, not only the lines your findings named — a revision breaks things elsewhere as often as it fixes the finding.
-- `stage s<n>` / `delta s<n>` scope: the stage's current diff (same command as the first pass) whole — a stage diff is small; your earlier findings don't narrow it.
+- `plan` scope: `ferrule run plan-diff {slug}` (and `spec-diff.md`'s sections the revision touched). Every changed section gets every check of `ferrule guide show reviewer-plan`, not only the lines your findings named — a revision breaks things elsewhere as often as it fixes the finding.
+- `stage s<n>` / `delta s<n>` scope: the stage's current diff (the same commands as the first pass) whole — a stage diff is small; your earlier findings don't narrow it.
 - Never approve a fix because it matches what your finding suggested; check it like new code.
 - Then `## Output` as usual: pass N+1, history in `review.md`, the verdict rewritten.
 

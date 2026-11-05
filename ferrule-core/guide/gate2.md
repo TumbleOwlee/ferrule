@@ -2,7 +2,7 @@
 
 ## Gate 2 — plan and tracking issue
 
-Spawn `fe-planner` with: `{run_dir}/spec-diff.md` path (none for a non-behavior change), `{run_dir}/architecture.md` path (none on `no-arch` and when the architecture step was skipped), `arch=skipped` when it was, affected area(s), anything the user volunteered. Nothing else; the agent explores the repo itself, starting from the architecture's code map. It writes `plan.md` (shape: `ferrule guide show planner --section 'Output'`) and `plan.summary.md`, edits `spec-diff.md` and assigns its fixed IDs.
+Spawn `fe-planner` with: `{run_dir}/spec-diff.md` path (none for a non-behavior change), `{run_dir}/architecture.md` path (none on `no-arch` and when the architecture step was skipped), `arch=skipped` when it was, affected area(s), anything the user volunteered. Nothing else; the agent explores the repo itself, starting from the architecture's code map. It writes `plan.md` and `plan.summary.md`, edits `spec-diff.md` and assigns its fixed IDs.
 
 Every status line of the gate (planner, plan reviewer, the author's issue answer) → `ferrule gate next {slug} gate2 …`:
 - Review rounds per `ferrule guide show verify`: fresh `fe-reviewer` scope `plan`; any finding, minors included, resumes the planner (`plan.prev.md` first); the same reviewer's follow-up.

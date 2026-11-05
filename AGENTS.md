@@ -8,3 +8,11 @@ Behavior changes go through the spec-driven workflow: `/fe-feature` (a request o
 - Read issues and PRs with `ferrule issue view <n>` and `ferrule pr view <n>`: the body, then one line per comment; `--comment <n|a-b>` prints those comments in full, `--comments` all of them.
 - The board lives in `.ferrule/state.db`: `ferrule board list`, `ferrule board show <id>`.
 <!-- ferrule:end -->
+
+## Conventions — code
+
+- `cargo fmt --check` passes.
+- `cargo clippy --workspace --all-targets -- -D warnings` passes, with the workspace's pedantic lints.
+- A test's doc comment cites the IDs it pins (`docs/specs/README.md` rule 7).
+- Integration tests are named `it_<behavior>`.
+- A comment never cites this repo's own runs: no run slug, plan or review file, finding, issue or PR. A violation is a major.

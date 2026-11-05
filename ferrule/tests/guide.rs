@@ -136,3 +136,412 @@ fn it_guide_check_flags_unknown_topics_and_bad_tags() {
     );
     assert!(ferrule(root, root, &["guide"]).ends_with("exit=2"));
 }
+
+/// GA-R-004 — the last stage's approved stop commits and pushes before gate 4.
+#[test]
+fn it_stage_review_guide_pushes_before_gate4() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let text = ok(
+        root,
+        &[
+            "guide",
+            "stage-review",
+            "--slug",
+            "demo",
+            "--section",
+            "Stage stop",
+        ],
+    );
+    assert!(
+        text.contains(
+            "approved → `ferrule gate approve demo stage`, commit, `ferrule pr push demo`, gate 4"
+        ),
+        "{text}"
+    );
+}
+
+/// GA-R-008, GA-R-009, GA-R-010 — the branch review reads an uncommitted last stage and its spec changes.
+#[test]
+fn it_reviewer_guide_reads_the_uncommitted_stage() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let section = |name| {
+        ok(
+            root,
+            &["guide", "reviewer", "--slug", "demo", "--section", name],
+        )
+    };
+    let scope = section("Scope");
+    assert!(
+        scope.contains(
+            "`ferrule run diff demo --base <base>` and `ferrule run diff demo --uncommitted`"
+        ),
+        "{scope}"
+    );
+    assert!(scope.contains("read every `??` path whole"), "{scope}");
+    let specs = section("Spec changes");
+    assert!(
+        specs.contains("`ferrule run diff demo --uncommitted --specs`"),
+        "{specs}"
+    );
+    assert!(specs.contains("a `??` path under `docs/specs/`"), "{specs}");
+}
+
+/// GA-R-011, GA-R-012, GA-R-013 — the per-stage review reads its uncommitted stage and its spec changes.
+#[test]
+fn it_reviewer_guide_reads_the_uncommitted_stage_in_stage_scope() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let section = |name| {
+        ok(
+            root,
+            &["guide", "reviewer", "--slug", "demo", "--section", name],
+        )
+    };
+    let scope = section("Scope");
+    let line = scope
+        .lines()
+        .find(|l| l.contains("**Scope `stage s<n>` or `branch`:**"))
+        .expect("the stage scope's paragraph");
+    assert!(
+        line.contains(
+            "`ferrule run diff demo --base <base>` and `ferrule run diff demo --uncommitted`"
+        ),
+        "{line}"
+    );
+    assert!(line.contains("read every `??` path whole"), "{line}");
+    let specs = section("Spec changes");
+    assert!(
+        specs.contains(
+            "Scopes `stage s<n>` and `branch` also read `ferrule run diff demo --uncommitted --specs`"
+        ),
+        "{specs}"
+    );
+}
+
+/// GA-R-014 — the review's read of the spec rules succeeds on the shipped README.
+#[test]
+fn it_reviewer_guide_reads_only_sections_the_shipped_readme_has() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    std::fs::create_dir_all(root.join("docs/specs")).unwrap();
+    std::fs::write(
+        root.join("docs/specs/README.md"),
+        include_str!("../../ferrule-core/install/specs-readme.md"),
+    )
+    .unwrap();
+    let rules = ok(
+        root,
+        &[
+            "guide",
+            "reviewer",
+            "--slug",
+            "demo",
+            "--section",
+            "Project rules",
+        ],
+    );
+    assert!(
+        rules.contains("`ferrule file section 'Rules for writing specs' docs/specs/README.md`"),
+        "{rules}"
+    );
+    assert!(
+        !rules.contains("Requirements intentionally not unit-tested"),
+        "{rules}"
+    );
+    let read = ok(
+        root,
+        &[
+            "file",
+            "section",
+            "Rules for writing specs",
+            "docs/specs/README.md",
+        ],
+    );
+    assert!(read.contains("**Requirements are testable.**"), "{read}");
+}
+
+/// GA-R-015, GA-R-016, GA-R-017, GA-R-018, GA-R-019 — each guide states the rules its agent works or reviews by.
+#[test]
+fn it_guides_state_the_tdd_and_standards_rules() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let tdd = ok(
+        root,
+        &["guide", "implementer", "--slug", "demo", "--section", "TDD"],
+    );
+    assert!(tdd.contains("1. Write the stage's tests first and see each fail; log the failure seen with `test-red`."), "{tdd}");
+    assert!(
+        tdd.contains("2. Write the code until they pass, then log `green`."),
+        "{tdd}"
+    );
+    assert!(
+        tdd.contains(
+            "3. Never change a test or a spec entry to pass when the code is what is wrong."
+        ),
+        "{tdd}"
+    );
+    assert!(tdd.contains("4. A test that passes from the start pins existing behavior: say so with a `note` on your card."), "{tdd}");
+    let axes = ok(
+        root,
+        &[
+            "guide",
+            "reviewer",
+            "--slug",
+            "demo",
+            "--section",
+            "Axes, reported separately",
+        ],
+    );
+    assert!(
+        axes.contains("a `test-red` line naming the test and the failure, before `green`"),
+        "{axes}"
+    );
+    assert!(
+        axes.contains("the code came after, until the tests passed"),
+        "{axes}"
+    );
+    assert!(
+        axes.contains("no test or spec entry changed to pass when the code was what was wrong"),
+        "{axes}"
+    );
+    assert!(
+        axes.contains("a test passing from the start pins existing behavior, and a `note` says so"),
+        "{axes}"
+    );
+    assert!(!axes.contains("## TDD"), "{axes}");
+    assert!(!axes.contains("ferrule guide show implementer"), "{axes}");
+    assert!(
+        axes.contains("every rule `AGENTS.md` states, under any heading"),
+        "{axes}"
+    );
+    assert!(!axes.contains("## Conventions — code"), "{axes}");
+    assert!(
+        axes.contains("a comment rule the project states sets its own severity, otherwise a minor"),
+        "{axes}"
+    );
+}
+
+/// GA-R-020 — the agent guides name no category of rule.
+#[test]
+fn it_agent_guides_take_the_rules_agents_md_states() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let rules = |topic| {
+        ok(
+            root,
+            &[
+                "guide",
+                topic,
+                "--slug",
+                "demo",
+                "--section",
+                "Project rules",
+            ],
+        )
+    };
+    for topic in ["author", "architect", "planner", "implementer"] {
+        let text = rules(topic);
+        assert!(
+            text.contains("The rules it states bind you here."),
+            "{text}"
+        );
+        assert!(!text.contains("rules on the spec"), "{text}");
+    }
+    let text = rules("reviewer");
+    assert!(
+        text.contains("The Standards axis is checked against the rules it states;"),
+        "{text}"
+    );
+    assert!(!text.contains("rules on the spec"), "{text}");
+}
+
+/// GA-R-023, GA-R-024, GA-R-025, GA-R-026, GA-R-027, GA-R-028 — each guide states what its own reader needs.
+#[test]
+fn it_guides_state_what_their_reader_needs() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let guide = |topic| ok(root, &["guide", topic, "--slug", "demo"]);
+    let principles = guide("principles");
+    assert!(principles.contains("**A non-behavior change, a change that needs no observable behavior to change, skips gate 1**"), "{principles}");
+    for topic in ["author", "architect", "planner"] {
+        let text = guide(topic);
+        assert!(
+            text.contains("`R<n>` for a requirement, `E<n>` for an edge case, each series from 1"),
+            "{topic}"
+        );
+    }
+    let implementer = guide("implementer");
+    assert!(
+        implementer.contains("changing only the files their `files` lists name"),
+        "{implementer}"
+    );
+    let reviewer = guide("reviewer");
+    assert!(
+        reviewer.contains(
+            "**Any file in the diff outside the in-scope stages' `files` lists is a blocker**."
+        ),
+        "{reviewer}"
+    );
+    let author = guide("author");
+    assert!(
+        author.contains("`ferrule issue view <n>`: the body, then one line per comment"),
+        "{author}"
+    );
+    let planner = guide("planner");
+    assert!(
+        planner.contains("split so each entry holds one rule"),
+        "{planner}"
+    );
+}
+
+/// GA-R-031 — every agent that asks states the question batch itself, in the same text.
+#[test]
+fn it_asking_agents_state_the_question_batch() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let section = |topic| {
+        ok(
+            root,
+            &["guide", topic, "--slug", "demo", "--section", "Questions"],
+        )
+    };
+    let body = |text: &str| {
+        text.lines()
+            .filter(|line| !line.starts_with("# demo — questions (") && !line.starts_with("exit="))
+            .collect::<Vec<_>>()
+            .join("\n")
+            .trim_end()
+            .to_owned()
+    };
+    let author = section("author");
+    for needle in [
+        "Collect every decision you can state without knowing another's answer into one file.",
+        "One block per decision:",
+        "## 1. <decision, one line, as a question>",
+        "`Why you:` is mandatory.",
+    ] {
+        assert!(author.contains(needle), "{author}");
+    }
+    for (topic, title) in [
+        ("architect", "architecture"),
+        ("planner", "gate 2"),
+        ("implementer", "s<n>"),
+    ] {
+        let text = section(topic);
+        assert!(
+            text.contains(&format!("# demo — questions ({title})")),
+            "{text}"
+        );
+        for needle in [
+            "Collect every decision you can state without knowing another's answer into one file.",
+            "One block per decision:",
+            "`Why you:` is mandatory.",
+        ] {
+            assert!(text.contains(needle), "{topic}: {needle}");
+        }
+        assert_eq!(body(&text), body(&author), "{topic}");
+    }
+}
+
+/// GA-R-032 — the plan review states the title rules it checks.
+#[test]
+fn it_plan_review_states_the_stage_title_rules() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let text = ok(root, &["guide", "reviewer-plan", "--slug", "demo"]);
+    assert!(text.contains("imperative, verb first; ≤ 3 words, ≤ 20 characters; letters, digits, hyphens, spaces only; unique within the plan; no stage id"), "{text}");
+    assert!(
+        text.contains("`s0`, when present, is always `Land spec`"),
+        "{text}"
+    );
+}
+
+/// GA-R-033 — the follow-up pass names a topic a reader can open.
+#[test]
+fn it_reviewer_follow_up_names_the_plan_checks_topic() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let text = ok(
+        root,
+        &[
+            "guide",
+            "reviewer",
+            "--slug",
+            "demo",
+            "--section",
+            "Follow-up pass",
+        ],
+    );
+    assert!(
+        text.contains("every check of `ferrule guide show reviewer-plan`"),
+        "{text}"
+    );
+    assert!(!text.contains("fe-reviewer-plan.md"), "{text}");
+}
+
+/// GA-R-034, GA-R-035 — the implementer and its review get the same ID citation rule.
+#[test]
+fn it_implementer_and_reviewer_state_the_id_citation_rule() {
+    const RULE: &str = "test's doc comment lists every requirement or edge-case ID its assertions directly verify, and only those, before the summary (`/// AB-R-012, AB-R-157 — …`)";
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let tdd = ok(
+        root,
+        &["guide", "implementer", "--slug", "demo", "--section", "TDD"],
+    );
+    assert!(tdd.contains(RULE), "{tdd}");
+    let axes = ok(
+        root,
+        &[
+            "guide",
+            "reviewer",
+            "--slug",
+            "demo",
+            "--section",
+            "Axes, reported separately",
+        ],
+    );
+    assert!(axes.contains(RULE), "{axes}");
+    assert!(!axes.contains("ID citation placement"), "{axes}");
+}
+
+/// GA-R-036 — the implementer reads the rules that bind a spec change.
+#[test]
+fn it_implementer_reads_the_spec_rules_before_a_spec_change() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let text = ok(
+        root,
+        &[
+            "guide",
+            "implementer",
+            "--slug",
+            "demo",
+            "--section",
+            "Spec changes",
+        ],
+    );
+    assert!(text.contains("Before a spec change, read the rules that bind the text: `ferrule file section 'Rules for writing specs' docs/specs/README.md`"), "{text}");
+}
+
+/// GA-R-037 — the bootstrap suggests only the override that keeps the guide's text.
+#[test]
+fn it_bootstrap_suggests_no_project_rules_override() {
+    let skill = include_str!("../../ferrule-core/install/claude/skills/fe-bootstrap.md");
+    assert!(!skill.contains("## Project rules"), "{skill}");
+    assert!(skill.contains("with a `## Checks` section"), "{skill}");
+}

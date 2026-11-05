@@ -227,3 +227,60 @@ fn it_slash_commands_and_scripts_in_the_text_exist() {
     }
     assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
+
+/// GA-R-021, GA-R-022 — a guide states a rule rather than citing a heading or a rule number for it.
+#[test]
+fn it_guides_cite_no_agents_heading_or_readme_rule() {
+    const CITATIONS: &[&str] = &[
+        "`AGENTS.md` `## ",
+        "`## Spec-driven`",
+        "`## Conventions — GitHub`",
+        "`AGENTS.md` routing table",
+        "README.md` rule ",
+        "per docs/specs/README.md",
+        "`## Workflow`",
+        "README rule ",
+    ];
+    let mut problems = Vec::new();
+    for (name, text) in sources() {
+        for citation in CITATIONS {
+            if text.contains(citation) {
+                problems.push(format!("{name}: {citation}"));
+            }
+        }
+    }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
+
+/// GA-R-029, GA-R-030 — a guide states what its own audience needs rather than citing another audience's guide.
+#[test]
+fn it_guides_cite_no_other_audiences_guide() {
+    const AGENTS: &[&[&str]] = &[
+        &["author", "author-late"],
+        &["architect", "architect-epic"],
+        &["planner", "planner-replan"],
+        &["implementer"],
+        &["reviewer", "reviewer-plan"],
+    ];
+    let mut guides = Vec::new();
+    markdown(&core().join("guide"), &mut guides);
+    let mut problems = Vec::new();
+    for (name, text) in guides {
+        let topic = name.trim_start_matches("guide/").trim_end_matches(".md");
+        let family = AGENTS.iter().find(|family| family.contains(&topic));
+        for (at, pattern) in text.match_indices("ferrule guide show ") {
+            let cited: String = text[at + pattern.len()..]
+                .chars()
+                .take_while(|c| c.is_ascii_lowercase() || *c == '-')
+                .collect();
+            let refused = match family {
+                Some(family) => cited != "decisions" && !family.contains(&cited.as_str()),
+                None => AGENTS.iter().any(|family| family.contains(&cited.as_str())),
+            };
+            if refused {
+                problems.push(format!("{name}: {cited}"));
+            }
+        }
+    }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
