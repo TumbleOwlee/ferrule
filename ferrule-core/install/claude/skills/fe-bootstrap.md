@@ -15,7 +15,7 @@ description: Once per repository after `ferrule setup install` — read the code
 3. **`ARCHITECTURE.md`** — packages or modules, their responsibilities, the data flow, the concurrency model if any.
 4. **Spec areas** — one directory per capability under `docs/specs/<area>/`: `requirements.md` and `edge-cases.md`, entries under the ID scheme of `docs/specs/README.md` (a prefix per area). Describe what the code does today, observable behavior only; ask the user where the code and their intent differ, never guess. Add one row per area to the README's area table.
 5. **Gauntlet** — `.ferrule/ferrule.toml`'s `[[gauntlet.step]]`s: format check, lint, tests, coverage when the project measures it. Run `ferrule ci gauntlet` on a scratch run to prove them.
-6. **Guide overrides** — `.ferrule/guide/implementer.md` with a `## Checks` section naming the project's fast checks (formatter, linter, the tests of a changed package); `## Project rules` sections for the agent topics when `AGENTS.md` has rules they must cite. `ferrule guide check` must pass.
+6. **Guide overrides** — `.ferrule/guide/implementer.md` with a `## Checks` section naming the project's fast checks (formatter, linter, the tests of a changed package). `ferrule guide check` must pass.
 7. **`AGENTS.md`** — the project's rules outside the ferrule block: build, test, conventions, where to look for what.
 
 Commit with `ferrule stage commit --no-run -m <msg>` on a branch, push with `ferrule pr push --no-run`, and tell the user the branch to open the PR from.

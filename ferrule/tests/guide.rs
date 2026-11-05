@@ -466,3 +466,82 @@ fn it_plan_review_states_the_stage_title_rules() {
         "{text}"
     );
 }
+
+/// GA-R-033 — the follow-up pass names a topic a reader can open.
+#[test]
+fn it_reviewer_follow_up_names_the_plan_checks_topic() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let text = ok(
+        root,
+        &[
+            "guide",
+            "reviewer",
+            "--slug",
+            "demo",
+            "--section",
+            "Follow-up pass",
+        ],
+    );
+    assert!(
+        text.contains("every check of `ferrule guide show reviewer-plan`"),
+        "{text}"
+    );
+    assert!(!text.contains("fe-reviewer-plan.md"), "{text}");
+}
+
+/// GA-R-034, GA-R-035 — the implementer and its review get the same ID citation rule.
+#[test]
+fn it_implementer_and_reviewer_state_the_id_citation_rule() {
+    const RULE: &str = "test's doc comment lists every requirement or edge-case ID its assertions directly verify, and only those, before the summary (`/// AB-R-012, AB-R-157 — …`)";
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let tdd = ok(
+        root,
+        &["guide", "implementer", "--slug", "demo", "--section", "TDD"],
+    );
+    assert!(tdd.contains(RULE), "{tdd}");
+    let axes = ok(
+        root,
+        &[
+            "guide",
+            "reviewer",
+            "--slug",
+            "demo",
+            "--section",
+            "Axes, reported separately",
+        ],
+    );
+    assert!(axes.contains(RULE), "{axes}");
+    assert!(!axes.contains("ID citation placement"), "{axes}");
+}
+
+/// GA-R-036 — the implementer reads the rules that bind a spec change.
+#[test]
+fn it_implementer_reads_the_spec_rules_before_a_spec_change() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let text = ok(
+        root,
+        &[
+            "guide",
+            "implementer",
+            "--slug",
+            "demo",
+            "--section",
+            "Spec changes",
+        ],
+    );
+    assert!(text.contains("Before a spec change, read the rules that bind the text: `ferrule file section 'Rules for writing specs' docs/specs/README.md`"), "{text}");
+}
+
+/// GA-R-037 — the bootstrap suggests only the override that keeps the guide's text.
+#[test]
+fn it_bootstrap_suggests_no_project_rules_override() {
+    let skill = include_str!("../../ferrule-core/install/claude/skills/fe-bootstrap.md");
+    assert!(!skill.contains("## Project rules"), "{skill}");
+    assert!(skill.contains("with a `## Checks` section"), "{skill}");
+}

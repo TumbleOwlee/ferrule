@@ -50,9 +50,11 @@ Fixed order, every stage:
 3. Never change a test or a spec entry to pass when the code is what is wrong.
 4. A test that passes from the start pins existing behavior: say so with a `note` on your card.
 
+A test's doc comment lists every requirement or edge-case ID its assertions directly verify, and only those, before the summary (`/// AB-R-012, AB-R-157 — …`).
+
 ## Spec changes
 
-After `s0` the branch's `docs/specs/` is the spec, and it settles with the code. Implementation shows an entry wrong, incomplete or missing (a `## Deferred` item owned by `implementation` included): change `docs/specs/` inside the current stage's commit and keep going. A new entry takes the next free ID of its prefix and series (`-R-` or `-E-`): `ferrule spec next <PREFIX> --run {slug}` (`--edge` for `-E-`) — one above the highest on `{main}`, the branch's `docs/specs/`, the fixed IDs in `{run_dir}/spec-diff.md` and every `spec-delta <ID> added` on the run's cards, the parent's included — so a number dropped earlier in the run is never reused. `docs/specs/README.md` rules bind the text. Log each change on your card (`spec-delta`, below) and report the count in your status line (`delta=<n>`).
+After `s0` the branch's `docs/specs/` is the spec, and it settles with the code. Implementation shows an entry wrong, incomplete or missing (a `## Deferred` item owned by `implementation` included): change `docs/specs/` inside the current stage's commit and keep going. A new entry takes the next free ID of its prefix and series (`-R-` or `-E-`): `ferrule spec next <PREFIX> --run {slug}` (`--edge` for `-E-`) — one above the highest on `{main}`, the branch's `docs/specs/`, the fixed IDs in `{run_dir}/spec-diff.md` and every `spec-delta <ID> added` on the run's cards, the parent's included — so a number dropped earlier in the run is never reused. Before a spec change, read the rules that bind the text: `ferrule file section 'Rules for writing specs' docs/specs/README.md`. Log each change on your card (`spec-delta`, below) and report the count in your status line (`delta=<n>`).
 
 A reviewer classifies every change; one that contradicts a scenario or a user decision goes to the user, who may have you revert it. Before such a change, read the entry's and the scenarios' sections of `{run_dir}/spec-diff.md` (`ferrule file section '<ID>' 'S<n>' …`); make it only when the code leaves no way around it. Never change an entry to make a failing test pass when the code is what is wrong.
 

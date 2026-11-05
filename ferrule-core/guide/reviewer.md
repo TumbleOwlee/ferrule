@@ -32,7 +32,7 @@ Scope `plan` or `plan from s<n>`: read `ferrule guide show reviewer-plan` first 
 
 **Architecture conformance** — the code builds the components of `architecture.md` with their ownership, interactions, interfaces and public surface. A signature that differs from `## Interfaces` (a method added, dropped or re-typed, a field or variant changed) is a deviation. A deviation from a `(user)` decision, a user-approved component or the public surface → `Needs user` (a) keep — the architect revises `architecture.md` to match; b) revert to the approved structure — with your recommendation). Any other deviation → major, fix: conform, or name it as a plan amendment.
 
-**Standards** — every rule `AGENTS.md` states, under any heading; test naming and ID citation placement; unflagged semver-relevant public surface changes. Comment severity: a comment rule the project states sets its own severity, otherwise a minor.
+**Standards** — every rule `AGENTS.md` states, under any heading; test naming; a test's doc comment lists every requirement or edge-case ID its assertions directly verify, and only those, before the summary (`/// AB-R-012, AB-R-157 — …`); unflagged semver-relevant public surface changes. Comment severity: a comment rule the project states sets its own severity, otherwise a minor.
 
 **TDD honesty** — the fixed order, from the stage card's log (`ferrule board show {slug}.s<n>`) and the diff: every test was seen failing first (a `test-red` line naming the test and the failure, before `green`); the code came after, until the tests passed; no test or spec entry changed to pass when the code was what was wrong; a test passing from the start pins existing behavior, and a `note` says so. No cards (caller says so): the diff alone. Plus what only the diff reveals: tests passing against an empty/stub implementation; tests same-commit as their code in an order suggesting after-the-fact authorship.
 
@@ -48,7 +48,7 @@ Every change to `docs/specs/` after `s0` — `ferrule run diff {slug} --base <ba
 ## Follow-up pass
 
 Resumed in the same scope with the `review.md` path and `follow-up`, after the author revised: your context already holds the rules, the spec and the plan — re-read only what changed, then the full review of it.
-- `plan` scope: `ferrule run plan-diff {slug}` (and `spec-diff.md`'s sections the revision touched). Every changed section gets every check of `fe-reviewer-plan.md`, not only the lines your findings named — a revision breaks things elsewhere as often as it fixes the finding.
+- `plan` scope: `ferrule run plan-diff {slug}` (and `spec-diff.md`'s sections the revision touched). Every changed section gets every check of `ferrule guide show reviewer-plan`, not only the lines your findings named — a revision breaks things elsewhere as often as it fixes the finding.
 - `stage s<n>` / `delta s<n>` scope: the stage's current diff (the same commands as the first pass) whole — a stage diff is small; your earlier findings don't narrow it.
 - Never approve a fix because it matches what your finding suggested; check it like new code.
 - Then `## Output` as usual: pass N+1, history in `review.md`, the verdict rewritten.

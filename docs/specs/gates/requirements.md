@@ -68,8 +68,18 @@
 
 **GA-R-029** — An agent's guide cites only that agent's guides and topics meant for several audiences.
 
-**GA-R-030** — An orchestrator topic cites no agent's guide.
+**GA-R-030** — A workflow topic cites no agent's guide.
 
 **GA-R-031** — The author, architect, planner and implementer guides each state the `question.md` shape, batching and `Why you:` rule.
 
 **GA-R-032** — The `reviewer-plan` guide states the stage title rules.
+
+**GA-R-033** — The reviewer guide's follow-up pass names the plan checks by their guide topic.
+
+**GA-R-034** — The implementer guide states that a test's doc comment lists the IDs its assertions directly verify, and only those.
+
+**GA-R-035** — The reviewer guide's Standards axis states the same ID citation rule as the implementer guide.
+
+**GA-R-036** — The implementer guide reads `Rules for writing specs` before a spec change.
+
+**GA-R-037** — The bootstrap skill suggests no `## Project rules` override.
