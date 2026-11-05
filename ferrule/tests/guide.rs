@@ -402,3 +402,67 @@ fn it_guides_state_what_their_reader_needs() {
         "{planner}"
     );
 }
+
+/// GA-R-031 — every agent that asks states the question batch itself, in the same text.
+#[test]
+fn it_asking_agents_state_the_question_batch() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let section = |topic| {
+        ok(
+            root,
+            &["guide", topic, "--slug", "demo", "--section", "Questions"],
+        )
+    };
+    let body = |text: &str| {
+        text.lines()
+            .filter(|line| !line.starts_with("# demo — questions (") && !line.starts_with("exit="))
+            .collect::<Vec<_>>()
+            .join("\n")
+            .trim_end()
+            .to_owned()
+    };
+    let author = section("author");
+    for needle in [
+        "Collect every decision you can state without knowing another's answer into one file.",
+        "One block per decision:",
+        "## 1. <decision, one line, as a question>",
+        "`Why you:` is mandatory.",
+    ] {
+        assert!(author.contains(needle), "{author}");
+    }
+    for (topic, title) in [
+        ("architect", "architecture"),
+        ("planner", "gate 2"),
+        ("implementer", "s<n>"),
+    ] {
+        let text = section(topic);
+        assert!(
+            text.contains(&format!("# demo — questions ({title})")),
+            "{text}"
+        );
+        for needle in [
+            "Collect every decision you can state without knowing another's answer into one file.",
+            "One block per decision:",
+            "`Why you:` is mandatory.",
+        ] {
+            assert!(text.contains(needle), "{topic}: {needle}");
+        }
+        assert_eq!(body(&text), body(&author), "{topic}");
+    }
+}
+
+/// GA-R-032 — the plan review states the title rules it checks.
+#[test]
+fn it_plan_review_states_the_stage_title_rules() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let text = ok(root, &["guide", "reviewer-plan", "--slug", "demo"]);
+    assert!(text.contains("imperative, verb first; ≤ 3 words, ≤ 20 characters; letters, digits, hyphens, spaces only; unique within the plan; no stage id"), "{text}");
+    assert!(
+        text.contains("`s0`, when present, is always `Land spec`"),
+        "{text}"
+    );
+}

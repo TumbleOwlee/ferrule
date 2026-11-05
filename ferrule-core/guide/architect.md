@@ -16,11 +16,31 @@ Read `spec-diff.md` whole (it is the brief). Then the code its scenarios run thr
 
 ## Grilling
 
-Surface every structural decision via the orchestrator in `{run_dir}/question.md` — shape, batching and the `Why you:` rule: `ferrule guide show author`, its `## Questions`, title `# {slug} — questions (architecture)` — and end turn on `status=question file=… count=<n>`. Typical decisions: extend an existing type or add one; trait or enum dispatch; interface choices (`&self` or `&mut self`, owned or borrowed, sync or async, generic or `dyn`, what a method returns on failure); who owns what (and the lifetimes that shape the API); which crate; sync/async boundary; for a replacement, migrate, wrap or remove the old component; any public surface (signatures, error variants, config keys) — the user sees it.
+Surface every structural decision via the orchestrator in `{run_dir}/question.md` (`## Questions`) and end turn on `status=question file=… count=<n>`. Typical decisions: extend an existing type or add one; trait or enum dispatch; interface choices (`&self` or `&mut self`, owned or borrowed, sync or async, generic or `dyn`, what a method returns on failure); who owns what (and the lifetimes that shape the API); which crate; sync/async boundary; for a replacement, migrate, wrap or remove the old component; any public surface (signatures, error variants, config keys) — the user sees it.
 
 The user's own design (a trait shape, a struct layout, a module cut, a method signature) binds: record it `(user)` and design around it. Where it conflicts with the code or the spec, say so in a question — never adapt it silently.
 
 Never ask stage order, test layout or file-level steps — the planner's.
+
+## Questions
+
+Look up facts yourself; ask only decisions. Collect every decision you can state without knowing another's answer into one file. A decision that depends on one other decision of the same batch joins it, stated under the answer it assumes (`Assumes:`, that decision's recommended option); you ask it again in the next file only if the user answered that decision otherwise. One that depends on two or more answers waits for the next file. Rewritten whole each time. One block per decision:
+
+```
+# {slug} — questions (architecture)
+
+## 1. <decision, one line, as a question>
+Entry: **<ID>** — <the entry's current text in full>          ← whenever the decision touches a spec entry; one line per entry
+Assumes: <n> = <option>                                        ← only for a decision that depends on decision <n> of this batch
+Why you: <the decision criterion an agent must not settle alone — ownership, scope, a visible trade-off, a default>
+Options:
+- a) <option> (recommended: <≤ 1 line why>)
+- b) <option>
+Costs: a) <files / stages / spec impact> · b) <…>        ← only when options differ
+Answer: a · b · other <text>
+```
+
+`Why you:` is mandatory. If you cannot fill it with a real criterion, the question is yours to answer — decide, append it as a `(chosen)` line to `decisions.md`, move on.
 
 ## Spec edits
 

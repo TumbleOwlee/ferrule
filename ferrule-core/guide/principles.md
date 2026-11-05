@@ -10,7 +10,7 @@ Every run, `/fe-request` included.
 - **Gate 1 is a best-effort grilling, drafted by `fe-author`.** Existing spec + the request's user stories, nothing about current code. It settles scope, scenarios and the edge cases the user cares about; every other point is deferred to the agent that settles it, never anticipated.
 - **Issue and PR are the orchestrator's alone**, assembled by ferrule from the run's files (`ferrule issue post`, `ferrule pr push`, `ferrule pr publish`), never retyped. Issue = goal, requirements, scenarios; PR = everything about how; neither names a stage or an agent. No agent but `fe-author` learns an issue or PR number exists — spawn briefs never carry one.
 - **An agent's self-reported verification is not verification.** Re-run the tools.
-- **A split of an area whose spec costs real context is `fe-author`'s to propose** at gate 1 (rules in `ferrule guide show author`) and the user's to approve, never silent.
+- **A split of an area whose spec costs real context is `fe-author`'s to propose** at gate 1 and the user's to approve, never silent.
 - **Instructions arrive per step.** `ferrule gate next` names the topic for what comes next as `guide: ferrule guide show <topic> --slug {slug}`; read it then, not before.
 
 ## Principles — implementation

@@ -4,7 +4,7 @@
 ## Per-stage review
 
 Full lane. Every green stage, before its approval stop:
-- Fresh `fe-reviewer`. Base ref = previous stage's commit (branch point for the first stage); scope = that stage id; `ferrule guide show reviewer --section 'Axes, reported separately'` and `## Spec changes` on one stage's diff.
+- Fresh `fe-reviewer`. Base ref = previous stage's commit (branch point for the first stage); scope = that stage id; it reviews that one stage's diff.
 - `clean`, or `findings` with `count=0` → approval stop, forward the gauntlet line; minors per `ferrule guide show verify`.
 - `count>0` → card → `inprogress`, resume implementer with `review.md` path and stage id, re-run `ferrule ci gauntlet {slug}`, follow-up pass by the same reviewer; rounds per `ferrule guide show verify`. An unreviewed stage is never committed.
 - **The last code stage**: review in scope `branch` — it is gate 3's review; its status line → `ferrule gate next {slug} gate3 …` (it answers `stage-stop` or gate 3's stop).

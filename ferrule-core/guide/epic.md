@@ -5,7 +5,7 @@
 A feature too big for one run: the author answered `size=epic`, or the architect's size guard tripped. The epic run settles the shared core and cuts the feature into slices; it writes no code and has no plan, worktree or PR. Each slice is later a normal run on its own issue.
 
 1. **Brief** — gate 1 as usual; its stop approves `epic`. Or the architect's size guard turned a behavior run into one: `ferrule board set {slug} kind=epic lane=`, go to step 3; the epic stop approves the brief too when `gate1` is not yet a date (fast lane).
-2. **Skeleton and slices** — spawn `fe-architect` with the brief and `mode=epic`. It writes `architecture.md` and its summary for the **skeleton** only (the core abstractions every slice builds on, with their `## Interfaces`) and `slices.md` (shape: `ferrule guide show architect-epic`). Questions relayed as usual; it answers `status=ready … slices={run_dir}/slices.md`.
+2. **Skeleton and slices** — spawn `fe-architect` with the brief and `mode=epic`. It writes `architecture.md` and its summary for the **skeleton** only (the core abstractions every slice builds on, with their `## Interfaces`) and `slices.md`. Questions relayed as usual; it answers `status=ready … slices={run_dir}/slices.md`.
 3. **Epic issue draft** — `fe-author` drafts `issue.md` (`ferrule guide show issue`: existing issues searched, `reuse` or `new`).
 4. **Epic stop** — `ferrule prompt render {slug} epic [--issue <n>]` (`<n>`: the author answered `reuse`); its `Confirm:` names every brief ID no slice or two slices claim. Approved → `ferrule gate approve {slug} epic` (records `arch`, and `gate1` while pending).
 5. **On approval, in order** — no further stop:

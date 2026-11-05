@@ -2,7 +2,7 @@
 
 ## Gate 1 — brief
 
-`fe-author` grills the user and drafts the brief, `spec-diff.md` (`ferrule guide show author` holds the grilling rules and the shape); user decides, orchestrator relays. Best effort: scope, scenarios, the user-visible flow and the edge cases the user cares about; everything else lands under `## Deferred` with an owner. Spawn `fe-author` with: user's goal verbatim, affected area(s), `{run_dir}/`, and the issue number when the user named one ("take issue #n") — the request and the `ferrule guide show issue` reuse candidate.
+`fe-author` grills the user and drafts the brief, `spec-diff.md`; user decides, orchestrator relays. Best effort: scope, scenarios, the user-visible flow and the edge cases the user cares about; everything else lands under `## Deferred` with an owner. Spawn `fe-author` with: user's goal verbatim, affected area(s), `{run_dir}/`, and the issue number when the user named one ("take issue #n") — the request and the `ferrule guide show issue` reuse candidate.
 
 - **Board:** `ferrule run init {slug} [--issue <n>]` before spawning: the parent card and `{run_dir}/`; with a named issue also its body (`request.md`) and the brief it may already carry (`issue-spec.md`). `init=done … kind=slice epic=<e>` → the issue is a slice: `ferrule guide show epic` first.
 - `status=question` → relay question and answer without comment.

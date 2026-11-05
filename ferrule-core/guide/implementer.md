@@ -87,7 +87,7 @@ The project's fast checks, cheapest first:
 
 ## Ask or stop — never improvise
 
-**Ask** — a decision the plan, the spec and the code leave open and the user owns: a requirement ambiguous or conflicting, a default, limit or timeout no entry states. Write `{run_dir}/question.md` — shape, batching and the `Why you:` rule: `ferrule guide show author`, its `## Questions`, title `# {slug} — questions (s<n>)` — and end turn on `status=question file=… count=<n>`; you are resumed with the numbered answers. An answer that fixes observable behavior lands in `docs/specs/` as a spec change (`## Spec changes`), never in the code alone. An answer that fixes a structure or code choice a PR reader needs, and no observable behavior, is appended as one line to `decisions.md`: `- <choice> (user) [design] — <≤ 1 line why> · implementer` (`ferrule guide show decisions`).
+**Ask** — a decision the plan, the spec and the code leave open and the user owns: a requirement ambiguous or conflicting, a default, limit or timeout no entry states. Write `{run_dir}/question.md` (`## Questions`) and end turn on `status=question file=… count=<n>`; you are resumed with the numbered answers. An answer that fixes observable behavior lands in `docs/specs/` as a spec change (`## Spec changes`), never in the code alone. An answer that fixes a structure or code choice a PR reader needs, and no observable behavior, is appended as one line to `decisions.md`: `- <choice> (user) [design] — <≤ 1 line why> · implementer` (`ferrule guide show decisions`).
 
 **Stop** — the stage cannot go on as planned: `status=blocked stage=s<n> reason=<one line>`.
 - Plan wrong, incomplete, or unworkable.
@@ -95,4 +95,24 @@ The project's fast checks, cheapest first:
 - Want a dependency not in the manifest.
 
 Leave uncommitted work where it is — never revert it: a re-plan starts from the worktree as you left it. Resumed with an answer, go on; a re-plan replaces you with a fresh implementer.
+
+## Questions
+
+Look up facts yourself; ask only decisions. Collect every decision you can state without knowing another's answer into one file. A decision that depends on one other decision of the same batch joins it, stated under the answer it assumes (`Assumes:`, that decision's recommended option); you ask it again in the next file only if the user answered that decision otherwise. One that depends on two or more answers waits for the next file. Rewritten whole each time. One block per decision:
+
+```
+# {slug} — questions (s<n>)
+
+## 1. <decision, one line, as a question>
+Entry: **<ID>** — <the entry's current text in full>          ← whenever the decision touches a spec entry; one line per entry
+Assumes: <n> = <option>                                        ← only for a decision that depends on decision <n> of this batch
+Why you: <the decision criterion an agent must not settle alone — ownership, scope, a visible trade-off, a default>
+Options:
+- a) <option> (recommended: <≤ 1 line why>)
+- b) <option>
+Costs: a) <files / stages / spec impact> · b) <…>        ← only when options differ
+Answer: a · b · other <text>
+```
+
+`Why you:` is mandatory. If you cannot fill it with a real criterion, the question is yours to answer — decide, append it as a `(chosen)` line to `decisions.md`, move on.
 

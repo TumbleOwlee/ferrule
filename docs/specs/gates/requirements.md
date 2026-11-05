@@ -65,3 +65,11 @@
 **GA-R-027** — The author guide states how to read an issue's body and comments.
 
 **GA-R-028** — The planner guide states that an entry too coarse is split so each entry holds one rule.
+
+**GA-R-029** — An agent's guide cites only that agent's guides and topics meant for several audiences.
+
+**GA-R-030** — An orchestrator topic cites no agent's guide.
+
+**GA-R-031** — The author, architect, planner and implementer guides each state the `question.md` shape, batching and `Why you:` rule.
+
+**GA-R-032** — The `reviewer-plan` guide states the stage title rules.

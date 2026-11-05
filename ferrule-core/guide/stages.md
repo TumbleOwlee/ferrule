@@ -2,7 +2,7 @@
 
 ## Every stage
 
-- A fresh `fe-implementer`, spawned with the worktree path `{worktree}`, the plan path `{run_dir}/plan.md`, its stage card ids and `lane=fast|full`. Its first step is `ferrule guide show implementer --stage s<n>`.
+- A fresh `fe-implementer`, spawned with the worktree path `{worktree}`, the plan path `{run_dir}/plan.md`, its stage card ids and `lane=fast|full`.
 - **At most 3 code stages per implementer** (`s0` does not count). The next stage gets a fresh one, which starts from its cards and plan sections, never from its predecessor's context. Fixes for an earlier stage (gate 3 findings, PR feedback, a red gauntlet) go to the current implementer, briefed with that stage's card.
 - Not done until the plan's Verification method has run and its outcome is reported. Waiving it requires asking.
 - **The draft PR body is the board, rendered.** Once the PR exists, every `ferrule board move` re-renders it and pushes it when it changed (`pr-body=pushed|unchanged`). It is the living PR: status line, `## Why`, `## Scenarios`, `## Stages` (each stage's verification as sub-items under its line, stage ids only in HTML comments), `## Review here`, then the sections the gate 4 body shares: `## Requirements`, `## Spec changes since filing`, `## Architecture` (the current `architecture.md` rev) and `## Decisions` (`decisions.md`'s design lines and its chosen spec lines not already under spec changes). `ferrule pr body {slug} draft` prints it.

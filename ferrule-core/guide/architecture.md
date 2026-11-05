@@ -2,7 +2,7 @@
 
 ## Architecture
 
-`fe-architect` reads the code, grills the user on structure and drafts `architecture.md` (`ferrule guide show architect` holds the shape); user decides, orchestrator relays. Spawn it with: `{run_dir}/spec-diff.md` path (non-behavior change: the goal verbatim instead), affected area(s), anything the user volunteered at gate 1.
+`fe-architect` reads the code, grills the user on structure and drafts `architecture.md`; user decides, orchestrator relays. Spawn it with: `{run_dir}/spec-diff.md` path (non-behavior change: the goal verbatim instead), affected area(s), anything the user volunteered at gate 1.
 
 - `status=question` → `ferrule guide show question`.
 - `status=split` → `ferrule guide show split`.
