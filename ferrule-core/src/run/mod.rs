@@ -5,6 +5,7 @@
 pub mod archive;
 pub mod ci;
 pub mod commit;
+pub mod diverged;
 pub mod gate;
 pub mod gauntlet;
 pub mod ids;

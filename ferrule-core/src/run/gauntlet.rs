@@ -174,7 +174,7 @@ enum StepResult {
 
 /// Kills the step's whole process group; the child leads its own.
 #[cfg(unix)]
-fn kill_group(child: &std::process::Child) {
+pub(crate) fn kill_group(child: &std::process::Child) {
     let _ = Command::new("kill")
         .args(["-KILL", "--", &format!("-{}", child.id())])
         .stdin(Stdio::null())
@@ -185,7 +185,7 @@ fn kill_group(child: &std::process::Child) {
 
 /// Kills the step's process tree.
 #[cfg(windows)]
-fn kill_group(child: &std::process::Child) {
+pub(crate) fn kill_group(child: &std::process::Child) {
     let _ = Command::new("taskkill")
         .args(["/T", "/F", "/PID", &child.id().to_string()])
         .stdin(Stdio::null())
@@ -195,7 +195,7 @@ fn kill_group(child: &std::process::Child) {
 }
 
 #[cfg(not(any(unix, windows)))]
-fn kill_group(_: &std::process::Child) {}
+pub(crate) fn kill_group(_: &std::process::Child) {}
 
 /// Runs one step with its output appended to `log`, killed after its
 /// timeout.

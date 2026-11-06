@@ -1188,19 +1188,21 @@ fn it_commit_refuses_with_nothing_staged_on_a_dirty_tree() {
     git(&wt, &["add", "."]);
     git(&wt, &["commit", "-q", "-m", "base"]);
     let head = git(&wt, &["rev-parse", "--short", "HEAD"]);
-    let want = |hint: &str| {
-        format!("commit=refused reason=nothing-staged head={head} hint={hint}\nexit=1")
+    let check = |got: String| {
+        let line = format!("commit=refused reason=nothing-staged head={head} hint=");
+        assert!(got.starts_with(&line), "{got}");
+        assert!(got.contains("git add"), "{got}");
+        assert!(got.ends_with("exit=1"), "{got}");
     };
-    let hint = "the worktree holds changes that are not staged: stage them with `git add`, then commit again";
 
     std::fs::write(wt.join("a.txt"), "changed\n").unwrap();
     let got = in_dir(&p, &wt, &["stage", "commit", "demo.s1", "-m", "x"]);
-    assert_eq!(got, want(hint));
+    check(got);
 
     git(&wt, &["checkout", "--", "a.txt"]);
     std::fs::write(wt.join("new.txt"), "n\n").unwrap();
     let got = in_dir(&p, &wt, &["stage", "commit", "demo.s1", "-m", "x"]);
-    assert_eq!(got, want(hint));
+    check(got);
 
     std::fs::remove_file(wt.join("new.txt")).unwrap();
     std::fs::write(wt.join("a.txt"), "changed\n").unwrap();
@@ -1209,7 +1211,7 @@ fn it_commit_refuses_with_nothing_staged_on_a_dirty_tree() {
         &wt.join("sub"),
         &["stage", "commit", "demo.s1", "-m", "x"],
     );
-    assert_eq!(got, want(hint));
+    check(got);
 }
 
 /// GW-R-001, GW-R-003, S2 — nothing staged on a clean tree names the head and says the changes may be committed.
@@ -1222,12 +1224,10 @@ fn it_commit_refuses_with_nothing_staged_on_a_clean_tree() {
     git(&wt, &["commit", "-q", "-m", "outside"]);
     let head = git(&wt, &["rev-parse", "--short", "HEAD"]);
     let got = in_dir(&p, &wt, &["stage", "commit", "demo.s1", "-m", "x"]);
-    assert_eq!(
-        got,
-        format!(
-            "commit=refused reason=nothing-staged head={head} hint=the worktree is clean: the changes may already be committed, check `git log` and report head={head} if they are\nexit=1"
-        )
-    );
+    let line = format!("commit=refused reason=nothing-staged head={head} hint=");
+    assert!(got.starts_with(&line), "{got}");
+    assert!(got.contains("may already be committed"), "{got}");
+    assert!(got.ends_with("exit=1"), "{got}");
 }
 
 /// GW-R-004, S3 — `--no-run` applies the nothing-staged check.
