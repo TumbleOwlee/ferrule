@@ -21,6 +21,8 @@ pub enum PushRefused {
     Sha(String),
     /// The worktree holds changes no commit has.
     Dirty,
+    /// The remote head is not an ancestor of the local head.
+    Diverged(crate::run::diverged::Diverged),
     /// The gauntlet did not pass: its outcome.
     Gauntlet(Outcome),
     /// `git push` failed.
@@ -44,7 +46,11 @@ impl PushRefused {
             PushRefused::Sha(m) => Refusal::new("push", "sha")
                 .field("mismatch", m)
                 .hint("push a stage's last commit= on the run's branch: ferrule stage verify"),
-            PushRefused::Dirty => Refusal::new("push", "dirty")
+            PushRefused::Diverged(d) => Refusal::new("push", "diverged")
+                .field("local", &d.local)
+                .field("remote", &d.remote)
+                .hint("the remote branch holds commits the local one lacks: resolve it outside ferrule, until ferrule supports rebasing a run's branch, and never force-push"),
+            PushRefused::Dirty =>Refusal::new("push", "dirty")
                 .hint("commit the changes through `ferrule stage commit`, then push again"),
             PushRefused::Gauntlet(outcome) => match outcome {
                 Outcome::Fail {
@@ -152,6 +158,9 @@ impl Run<'_> {
             &head,
         )? {
             return Ok(Err(PushRefused::Sha(m.as_str().to_owned())));
+        }
+        if let Some(d) = crate::run::diverged::check(&wt, &branch) {
+            return Ok(Err(PushRefused::Diverged(d)));
         }
         let log = self.layout.run_dir(self.slug).join("gauntlet.log");
         let outcome = gauntlet::run_in(

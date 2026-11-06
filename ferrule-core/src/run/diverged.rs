@@ -238,9 +238,11 @@ mod tests {
         assert!(!is_diverged(&Ok(String::new())));
     }
 
+    /// `ls-remote` also lists `refs/heads/a/refs/heads/dev`, sorted before
+    /// the exact ref: only the exact ref's head counts.
     #[test]
     fn ut_check_matches_the_whole_ref() {
-        let (t, o, a) = setup();
+        let (_t, o, a) = setup();
         let other = tempfile::tempdir().unwrap();
         let p = other.path().join("p");
         std::fs::create_dir(&p).unwrap();
@@ -248,12 +250,21 @@ mod tests {
         commit(&p, "unrelated");
         g(
             &p,
-            &["push", "-q", o.to_str().unwrap(), "main:refs/heads/x/dev"],
+            &[
+                "push",
+                "-q",
+                o.to_str().unwrap(),
+                "main:refs/heads/a/refs/heads/dev",
+            ],
+        );
+        g(&a, &["push", "-q", "origin", "main:refs/heads/dev"]);
+        g(
+            &a,
+            &["fetch", "-q", "origin", "refs/heads/a/refs/heads/dev"],
         );
         g(&a, &["branch", "-q", "dev"]);
         g(&a, &["checkout", "-q", "dev"]);
         commit(&a, "two");
-        let _ = t;
         assert_eq!(check(&a, "dev"), None);
     }
 

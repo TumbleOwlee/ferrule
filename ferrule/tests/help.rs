@@ -880,3 +880,13 @@ fn it_stage_commit_help_names_the_check_for_no_run() {
         .expect("the --no-run note");
     assert!(note.contains("nothing-staged"), "{note}");
 }
+
+/// GW-R-007 — the `pr push` help lists the diverged refusal.
+#[test]
+fn it_pr_push_help_lists_diverged() {
+    let help = help_of("pr push");
+    assert!(
+        help.contains("push=refused reason=diverged local=<sha> remote=<sha>"),
+        "{help}"
+    );
+}
