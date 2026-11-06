@@ -363,11 +363,11 @@ mod tests {
         let took = start.elapsed();
         let pid = std::fs::read_to_string(&file).unwrap();
         let pid = pid.trim();
+        assert!(!pid.is_empty(), "pid file is empty");
         let reaped = gone(pid);
-        let _ = Command::new("kill")
-            .args(["-KILL", pid])
-            .stderr(Stdio::null())
-            .status();
+        if !reaped {
+            let _ = Command::new("kill").args(["-KILL", pid]).status();
+        }
         assert_eq!(out, None);
         assert!(took < Duration::from_secs(10), "{took:?}");
         assert!(reaped, "helper {pid} still running");
@@ -388,11 +388,11 @@ mod tests {
         let took = start.elapsed();
         let pid = std::fs::read_to_string(&file).unwrap();
         let pid = pid.trim();
+        assert!(!pid.is_empty(), "pid file is empty");
         let reaped = gone(pid);
-        let _ = Command::new("kill")
-            .args(["-KILL", pid])
-            .stderr(Stdio::null())
-            .status();
+        if !reaped {
+            let _ = Command::new("kill").args(["-KILL", pid]).status();
+        }
         assert_eq!(out, None);
         assert!(took < Duration::from_secs(10), "{took:?}");
         assert!(reaped, "process {pid} still running");
