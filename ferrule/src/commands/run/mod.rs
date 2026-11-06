@@ -39,6 +39,10 @@ then a summary:
     commit s<n> <sha> not on <b>
     done s<n> has no commit        A done stage never logged commit=
     gauntlet <sha> not on <b>      The last gauntlet=pass is not on the branch
+    diverged <b> local=<sha> remote=<sha>
+                                   The origin's branch holds commits the local
+                                   one lacks; a check that cannot complete
+                                   adds no row
     issue #<n> ..., pr #<n> ...    The issue is not open or lacks comments, the
                                    PR is closed, merged or behind the board
                                    (Jira: a status of the `done` category is closed)
@@ -250,7 +254,7 @@ pub enum RunCommand {
     Reconcile {
         /// The run's slug.
         slug: Slug,
-        /// Check git only: skip the issue, PR and PR-body rows.
+        /// Check git only: skip the divergence check and the issue, PR and PR-body rows.
         #[arg(long)]
         local: bool,
     },

@@ -10,7 +10,7 @@ A card in `inprogress` or `inreview` (`ferrule board list`), no agent running = 
 
 `kind: epic` with `issue` set → the epic stop was approved: continue with `ferrule issue post {slug} --slice <n>` at the first slice whose position in `slices:` is missing or `-` (one filed before the crash is adopted, never filed twice). Otherwise: no worktree on the card → died during gate 1, architecture or gate 2, nothing on disk to reconcile — resume the conversation from `spec-diff.md`/`architecture.md`/`plan.md`'s last state (`arch` set → gate 2). `issue` set but no worktree → gate 2 was approved: rerun `ferrule gate approve {slug} gate2`; the recorded issue is kept (`action=recorded`) and only what is missing is done. Past gate 2 → table below. **Any resumed implementation spawns a fresh agent**, its brief naming the card's `lane`.
 
-**Reconcile before acting.** Card = intent, git and the host = fact: `ferrule run reconcile {slug}` checks worktree, branch, every `commit=`, every `done` stage and the last `gauntlet=pass` against git, then the issue, the PR and its body on the host (`--local` skips those), printing `differ row=…` lines, then `reconcile=clean|differ … next=s<n>`; `ferrule ci gauntlet {slug}` at the pass sha answers `cached` when the card told the truth. What a host row means:
+**Reconcile before acting.** Card = intent, git and the host = fact: `ferrule run reconcile {slug}` checks worktree, branch, every `commit=`, every `done` stage and the last `gauntlet=pass` against git, then the issue, the PR and its body on the host (`--local` skips those and the divergence check), printing `differ row=…` lines, then `reconcile=clean|differ … next=s<n>`; `ferrule ci gauntlet {slug}` at the pass sha answers `cached` when the card told the truth. What a host row means:
 
 | Row | Disagreement means |
 |---|---|
@@ -19,6 +19,7 @@ A card in `inprogress` or `inreview` (`ferrule board list`), no agent running = 
 | `pr #<n> is merged` or `closed` | the run is over — `ferrule ci wait {slug}`, then `ferrule guide show cleanup` |
 | `pr #<n> is a draft but pr=ready is logged` | publish died half-way: `ferrule pr publish {slug}` again |
 | `pr #<n> body behind the board` | a move or a stage commit never rendered: the next `ferrule board move` or `ferrule pr push` brings it up to date |
+| `diverged <b> local=<sha> remote=<sha>` | origin's branch holds commits the local one lacks: resolve it outside ferrule, never by a force-push, before any stage resumes |
 
 No `pr` on the card: the draft never opened; the next `ferrule pr push {slug}` opens it.
 

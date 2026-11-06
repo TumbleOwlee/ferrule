@@ -35,9 +35,14 @@ Refusals (checked in this order; each line ends in `hint=<fix>`):
   commit=refused reason=branch want=<b>
                                  The run's `branch` field is <b> and another
                                  branch is checked out; check out <b>
-  commit=refused reason=git      `git commit` failed (nothing staged, a hook
-                                 refused); git's message is on stderr
-With --no-run only the main-branch check applies and no card is touched.
+  commit=refused reason=nothing-staged head=<sha>
+                                 Nothing is staged: on a dirty worktree stage
+                                 the changes with `git add`; on a clean one
+                                 they may already be committed, <sha> is HEAD
+  commit=refused reason=git      `git commit` failed with changes staged (a
+                                 hook refused); git's message is on stderr
+With --no-run only the main-branch and nothing-staged checks apply and no
+card is touched.
 Attribution trailers are stripped from the message first.
 Exit codes: 0 ok, 1 refused, 4 internal error.
 See: ferrule guide show implementer";
@@ -130,7 +135,7 @@ pub enum StageCommand {
         /// The commit message; repeat for more paragraphs.
         #[arg(short, long = "message", required = true)]
         message: Vec<String>,
-        /// Commit outside a run: only the branch and trailer rules apply.
+        /// Commit outside a run: only the branch, nothing-staged and trailer rules apply.
         #[arg(long)]
         no_run: bool,
     },

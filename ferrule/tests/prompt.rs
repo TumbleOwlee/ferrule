@@ -244,6 +244,51 @@ fn it_render_every_stop() {
     check("prompt-render-stops", &stops(p));
 }
 
+/// GW-R-015, GW-R-016, GW-R-017, GW-R-024, GW-R-027 — the diverged stop shows both heads, two options, no stage.
+#[test]
+fn it_render_blocked_diverged() {
+    let p = project();
+    let p = p.path();
+    render(
+        p,
+        &[
+            "demo", "blocked", "--local", "abc1234", "--remote", "def5678",
+        ],
+    )
+    .golden("prompt-render-blocked-diverged");
+    let shown = ferrule(p, &["board", "show", "demo"]).text();
+    assert!(shown.contains(" stop kind=blocked"), "{shown}");
+}
+
+/// GW-R-028 — one head alone is a usage error; both or neither render.
+#[test]
+fn it_render_blocked_takes_both_heads_or_neither() {
+    let p = project();
+    let p = p.path();
+    assert!(
+        render(p, &["demo", "blocked", "--local", "abc1234"])
+            .text()
+            .ends_with("exit=2")
+    );
+    assert!(
+        render(p, &["demo", "blocked", "--remote", "def5678"])
+            .text()
+            .ends_with("exit=2")
+    );
+    render(
+        p,
+        &[
+            "demo",
+            "blocked",
+            "--stage",
+            "s2",
+            "--reason",
+            "the parse_frame reference names no signature",
+        ],
+    )
+    .golden("prompt-render-blocked");
+}
+
 /// GA-R-005, GA-R-006, GA-R-007 — the stage stop names what follows the approval.
 #[test]
 fn it_render_stage_says_what_follows() {

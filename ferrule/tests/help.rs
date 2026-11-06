@@ -18,6 +18,7 @@ const SOURCES: &[(&str, &[&str])] = &[
         "ferrule-core/src/guide/mod.rs",
         &["guide show", "guide check"],
     ),
+    ("ferrule-core/src/run/diverged.rs", &["run reconcile"]),
     (
         "ferrule-core/src/install/githooks.rs",
         &["setup install", "setup check"],
@@ -856,5 +857,37 @@ fn it_gate_approve_help_lists_the_stage_gate_parent_states() {
     assert!(
         help_of("gate approve")
             .contains("stage    -       gate2                     inprogress, inreview")
+    );
+}
+
+/// GW-R-005 — the `stage commit` help lists the nothing-staged refusal.
+#[test]
+fn it_stage_commit_help_lists_nothing_staged() {
+    let help = help_of("stage commit");
+    assert!(
+        help.contains("commit=refused reason=nothing-staged head=<sha>"),
+        "{help}"
+    );
+    assert!(!help.contains("(nothing staged,"), "{help}");
+}
+
+/// GW-R-026 — the `--no-run` note of the `stage commit` help names the nothing-staged check.
+#[test]
+fn it_stage_commit_help_names_the_check_for_no_run() {
+    let help = help_of("stage commit");
+    let note = help
+        .lines()
+        .find(|l| l.starts_with("With --no-run"))
+        .expect("the --no-run note");
+    assert!(note.contains("nothing-staged"), "{note}");
+}
+
+/// GW-R-007 — the `pr push` help lists the diverged refusal.
+#[test]
+fn it_pr_push_help_lists_diverged() {
+    let help = help_of("pr push");
+    assert!(
+        help.contains("push=refused reason=diverged local=<sha> remote=<sha>"),
+        "{help}"
     );
 }

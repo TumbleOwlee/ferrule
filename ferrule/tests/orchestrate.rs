@@ -158,6 +158,49 @@ impl Project {
         std::fs::write(self.run_dir().join("plan.md"), PLAN).unwrap();
     }
 
+    /// The bare origin's path.
+    fn origin(&self) -> PathBuf {
+        self.root.parent().unwrap().join("origin.git")
+    }
+
+    /// A sibling clone of the origin on `branch`.
+    fn sibling(&self, name: &str, branch: &str) -> PathBuf {
+        let dir = self.root.parent().unwrap().join(name);
+        git(
+            self.root.parent().unwrap(),
+            &[
+                "clone",
+                "-q",
+                "-b",
+                branch,
+                self.origin().to_str().unwrap(),
+                name,
+            ],
+        );
+        dir
+    }
+
+    /// Commits on `branch` from a sibling clone and pushes it to the
+    /// origin with raw git: the short sha pushed.
+    fn diverge_branch(&self, branch: &str) -> String {
+        let dir = self.sibling("other", branch);
+        std::fs::write(dir.join("other.txt"), "other\n").unwrap();
+        git(&dir, &["add", "."]);
+        git(&dir, &["commit", "-qm", "other"]);
+        git(&dir, &["push", "-q", "origin", branch]);
+        git(&dir, &["rev-parse", "--short", "HEAD"])
+    }
+
+    /// [`Project::diverge_branch`] on the run's branch.
+    fn diverge(&self) -> String {
+        self.diverge_branch("feat/demo")
+    }
+
+    /// The origin's short head of `branch`.
+    fn origin_head(&self, branch: &str) -> String {
+        git(&self.origin(), &["rev-parse", "--short", branch])
+    }
+
     /// Commits a change in the worktree as stage `sid` and logs it.
     fn land(&self, sid: &str, file: &str) -> String {
         let card = format!("demo.{sid}");
@@ -1140,6 +1183,483 @@ fn it_card_commit_checks_the_card_and_the_branch() {
         on_main,
         "commit=refused reason=main branch=main hint=commit on the run's branch, not main: `ferrule gate approve <slug> gate2` creates it and its worktree; with --no-run, check out another branch first\nexit=1"
     );
+}
+
+/// A run `demo` with stage `demo.s1` in review and its worktree on `feat/demo`.
+fn stage_project() -> Project {
+    let p = Project::new();
+    p.ok(&["run", "init", "demo"]);
+    seed_set(&p.root, "demo", &["branch=feat/demo"]);
+    p.ok(&["board", "new", "demo.s1", "title=Add a"]);
+    git(
+        &p.root,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            p.worktree().to_str().unwrap(),
+            "-b",
+            "feat/demo",
+        ],
+    );
+    p.ok(&["board", "move", "demo.s1", "inprogress"]);
+    p.ok(&["board", "move", "demo.s1", "inreview"]);
+    p
+}
+
+/// `ferrule` run in `cwd` with a git identity.
+fn in_dir(p: &Project, cwd: &Path, args: &[&str]) -> String {
+    p.gh.on(Run::new(args))
+        .env("CLAUDE_PROJECT_DIR", &p.root)
+        .env("FERRULE_NOW", "2026-10-05T09:00")
+        .env("GIT_AUTHOR_NAME", "t")
+        .env("GIT_AUTHOR_EMAIL", "t@t")
+        .env("GIT_COMMITTER_NAME", "t")
+        .env("GIT_COMMITTER_EMAIL", "t@t")
+        .cwd(cwd)
+        .text()
+}
+
+/// GW-R-001, GW-R-002, S1 — nothing staged on a dirty tree is refused as such, with the `git add` hint.
+#[test]
+fn it_commit_refuses_with_nothing_staged_on_a_dirty_tree() {
+    let p = stage_project();
+    let wt = p.worktree();
+    std::fs::create_dir(wt.join("sub")).unwrap();
+    std::fs::write(wt.join("sub/keep.txt"), "k\n").unwrap();
+    std::fs::write(wt.join("a.txt"), "a\n").unwrap();
+    git(&wt, &["add", "."]);
+    git(&wt, &["commit", "-q", "-m", "base"]);
+    let head = git(&wt, &["rev-parse", "--short", "HEAD"]);
+    let check = |got: String| {
+        let line = format!("commit=refused reason=nothing-staged head={head} hint=");
+        assert!(got.starts_with(&line), "{got}");
+        assert!(got.contains("git add"), "{got}");
+        assert!(got.ends_with("exit=1"), "{got}");
+    };
+
+    std::fs::write(wt.join("a.txt"), "changed\n").unwrap();
+    let got = in_dir(&p, &wt, &["stage", "commit", "demo.s1", "-m", "x"]);
+    check(got);
+
+    git(&wt, &["checkout", "--", "a.txt"]);
+    std::fs::write(wt.join("new.txt"), "n\n").unwrap();
+    let got = in_dir(&p, &wt, &["stage", "commit", "demo.s1", "-m", "x"]);
+    check(got);
+
+    std::fs::remove_file(wt.join("new.txt")).unwrap();
+    std::fs::write(wt.join("a.txt"), "changed\n").unwrap();
+    let got = in_dir(
+        &p,
+        &wt.join("sub"),
+        &["stage", "commit", "demo.s1", "-m", "x"],
+    );
+    check(got);
+}
+
+/// GW-R-001, GW-R-003, S2 — nothing staged on a clean tree names the head and says the changes may be committed.
+#[test]
+fn it_commit_refuses_with_nothing_staged_on_a_clean_tree() {
+    let p = stage_project();
+    let wt = p.worktree();
+    std::fs::write(wt.join("a.txt"), "a\n").unwrap();
+    git(&wt, &["add", "a.txt"]);
+    git(&wt, &["commit", "-q", "-m", "outside"]);
+    let head = git(&wt, &["rev-parse", "--short", "HEAD"]);
+    let got = in_dir(&p, &wt, &["stage", "commit", "demo.s1", "-m", "x"]);
+    let line = format!("commit=refused reason=nothing-staged head={head} hint=");
+    assert!(got.starts_with(&line), "{got}");
+    assert!(got.contains("may already be committed"), "{got}");
+    assert!(got.ends_with("exit=1"), "{got}");
+}
+
+/// GW-R-004, S3 — `--no-run` applies the nothing-staged check.
+#[test]
+fn it_commit_no_run_refuses_with_nothing_staged() {
+    let p = stage_project();
+    let wt = p.worktree();
+    let head = git(&wt, &["rev-parse", "--short", "HEAD"]);
+    let got = in_dir(&p, &wt, &["stage", "commit", "--no-run", "-m", "x"]);
+    assert!(
+        got.starts_with(&format!(
+            "commit=refused reason=nothing-staged head={head} hint="
+        )),
+        "{got}"
+    );
+    assert!(got.ends_with("exit=1"), "{got}");
+}
+
+/// A hook that refuses a staged change is still `reason=git`, and its hint no longer advises `git add`.
+#[cfg(unix)]
+#[test]
+fn it_commit_reports_reason_git_for_a_refusing_hook() {
+    use std::os::unix::fs::PermissionsExt;
+    let p = stage_project();
+    let wt = p.worktree();
+    let hook = p.root.join(".git/hooks/pre-commit");
+    std::fs::write(&hook, "#!/bin/sh\nexit 1\n").unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::write(wt.join("a.txt"), "a\n").unwrap();
+    git(&wt, &["add", "a.txt"]);
+    let got = in_dir(&p, &wt, &["stage", "commit", "demo.s1", "-m", "x"]);
+    assert!(got.starts_with("commit=refused reason=git hint="), "{got}");
+    assert!(!got.contains("git add"), "{got}");
+    assert!(got.contains("stderr"), "{got}");
+}
+
+/// GW-E-004 — a merge in progress whose index equals HEAD is concluded by the commit, not refused.
+#[test]
+fn it_commit_concludes_a_merge_whose_index_equals_head() {
+    let p = stage_project();
+    let wt = p.worktree();
+    std::fs::write(wt.join("a.txt"), "a\n").unwrap();
+    git(&wt, &["add", "a.txt"]);
+    git(&wt, &["commit", "-q", "-m", "base"]);
+    git(&wt, &["checkout", "-q", "-b", "side"]);
+    std::fs::write(wt.join("s.txt"), "s\n").unwrap();
+    git(&wt, &["add", "s.txt"]);
+    git(&wt, &["commit", "-q", "-m", "side"]);
+    git(&wt, &["checkout", "-q", "feat/demo"]);
+    std::fs::write(wt.join("b.txt"), "b\n").unwrap();
+    git(&wt, &["add", "b.txt"]);
+    git(&wt, &["commit", "-q", "-m", "own"]);
+    git(
+        &wt,
+        &["merge", "--no-commit", "--no-ff", "-s", "ours", "side"],
+    );
+    let quiet = std::process::Command::new("git")
+        .args(["diff", "--cached", "--quiet"])
+        .current_dir(&wt)
+        .status()
+        .unwrap();
+    assert_eq!(quiet.code(), Some(0));
+    assert!(!git(&wt, &["rev-parse", "-q", "--verify", "MERGE_HEAD"]).is_empty());
+
+    let got = in_dir(&p, &wt, &["stage", "commit", "demo.s1", "-m", "merge"]);
+    assert!(got.starts_with("commit=done sha="), "{got}");
+    let parents = git(&wt, &["rev-list", "--parents", "-n", "1", "HEAD"]);
+    assert_eq!(parents.split_whitespace().count(), 3, "{parents}");
+}
+
+/// GW-E-003 — a commit made outside ferrule cannot be adopted as a stage's `commit=`.
+#[test]
+fn it_board_log_refuses_an_outside_commit() {
+    let p = stage_project();
+    let wt = p.worktree();
+    std::fs::write(wt.join("a.txt"), "a\n").unwrap();
+    git(&wt, &["add", "a.txt"]);
+    git(&wt, &["commit", "-q", "-m", "outside"]);
+    let sha = git(&wt, &["rev-parse", "--short", "HEAD"]);
+    let before = p.field("demo.s1", "log:commit");
+    let got = p
+        .ferrule(&["board", "log", "demo.s1", &format!("commit={sha}")])
+        .text();
+    assert!(got.contains("reason=owner"), "{got}");
+    assert_eq!(p.field("demo.s1", "log:commit"), before);
+}
+
+/// A run whose first stage is pushed and done, with the draft PR open: the
+/// project and the first push's output.
+fn pushed_run() -> (Project, String) {
+    let p = Project::new();
+    p.ok(&["run", "init", "demo"]);
+    p.artifacts();
+    p.ok(&["board", "set", "demo", "lane=fast", "arch=skipped"]);
+    serve(
+        &p.gh,
+        &find("Reconnect dropped Modbus clients"),
+        r#"[{"number":12,"title":"Reconnect dropped Modbus clients"}]"#,
+    );
+    serve(
+        &p.gh,
+        &edit_issue("12", "Reconnect dropped Modbus clients"),
+        "",
+    );
+    p.ok(&["gate", "approve", "demo", "gate2"]);
+    p.land("s0", "docs/specs/modbus/requirements.md");
+    p.gh.serve(
+        &[
+            "pr",
+            "create",
+            "--draft",
+            "--head",
+            "feat/demo",
+            "--base",
+            "main",
+            "--title",
+            "Reconnect dropped Modbus clients",
+            "--body-file",
+            "-",
+        ],
+        "https://github.com/o/r/pull/34\n",
+    );
+    serve(&p.gh, &pr_list("feat/demo"), "[]");
+    let first = p.ok(&["pr", "push", "demo"]);
+    p.gh.serve(
+        &["pr", "view", "34", "--json", "state,isDraft,body"],
+        r#"{"state":"OPEN","isDraft":true,"body":"stale"}"#,
+    );
+    p.gh.serve(&["pr", "edit", "34", "--body-file", "-"], "");
+    p.ok(&["board", "move", "demo.s0", "done"]);
+    (p, first)
+}
+
+/// A diverged run at a new stage commit: the project, the local head and
+/// the remote head, both short.
+fn diverged_run() -> (Project, String, String) {
+    let (p, _) = pushed_run();
+    let remote = p.diverge();
+    let local = p.land("s1", "src/client.rs");
+    (p, local, remote)
+}
+
+fn push_text(p: &Project) -> String {
+    p.ferrule(&["pr", "push", "demo"]).text()
+}
+
+/// GW-R-007, GW-R-013 — a diverged branch is refused with both heads and a hint that never forces.
+#[test]
+fn it_push_refuses_a_diverged_branch() {
+    let (p, local, remote) = diverged_run();
+    let got = push_text(&p);
+    let line = format!("push=refused reason=diverged local={local} remote={remote} hint=");
+    assert!(got.starts_with(&line), "{got}");
+    assert!(got.contains("outside ferrule"), "{got}");
+    assert!(got.contains("rebas"), "{got}");
+    assert!(got.contains("force-push"), "{got}");
+    assert!(got.ends_with("exit=1"), "{got}");
+    assert_eq!(p.origin_head("feat/demo"), remote);
+}
+
+/// GW-R-007 — a branch only behind the remote is diverged too.
+#[test]
+fn it_push_refuses_a_branch_only_behind_the_remote() {
+    let (p, _) = pushed_run();
+    let remote = p.diverge();
+    let local = git(&p.worktree(), &["rev-parse", "--short", "HEAD"]);
+    let got = push_text(&p);
+    let line = format!("push=refused reason=diverged local={local} remote={remote} hint=");
+    assert!(got.starts_with(&line), "{got}");
+}
+
+/// GW-R-009 — the divergence check runs before the gauntlet.
+#[test]
+fn it_diverged_push_runs_no_gauntlet() {
+    let (p, _, _) = diverged_run();
+    let log = p.run_dir().join("gauntlet.log");
+    let _ = std::fs::remove_file(&log);
+    let got = push_text(&p);
+    assert!(got.starts_with("push=refused reason=diverged "), "{got}");
+    assert!(!log.exists());
+}
+
+/// A retry of a diverged push gets the same refusal.
+#[test]
+fn it_diverged_push_refuses_again_on_retry() {
+    let (p, _, _) = diverged_run();
+    let first = push_text(&p);
+    assert!(
+        first.starts_with("push=refused reason=diverged "),
+        "{first}"
+    );
+    assert_eq!(push_text(&p), first);
+}
+
+/// S4 — the diverged refusal's heads feed the blocked stop, which offers no re-plan.
+#[test]
+fn it_diverged_refusal_feeds_the_blocked_stop() {
+    let (p, local, remote) = diverged_run();
+    let got = push_text(&p);
+    let head = |key: &str| {
+        let at = got.find(&format!("{key}=")).unwrap() + key.len() + 1;
+        got[at..].split_whitespace().next().unwrap().to_owned()
+    };
+    let (l, r) = (head("local"), head("remote"));
+    assert_eq!((l.as_str(), r.as_str()), (local.as_str(), remote.as_str()));
+    let stop = p
+        .ferrule(&[
+            "prompt", "render", "demo", "blocked", "--local", &l, "--remote", &r,
+        ])
+        .text();
+    assert!(
+        stop.contains(&format!("local={local} remote={remote}")),
+        "{stop}"
+    );
+    assert!(!stop.contains("re-plan"), "{stop}");
+    assert!(stop.contains("never force-push"), "{stop}");
+}
+
+/// Serves the issue and the PR of `pushed_run` as the host would show them.
+fn serve_host(p: &Project) {
+    let open = "#12 Reconnect dropped Modbus clients [OPEN]\nhttps://github.com/o/r/issues/12\nby someone\n\nbody\n\n--- 0 comment(s) ---\n";
+    p.gh.serve(
+        &["issue", "view", "12", "--json", GH_FIELDS],
+        &gh_json(open),
+    );
+    p.gh.serve(
+        &["pr", "view", "34", "--json", "state,isDraft,body"],
+        r#"{"state":"OPEN","isDraft":true,"body":"x"}"#,
+    );
+}
+
+/// GW-R-018 — reconcile reports a diverged branch before the host rows.
+#[test]
+fn it_reconcile_reports_a_diverged_branch() {
+    let (p, local, remote) = diverged_run();
+    serve_host(&p);
+    let out = p.ferrule(&["run", "reconcile", "demo"]).text();
+    let row = format!("differ row=diverged feat/demo local={local} remote={remote}\n");
+    assert!(out.contains(&row), "{out}");
+    let pr = out.find("differ row=pr #").expect(&out);
+    assert!(out.find(&row).unwrap() < pr, "{out}");
+    assert!(out.ends_with("exit=1"), "{out}");
+}
+
+/// GW-R-019 — a remote that cannot be read adds no diverged row.
+#[test]
+fn it_reconcile_adds_no_row_for_an_unreadable_remote() {
+    let (p, _, _) = diverged_run();
+    serve_host(&p);
+    git(
+        &p.root,
+        &["remote", "set-url", "origin", "/nonexistent/origin.git"],
+    );
+    let out = p.ferrule(&["run", "reconcile", "demo"]).text();
+    assert!(!out.contains("diverged"), "{out}");
+}
+
+/// GW-R-023 — `--local` skips the divergence check.
+#[test]
+fn it_reconcile_local_skips_the_divergence_check() {
+    let (p, _, _) = diverged_run();
+    let out = p.ferrule(&["run", "reconcile", "demo", "--local"]).text();
+    assert!(!out.contains("diverged"), "{out}");
+    assert!(out.contains("reconcile=clean"), "{out}");
+}
+
+/// GW-R-021 — the dirty and sha refusals come before the diverged one.
+#[test]
+fn it_dirty_and_sha_refusals_precede_diverged() {
+    let (p, _, _) = diverged_run();
+    let wt = p.worktree();
+    std::fs::write(wt.join("loose.txt"), "x\n").unwrap();
+    let got = push_text(&p);
+    assert!(got.starts_with("push=refused reason=dirty "), "{got}");
+    git(&wt, &["add", "."]);
+    git(&wt, &["commit", "-qm", "outside"]);
+    let got = push_text(&p);
+    assert!(got.starts_with("push=refused reason=sha "), "{got}");
+}
+
+/// GW-R-010, S6 — a branch missing from the remote is a normal first push.
+#[test]
+fn it_first_push_runs_the_gauntlet() {
+    let (p, first) = pushed_run();
+    assert!(first.starts_with("push=done sha="), "{first}");
+    assert!(first.contains(" gauntlet=pass pr-body=opened"), "{first}");
+    assert!(!first.contains("cached"), "{first}");
+    git(
+        &p.root,
+        &["ls-remote", "--exit-code", "origin", "refs/heads/feat/demo"],
+    );
+}
+
+/// GW-R-011, S7 — a check that cannot complete lets the gauntlet and the push go on.
+#[test]
+fn it_unreadable_remote_runs_the_gauntlet_and_the_push() {
+    let (p, _) = pushed_run();
+    p.land("s1", "src/client.rs");
+    let gone = p.root.parent().unwrap().join("gone.git");
+    git(
+        &p.root,
+        &["remote", "set-url", "origin", gone.to_str().unwrap()],
+    );
+    let log = p.run_dir().join("gauntlet.log");
+    let _ = std::fs::remove_file(&log);
+    let got = push_text(&p);
+    assert!(got.starts_with("push=refused reason=push "), "{got}");
+    assert!(log.is_file());
+}
+
+/// GW-R-012, S8 — `--no-run` applies the same check and gives the same fields.
+#[test]
+fn it_push_no_run_refuses_a_diverged_branch() {
+    let p = Project::new();
+    git(&p.root, &["checkout", "-q", "-b", "feat/x"]);
+    git(&p.root, &["push", "-q", "-u", "origin", "feat/x"]);
+    let remote = p.diverge_branch("feat/x");
+    std::fs::write(p.root.join("mine.txt"), "m\n").unwrap();
+    git(&p.root, &["add", "."]);
+    git(&p.root, &["commit", "-qm", "mine"]);
+    let local = git(&p.root, &["rev-parse", "--short", "HEAD"]);
+    let got = p.ferrule(&["pr", "push", "--no-run"]).text();
+    let line = format!("push=refused reason=diverged local={local} remote={remote} hint=");
+    assert!(got.starts_with(&line), "{got}");
+    assert!(!got.contains("reason=push"), "{got}");
+    assert_eq!(p.origin_head("feat/x"), remote);
+}
+
+/// GW-E-001, GW-E-006 — a remote that moves after the check fails at the push, and the retry is diverged.
+#[cfg(unix)]
+#[test]
+fn it_remote_moving_after_the_check_fails_at_the_push() {
+    use std::os::unix::fs::PermissionsExt;
+    let (p, _) = pushed_run();
+    p.land("s1", "src/client.rs");
+    let sibling = p.sibling("mover", "feat/demo");
+    let hook = p.root.join(".git/hooks/pre-push");
+    std::fs::write(
+        &hook,
+        format!(
+            "#!/bin/sh\nunset GIT_DIR GIT_WORK_TREE\ncd {dir} || exit 1\necho m >> moved.txt\ngit add moved.txt\ngit -c user.name=t -c user.email=t@t commit -qm moved\ngit push -q origin feat/demo\n",
+            dir = sibling.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let got = push_text(&p);
+    assert!(got.starts_with("push=refused reason=push "), "{got}");
+    let retry = push_text(&p);
+    assert!(
+        retry.starts_with("push=refused reason=diverged "),
+        "{retry}"
+    );
+}
+
+/// Merges the origin's branch into the worktree with raw git.
+fn merge_outside(p: &Project) {
+    let wt = p.worktree();
+    git(&wt, &["fetch", "-q", "origin"]);
+    git(&wt, &["merge", "-q", "--no-edit", "origin/feat/demo"]);
+}
+
+/// GW-E-002 — after an outside merge the push refuses with `reason=sha` until the next stage commit.
+#[test]
+fn it_outside_merge_refuses_until_the_next_stage_commit() {
+    let (p, _, _) = diverged_run();
+    merge_outside(&p);
+    let got = push_text(&p);
+    assert!(got.starts_with("push=refused reason=sha "), "{got}");
+    std::fs::write(p.worktree().join("more.txt"), "more\n").unwrap();
+    git(&p.worktree(), &["add", "more.txt"]);
+    let done = p.in_wt(&["stage", "commit", "demo.s1", "-m", "more"]);
+    assert!(done.starts_with("commit=done sha="), "{done}");
+    let pushed = push_text(&p);
+    assert!(pushed.starts_with("push=done sha="), "{pushed}");
+}
+
+/// GW-E-005 — with nothing left to commit the run stays refused.
+#[test]
+fn it_outside_merge_with_nothing_left_stays_refused() {
+    let (p, _, _) = diverged_run();
+    merge_outside(&p);
+    let done = p.in_wt(&["stage", "commit", "demo.s1", "-m", "more"]);
+    assert!(
+        done.starts_with("commit=refused reason=nothing-staged "),
+        "{done}"
+    );
+    let got = push_text(&p);
+    assert!(got.starts_with("push=refused reason=sha "), "{got}");
 }
 
 #[test]

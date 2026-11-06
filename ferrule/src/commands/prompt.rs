@@ -27,7 +27,12 @@ Output:
                        `Approving will:`; `Options:`; `Answer: ...`
   question             `Question · <slug> · <where> · <agent> · <n> decisions`,
                        question.md verbatim, `Answer: <1: a · 2: b · ...>`
-  blocked              a one-decision question: a) answer, b) re-plan, c) stop
+  blocked              a one-decision question: a) answer, b) re-plan, c) stop;
+                       with `--local <sha> --remote <sha>` (a diverged push
+                       refusal's `local=` and `remote=`) a question naming no
+                       stage, saying to resolve it outside
+                       ferrule and never force-push:
+                       a) resolved outside ferrule, push again, b) stop
   delta                a question with one decision per `Needs user` item of
                        review.verdict.md
   auto                 `Landed <stage> · ... · next: <s<n>|gate 4>`; no log
@@ -112,7 +117,7 @@ pub enum PromptCommand {
     /// Built from the run's files and cards; opens the files the user
     /// reviews in the viewer.
     #[command(after_long_help = RENDER_AFTER_LONG_HELP)]
-    Render(PromptRenderArgs),
+    Render(Box<PromptRenderArgs>),
     /// Print the lines of approval files the user is shown.
     ///
     /// Ends with `Confirm:` over the decisions made since the last approval.
@@ -203,6 +208,12 @@ pub struct PromptRenderArgs {
     /// gate4: the PR number.
     #[arg(long)]
     pub pr: Option<String>,
+    /// blocked: the local head of a diverged branch; needs `--remote`.
+    #[arg(long, requires = "remote", value_name = "SHA")]
+    pub local: Option<String>,
+    /// blocked: the remote head of a diverged branch; needs `--local`.
+    #[arg(long, requires = "local", value_name = "SHA")]
+    pub remote: Option<String>,
     /// question: where the run is, a gate or `s<n>`.
     #[arg(long = "where", value_name = "WHERE")]
     pub at: Option<String>,
@@ -398,6 +409,8 @@ fn pairs(args: &PromptRenderArgs) -> Vec<(String, String)> {
         ("pr", &args.pr),
         ("where", &args.at),
         ("agent", &args.agent),
+        ("local", &args.local),
+        ("remote", &args.remote),
     ];
     for (k, v) in texts {
         if let Some(v) = v {

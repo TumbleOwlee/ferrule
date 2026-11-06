@@ -7,6 +7,7 @@ use crate::card::board::{self, CardId, State};
 use crate::git;
 use crate::hook::attribution;
 use crate::refusal::Refusal;
+use crate::run::gauntlet;
 use crate::store::Board;
 
 /// Why nothing was committed.
@@ -22,6 +23,8 @@ pub enum CommitRefused {
     Branch(String),
     /// `git commit` failed.
     Git,
+    /// The index equals HEAD: HEAD's short sha, and whether the worktree holds changes.
+    NothingStaged { head: String, dirty: bool },
 }
 
 impl CommitRefused {
@@ -46,9 +49,19 @@ impl CommitRefused {
                 .hint(format!(
                     "check out {want}, the run's branch, and commit there"
                 )),
-            CommitRefused::Git => Refusal::new("commit", "git").hint(
-                "git commit failed; stage the changes with `git add` and read the message git prints on stderr",
-            ),
+            CommitRefused::Git => Refusal::new("commit", "git")
+                .hint("git commit failed; read the message git prints on stderr"),
+            CommitRefused::NothingStaged { head, dirty } => {
+                Refusal::new("commit", "nothing-staged")
+                    .field("head", head)
+                    .hint(if *dirty {
+                        "the worktree holds changes that are not staged: stage them with `git add`, then commit again".to_owned()
+                    } else {
+                        format!(
+                            "the worktree is clean: the changes may already be committed, check `git log` and report head={head} if they are"
+                        )
+                    })
+            }
         }
     }
 }
@@ -99,6 +112,13 @@ pub fn commit(
             return Ok(Err(CommitRefused::Branch(want)));
         }
         on = Some((db, id));
+    }
+    if git::ok(here, &["diff", "--cached", "--quiet"]) && git::commit(here, "MERGE_HEAD").is_none()
+    {
+        let head = git::out(here, &["rev-parse", "--short", "HEAD"]).unwrap_or_default();
+        let dirty = git::out(here, &["rev-parse", "--show-toplevel"])
+            .is_none_or(|top| gauntlet::dirty(Path::new(&top)));
+        return Ok(Err(CommitRefused::NothingStaged { head, dirty }));
     }
     let text = attribution::strip(message).unwrap_or_else(|| message.to_owned());
     let dir = here.to_string_lossy();

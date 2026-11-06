@@ -1,0 +1,8 @@
+Question · demo · 1 decision
+## 1. the branch has diverged: local=abc1234 remote=def5678
+Resolve it outside ferrule; never force-push.
+Options:
+- a) resolved outside ferrule, push again
+- b) stop
+Answer: <1: a | b>
+exit=0

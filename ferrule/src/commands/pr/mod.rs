@@ -150,6 +150,12 @@ Refusals (stdout, exit 1):
   push=refused reason=sha mismatch=<why> hint=push a stage's last commit= on the run's branch: ferrule stage verify
       The worktree head is not a stage's last verified `commit=`. <why> is
       card, missing, off-branch or card-commit (see `ferrule stage verify`).
+  push=refused reason=diverged local=<sha> remote=<sha> hint=the remote branch holds commits the local one lacks: resolve it outside ferrule, until ferrule supports rebasing a run's branch, and never force-push
+      The remote branch's head is not an ancestor of the local head: the
+      local branch is behind it or both moved. Checked after `git fetch`,
+      before the gauntlet, with `--no-run` too. A check that cannot complete
+      (no network, a remote asking for credentials, 60 seconds) lets the push
+      go on. Fix: resolve it outside ferrule, never force-push.
   push=refused reason=dirty hint=commit the changes through `ferrule stage commit`, then push again
       The worktree holds changes beyond HEAD (modified or untracked
       files). Fix: commit them through `ferrule stage commit`, push again.
@@ -436,6 +442,12 @@ fn push_branch(config: &Config, out: &mut impl Write) -> io::Result<u8> {
     };
     if branch == config.main_branch {
         return refuse(out, &ferrule_core::run::push::PushRefused::Main.refusal());
+    }
+    if let Some(d) = ferrule_core::run::diverged::check(&here, &branch) {
+        return refuse(
+            out,
+            &ferrule_core::run::push::PushRefused::Diverged(d).refusal(),
+        );
     }
     if let Err(e) = ferrule_core::git::run(&here, &["push", "-q", "-u", "origin", &branch]) {
         return refuse(
