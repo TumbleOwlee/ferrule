@@ -162,6 +162,65 @@ fn it_stage_review_guide_pushes_before_gate4() {
     );
 }
 
+/// GW-R-014 — a diverged push refusal goes to the blocked stop with both heads, never to a re-plan.
+#[test]
+fn it_stages_guide_sends_a_diverged_refusal_to_the_blocked_stop() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let text = ok(root, &["guide", "show", "stages", "--slug", "demo"]);
+    let line = text
+        .lines()
+        .find(|l| l.contains("reason=diverged local=<sha> remote=<sha>"))
+        .unwrap_or_else(|| panic!("{text}"));
+    assert!(line.contains("Question and blocked stage"), "{line}");
+    assert!(!line.contains("guide show replan"), "{line}");
+    let bullet = text
+        .lines()
+        .find(|l| l.contains("--local <sha> --remote <sha>"))
+        .unwrap_or_else(|| panic!("{text}"));
+    assert!(
+        bullet.contains("ferrule prompt render demo blocked"),
+        "{bullet}"
+    );
+    assert!(!bullet.contains("guide show replan"), "{bullet}");
+    assert!(bullet.contains("resolve it outside ferrule"), "{bullet}");
+    assert!(bullet.contains("never force-push"), "{bullet}");
+}
+
+/// S5 — the blocked stop's `1: a` pushes again, `1: b` halts the run.
+#[test]
+fn it_stages_guide_pushes_again_after_a_resolved_divergence() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let text = ok(root, &["guide", "show", "stages", "--slug", "demo"]);
+    let bullet = text
+        .lines()
+        .find(|l| l.contains("--local <sha> --remote <sha>"))
+        .unwrap_or_else(|| panic!("{text}"));
+    assert!(
+        bullet.contains("`1: a` → `ferrule pr push demo` again"),
+        "{bullet}"
+    );
+    assert!(bullet.contains("`1: b` → the run halts"), "{bullet}");
+}
+
+/// GW-R-020 — resume names a diverged row and resolves it outside ferrule.
+#[test]
+fn it_resume_guide_resolves_a_diverged_row_outside_ferrule() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let text = ok(root, &["guide", "show", "resume", "--slug", "demo"]);
+    let row = text
+        .lines()
+        .find(|l| l.contains("`diverged <b> local=<sha> remote=<sha>`"))
+        .unwrap_or_else(|| panic!("{text}"));
+    assert!(row.contains("outside ferrule"), "{row}");
+    assert!(row.contains("never by a force-push"), "{row}");
+}
+
 /// GA-R-008, GA-R-009, GA-R-010 — the branch review reads an uncommitted last stage and its spec changes.
 #[test]
 fn it_reviewer_guide_reads_the_uncommitted_stage() {

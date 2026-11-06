@@ -1491,10 +1491,10 @@ fn it_diverged_refusal_feeds_the_blocked_stop() {
 
 /// Serves the issue and the PR of `pushed_run` as the host would show them.
 fn serve_host(p: &Project) {
-    let open = "#12 Reconnect dropped Modbus clients [OPEN]\nhttps://github.com/o/r/issues/12\nby someone\n\nbody\n\n--- 0 comment(s)) ---\n";
+    let open = "#12 Reconnect dropped Modbus clients [OPEN]\nhttps://github.com/o/r/issues/12\nby someone\n\nbody\n\n--- 0 comment(s) ---\n";
     p.gh.serve(
         &["issue", "view", "12", "--json", GH_FIELDS],
-        &gh_json(&open.replace("(s))", "(s)")),
+        &gh_json(open),
     );
     p.gh.serve(
         &["pr", "view", "34", "--json", "state,isDraft,body"],

@@ -10,6 +10,7 @@
 - `pr-body=refused reason=stage-ref stage-ref=<token>`: the token sits in a card's `spec-delta` why or a `decisions.md` line; resume the agent that wrote it to re-log the `spec-delta` (last line per ID wins) or reword its line; never edit the body by hand; the PR keeps its previous body until then.
 - **Every push is `ferrule pr push {slug}`** (push is never the implementer's): it refuses (`push=refused reason=…`, the line's `hint=` names the fix; `ferrule pr push --help` lists every reason) unless the worktree's head is a stage's verified commit (`ferrule stage verify`: the commit exists, is on the run's branch and is the card's last `commit=`) and the gauntlet passes on it (`cached` when the commit is the reviewed tree); then it pushes, logs `gauntlet=pass cov=… sha=…` on the parent card and updates the draft PR — **the first push opens it** (`pr-body=opened pr=<n>`, `pr` recorded, `pr=draft` logged). The user reviews there (`ferrule guide show feedback`).
 - `push=refused reason=sha …` → *Question and blocked stage* with `reason=sha mismatch <reason>`. `reason=gauntlet` → card → `inprogress`, resume the implementer with the line's `step=` and `log=`.
+- `push=refused reason=diverged local=<sha> remote=<sha>` → *Question and blocked stage* with the two heads: resolve it outside ferrule, never force-push, never a re-plan.
 
 <!-- lane: fast -->
 ## Fast lane
@@ -38,3 +39,4 @@ Per stage:
 Either lane.
 - `status=question` → `ferrule guide show question`, headed with the stage id; the answers go to the same implementer.
 - `status=blocked` → one stop, the card stays where it is: `ferrule prompt render {slug} blocked --stage s<n> --reason <reason>`. `1: a <text>` → relayed to the same implementer; `1: b` → `ferrule guide show replan`, the reason verbatim; `1: c` → the run halts, the board stays for `ferrule guide show resume`.
+- A diverged push refusal → one stop, the card stays where it is: `ferrule prompt render {slug} blocked --local <sha> --remote <sha>`, the heads from the refusal line; the stop says to resolve it outside ferrule and never force-push. `1: a` → `ferrule pr push {slug}` again, the same refusal returning to the same stop; `1: b` → the run halts, the board stays for `ferrule guide show resume`.

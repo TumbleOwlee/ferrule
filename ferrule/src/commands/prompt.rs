@@ -30,7 +30,9 @@ Output:
   blocked              a one-decision question: a) answer, b) re-plan, c) stop;
                        with `--local <sha> --remote <sha>` (a diverged push
                        refusal's `local=` and `remote=`) a question naming no
-                       stage: a) resolved outside ferrule, push again, b) stop
+                       stage, saying to resolve it outside
+                       ferrule and never force-push:
+                       a) resolved outside ferrule, push again, b) stop
   delta                a question with one decision per `Needs user` item of
                        review.verdict.md
   auto                 `Landed <stage> · ... · next: <s<n>|gate 4>`; no log
