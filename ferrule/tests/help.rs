@@ -18,6 +18,7 @@ const SOURCES: &[(&str, &[&str])] = &[
         "ferrule-core/src/guide/mod.rs",
         &["guide show", "guide check"],
     ),
+    ("ferrule-core/src/run/diverged.rs", &["run reconcile"]),
     (
         "ferrule-core/src/install/githooks.rs",
         &["setup install", "setup check"],

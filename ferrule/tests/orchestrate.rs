@@ -1489,6 +1489,54 @@ fn it_diverged_refusal_feeds_the_blocked_stop() {
     assert!(stop.contains("never force-push"), "{stop}");
 }
 
+/// Serves the issue and the PR of `pushed_run` as the host would show them.
+fn serve_host(p: &Project) {
+    let open = "#12 Reconnect dropped Modbus clients [OPEN]\nhttps://github.com/o/r/issues/12\nby someone\n\nbody\n\n--- 0 comment(s)) ---\n";
+    p.gh.serve(
+        &["issue", "view", "12", "--json", GH_FIELDS],
+        &gh_json(&open.replace("(s))", "(s)")),
+    );
+    p.gh.serve(
+        &["pr", "view", "34", "--json", "state,isDraft,body"],
+        r#"{"state":"OPEN","isDraft":true,"body":"x"}"#,
+    );
+}
+
+/// GW-R-018 — reconcile reports a diverged branch before the host rows.
+#[test]
+fn it_reconcile_reports_a_diverged_branch() {
+    let (p, local, remote) = diverged_run();
+    serve_host(&p);
+    let out = p.ferrule(&["run", "reconcile", "demo"]).text();
+    let row = format!("differ row=diverged feat/demo local={local} remote={remote}\n");
+    assert!(out.contains(&row), "{out}");
+    let pr = out.find("differ row=pr #").expect(&out);
+    assert!(out.find(&row).unwrap() < pr, "{out}");
+    assert!(out.ends_with("exit=1"), "{out}");
+}
+
+/// GW-R-019 — a remote that cannot be read adds no diverged row.
+#[test]
+fn it_reconcile_adds_no_row_for_an_unreadable_remote() {
+    let (p, _, _) = diverged_run();
+    serve_host(&p);
+    git(
+        &p.root,
+        &["remote", "set-url", "origin", "/nonexistent/origin.git"],
+    );
+    let out = p.ferrule(&["run", "reconcile", "demo"]).text();
+    assert!(!out.contains("diverged"), "{out}");
+}
+
+/// GW-R-023 — `--local` skips the divergence check.
+#[test]
+fn it_reconcile_local_skips_the_divergence_check() {
+    let (p, _, _) = diverged_run();
+    let out = p.ferrule(&["run", "reconcile", "demo", "--local"]).text();
+    assert!(!out.contains("diverged"), "{out}");
+    assert!(out.contains("reconcile=clean"), "{out}");
+}
+
 /// GW-R-021 — the dirty and sha refusals come before the diverged one.
 #[test]
 fn it_dirty_and_sha_refusals_precede_diverged() {

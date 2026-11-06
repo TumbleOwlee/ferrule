@@ -130,7 +130,7 @@ Commands are grouped by what they act on. Most are run by the orchestrating agen
 | `ferrule run diff <slug> [--specs] [--stat] [--base <ref>]` | The run branch's diff against main, in its worktree; `--uncommitted` for the work not yet committed |
 | `ferrule run log <slug>` | The run branch's commits against main |
 | `ferrule run plan-diff <slug>` | What changed in `plan.md` since the last plan review |
-| `ferrule run reconcile <slug> [--local]` | Cards against git, and the issue, PR and PR body on the host, before an interrupted run resumes |
+| `ferrule run reconcile <slug> [--local]` | Cards against git, the run's branch against origin, and the issue, PR and PR body on the host, before an interrupted run resumes |
 | `ferrule run rebuild <issue> <pr>` | Recreate a lost board from the issue, the draft PR and git; re-adds the worktree |
 | `ferrule run cleanup <slug>` | Remove worktree and branch, archive cards and artifacts |
 | `ferrule run metrics [<slug>]` | A run's metrics line (needs green CI), or every line recorded |

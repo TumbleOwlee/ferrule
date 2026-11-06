@@ -29,6 +29,17 @@ pub fn check(dir: &Path, branch: &str) -> Option<Diverged> {
     check_within(dir, branch, LIMIT)
 }
 
+/// The reconcile row for `branch` in the checkout at `root`, when it has
+/// diverged.
+#[must_use]
+pub fn row(root: &Path, branch: &str) -> Option<String> {
+    let d = check(root, branch)?;
+    Some(format!(
+        "diverged {branch} local={} remote={}",
+        d.local, d.remote
+    ))
+}
+
 fn check_within(dir: &Path, branch: &str, limit: Duration) -> Option<Diverged> {
     let name = format!("refs/heads/{branch}");
     let local = git::commit(dir, &name)?;
@@ -195,6 +206,19 @@ mod tests {
         let found = check(&b, "main").unwrap();
         assert_eq!(found.local, short(&b));
         assert_eq!(found.remote, short(&a));
+    }
+
+    /// GW-R-018 — the row names the branch and both short heads.
+    #[test]
+    fn ut_row_formats_both_heads() {
+        let (t, o, a) = setup();
+        let b = clone_of(t.path(), &o, "b");
+        commit(&a, "two");
+        g(&a, &["push", "-q", "origin", "main"]);
+        commit(&b, "three");
+        let want = format!("diverged main local={} remote={}", short(&b), short(&a));
+        assert_eq!(row(&b, "main"), Some(want));
+        assert_eq!(row(&a, "main"), None);
     }
 
     #[test]

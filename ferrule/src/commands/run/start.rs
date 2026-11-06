@@ -6,7 +6,7 @@ use std::io::{self, Write};
 use ferrule_core::card::board;
 use ferrule_core::refusal::Refusal;
 use ferrule_core::remote::{self, CodeHost, IssueTracker, Item, ItemRef};
-use ferrule_core::run::{self as core_run, Error, gate, rebuild};
+use ferrule_core::run::{self as core_run, Error, diverged, gate, rebuild};
 
 use crate::commands::board::{create_store, run_on, store};
 use crate::commands::{exit, internal, layout, refuse};
@@ -41,6 +41,15 @@ pub(super) fn reconcile(slug: &str, local: bool, out: &mut impl Write) -> io::Re
         Err(Error::Sql(e)) => return Err(internal(e)),
     };
     if !local && let Some(s) = store.as_mut() {
+        let branch = s
+            .read(|r| r.field(slug, "branch"))
+            .map_err(internal)?
+            .unwrap_or_default();
+        if !branch.is_empty()
+            && let Some(row) = diverged::row(&layout.root, &branch)
+        {
+            r.differ.push(row);
+        }
         let config = crate::commands::config()?;
         match run_on(s, &config, slug, |r| r.reconcile_remote()) {
             Ok(rows) => r.differ.extend(rows),
