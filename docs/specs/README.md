@@ -7,6 +7,7 @@ The authoritative description of what this project does, one directory per capab
 | Area | Directory | ID prefix |
 |---|---|---|
 | Gates | gates/ | GA |
+| Git writes | git-writes/ | GW |
 
 ## Per-area files
 
