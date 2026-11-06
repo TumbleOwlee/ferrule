@@ -50,7 +50,7 @@ impl PushRefused {
                 .field("local", &d.local)
                 .field("remote", &d.remote)
                 .hint("the remote branch holds commits the local one lacks: resolve it outside ferrule, until ferrule supports rebasing a run's branch, and never force-push"),
-            PushRefused::Dirty =>Refusal::new("push", "dirty")
+            PushRefused::Dirty => Refusal::new("push", "dirty")
                 .hint("commit the changes through `ferrule stage commit`, then push again"),
             PushRefused::Gauntlet(outcome) => match outcome {
                 Outcome::Fail {

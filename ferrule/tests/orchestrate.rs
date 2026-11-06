@@ -1417,7 +1417,7 @@ fn push_text(p: &Project) -> String {
     p.ferrule(&["pr", "push", "demo"]).text()
 }
 
-/// GW-R-007, GW-R-013, S4 — a diverged branch is refused with both heads and a hint that never forces.
+/// GW-R-007, GW-R-013 — a diverged branch is refused with both heads and a hint that never forces.
 #[test]
 fn it_push_refuses_a_diverged_branch() {
     let (p, local, remote) = diverged_run();
@@ -1431,7 +1431,7 @@ fn it_push_refuses_a_diverged_branch() {
     assert_eq!(p.origin_head("feat/demo"), remote);
 }
 
-/// GW-R-007, S4 — a branch only behind the remote is diverged too.
+/// GW-R-007 — a branch only behind the remote is diverged too.
 #[test]
 fn it_push_refuses_a_branch_only_behind_the_remote() {
     let (p, _) = pushed_run();
@@ -1453,7 +1453,7 @@ fn it_diverged_push_runs_no_gauntlet() {
     assert!(!log.exists());
 }
 
-/// GW-E-006 — a retry of a diverged push gets the same refusal.
+/// A retry of a diverged push gets the same refusal.
 #[test]
 fn it_diverged_push_refuses_again_on_retry() {
     let (p, _, _) = diverged_run();
@@ -1463,6 +1463,30 @@ fn it_diverged_push_refuses_again_on_retry() {
         "{first}"
     );
     assert_eq!(push_text(&p), first);
+}
+
+/// S4 — the diverged refusal's heads feed the blocked stop, which offers no re-plan.
+#[test]
+fn it_diverged_refusal_feeds_the_blocked_stop() {
+    let (p, local, remote) = diverged_run();
+    let got = push_text(&p);
+    let head = |key: &str| {
+        let at = got.find(&format!("{key}=")).unwrap() + key.len() + 1;
+        got[at..].split_whitespace().next().unwrap().to_owned()
+    };
+    let (l, r) = (head("local"), head("remote"));
+    assert_eq!((l.as_str(), r.as_str()), (local.as_str(), remote.as_str()));
+    let stop = p
+        .ferrule(&[
+            "prompt", "render", "demo", "blocked", "--local", &l, "--remote", &r,
+        ])
+        .text();
+    assert!(
+        stop.contains(&format!("local={local} remote={remote}")),
+        "{stop}"
+    );
+    assert!(!stop.contains("re-plan"), "{stop}");
+    assert!(stop.contains("never force-push"), "{stop}");
 }
 
 /// GW-R-021 — the dirty and sha refusals come before the diverged one.

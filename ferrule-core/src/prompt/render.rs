@@ -623,6 +623,22 @@ fn question(run: &mut Run, args: &[(String, String)]) -> Result<Vec<String>, Err
 }
 
 fn blocked(run: &mut Run, args: &[(String, String)]) -> Result<Vec<String>, Error> {
+    match (arg(args, "local"), arg(args, "remote")) {
+        (Some(local), Some(remote)) => {
+            run.log("stop", &["kind=blocked"])?;
+            return Ok(vec![
+                format!("Question · {} · 1 decision", run.slug),
+                format!("## 1. the branch has diverged: local={local} remote={remote}"),
+                "Resolve it outside ferrule; never force-push.".to_owned(),
+                "Options:".to_owned(),
+                "- a) resolved outside ferrule, push again".to_owned(),
+                "- b) stop".to_owned(),
+                "Answer: <1: a | b>".to_owned(),
+            ]);
+        }
+        (None, None) => {}
+        _ => return Err(Error::Usage),
+    }
     let sid = arg(args, "stage").unwrap_or("");
     let reason = arg(args, "reason").unwrap_or("");
     run.log("stop", &["kind=blocked"])?;
@@ -1007,6 +1023,24 @@ fn auto(run: &Run, args: &[(String, String)]) -> Result<Vec<String>, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// GW-R-028 — a caller other than clap gets the usage error.
+    #[test]
+    fn ut_blocked_refuses_one_head_alone() {
+        let mut s = crate::store::Store::memory().unwrap();
+        board::create(&mut s.conn, "r", State::Open, &[], "t").unwrap();
+        let layout = Layout::new(PathBuf::from("."));
+        let mut run = Run {
+            conn: &mut s.conn,
+            layout: &layout,
+            slug: "r",
+            now: "t",
+        };
+        for key in ["local", "remote"] {
+            let args = [(key.to_owned(), "abc1234".to_owned())];
+            assert!(matches!(blocked(&mut run, &args), Err(Error::Usage)));
+        }
+    }
 
     #[test]
     fn ut_replan_unseen_reads_the_stop_by_key() {
