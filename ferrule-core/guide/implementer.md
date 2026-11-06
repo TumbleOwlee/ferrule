@@ -95,6 +95,7 @@ The project's fast checks, cheapest first:
 - Plan wrong, incomplete, or unworkable.
 - Stage needs a file outside your set, or something an unassigned stage was to produce.
 - Want a dependency not in the manifest.
+- `commit=refused reason=nothing-staged` on a clean worktree: the changes may already be committed outside ferrule. `status=blocked` with `head=<sha>` in the reason. A refusal on a dirty worktree is not a stop: stage the changes and commit again.
 
 Leave uncommitted work where it is — never revert it: a re-plan starts from the worktree as you left it. Resumed with an answer, go on; a re-plan replaces you with a fresh implementer.
 

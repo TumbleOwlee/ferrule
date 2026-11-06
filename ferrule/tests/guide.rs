@@ -545,3 +545,27 @@ fn it_bootstrap_suggests_no_project_rules_override() {
     assert!(!skill.contains("## Project rules"), "{skill}");
     assert!(skill.contains("with a `## Checks` section"), "{skill}");
 }
+
+/// GW-R-006, S2 — the implementer guide blocks a clean-worktree nothing-staged refusal with `head=`.
+#[test]
+fn it_implementer_guide_blocks_a_clean_nothing_staged() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let text = ok(
+        root,
+        &[
+            "guide",
+            "implementer",
+            "--slug",
+            "demo",
+            "--section",
+            "Ask or stop — never improvise",
+        ],
+    );
+    assert!(
+        text.contains("`commit=refused reason=nothing-staged` on a clean worktree"),
+        "{text}"
+    );
+    assert!(text.contains("`head=<sha>` in the reason"), "{text}");
+}

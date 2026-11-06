@@ -1142,6 +1142,179 @@ fn it_card_commit_checks_the_card_and_the_branch() {
     );
 }
 
+/// A run `demo` with stage `demo.s1` in review and its worktree on `feat/demo`.
+fn stage_project() -> Project {
+    let p = Project::new();
+    p.ok(&["run", "init", "demo"]);
+    seed_set(&p.root, "demo", &["branch=feat/demo"]);
+    p.ok(&["board", "new", "demo.s1", "title=Add a"]);
+    git(
+        &p.root,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            p.worktree().to_str().unwrap(),
+            "-b",
+            "feat/demo",
+        ],
+    );
+    p.ok(&["board", "move", "demo.s1", "inprogress"]);
+    p.ok(&["board", "move", "demo.s1", "inreview"]);
+    p
+}
+
+/// `ferrule` run in `cwd` with a git identity.
+fn in_dir(p: &Project, cwd: &Path, args: &[&str]) -> String {
+    p.gh.on(Run::new(args))
+        .env("CLAUDE_PROJECT_DIR", &p.root)
+        .env("FERRULE_NOW", "2026-10-05T09:00")
+        .env("GIT_AUTHOR_NAME", "t")
+        .env("GIT_AUTHOR_EMAIL", "t@t")
+        .env("GIT_COMMITTER_NAME", "t")
+        .env("GIT_COMMITTER_EMAIL", "t@t")
+        .cwd(cwd)
+        .text()
+}
+
+/// GW-R-001, GW-R-002, S1 — nothing staged on a dirty tree is refused as such, with the `git add` hint.
+#[test]
+fn it_commit_refuses_with_nothing_staged_on_a_dirty_tree() {
+    let p = stage_project();
+    let wt = p.worktree();
+    std::fs::create_dir(wt.join("sub")).unwrap();
+    std::fs::write(wt.join("sub/keep.txt"), "k\n").unwrap();
+    std::fs::write(wt.join("a.txt"), "a\n").unwrap();
+    git(&wt, &["add", "."]);
+    git(&wt, &["commit", "-q", "-m", "base"]);
+    let head = git(&wt, &["rev-parse", "--short", "HEAD"]);
+    let want = |hint: &str| {
+        format!("commit=refused reason=nothing-staged head={head} hint={hint}\nexit=1")
+    };
+    let hint = "the worktree holds changes that are not staged: stage them with `git add`, then commit again";
+
+    std::fs::write(wt.join("a.txt"), "changed\n").unwrap();
+    let got = in_dir(&p, &wt, &["stage", "commit", "demo.s1", "-m", "x"]);
+    assert_eq!(got, want(hint));
+
+    git(&wt, &["checkout", "--", "a.txt"]);
+    std::fs::write(wt.join("new.txt"), "n\n").unwrap();
+    let got = in_dir(&p, &wt, &["stage", "commit", "demo.s1", "-m", "x"]);
+    assert_eq!(got, want(hint));
+
+    std::fs::remove_file(wt.join("new.txt")).unwrap();
+    std::fs::write(wt.join("a.txt"), "changed\n").unwrap();
+    let got = in_dir(
+        &p,
+        &wt.join("sub"),
+        &["stage", "commit", "demo.s1", "-m", "x"],
+    );
+    assert_eq!(got, want(hint));
+}
+
+/// GW-R-001, GW-R-003, S2 — nothing staged on a clean tree names the head and says the changes may be committed.
+#[test]
+fn it_commit_refuses_with_nothing_staged_on_a_clean_tree() {
+    let p = stage_project();
+    let wt = p.worktree();
+    std::fs::write(wt.join("a.txt"), "a\n").unwrap();
+    git(&wt, &["add", "a.txt"]);
+    git(&wt, &["commit", "-q", "-m", "outside"]);
+    let head = git(&wt, &["rev-parse", "--short", "HEAD"]);
+    let got = in_dir(&p, &wt, &["stage", "commit", "demo.s1", "-m", "x"]);
+    assert_eq!(
+        got,
+        format!(
+            "commit=refused reason=nothing-staged head={head} hint=the worktree is clean: the changes may already be committed, check `git log` and report head={head} if they are\nexit=1"
+        )
+    );
+}
+
+/// GW-R-004, S3 — `--no-run` applies the nothing-staged check.
+#[test]
+fn it_commit_no_run_refuses_with_nothing_staged() {
+    let p = stage_project();
+    let wt = p.worktree();
+    let head = git(&wt, &["rev-parse", "--short", "HEAD"]);
+    let got = in_dir(&p, &wt, &["stage", "commit", "--no-run", "-m", "x"]);
+    assert!(
+        got.starts_with(&format!(
+            "commit=refused reason=nothing-staged head={head} hint="
+        )),
+        "{got}"
+    );
+    assert!(got.ends_with("exit=1"), "{got}");
+}
+
+/// A hook that refuses a staged change is still `reason=git`, and its hint no longer advises `git add`.
+#[cfg(unix)]
+#[test]
+fn it_commit_reports_reason_git_for_a_refusing_hook() {
+    use std::os::unix::fs::PermissionsExt;
+    let p = stage_project();
+    let wt = p.worktree();
+    let hook = p.root.join(".git/hooks/pre-commit");
+    std::fs::write(&hook, "#!/bin/sh\nexit 1\n").unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::write(wt.join("a.txt"), "a\n").unwrap();
+    git(&wt, &["add", "a.txt"]);
+    let got = in_dir(&p, &wt, &["stage", "commit", "demo.s1", "-m", "x"]);
+    assert!(got.starts_with("commit=refused reason=git hint="), "{got}");
+    assert!(!got.contains("git add"), "{got}");
+    assert!(got.contains("stderr"), "{got}");
+}
+
+/// GW-E-004 — a merge in progress whose index equals HEAD is concluded by the commit, not refused.
+#[test]
+fn it_commit_concludes_a_merge_whose_index_equals_head() {
+    let p = stage_project();
+    let wt = p.worktree();
+    std::fs::write(wt.join("a.txt"), "a\n").unwrap();
+    git(&wt, &["add", "a.txt"]);
+    git(&wt, &["commit", "-q", "-m", "base"]);
+    git(&wt, &["checkout", "-q", "-b", "side"]);
+    std::fs::write(wt.join("s.txt"), "s\n").unwrap();
+    git(&wt, &["add", "s.txt"]);
+    git(&wt, &["commit", "-q", "-m", "side"]);
+    git(&wt, &["checkout", "-q", "feat/demo"]);
+    std::fs::write(wt.join("b.txt"), "b\n").unwrap();
+    git(&wt, &["add", "b.txt"]);
+    git(&wt, &["commit", "-q", "-m", "own"]);
+    git(
+        &wt,
+        &["merge", "--no-commit", "--no-ff", "-s", "ours", "side"],
+    );
+    let quiet = std::process::Command::new("git")
+        .args(["diff", "--cached", "--quiet"])
+        .current_dir(&wt)
+        .status()
+        .unwrap();
+    assert_eq!(quiet.code(), Some(0));
+    assert!(!git(&wt, &["rev-parse", "-q", "--verify", "MERGE_HEAD"]).is_empty());
+
+    let got = in_dir(&p, &wt, &["stage", "commit", "demo.s1", "-m", "merge"]);
+    assert!(got.starts_with("commit=done sha="), "{got}");
+    let parents = git(&wt, &["rev-list", "--parents", "-n", "1", "HEAD"]);
+    assert_eq!(parents.split_whitespace().count(), 3, "{parents}");
+}
+
+/// GW-E-003 — a commit made outside ferrule cannot be adopted as a stage's `commit=`.
+#[test]
+fn it_board_log_refuses_an_outside_commit() {
+    let p = stage_project();
+    let wt = p.worktree();
+    std::fs::write(wt.join("a.txt"), "a\n").unwrap();
+    git(&wt, &["add", "a.txt"]);
+    git(&wt, &["commit", "-q", "-m", "outside"]);
+    let sha = git(&wt, &["rev-parse", "--short", "HEAD"]);
+    let before = p.field("demo.s1", "log:commit");
+    let got = p
+        .ferrule(&["board", "log", "demo.s1", &format!("commit={sha}")])
+        .text();
+    assert!(got.contains("reason=owner"), "{got}");
+    assert_eq!(p.field("demo.s1", "log:commit"), before);
+}
+
 #[test]
 fn it_pr_open_adopts_the_branch_pr_a_crash_left() {
     let p = Project::new();
