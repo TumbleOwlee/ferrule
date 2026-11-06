@@ -73,7 +73,8 @@ fn is_diverged(result: &Result<String, GitError>) -> bool {
 
 /// Stdout of a git command that exits zero before `deadline`, run with
 /// the credential prompt off in its own process group; `None` on any
-/// failure or when the deadline passes (the group is then killed).
+/// failure or when waiting or reading passes the deadline (the group is
+/// then killed).
 fn bounded(dir: &Path, args: &[&str], deadline: Instant) -> Option<String> {
     let mut command = Command::new("git");
     command
@@ -98,7 +99,10 @@ fn bounded(dir: &Path, args: &[&str], deadline: Instant) -> Option<String> {
         match child.try_wait() {
             Ok(Some(status)) if status.success() => {
                 let left = deadline.saturating_duration_since(Instant::now());
-                let bytes = rx.recv_timeout(left).ok()?;
+                let Ok(bytes) = rx.recv_timeout(left) else {
+                    gauntlet::kill_group(&child);
+                    return None;
+                };
                 return Some(String::from_utf8_lossy(&bytes).into_owned());
             }
             Ok(Some(_)) => return None,
@@ -306,6 +310,118 @@ mod tests {
                 &format!("sh {}", path.display()),
             ],
         );
+    }
+
+    #[cfg(unix)]
+    fn hold(repo: &Path, body: &str) {
+        g(
+            repo,
+            &["config", "alias.hold", &format!("!f() {{ {body}; }}; f")],
+        );
+    }
+
+    #[cfg(unix)]
+    fn running(pid: &str) -> bool {
+        let state = if Path::new("/proc").is_dir() {
+            let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
+                return false;
+            };
+            let Some((_, rest)) = stat.rsplit_once(')') else {
+                return false;
+            };
+            rest.trim_start().chars().next()
+        } else {
+            let out = Command::new("ps")
+                .args(["-o", "stat=", "-p", pid])
+                .output()
+                .unwrap();
+            String::from_utf8_lossy(&out.stdout).trim().chars().next()
+        };
+        state.is_some_and(|c| c != 'Z')
+    }
+
+    #[cfg(unix)]
+    fn gone(pid: &str) -> bool {
+        for _ in 0..100 {
+            if !running(pid) {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        false
+    }
+
+    /// GW-R-029 — git exited, its helper holds the output past the limit: the helper is killed.
+    #[cfg(unix)]
+    #[test]
+    fn ut_bounded_kills_a_helper_holding_output_past_the_limit() {
+        let (t, _o, a) = setup();
+        let file = t.path().join("pid");
+        hold(&a, &format!("sleep 30 & echo $! > '{}'", file.display()));
+        let start = Instant::now();
+        let out = bounded(&a, &["hold"], Instant::now() + Duration::from_secs(1));
+        let took = start.elapsed();
+        let pid = std::fs::read_to_string(&file).unwrap();
+        let pid = pid.trim();
+        let reaped = gone(pid);
+        let _ = Command::new("kill")
+            .args(["-KILL", pid])
+            .stderr(Stdio::null())
+            .status();
+        assert_eq!(out, None);
+        assert!(took < Duration::from_secs(10), "{took:?}");
+        assert!(reaped, "helper {pid} still running");
+    }
+
+    /// GW-R-022, GW-R-029 — git still running at the limit: every process is killed.
+    #[cfg(unix)]
+    #[test]
+    fn ut_bounded_kills_every_process_when_git_outlives_the_limit() {
+        let (t, _o, a) = setup();
+        let file = t.path().join("pid");
+        hold(
+            &a,
+            &format!("sleep 30 & echo $! > '{}'; wait", file.display()),
+        );
+        let start = Instant::now();
+        let out = bounded(&a, &["hold"], Instant::now() + Duration::from_secs(1));
+        let took = start.elapsed();
+        let pid = std::fs::read_to_string(&file).unwrap();
+        let pid = pid.trim();
+        let reaped = gone(pid);
+        let _ = Command::new("kill")
+            .args(["-KILL", pid])
+            .stderr(Stdio::null())
+            .status();
+        assert_eq!(out, None);
+        assert!(took < Duration::from_secs(10), "{took:?}");
+        assert!(reaped, "process {pid} still running");
+    }
+
+    /// GW-E-007 — a check finished in time leaves git's helper running.
+    #[cfg(unix)]
+    #[test]
+    fn ut_bounded_leaves_a_helper_of_a_check_finished_in_time() {
+        struct Reap(String);
+        impl Drop for Reap {
+            fn drop(&mut self) {
+                let _ = Command::new("kill").args(["-KILL", &self.0]).status();
+            }
+        }
+        let (t, _o, a) = setup();
+        let file = t.path().join("pid");
+        hold(
+            &a,
+            &format!(
+                "sleep 30 >/dev/null 2>&1 & echo $! > '{}'; echo done",
+                file.display()
+            ),
+        );
+        let out = bounded(&a, &["hold"], Instant::now() + Duration::from_secs(10));
+        let pid = std::fs::read_to_string(&file).unwrap();
+        let _reap = Reap(pid.trim().to_owned());
+        assert_eq!(out, Some("done\n".to_owned()));
+        assert!(running(pid.trim()));
     }
 
     /// GW-R-022 — a check unfinished at its limit gives up.
