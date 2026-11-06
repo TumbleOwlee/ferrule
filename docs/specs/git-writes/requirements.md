@@ -38,6 +38,8 @@
 
 **GW-R-025** — A divergence check runs with git's terminal credential prompt turned off, so a remote asking for credentials counts as one that cannot complete.
 
+**GW-R-029** — A divergence check that reaches the 60-second limit of GW-R-022 leaves none of the processes it started running once it returns.
+
 ## Diverged routing
 
 **GW-R-014** — The stages guide sends a diverged refusal to the blocked stop and suggests no re-plan.

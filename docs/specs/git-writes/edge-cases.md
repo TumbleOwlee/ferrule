@@ -13,3 +13,11 @@
 **GW-E-005** — A run in the state GW-E-002 describes with no further change to commit stays refused, because `ferrule stage commit` needs staged changes.
 
 **GW-E-006** — A retry after the failed push of GW-E-001 gets the diverged refusal.
+
+**GW-E-007** — A helper process that git leaves running after a divergence check finished within the 60-second limit keeps running.
+
+**GW-E-008** — On Windows, a helper whose parent git had already exited when a divergence check reached its 60-second limit keeps running, contrary to GW-R-029.
+
+**GW-E-009** — On targets that are neither unix nor Windows, every process a divergence check started keeps running after the check reaches its 60-second limit, contrary to GW-R-029.
+
+**GW-E-010** — A process that left git's process group, such as a daemon that calls setsid, keeps running after a divergence check reaches its 60-second limit, contrary to GW-R-029.
