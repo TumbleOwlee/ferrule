@@ -110,7 +110,8 @@ Refuses:
                        --ext-diff)|status|blame|grep|rev-parse|ls-files|
                        ls-tree|cat-file|merge-base|describe|shortlog, branch
                        and tag only to list; cargo test|check|clippy|tree|
-                       metadata; ferrule's read-only commands (board
+                       metadata, fmt --check (no --print-config,
+                       --config); ferrule's read-only commands (board
                        show|list|field|events|vocab, run status|diff|log|
                        plan-diff, stage verify, file, spec, issue view|
                        search|request|body, pr view|body, guide, prompt

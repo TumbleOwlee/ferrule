@@ -111,12 +111,15 @@ fn git_reads(args: &[String]) -> bool {
     }
 }
 
-/// A cargo call that builds or inspects: no `--fix`, no `--config`.
+/// A cargo call that builds or inspects: no `--fix`, no `--config`; `fmt`
+/// only with `--check`, never with `--print-config`.
 fn cargo_reads(args: &[String]) -> bool {
-    matches!(
-        args.first().map(String::as_str),
-        Some("test" | "check" | "clippy" | "tree" | "metadata")
-    ) && !has(args, &["--fix", "--config"])
+    let read = match args.first().map(String::as_str) {
+        Some("test" | "check" | "clippy" | "tree" | "metadata") => true,
+        Some("fmt") => has(args, &["--check"]) && !has(args, &["--print-config"]),
+        _ => false,
+    };
+    read && !has(args, &["--fix", "--config"])
 }
 
 /// Whether the program is one of the read-only programs, in a read-only
@@ -203,7 +206,7 @@ pub fn readonly(
             };
             if !ok {
                 return refuse(
-                    "is not a read-only command on the reviewer's allowlist (ls cat head tail wc grep rg find sed -n awk diff cmp file stat tree sort uniq cut tr nl jq, git log|show|diff|status|blame|grep|rev-parse|ls-files|ls-tree|cat-file|merge-base|describe|shortlog, cargo test|check|clippy|tree|metadata, ferrule; `[hook.readonly] allow` in ferrule.toml adds more)",
+                    "is not a read-only command on the reviewer's allowlist (ls cat head tail wc grep rg find sed -n awk diff cmp file stat tree sort uniq cut tr nl jq, git log|show|diff|status|blame|grep|rev-parse|ls-files|ls-tree|cat-file|merge-base|describe|shortlog, cargo test|check|clippy|tree|metadata|fmt --check, ferrule; `[hook.readonly] allow` in ferrule.toml adds more)",
                 );
             }
         }
@@ -225,6 +228,41 @@ mod tests {
 
     fn check(cmd: &str) -> Option<String> {
         readonly(cmd, Path::new("/nonexistent-ferrule-guard"), &[], &[])
+    }
+
+    /// SG-R-001, SG-R-002, SG-R-003 — `cargo fmt --check` passes, also after `--`
+    /// and with `--all` or `-p`.
+    #[test]
+    fn ut_format_check_passes() {
+        for cmd in [
+            "cargo fmt --check",
+            "cargo fmt --all --check",
+            "cargo fmt -p ferrule --check",
+            "cargo fmt --check --all",
+            "cargo fmt -- --check",
+            "cargo fmt --all -- --check",
+        ] {
+            assert_eq!(check(cmd), None, "{cmd}");
+        }
+    }
+
+    /// SG-R-004, SG-E-001, SG-E-002 — `cargo fmt` without `--check`, with
+    /// `--print-config` or with `--config` is refused.
+    #[test]
+    fn ut_format_writes_are_refused() {
+        for cmd in [
+            "cargo fmt",
+            "cargo fmt --all",
+            "cargo fmt -p ferrule",
+            "cargo fmt -- --emit files",
+            "cargo fmt --check --print-config default rustfmt.toml",
+            "cargo fmt -- --check --print-config current x.toml",
+            "cargo fmt --check --config x=y",
+            "cargo fmt --check -- --config x=y",
+            "cargo fmt -- --check --config=x=y",
+        ] {
+            assert!(check(cmd).is_some(), "{cmd}");
+        }
     }
 
     #[test]
