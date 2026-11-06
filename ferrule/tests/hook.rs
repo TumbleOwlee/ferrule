@@ -288,6 +288,30 @@ fn it_shell_guard_resolves_cat_after_cd() {
     );
 }
 
+/// SG-R-001, SG-R-002, SG-R-003, SG-R-004, SG-R-005, SG-E-001, SG-E-002 —
+/// the hook lets the format check run and refuses writing forms.
+#[test]
+fn it_read_only_guard_lets_the_format_check_run() {
+    let p = project();
+    check(
+        "reviewer",
+        p.path(),
+        &[
+            ("cargo fmt --check", "allow"),
+            ("cargo fmt --all --check", "allow"),
+            ("cargo fmt -p ferrule --check", "allow"),
+            ("cargo fmt -- --check", "allow"),
+            ("cargo fmt", "deny"),
+            ("cargo fmt --all", "deny"),
+            (
+                "cargo fmt --check --print-config default rustfmt.toml",
+                "deny",
+            ),
+            ("cargo fmt --check -- --config x=y", "deny"),
+        ],
+    );
+}
+
 #[test]
 fn it_reviewer_guard_allows_reads_and_the_review_files_only() {
     let p = project();
@@ -308,7 +332,6 @@ fn it_reviewer_guard_allows_reads_and_the_review_files_only() {
             ("rm -rf target", "deny"),
             ("cargo test 2>&1 | tail -5", "allow"),
             ("cargo fmt", "deny"),
-            ("cargo fmt --check", "deny"),
             ("grep -rn '=>' src > /dev/null", "allow"),
             ("echo $(rm -f x)", "deny"),
             ("for f in a b; do rm $f; done", "deny"),
