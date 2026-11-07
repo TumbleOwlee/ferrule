@@ -6,7 +6,7 @@
 
 **GW-E-002** — After a merge outside ferrule resolves a divergence, `ferrule pr push` in a run refuses with `reason=sha` until the next `ferrule stage commit` lands on top of it.
 
-**GW-E-003** — No command adopts a commit made outside ferrule as a stage's `commit=`, so a stage whose changes were committed that way stays blocked.
+**GW-E-003** — No command adopts a merge commit made outside ferrule as a stage's `commit=`, so a stage whose changes were committed that way stays blocked.
 
 **GW-E-004** — A merge in progress whose index equals HEAD gets no nothing-staged refusal; `git commit` concludes it as before.
 
@@ -21,3 +21,7 @@
 **GW-E-009** — On targets that are neither unix nor Windows, every process a divergence check started keeps running after the check reaches its 60-second limit, contrary to GW-R-029.
 
 **GW-E-010** — A process that left git's process group, such as a daemon that calls setsid, keeps running after a divergence check reaches its 60-second limit, contrary to GW-R-029.
+
+**GW-E-011** — `--adopt` refuses a HEAD already logged as `commit=` on any of the run's cards.
+
+**GW-E-012** — `--adopt` accepts a commit that touches no file, since no file of it lies outside the card's `files` list.
