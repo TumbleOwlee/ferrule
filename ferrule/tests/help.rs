@@ -871,7 +871,7 @@ fn it_stage_commit_help_lists_nothing_staged() {
     assert!(!help.contains("(nothing staged,"), "{help}");
 }
 
-/// api-contract — the `stage commit` help lists the `--adopt` refusals.
+/// The `stage commit` help lists the `--adopt` refusals.
 #[test]
 fn it_stage_commit_help_lists_adopt() {
     let help = help_of("stage commit");

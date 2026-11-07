@@ -1685,6 +1685,40 @@ fn it_push_refuses_a_branch_only_behind_the_remote() {
     assert!(got.starts_with(&line), "{got}");
 }
 
+/// GW-R-036, S1 — an adopted commit is reviewed, gauntleted and pushed as a fast-forward.
+#[test]
+fn it_adopted_commit_pushes_as_a_fast_forward() {
+    let (p, _) = pushed_run();
+    let wt = p.worktree();
+    p.ok(&["board", "move", "demo.s1", "inprogress"]);
+    std::fs::create_dir_all(wt.join("src")).unwrap();
+    std::fs::write(wt.join("src/client.rs"), "client\n").unwrap();
+    git(&wt, &["add", "."]);
+    git(&wt, &["commit", "-q", "-m", "outside"]);
+    let sha = git(&wt, &["rev-parse", "--short", "HEAD"]);
+    p.ok(&["board", "move", "demo.s1", "inreview"]);
+
+    let refused = p.in_wt(&["stage", "commit", "demo.s1", "-m", "x"]);
+    let line = format!("commit=refused reason=nothing-staged head={sha} hint=");
+    assert!(refused.starts_with(&line), "{refused}");
+    let adopted = p.in_wt(&["stage", "commit", "demo.s1", "--adopt", &sha]);
+    assert_eq!(
+        adopted,
+        format!("commit=done sha={sha} card=demo.s1\nexit=0")
+    );
+    let diff = p.in_wt(&["run", "diff", "demo", "--path", "src/client.rs"]);
+    assert!(diff.contains("src/client.rs"), "{diff}");
+
+    let log = p.run_dir().join("gauntlet.log");
+    let _ = std::fs::remove_file(&log);
+    let pushed = push_text(&p);
+    assert!(pushed.starts_with("push=done sha="), "{pushed}");
+    assert!(log.is_file());
+    assert_eq!(p.origin_head("feat/demo"), sha);
+    assert_eq!(git(&wt, &["log", "-1", "--format=%B"]), "outside");
+    assert!(!p.ok(&["board", "show", "demo"]).contains("replan"));
+}
+
 /// GW-R-009 — the divergence check runs before the gauntlet.
 #[test]
 fn it_diverged_push_runs_no_gauntlet() {

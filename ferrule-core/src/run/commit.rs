@@ -77,9 +77,10 @@ impl CommitRefused {
                         )
                     })
             }
-            CommitRefused::Dirty => Refusal::new("commit", "dirty").hint(
-                "the worktree holds changes: commit them with `ferrule stage commit -m <msg>` or discard them, then adopt again",
-            ),
+            CommitRefused::Dirty => Refusal::new("commit", "dirty").hint(format!(
+                "the worktree holds changes: commit them with `ferrule stage commit {} -m <msg>` or discard them",
+                card.unwrap_or("<card>")
+            )),
             CommitRefused::NotHead { head } => Refusal::new("commit", "not-head")
                 .field("head", head)
                 .hint(format!(
@@ -90,7 +91,9 @@ impl CommitRefused {
                 .hint("a merge commit cannot be adopted: report the stage blocked"),
             CommitRefused::Adopted { card } => Refusal::new("commit", "adopted")
                 .field("card", card)
-                .hint(format!("HEAD is already logged as commit= on {card}")),
+                .hint(format!(
+                    "HEAD is already logged as commit= on {card}: nothing to adopt, report the stage's status"
+                )),
             CommitRefused::Unlogged { sha } => Refusal::new("commit", "unlogged")
                 .field("sha", sha)
                 .hint(format!(

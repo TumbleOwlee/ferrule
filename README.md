@@ -150,6 +150,7 @@ Commands are grouped by what they act on. Most are run by the orchestrating agen
 | `ferrule stage verify <slug> s<n> <sha>` | Verify a reported commit before anything is pushed |
 | `ferrule stage stop <slug> s<n> [--threads n]` | Stop or auto-continue a clean stage, logged on its card |
 | `ferrule stage commit <card> -m <msg>` | Commit for a stage in review: never on the main branch, trailers stripped, `commit=` logged |
+| `ferrule stage commit <card> --adopt <sha>` | Log HEAD, committed outside ferrule, as the stage's `commit=` after strict checks; no new commit |
 | `ferrule stage commit --no-run -m <msg>` | The same outside a run |
 | `ferrule stage replan <slug> start\|approve [--stops s1,…]` | Snapshot the plan and log `from=`; swap the uncommitted stage cards for the new plan's |
 
