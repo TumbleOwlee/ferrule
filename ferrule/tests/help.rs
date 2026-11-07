@@ -882,6 +882,7 @@ fn it_stage_commit_help_lists_adopt() {
         "reason=merge parents=<n>",
         "reason=adopted card=<id>",
         "reason=unlogged sha=<sha>",
+        "commit=refused reason=no-merge-base",
         "reason=files path=<path>",
         "reason=trailers",
     ] {

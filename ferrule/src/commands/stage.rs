@@ -56,6 +56,9 @@ as the stage's commit; no commit is created and history is unchanged:
                                  HEAD is already logged as commit= on <id>
   commit=refused reason=unlogged sha=<sha>
                                  A commit before HEAD is logged on no card
+  commit=refused reason=no-merge-base
+                                 The branch point with the main branch
+                                 cannot be found
   commit=refused reason=files path=<path>
                                  HEAD touches <path>, outside the card's files
                                  list (either side of a rename); re-plan

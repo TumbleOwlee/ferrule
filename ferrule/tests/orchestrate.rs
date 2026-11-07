@@ -1486,7 +1486,7 @@ fn it_adopt_refuses_a_merge_commit() {
     adopt_refused(&p, &head, "reason=merge parents=2 ");
 }
 
-/// GW-R-033 — a branch point that cannot be found refuses instead of skipping the check.
+/// GW-R-033 — a branch point that cannot be found refuses with its own reason instead of naming a commit.
 #[test]
 fn it_adopt_refuses_when_the_branch_point_is_unknown() {
     let p = adopt_project();
@@ -1494,10 +1494,10 @@ fn it_adopt_refuses_when_the_branch_point_is_unknown() {
     git(&wt, &["checkout", "-q", "--orphan", "other"]);
     git(&wt, &["rm", "-rfq", "--ignore-unmatch", "."]);
     seed_set(&p.root, "demo", &["branch=other"]);
-    let first = outside_commit(&p, &["a.txt"], "first");
+    outside_commit(&p, &["a.txt"], "first");
     let head = outside_commit(&p, &["b.txt"], "second");
-    let line = format!("reason=unlogged sha={first} ");
-    adopt_refused(&p, &head, &line);
+    let got = adopt_refused(&p, &head, "reason=no-merge-base ");
+    assert!(!got.contains("unlogged"), "{got}");
 }
 
 /// GW-E-011 — a HEAD already logged is not adopted again.

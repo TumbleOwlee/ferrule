@@ -635,6 +635,7 @@ fn it_implementer_guide_blocks_a_clean_nothing_staged() {
     assert!(files.contains("re-plan"), "{files}");
     assert!(files.contains("`reason=merge`"), "{files}");
     assert!(files.contains("`reason=unlogged`"), "{files}");
+    assert!(files.contains("`reason=no-merge-base`"), "{files}");
 }
 
 /// GW-R-038, S2 — a blocked reason that suggests `--adopt` takes the blocked stop, and `1: a` adopts.

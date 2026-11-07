@@ -36,6 +36,8 @@ pub enum CommitRefused {
     Adopted { card: String },
     /// `--adopt`: this commit between the branch point and HEAD^ is logged on no card (short sha).
     Unlogged { sha: String },
+    /// `--adopt`: the branch point of HEAD with the base branch cannot be found.
+    NoMergeBase,
     /// `--adopt`: the commit touches this path outside the card's `files` list.
     Files { path: String },
     /// `--adopt`: the message carries attribution trailers.
@@ -97,8 +99,11 @@ impl CommitRefused {
             CommitRefused::Unlogged { sha } => Refusal::new("commit", "unlogged")
                 .field("sha", sha)
                 .hint(format!(
-                    "commit {sha} before HEAD is logged on no card of the run, or the branch point with the main branch cannot be found: report the stage blocked"
+                    "commit {sha} before HEAD is logged on no card of the run: report the stage blocked"
                 )),
+            CommitRefused::NoMergeBase => Refusal::new("commit", "no-merge-base").hint(
+                "the branch point of HEAD with the main branch cannot be found: report the stage blocked",
+            ),
             CommitRefused::Files { path } => Refusal::new("commit", "files")
                 .field("path", path)
                 .hint(format!(
@@ -249,8 +254,7 @@ pub fn adopt(
     let range = git::out(here, &["merge-base", "HEAD", main]).map(|base| format!("{base}..HEAD^"));
     let earlier = range.and_then(|r| git::out(here, &["rev-list", "--reverse", &r]));
     let Some(earlier) = earlier else {
-        let sha = git::out(here, &["rev-parse", "--short", "HEAD^"]).unwrap_or_default();
-        return Ok(Err(CommitRefused::Unlogged { sha }));
+        return Ok(Err(CommitRefused::NoMergeBase));
     };
     if let Some(first) = earlier
         .split_whitespace()
