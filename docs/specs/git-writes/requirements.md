@@ -12,9 +12,29 @@
 
 **GW-R-005** — The `ferrule stage commit` help lists the nothing-staged refusal.
 
-**GW-R-006** — The implementer guide directs a clean-worktree nothing-staged refusal to `status=blocked` with `head=` in the reason.
+**GW-R-006** — The implementer guide directs a clean-worktree nothing-staged refusal to `status=blocked` with `head=` and a suggestion of `ferrule stage commit <card> --adopt <head>` in the reason, and an `--adopt` refusal for a file outside the `files` list to a re-plan.
 
 **GW-R-026** — The `--no-run` note of the `ferrule stage commit` help names the nothing-staged check as applying.
+
+## Adopted commit
+
+**GW-R-030** — `ferrule stage commit <card> --adopt <sha>` logs `commit=<sha>` on the card as a normal stage commit would, creating no commit and leaving the commit's message and history unchanged.
+
+**GW-R-031** — `--adopt` refuses unless the card is `inreview`, the worktree is clean and it is on the run's branch.
+
+**GW-R-032** — `--adopt` refuses unless `<sha>` is the branch's HEAD with exactly one parent.
+
+**GW-R-033** — `--adopt` refuses unless every commit from the branch point with the base branch up to HEAD^ is logged as `commit=` on one of the run's cards.
+
+**GW-R-034** — `--adopt` refuses when the commit touches a file outside the card's `files` list, counting both sides of a rename.
+
+**GW-R-035** — `--adopt` refuses a commit whose message carries attribution trailers, with a hint to amend the commit if it has not been pushed.
+
+**GW-R-036** — An adopted commit goes through the same push checks, gauntlet and stage review as a commit made by `ferrule stage commit`.
+
+**GW-R-037** — `ferrule stage commit` requires `-m` unless `--adopt` is given, and `--adopt` together with `-m` or `--no-run` is a usage error.
+
+**GW-R-038** — The stages guide routes a nothing-staged blocked reason to the blocked stop with its standard options, so answering `a` resumes the stage to adopt the commit.
 
 ## Diverged push
 

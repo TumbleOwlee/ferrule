@@ -341,6 +341,17 @@ pub fn is_date(v: Option<&str>) -> bool {
     })
 }
 
+/// The paths of a stage card's `files` field value, `[a, b]`; `[]` gives none.
+#[must_use]
+pub fn file_list(value: &str) -> Vec<&str> {
+    value
+        .trim_matches(|c| c == '[' || c == ']')
+        .split(',')
+        .map(str::trim)
+        .filter(|f| !f.is_empty())
+        .collect()
+}
+
 /// One frontmatter field of a card.
 pub fn field(conn: &Connection, id: &str, key: &str) -> rusqlite::Result<Option<String>> {
     conn.query_row(
@@ -1519,6 +1530,15 @@ mod tests {
     use super::*;
 
     use crate::store::Store;
+
+    /// The `files` value parses to its paths.
+    #[test]
+    fn file_list_splits_the_bracketed_paths() {
+        assert_eq!(file_list("[a, b]"), ["a", "b"]);
+        assert_eq!(file_list("[a]"), ["a"]);
+        assert!(file_list("[]").is_empty());
+        assert!(file_list("").is_empty());
+    }
 
     fn raw(s: &Store, card: &str, at: &str, body: &str) {
         insert_body(&s.conn, card, at, body);

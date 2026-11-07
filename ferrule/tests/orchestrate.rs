@@ -1341,7 +1341,7 @@ fn it_commit_concludes_a_merge_whose_index_equals_head() {
     assert_eq!(parents.split_whitespace().count(), 3, "{parents}");
 }
 
-/// GW-E-003 — a commit made outside ferrule cannot be adopted as a stage's `commit=`.
+/// A commit made outside ferrule cannot be logged as a stage's `commit=` with `board log`.
 #[test]
 fn it_board_log_refuses_an_outside_commit() {
     let p = stage_project();
@@ -1356,6 +1356,249 @@ fn it_board_log_refuses_an_outside_commit() {
         .text();
     assert!(got.contains("reason=owner"), "{got}");
     assert_eq!(p.field("demo.s1", "log:commit"), before);
+}
+
+/// `stage_project` with a `files` list on the stage card.
+fn adopt_project() -> Project {
+    let p = stage_project();
+    seed_set(&p.root, "demo.s1", &["files=[a.txt, b.txt]"]);
+    p
+}
+
+/// Commits `files` in the worktree and returns the short sha.
+fn outside_commit(p: &Project, files: &[&str], message: &str) -> String {
+    let wt = p.worktree();
+    for f in files {
+        std::fs::write(wt.join(f), format!("{f}\n")).unwrap();
+    }
+    let mut add = vec!["add"];
+    add.extend(files);
+    git(&wt, &add);
+    git(&wt, &["commit", "-q", "-m", message]);
+    git(&wt, &["rev-parse", "--short", "HEAD"])
+}
+
+/// Logs `sha` as a `commit=` of `demo.s1`.
+fn log_commit_of(p: &Project, sha: &str) {
+    seed_log(
+        &p.root,
+        "2026-10-05T09:00",
+        "demo.s1",
+        &[&format!("commit={sha}")],
+    );
+}
+
+fn adopt_in(p: &Project, sha: &str) -> String {
+    in_dir(
+        p,
+        &p.worktree(),
+        &["stage", "commit", "demo.s1", "--adopt", sha],
+    )
+}
+
+fn assert_adopt_refused(p: &Project, got: &str, line: &str, before: &str) {
+    assert!(
+        got.starts_with(&format!("commit=refused {line}hint=")),
+        "{got}"
+    );
+    assert!(got.ends_with("exit=1"), "{got}");
+    assert_eq!(p.field("demo.s1", "log:commit"), before);
+}
+
+/// Adopts `sha`, which must be refused with `line` and log nothing.
+fn adopt_refused(p: &Project, sha: &str, line: &str) -> String {
+    let before = p.field("demo.s1", "log:commit");
+    let got = adopt_in(p, sha);
+    assert_adopt_refused(p, &got, line, &before);
+    got
+}
+
+/// GW-R-030 — adopting HEAD logs it as the card's `commit=` and creates no commit.
+#[test]
+fn it_adopt_logs_head_without_a_new_commit() {
+    let p = adopt_project();
+    let wt = p.worktree();
+    let sha = outside_commit(&p, &["a.txt"], "outside");
+    let full = git(&wt, &["rev-parse", "HEAD"]);
+    let log = git(&wt, &["log", "--format=%H"]);
+    let got = adopt_in(&p, &sha);
+    assert_eq!(got, format!("commit=done sha={sha} card=demo.s1\nexit=0"));
+    assert_eq!(git(&wt, &["rev-parse", "HEAD"]), full);
+    assert_eq!(git(&wt, &["log", "--format=%H"]), log);
+    assert_eq!(git(&wt, &["log", "-1", "--format=%B"]), "outside");
+    assert_eq!(p.field("demo.s1", "log:commit"), sha);
+}
+
+/// GW-R-031, S8 — adopting needs a card in review, a clean worktree and the run's branch.
+#[test]
+fn it_adopt_refuses_a_wrong_state_dirty_tree_or_branch() {
+    let p = adopt_project();
+    let sha = outside_commit(&p, &["a.txt"], "outside");
+    p.ok(&["board", "new", "demo.s2", "title=Add b"]);
+    let got = in_dir(
+        &p,
+        &p.worktree(),
+        &["stage", "commit", "demo.s2", "--adopt", &sha],
+    );
+    assert!(
+        got.starts_with("commit=refused reason=state state=open hint="),
+        "{got}"
+    );
+
+    std::fs::write(p.worktree().join("a.txt"), "changed\n").unwrap();
+    adopt_refused(&p, &sha, "reason=dirty ");
+    git(&p.worktree(), &["checkout", "-q", "--", "a.txt"]);
+
+    std::fs::write(p.worktree().join("new.txt"), "n\n").unwrap();
+    adopt_refused(&p, &sha, "reason=dirty ");
+    std::fs::remove_file(p.worktree().join("new.txt")).unwrap();
+
+    git(&p.worktree(), &["checkout", "-q", "--detach"]);
+    adopt_refused(&p, &sha, "reason=branch want=feat/demo ");
+    git(&p.worktree(), &["checkout", "-q", "feat/demo"]);
+
+    seed_set(&p.root, "demo", &["branch="]);
+    adopt_refused(&p, &sha, "reason=branch want= ");
+}
+
+/// GW-R-032, S6 — adopting needs the branch's HEAD.
+#[test]
+fn it_adopt_refuses_a_sha_that_is_not_head() {
+    let p = adopt_project();
+    let first = outside_commit(&p, &["a.txt"], "first");
+    log_commit_of(&p, &first);
+    let head = outside_commit(&p, &["b.txt"], "second");
+    let line = format!("reason=not-head head={head} ");
+    adopt_refused(&p, &format!("{head}^"), &line);
+    adopt_refused(&p, "nosuch", &line);
+}
+
+/// GW-R-032, S5, GW-E-003 — a merge commit is not adopted.
+#[test]
+fn it_adopt_refuses_a_merge_commit() {
+    let p = adopt_project();
+    let wt = p.worktree();
+    git(&wt, &["checkout", "-q", "-b", "side"]);
+    outside_commit(&p, &["b.txt"], "side");
+    git(&wt, &["checkout", "-q", "feat/demo"]);
+    git(&wt, &["merge", "-q", "--no-ff", "-m", "merge", "side"]);
+    let head = git(&wt, &["rev-parse", "--short", "HEAD"]);
+    adopt_refused(&p, &head, "reason=merge parents=2 ");
+}
+
+/// GW-R-033 — a branch point that cannot be found refuses with its own reason instead of naming a commit.
+#[test]
+fn it_adopt_refuses_when_the_branch_point_is_unknown() {
+    let p = adopt_project();
+    let wt = p.worktree();
+    git(&wt, &["checkout", "-q", "--orphan", "other"]);
+    git(&wt, &["rm", "-rfq", "--ignore-unmatch", "."]);
+    seed_set(&p.root, "demo", &["branch=other"]);
+    outside_commit(&p, &["a.txt"], "first");
+    let head = outside_commit(&p, &["b.txt"], "second");
+    let got = adopt_refused(&p, &head, "reason=no-merge-base ");
+    assert!(!got.contains("unlogged"), "{got}");
+}
+
+/// GW-E-011 — a HEAD already logged is not adopted again.
+#[test]
+fn it_adopt_refuses_a_head_already_logged() {
+    let p = adopt_project();
+    let sha = outside_commit(&p, &["a.txt"], "outside");
+    assert!(adopt_in(&p, &sha).starts_with("commit=done"));
+    let got = adopt_in(&p, &sha);
+    assert!(
+        got.starts_with("commit=refused reason=adopted card=demo.s1 hint="),
+        "{got}"
+    );
+    assert!(got.ends_with("exit=1"), "{got}");
+}
+
+/// GW-R-033, S7 — every commit before HEAD must be logged on a card of the run.
+#[test]
+fn it_adopt_refuses_an_unlogged_earlier_commit() {
+    let p = adopt_project();
+    let first = outside_commit(&p, &["a.txt"], "first");
+    let head = outside_commit(&p, &["b.txt"], "second");
+    let line = format!("reason=unlogged sha={first} ");
+    adopt_refused(&p, &head, &line);
+}
+
+/// GW-R-034, S3 — a file outside the `files` list, either side of a rename, is refused.
+#[test]
+fn it_adopt_refuses_a_file_outside_the_files_list() {
+    let p = adopt_project();
+    let head = outside_commit(&p, &["a.txt", "c.txt"], "both");
+    adopt_refused(&p, &head, "reason=files path=c.txt ");
+
+    let p = adopt_project();
+    let first = outside_commit(&p, &["a.txt"], "a");
+    log_commit_of(&p, &first);
+    git(&p.worktree(), &["mv", "a.txt", "c.txt"]);
+    git(&p.worktree(), &["commit", "-q", "-m", "rename"]);
+    let head = git(&p.worktree(), &["rev-parse", "--short", "HEAD"]);
+    adopt_refused(&p, &head, "reason=files path=c.txt ");
+
+    let p = adopt_project();
+    let first = outside_commit(&p, &["c.txt"], "c");
+    log_commit_of(&p, &first);
+    git(&p.worktree(), &["mv", "c.txt", "a.txt"]);
+    git(&p.worktree(), &["commit", "-q", "-m", "rename"]);
+    let head = git(&p.worktree(), &["rev-parse", "--short", "HEAD"]);
+    adopt_refused(&p, &head, "reason=files path=c.txt ");
+}
+
+/// GW-R-035, S4 — attribution trailers in the message are refused with an amend hint.
+#[test]
+fn it_adopt_refuses_attribution_trailers() {
+    let p = adopt_project();
+    let trailer = format!("{}: A <a@b>", ["Co", "Authored", "By"].join("-"));
+    let head = outside_commit(&p, &["a.txt"], &format!("outside\n\n{trailer}"));
+    let got = adopt_refused(&p, &head, "reason=trailers ");
+    assert!(got.contains("amend"), "{got}");
+}
+
+/// GW-E-012 — a commit that touches no file is adopted.
+#[test]
+fn it_adopt_accepts_a_commit_touching_no_file() {
+    let p = adopt_project();
+    git(
+        &p.worktree(),
+        &["commit", "-q", "--allow-empty", "-m", "empty"],
+    );
+    let head = git(&p.worktree(), &["rev-parse", "--short", "HEAD"]);
+    let got = adopt_in(&p, &head);
+    assert!(got.starts_with("commit=done"), "{got}");
+}
+
+/// GW-R-037 — `--adopt` conflicts with `-m` and `--no-run`; `-m` is required without it.
+#[test]
+fn it_adopt_conflicts_with_message_and_no_run() {
+    let p = adopt_project();
+    let wt = p.worktree();
+    for (args, want) in [
+        (
+            &["stage", "commit", "demo.s1", "--adopt", "x", "-m", "y"][..],
+            "the argument '--adopt <SHA>' cannot be used with '--message <MESSAGE>'",
+        ),
+        (
+            &["stage", "commit", "--adopt", "x", "--no-run"][..],
+            "the argument '--adopt <SHA>' cannot be used with '--no-run'",
+        ),
+        (
+            &["stage", "commit", "demo.s1"][..],
+            "the following required arguments were not provided:\n  --message <MESSAGE>",
+        ),
+    ] {
+        let out =
+            p.gh.on(Run::new(args))
+                .env("CLAUDE_PROJECT_DIR", &p.root)
+                .cwd(&wt)
+                .output();
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(err.contains(want), "{err}");
+        assert_eq!(out.status.code(), Some(2), "{err}");
+    }
 }
 
 /// A run whose first stage is pushed and done, with the draft PR open: the
@@ -1440,6 +1683,40 @@ fn it_push_refuses_a_branch_only_behind_the_remote() {
     let got = push_text(&p);
     let line = format!("push=refused reason=diverged local={local} remote={remote} hint=");
     assert!(got.starts_with(&line), "{got}");
+}
+
+/// GW-R-036, S1 — an adopted commit is reviewed, gauntleted and pushed as a fast-forward.
+#[test]
+fn it_adopted_commit_pushes_as_a_fast_forward() {
+    let (p, _) = pushed_run();
+    let wt = p.worktree();
+    p.ok(&["board", "move", "demo.s1", "inprogress"]);
+    std::fs::create_dir_all(wt.join("src")).unwrap();
+    std::fs::write(wt.join("src/client.rs"), "client\n").unwrap();
+    git(&wt, &["add", "."]);
+    git(&wt, &["commit", "-q", "-m", "outside"]);
+    let sha = git(&wt, &["rev-parse", "--short", "HEAD"]);
+    p.ok(&["board", "move", "demo.s1", "inreview"]);
+
+    let refused = p.in_wt(&["stage", "commit", "demo.s1", "-m", "x"]);
+    let line = format!("commit=refused reason=nothing-staged head={sha} hint=");
+    assert!(refused.starts_with(&line), "{refused}");
+    let adopted = p.in_wt(&["stage", "commit", "demo.s1", "--adopt", &sha]);
+    assert_eq!(
+        adopted,
+        format!("commit=done sha={sha} card=demo.s1\nexit=0")
+    );
+    let diff = p.in_wt(&["run", "diff", "demo", "--path", "src/client.rs"]);
+    assert!(diff.contains("src/client.rs"), "{diff}");
+
+    let log = p.run_dir().join("gauntlet.log");
+    let _ = std::fs::remove_file(&log);
+    let pushed = push_text(&p);
+    assert!(pushed.starts_with("push=done sha="), "{pushed}");
+    assert!(log.is_file());
+    assert_eq!(p.origin_head("feat/demo"), sha);
+    assert_eq!(git(&wt, &["log", "-1", "--format=%B"]), "outside");
+    assert!(!p.ok(&["board", "show", "demo"]).contains("replan"));
 }
 
 /// GW-R-009 — the divergence check runs before the gauntlet.

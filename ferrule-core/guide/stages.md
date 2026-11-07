@@ -39,4 +39,5 @@ Per stage:
 Either lane.
 - `status=question` → `ferrule guide show question`, headed with the stage id; the answers go to the same implementer.
 - `status=blocked` → one stop, the card stays where it is: `ferrule prompt render {slug} blocked --stage s<n> --reason <reason>`. `1: a <text>` → relayed to the same implementer; `1: b` → `ferrule guide show replan`, the reason verbatim; `1: c` → the run halts, the board stays for `ferrule guide show resume`.
+- A blocked reason that suggests `--adopt <sha>` takes this same stop with its standard options; `1: a` relays to the same implementer, which runs `ferrule stage commit <card> --adopt <sha>` and reports `status=committed`.
 - A diverged push refusal → one stop, the card stays where it is: `ferrule prompt render {slug} blocked --local <sha> --remote <sha>`, the heads from the refusal line; the stop says to resolve it outside ferrule and never force-push. `1: a` → `ferrule pr push {slug}` again, the same refusal returning to the same stop; `1: b` → the run halts, the board stays for `ferrule guide show resume`.

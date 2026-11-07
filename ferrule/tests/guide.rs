@@ -605,7 +605,7 @@ fn it_bootstrap_suggests_no_project_rules_override() {
     assert!(skill.contains("with a `## Checks` section"), "{skill}");
 }
 
-/// GW-R-006, S2 — the implementer guide blocks a clean-worktree nothing-staged refusal with `head=`.
+/// GW-R-006, S2 — the implementer guide blocks a clean-worktree nothing-staged refusal with `head=` and an `--adopt` suggestion.
 #[test]
 fn it_implementer_guide_blocks_a_clean_nothing_staged() {
     let tmp = tempfile::tempdir().unwrap();
@@ -627,4 +627,38 @@ fn it_implementer_guide_blocks_a_clean_nothing_staged() {
         "{text}"
     );
     assert!(text.contains("`head=<sha>` in the reason"), "{text}");
+    assert!(text.contains("--adopt <sha>"), "{text}");
+    let files = text
+        .lines()
+        .find(|l| l.contains("reason=files"))
+        .unwrap_or_else(|| panic!("{text}"));
+    assert!(files.contains("re-plan"), "{files}");
+    assert!(files.contains("`reason=merge`"), "{files}");
+    assert!(files.contains("`reason=unlogged`"), "{files}");
+    assert!(files.contains("`reason=no-merge-base`"), "{files}");
+}
+
+/// GW-R-038, S2 — a blocked reason that suggests `--adopt` takes the blocked stop, and `1: a` adopts.
+#[test]
+fn it_stages_guide_routes_an_adopt_suggestion_to_the_blocked_stop() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let section = ok(
+        root,
+        &[
+            "guide",
+            "stages",
+            "--slug",
+            "demo",
+            "--section",
+            "Question and blocked stage",
+        ],
+    );
+    let line = section
+        .lines()
+        .find(|l| l.contains("--adopt"))
+        .unwrap_or_else(|| panic!("{section}"));
+    assert!(line.contains("1: a"), "{line}");
+    assert!(!line.contains("guide show replan"), "{line}");
 }

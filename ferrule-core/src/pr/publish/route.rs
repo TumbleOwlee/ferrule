@@ -36,11 +36,7 @@ impl Run<'_> {
             let mut owner = stages.last().map(|(n, _, _)| *n);
             for (n, id, _) in &stages {
                 let files = board::field(self.conn, id, "files")?.unwrap_or_default();
-                if files
-                    .trim_matches(|c| c == '[' || c == ']')
-                    .split(',')
-                    .any(|f| f.trim() == path)
-                {
+                if board::file_list(&files).contains(&path) {
                     owner = Some(*n);
                     break;
                 }
