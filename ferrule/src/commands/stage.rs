@@ -41,6 +41,28 @@ Refusals (checked in this order; each line ends in `hint=<fix>`):
                                  they may already be committed, <sha> is HEAD
   commit=refused reason=git      `git commit` failed with changes staged (a
                                  hook refused); git's message is on stderr
+With --adopt <sha>, instead of -m, HEAD (committed outside ferrule) is logged
+as the stage's commit; no commit is created and history is unchanged:
+  commit=done sha=<sha> card=<id>
+                                 Logged `commit=<sha>` on the card, as above.
+  Checked in order: main, card, state and branch as above (the run needs a
+  `branch` field), then each line ends in `hint=<fix>`:
+  commit=refused reason=dirty    The worktree holds changes
+  commit=refused reason=not-head head=<sha>
+                                 <sha> is not the branch's HEAD
+  commit=refused reason=merge parents=<n>
+                                 HEAD is a merge commit
+  commit=refused reason=adopted card=<id>
+                                 HEAD is already logged as commit= on <id>
+  commit=refused reason=unlogged sha=<sha>
+                                 A commit before HEAD is logged on no card
+  commit=refused reason=files path=<path>
+                                 HEAD touches <path>, outside the card's files
+                                 list (either side of a rename); re-plan
+  commit=refused reason=trailers
+                                 The message carries attribution trailers;
+                                 amend it if it is not pushed
+--adopt conflicts with -m and --no-run.
 With --no-run only the main-branch and nothing-staged checks apply and no
 card is touched.
 Attribution trailers are stripped from the message first.
@@ -133,11 +155,14 @@ pub enum StageCommand {
         #[arg(required_unless_present = "no_run", conflicts_with = "no_run")]
         card: Option<String>,
         /// The commit message; repeat for more paragraphs.
-        #[arg(short, long = "message", required = true)]
+        #[arg(short, long = "message", required_unless_present = "adopt")]
         message: Vec<String>,
         /// Commit outside a run: only the branch, nothing-staged and trailer rules apply.
         #[arg(long)]
         no_run: bool,
+        /// Log HEAD, committed outside ferrule, as the stage's `commit=`.
+        #[arg(long, value_name = "SHA", conflicts_with_all = ["message", "no_run"])]
+        adopt: Option<String>,
     },
     /// Verify a stage's reported commit before anything is pushed.
     ///
@@ -183,6 +208,11 @@ pub enum StageCommand {
 
 pub fn run(command: &StageCommand, out: &mut impl Write) -> io::Result<u8> {
     match command {
+        StageCommand::Commit {
+            card: Some(card),
+            adopt: Some(sha),
+            ..
+        } => super::board::adopt(card, sha, out),
         StageCommand::Commit { card, message, .. } => {
             super::board::commit(card.as_deref(), message, out)
         }

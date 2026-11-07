@@ -871,6 +871,24 @@ fn it_stage_commit_help_lists_nothing_staged() {
     assert!(!help.contains("(nothing staged,"), "{help}");
 }
 
+/// api-contract — the `stage commit` help lists the `--adopt` refusals.
+#[test]
+fn it_stage_commit_help_lists_adopt() {
+    let help = help_of("stage commit");
+    for want in [
+        "--adopt",
+        "commit=refused reason=dirty",
+        "reason=not-head head=<sha>",
+        "reason=merge parents=<n>",
+        "reason=adopted card=<id>",
+        "reason=unlogged sha=<sha>",
+        "reason=files path=<path>",
+        "reason=trailers",
+    ] {
+        assert!(help.contains(want), "{want}: {help}");
+    }
+}
+
 /// GW-R-026 — the `--no-run` note of the `stage commit` help names the nothing-staged check.
 #[test]
 fn it_stage_commit_help_names_the_check_for_no_run() {

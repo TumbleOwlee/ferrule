@@ -901,8 +901,38 @@ pub(super) fn commit(
         Ok(c) => c,
         Err(r) => return refuse(out, &r.refusal(card)),
     };
+    print_committed(&c, card, out)
+}
+
+/// The checks of `--adopt`, then `commit=` of HEAD on the card; no commit is made.
+pub(super) fn adopt(card: &str, sha: &str, out: &mut impl Write) -> io::Result<u8> {
+    use ferrule_core::run::commit;
+    let here = std::env::current_dir()?;
+    let config = super::config()?;
+    let mut db = store()?;
+    let done = commit::adopt(
+        db.as_mut(),
+        &here,
+        &config.main_branch,
+        card,
+        sha,
+        &board::now(),
+    )
+    .map_err(internal)?;
+    let c = match done {
+        Ok(c) => c,
+        Err(r) => return refuse(out, &r.refusal(Some(card))),
+    };
+    print_committed(&c, Some(card), out)
+}
+
+fn print_committed(
+    c: &ferrule_core::run::commit::Committed,
+    card: Option<&str>,
+    out: &mut impl Write,
+) -> io::Result<u8> {
     write!(out, "commit=done sha={}", c.sha)?;
-    match c.logged {
+    match &c.logged {
         None => {}
         Some(Ok(id)) => write!(out, " card={id}")?,
         Some(Err(e)) => {
