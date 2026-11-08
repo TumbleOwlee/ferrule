@@ -293,7 +293,7 @@ A project overrides a topic with `.ferrule/guide/<topic>.md`:
 
 ### Stage table
 
-`plan.md`'s `## Shared` section opens with the stage table that `ferrule gate approve <slug> gate2` creates the stage cards from (`ferrule guide show planner` defines it):
+`plan.md`'s `## Shared` section opens with the stage table that `ferrule gate approve <slug> gate2` creates the stage cards from:
 
 ```
 | Stage | Title       | Files                          | Blocked by |

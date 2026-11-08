@@ -49,8 +49,7 @@ Too many matches:
                                  match; none is printed. Every keyword must
                                  match, so add one or make one narrower
                                  (exit 1).
-Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
-See: ferrule guide show author";
+Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.";
 
 /// Shown after `ferrule spec collisions --help`.
 const COLLISIONS_AFTER_LONG_HELP: &str = "\
@@ -90,8 +89,7 @@ Refusals (exit 1):
 Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
 Examples:
   ferrule spec next MB --count 3
-  ferrule spec next MB --edge --run <slug>
-See: ferrule guide show planner";
+  ferrule spec next MB --edge --run <slug>";
 
 /// Shown after `ferrule spec refs --help`.
 const REFS_AFTER_LONG_HELP: &str = "\
@@ -115,8 +113,7 @@ Refusals:
 Exit codes: 0 ok, 1 none or refused, 2 usage, 4 internal error.
 Examples:
   ferrule spec refs MB-R-288 --path src --path tests
-  ferrule spec refs MB-R-301 --ref main --path docs/specs
-See: ferrule guide show reviewer";
+  ferrule spec refs MB-R-301 --ref main --path docs/specs";
 
 /// Shown after `ferrule spec render --help`.
 const RENDER_AFTER_LONG_HELP: &str = "\

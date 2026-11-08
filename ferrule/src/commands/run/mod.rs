@@ -213,8 +213,7 @@ Refusals (exit 1, nothing else printed):
 Exit codes: 0 ok, 1 refused, 4 internal error.
 Examples:
   ferrule run diff <slug> --specs
-  ferrule run diff <slug> --base <sha> --stat
-See: ferrule guide show reviewer";
+  ferrule run diff <slug> --base <sha> --stat";
 
 /// Shown after `ferrule run log --help`.
 const LOG_AFTER_LONG_HELP: &str = "\
@@ -223,8 +222,7 @@ newest first; with --stat each commit's files too. base is main_branch of
 ferrule.toml unless --base names another commit.
 Refusals (exit 1): the `log=refused reason=card|no-worktree|base hint=…` lines
 of `ferrule run diff --help`.
-Exit codes: 0 ok, 1 refused, 4 internal error.
-See: ferrule guide show reviewer";
+Exit codes: 0 ok, 1 refused, 4 internal error.";
 
 /// Shown after `ferrule run plan-diff --help`.
 const PLAN_DIFF_AFTER_LONG_HELP: &str = "\
@@ -235,8 +233,7 @@ both in the run's directory.
 Refusals (exit 1):
   plan-diff=refused reason=no-plan hint=the planner has not written plan.md yet
   plan-diff=refused reason=no-prev hint=no plan review has snapshotted plan.md; read it whole
-Exit codes: 0 ok, 1 refused, 4 internal error.
-See: ferrule guide show reviewer-plan";
+Exit codes: 0 ok, 1 refused, 4 internal error.";
 
 /// Shown after `ferrule run export --help`.
 const EXPORT_AFTER_LONG_HELP: &str = "\

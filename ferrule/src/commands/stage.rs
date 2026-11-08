@@ -70,7 +70,7 @@ With --no-run only the main-branch and nothing-staged checks apply and no
 card is touched.
 Attribution trailers are stripped from the message first.
 Exit codes: 0 ok, 1 refused, 4 internal error.
-See: ferrule guide show implementer";
+See: ferrule guide show stages";
 
 /// Shown after `ferrule stage verify --help`.
 const VERIFY_AFTER_LONG_HELP: &str = "\

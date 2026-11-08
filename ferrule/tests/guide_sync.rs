@@ -20,6 +20,51 @@ const PROGRAMS: &[&str] = &[
 /// Counter-examples: commands the text tells an agent never to run.
 const REFUSED: &[&str] = &["git add -A", "git commit", "git checkout"];
 
+const AGENTS: &[&[&str]] = &[
+    &["author", "author-late"],
+    &["architect", "architect-epic"],
+    &["planner", "planner-replan"],
+    &["implementer"],
+    &["reviewer", "reviewer-plan"],
+];
+
+/// Every guide an agent reads, flattened.
+fn agent_guides() -> Vec<&'static str> {
+    AGENTS
+        .iter()
+        .flat_map(|family| family.iter().copied())
+        .collect()
+}
+
+/// The topic of each `ferrule guide show <topic>` in `text`.
+fn citations(text: &str) -> Vec<String> {
+    let pattern = "ferrule guide show ";
+    text.match_indices(pattern)
+        .map(|(at, _)| {
+            text[at + pattern.len()..]
+                .chars()
+                .take_while(|c| c.is_ascii_lowercase() || *c == '-')
+                .collect()
+        })
+        .collect()
+}
+
+fn cites_agent_guide(text: &str) -> bool {
+    citations(text)
+        .iter()
+        .any(|c| agent_guides().contains(&c.as_str()))
+}
+
+/// Every command path under `path`, `path` included.
+fn command_paths(help: &mut Help, path: &[&str], out: &mut Vec<Vec<String>>) {
+    out.push(path.iter().map(|s| (*s).to_owned()).collect());
+    for sub in help.of(path).1.clone() {
+        let mut next = path.to_vec();
+        next.push(&sub);
+        command_paths(help, &next, out);
+    }
+}
+
 fn core() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../ferrule-core")
 }
@@ -255,13 +300,6 @@ fn it_guides_cite_no_agents_heading_or_readme_rule() {
 /// GA-R-029, GA-R-030 — a guide states what its own audience needs rather than citing another audience's guide.
 #[test]
 fn it_guides_cite_no_other_audiences_guide() {
-    const AGENTS: &[&[&str]] = &[
-        &["author", "author-late"],
-        &["architect", "architect-epic"],
-        &["planner", "planner-replan"],
-        &["implementer"],
-        &["reviewer", "reviewer-plan"],
-    ];
     let mut guides = Vec::new();
     markdown(&core().join("guide"), &mut guides);
     let mut problems = Vec::new();
@@ -372,4 +410,91 @@ fn it_job_guides_share_no_text_with_their_main_guide() {
         }
     }
     assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
+
+/// GA-R-039 — no command's help cites an agent's guide.
+#[test]
+fn it_command_help_cites_no_agents_guide() {
+    let mut help = Help(HashMap::new());
+    let mut paths = Vec::new();
+    command_paths(&mut help, &[], &mut paths);
+    let mut seen = 0;
+    let mut problems = Vec::new();
+    for path in &paths {
+        let args: Vec<&str> = path.iter().map(String::as_str).collect();
+        let text = help.of(&args).0.clone();
+        if text.contains("See: ferrule guide show") {
+            seen += 1;
+        }
+        if cites_agent_guide(&text) {
+            problems.push(path.join(" "));
+        }
+    }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+    assert!(seen >= 20, "{seen} helps hold a See line");
+}
+
+/// GA-R-040 — `stage commit` cites the `stages` topic.
+#[test]
+fn it_stage_commit_help_cites_the_stages_topic() {
+    let mut help = Help(HashMap::new());
+    let text = &help.of(&["stage", "commit"]).0;
+    assert!(text.contains("See: ferrule guide show stages"), "{text}");
+}
+
+/// GA-R-041 — six commands carry no `See:` line and keep their own facts.
+#[test]
+fn it_six_commands_have_no_see_line() {
+    let mut help = Help(HashMap::new());
+    for (path, refusal) in [
+        (["run", "diff"], "diff=refused"),
+        (["run", "log"], "log=refused"),
+        (["run", "plan-diff"], "plan-diff=refused"),
+        (["spec", "related"], "related=too-many"),
+        (["spec", "next"], "next=refused"),
+        (["spec", "refs"], "refs=refused"),
+    ] {
+        let text = &help.of(&path).0;
+        let name = path.join(" ");
+        assert!(!text.contains("See:"), "{name}: {text}");
+        let output = if name == "spec next" {
+            "Output, one line:"
+        } else {
+            "Output"
+        };
+        for needle in ["Exit codes:", output, refusal] {
+            assert!(text.contains(needle), "{name} lacks {needle}: {text}");
+        }
+    }
+}
+
+/// GA-R-042, GA-E-001 — only `fe-review` cites an agent guide, the reviewer's.
+#[test]
+fn it_skills_cite_no_agents_guide() {
+    let mut skills = Vec::new();
+    markdown(&core().join("install/claude/skills"), &mut skills);
+    assert!(skills.len() >= 4, "{} skills", skills.len());
+    for (name, text) in &skills {
+        let cited: Vec<String> = citations(text)
+            .into_iter()
+            .filter(|c| agent_guides().contains(&c.as_str()))
+            .collect();
+        if name.ends_with("fe-review.md") {
+            assert!(
+                !cited.is_empty() && cited.iter().all(|c| c == "reviewer"),
+                "{name}: {cited:?}"
+            );
+        } else {
+            assert!(cited.is_empty(), "{name}: {cited:?}");
+        }
+    }
+}
+
+/// GA-R-043 — the README cites no agent's guide and keeps the stage table.
+#[test]
+fn it_readme_cites_no_agents_guide() {
+    let readme =
+        fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../README.md")).unwrap();
+    assert!(!cites_agent_guide(&readme));
+    assert!(readme.contains("| Stage | Title"));
 }
