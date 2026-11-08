@@ -521,19 +521,55 @@ pub fn last_logged(conn: &Connection, id: &str, key: &str) -> rusqlite::Result<O
     .optional()
 }
 
-/// The `sha=` of every `gauntlet=pass` line on a card, oldest first.
+/// The `sha=` of every `gauntlet=pass` on a card logged after its last
+/// `rebase=`, oldest first.
 pub fn pass_shas(conn: &Connection, id: &str) -> rusqlite::Result<Vec<String>> {
-    Ok(events(conn, id, &[Name::Gauntlet])?
+    let mut shas = Vec::new();
+    for e in events(conn, id, &[Name::Gauntlet, Name::Rebase])? {
+        match e.typed() {
+            Typed::Rebase { .. } => shas.clear(),
+            Typed::Gauntlet {
+                result: Verdict::Pass,
+                sha: Some(sha),
+                ..
+            } => shas.push(sha.to_owned()),
+            _ => {}
+        }
+    }
+    Ok(shas)
+}
+
+/// The `sha=` of the run card's newest `gauntlet=pass`, a later
+/// `gauntlet=fail` or `rebase=` not hiding it.
+pub fn last_pushed(conn: &Connection, run: &str) -> rusqlite::Result<Option<String>> {
+    Ok(events(conn, run, &[Name::Gauntlet])?
         .iter()
-        .filter_map(|e| match e.typed() {
+        .rev()
+        .find_map(|e| match e.typed() {
             Typed::Gauntlet {
                 result: Verdict::Pass,
                 sha: Some(sha),
                 ..
             } => Some(sha.to_owned()),
             _ => None,
-        })
-        .collect())
+        }))
+}
+
+/// Whether the run card's newest `rebase=` is newer than its newest
+/// `gauntlet=pass`.
+pub fn rebased_since_push(conn: &Connection, run: &str) -> rusqlite::Result<bool> {
+    let newest = |name: &str, extra: &str| -> rusqlite::Result<Option<i64>> {
+        conn.query_row(
+            &format!("SELECT MAX(id) FROM events WHERE card = ?1 AND name = ?2{extra}"),
+            [run, name],
+            |r| r.get(0),
+        )
+    };
+    let Some(rebase) = newest(Name::Rebase.stored(), "")? else {
+        return Ok(false);
+    };
+    let pass = newest(Name::Gauntlet.stored(), " AND value = 'pass'")?.unwrap_or(0);
+    Ok(rebase > pass)
 }
 
 /// IDs of run `run`'s requirements reworded after filing, from the
@@ -1436,6 +1472,14 @@ impl Reader<'_> {
         pass_shas(self.conn(), id)
     }
 
+    pub fn last_pushed(&self, run: &str) -> rusqlite::Result<Option<String>> {
+        last_pushed(self.conn(), run)
+    }
+
+    pub fn rebased_since_push(&self, run: &str) -> rusqlite::Result<bool> {
+        rebased_since_push(self.conn(), run)
+    }
+
     pub fn reworded_ids(&self, run: &str) -> rusqlite::Result<HashSet<String>> {
         reworded_ids(self.conn(), run)
     }
@@ -1822,6 +1866,58 @@ mod tests {
         log(&mut s.conn, "r", "gauntlet=pass", &a("sha=abc1234"), "t").unwrap();
         assert_eq!(pass_shas(&s.conn, "r").unwrap(), ["abc1234"]);
         move_card(&mut s.conn, "r.s1", State::Done, "t").unwrap();
+    }
+
+    fn run_card() -> Store {
+        let mut s = store();
+        create(&mut s.conn, "r", State::Open, &[], "t").unwrap();
+        s
+    }
+
+    /// GW-R-045 — only passes logged after the run's last `rebase=` count.
+    #[test]
+    fn ut_pass_shas_skips_passes_before_the_last_rebase() {
+        let s = run_card();
+        raw(&s, "r", "t1", "gauntlet=pass cov=? sha=aaa1111");
+        raw(
+            &s,
+            "r",
+            "t2",
+            "rebase=xxx2222 base=origin/main from=aaa1111",
+        );
+        raw(&s, "r", "t3", "gauntlet=pass cov=? sha=bbb2222");
+        assert_eq!(pass_shas(&s.conn, "r").unwrap(), ["bbb2222"]);
+        raw(&s, "r", "t4", "rebase=yyy3333");
+        assert!(pass_shas(&s.conn, "r").unwrap().is_empty());
+    }
+
+    /// The last pushed head survives a later fail and a rebase.
+    #[test]
+    fn ut_last_pushed_reads_the_last_pass_across_rebases() {
+        let s = run_card();
+        assert_eq!(last_pushed(&s.conn, "r").unwrap(), None);
+        raw(&s, "r", "t1", "gauntlet=pass cov=? sha=aaa1111");
+        raw(&s, "r", "t2", "rebase=xxx2222");
+        raw(&s, "r", "t3", "gauntlet=fail reason=x");
+        assert_eq!(
+            last_pushed(&s.conn, "r").unwrap().as_deref(),
+            Some("aaa1111")
+        );
+    }
+
+    /// A rebase counts as unpushed until a later pass.
+    #[test]
+    fn ut_rebased_since_push_compares_the_last_rebase_and_pass() {
+        let s = run_card();
+        assert!(!rebased_since_push(&s.conn, "r").unwrap());
+        raw(&s, "r", "t1", "gauntlet=pass cov=? sha=aaa1111");
+        assert!(!rebased_since_push(&s.conn, "r").unwrap());
+        raw(&s, "r", "t2", "rebase=xxx2222");
+        assert!(rebased_since_push(&s.conn, "r").unwrap());
+        raw(&s, "r", "t3", "gauntlet=pass cov=? sha=bbb2222");
+        assert!(!rebased_since_push(&s.conn, "r").unwrap());
+        raw(&s, "r", "t4", "rebase=yyy3333");
+        assert!(rebased_since_push(&s.conn, "r").unwrap());
     }
 
     #[test]

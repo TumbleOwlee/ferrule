@@ -135,9 +135,69 @@ pub fn is_ancestor(dir: &Path, rev: &str, of: &str) -> bool {
     ok(dir, &["merge-base", "--is-ancestor", rev, of])
 }
 
+/// The checkout's git directory: `<dir>/.git` itself, or the path a
+/// linked worktree's `.git` file names.
+fn git_dir(dir: &Path) -> Option<std::path::PathBuf> {
+    let dot = dir.join(".git");
+    if dot.is_dir() {
+        return Some(dot);
+    }
+    let text = std::fs::read_to_string(&dot).ok()?;
+    let path = text.lines().next()?.strip_prefix("gitdir:")?.trim();
+    Some(dir.join(path))
+}
+
+/// Whether a rebase is stopped in the checkout at `dir`; a `dir` that is no
+/// checkout is not.
+#[must_use]
+pub fn rebase_in_progress(dir: &Path) -> bool {
+    git_dir(dir).is_some_and(|g| g.join("rebase-merge").exists() || g.join("rebase-apply").exists())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn g(dir: &Path, args: &[&str]) -> bool {
+        let mut a = vec![
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "commit.gpgsign=false",
+        ];
+        a.extend_from_slice(args);
+        ok(dir, &a)
+    }
+
+    /// A stopped rebase is seen in a linked worktree only.
+    #[test]
+    fn ut_rebase_in_progress_sees_a_stopped_rebase_in_a_worktree() {
+        let t = tempfile::tempdir().unwrap();
+        let main = t.path().join("m");
+        let wt = t.path().join("w");
+        std::fs::create_dir(&main).unwrap();
+        assert!(g(&main, &["init", "-q", "-b", "main"]));
+        std::fs::write(main.join("f"), "0\n").unwrap();
+        assert!(g(&main, &["add", "f"]));
+        assert!(g(&main, &["commit", "-qm", "0"]));
+        assert!(g(
+            &main,
+            &["worktree", "add", "-q", "-b", "feat", wt.to_str().unwrap()]
+        ));
+        std::fs::write(wt.join("f"), "feat\n").unwrap();
+        assert!(g(&wt, &["commit", "-qam", "feat"]));
+        std::fs::write(main.join("f"), "main\n").unwrap();
+        assert!(g(&main, &["commit", "-qam", "main"]));
+        assert!(!rebase_in_progress(&wt));
+        assert!(!g(&wt, &["rebase", "main"]));
+        assert!(rebase_in_progress(&wt));
+        assert!(!rebase_in_progress(&main));
+        assert!(g(&wt, &["rebase", "--abort"]));
+        assert!(!rebase_in_progress(&wt));
+        assert!(!rebase_in_progress(t.path()));
+    }
 
     #[test]
     fn ut_run_carries_stderr_and_code_of_a_failing_command() {
