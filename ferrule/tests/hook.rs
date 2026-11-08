@@ -845,3 +845,110 @@ fn it_shell_guard_sees_gh_writes_however_spelled() {
         ],
     );
 }
+
+/// SG-R-009, SG-R-011, SG-R-013, SG-E-004 — the read-only guard judges an
+/// `rtk`-wrapped command as the bare program.
+#[test]
+fn it_read_only_guard_judges_rtk_commands_as_the_bare_program() {
+    let p = project();
+    let allow = [
+        "rtk cargo fmt --check",
+        "rtk cargo fmt --all -- --check",
+        "rtk git log -1",
+        "rtk -v git log -1",
+        "rtk --ultra-compact git status",
+        "rtk grep x notes.md",
+        "rtk rg x",
+        "rtk find . -name x",
+        "rtk ls",
+        "rtk tree",
+        "rtk wc notes.md",
+        "rtk diff notes.md big.txt",
+        "rtk read big.txt",
+        "rtk read -l minimal big.txt",
+        "rtk read big.txt --max-lines 50",
+        "rtk git log -1 | wc -l",
+    ];
+    let deny = [
+        "rtk git commit -m x",
+        "rtk cargo fmt",
+        "rtk cargo fmt --check --print-config default r.toml",
+        "rtk cargo fmt --check -- --config x=y",
+        "rtk -v git commit -m x",
+        "rtk rg --pre x y",
+        "rtk grep --pre x y",
+        "rtk grep x . --hostname-bin y",
+        "rtk find . -delete",
+        "rtk tree -o x",
+        "ls; rtk git commit -m x",
+        "rtk read big.txt > out.txt",
+    ];
+    let cases: Vec<(&str, &str)> = allow
+        .iter()
+        .map(|c| (*c, "allow"))
+        .chain(deny.iter().map(|c| (*c, "deny")))
+        .collect();
+    check("reviewer", p.path(), &cases);
+}
+
+/// SG-R-014, SG-E-003, SG-E-005 — other `rtk` forms stay refused.
+#[test]
+fn it_read_only_guard_refuses_other_rtk_forms() {
+    let p = project();
+    let cases: Vec<(&str, &str)> = [
+        "rtk",
+        "rtk --version",
+        "rtk -v",
+        "rtk run x",
+        "rtk proxy git log",
+        "rtk err cargo test",
+        "rtk test cargo test",
+        "rtk summary ls",
+        "rtk curl x",
+        "rtk wget x",
+        "rtk docker ps",
+        "rtk config",
+        "rtk --foo git log -1",
+        "rtk --foo x git log -1",
+    ]
+    .iter()
+    .map(|c| (*c, "deny"))
+    .collect();
+    check("reviewer", p.path(), &cases);
+}
+
+/// SG-R-010, SG-R-012, SG-R-013, SG-R-015, SG-R-016, SG-E-004, SG-E-006 —
+/// the shell guard judges an `rtk`-wrapped command as the bare program.
+#[test]
+fn it_shell_guard_judges_rtk_commands_as_the_bare_program() {
+    let p = project();
+    let allow = [
+        "rtk read .claude/settings.json",
+        "rtk read big.txt --max-lines 50",
+        "rtk read -m 5 notes.md",
+        "rtk read notes.md --max-lines 5",
+        "rtk read big.txt --tail-lines 20",
+        "rtk read big.txt > copy.txt",
+        "rtk read notes.md | head -5",
+        "rtk git diff --stat",
+        "rtk git log -1",
+    ];
+    let deny = [
+        "rtk read notes.md",
+        "rtk read big.txt",
+        "rtk -v read notes.md",
+        "rtk read -l notes.md nosuch.txt",
+        "rtk git diff",
+        "rtk find . -type f",
+        "rtk git commit -m x",
+        "rtk git push",
+        "rtk read big.txt > .ferrule/state.db",
+        "git status && rtk git commit -m x",
+    ];
+    let cases: Vec<(&str, &str)> = allow
+        .iter()
+        .map(|c| (*c, "allow"))
+        .chain(deny.iter().map(|c| (*c, "deny")))
+        .collect();
+    check("shell", p.path(), &cases);
+}

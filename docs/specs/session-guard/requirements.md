@@ -19,3 +19,23 @@
 **SG-R-007** — While a rebase is in progress in a run's worktree, the session guard refuses every git write in that worktree other than those of SG-R-006, `git commit`, `git push` and every other `git rebase` included, with a hint naming what still runs and the rebase command.
 
 **SG-R-008** — Outside a run's worktree with a rebase in progress, the session guard refuses a raw `git rebase`, `--continue` and `--abort` included, with a hint naming the rebase command.
+
+## Commands through rtk
+
+**SG-R-009** — The read-only guard gives `rtk <program> <args>` the verdict it gives `<program> <args>` when `<program>` is `git`, `cargo`, `grep`, `rg`, `find`, `ls`, `tree`, `wc` or `diff`, so SG-R-001 to SG-R-005, SG-E-001 and SG-E-002 hold through `rtk`, except where SG-R-017 refuses.
+
+**SG-R-010** — The session guard gives `rtk <program> <args>` the verdict and refusal hint it gives `<program> <args>` when `<program>` is `git`, `cargo`, `grep`, `rg`, `find`, `ls`, `tree`, `wc` or `diff`, so SG-R-006 to SG-R-008 hold through `rtk`.
+
+**SG-R-011** — The read-only guard judges `rtk read <args>` as `cat <args>` when, before any `--`, `<args>` holds none of `-m`, `--max-lines` and `--tail-lines`, value attached or not.
+
+**SG-R-012** — The session guard judges `rtk read <args>` as `cat <args>` when, before any `--`, `<args>` holds none of `-m`, `--max-lines` and `--tail-lines`, value attached or not.
+
+**SG-R-013** — `rtk`'s global flags before the subcommand do not change the verdict of either guard.
+
+**SG-R-014** — The read-only guard refuses every `rtk` subcommand other than `read` and those SG-R-009 lists, `run`, `proxy`, `err`, `test`, `summary`, `curl`, `wget`, `docker` and `config` included.
+
+**SG-R-015** — Each guard judges `rtk read <args>` as `head <args>` when, before any `--`, `<args>` holds `-m` or `--max-lines`, value attached or not.
+
+**SG-R-016** — Each guard judges `rtk read <args>` as `tail <args>` when, before any `--`, `<args>` holds `--tail-lines`, value attached or not, and neither `-m` nor `--max-lines`.
+
+**SG-R-017** — The read-only guard also refuses `rtk grep <args>` wherever it refuses `rg <args>`, since `rtk` runs `rg` for it.
