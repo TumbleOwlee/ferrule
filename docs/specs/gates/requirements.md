@@ -83,3 +83,5 @@
 **GA-R-036** — The implementer guide reads `Rules for writing specs` before a spec change.
 
 **GA-R-037** — The bootstrap skill suggests no `## Project rules` override.
+
+**GA-R-038** — The command the `planner-replan` guide names for questions prints the `question.md` shape.
