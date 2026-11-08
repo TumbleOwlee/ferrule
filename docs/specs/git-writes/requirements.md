@@ -133,3 +133,5 @@
 **GW-R-061** — `ferrule pr push` in a run refuses while a rebase is in progress in the run's worktree.
 
 **GW-R-062** — In a run with a rebase recorded since its last push, a remote-head check that cannot complete lets the gauntlet and the leased force-push go on.
+
+**GW-R-064** — After a mapped rebase, `ferrule run status` prints `gauntlet=-` until a later gauntlet line is logged.

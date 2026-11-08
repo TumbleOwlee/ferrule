@@ -2551,6 +2551,26 @@ fn it_push_after_a_rebase_reruns_a_cached_gauntlet() {
     assert!(log.is_file());
 }
 
+/// GW-R-064 — after a mapped rebase the status shows no gauntlet result until a later push logs one.
+#[test]
+fn it_run_status_shows_no_gauntlet_result_from_before_a_rebase() {
+    let p = pushed_s1();
+    let has = |p: &Project, line: &str| {
+        p.ok(&["run", "status", "demo"])
+            .lines()
+            .any(|l| l.starts_with(line))
+    };
+    assert!(has(&p, "gauntlet=pass"));
+    p.diverge_branch("main");
+    let got = rebase(&p, &[]);
+    assert!(got.starts_with("rebase=done"), "{got}");
+    let st = p.ok(&["run", "status", "demo"]);
+    assert!(st.lines().any(|l| l == "gauntlet=-"), "{st}");
+    let got = push_text(&p);
+    assert!(got.starts_with("push=done"), "{got}");
+    assert!(has(&p, "gauntlet=pass"));
+}
+
 /// GW-R-051 — a remote moved by someone else refuses the force-push before the gauntlet.
 #[test]
 fn it_push_after_a_rebase_refuses_a_remote_moved_by_someone_else() {

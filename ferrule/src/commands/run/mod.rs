@@ -214,7 +214,8 @@ Output, local only (no host call):
                                  Commits since main_branch and files with
                                  uncommitted changes; `worktree=missing
                                  path=<path>` when it is not there.
-  gauntlet=<pass|fail> ...       The parent's last gauntlet line, `-` if none.
+  gauntlet=<pass|fail> ...       The parent's last gauntlet line, `-` if none
+                                 or if a rebase= was logged after it.
   ci=<code|->                    The parent's last `ci=`.
   last=<card> <at> <event> ...   The run's last logged line; left out when
                                  the run has logged nothing.
