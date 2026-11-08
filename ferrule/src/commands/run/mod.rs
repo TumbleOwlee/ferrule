@@ -19,7 +19,10 @@ Output:
                                    --issue named a slice of epic <n>; the card
                                    records kind and epic
 With --issue the run directory also holds request.md and issue-spec.md (when
-the issue carries them) and, for a slice, slice-line.md and epic.md.
+the issue carries them) and, for a slice, slice-line.md and epic.md; the card
+records the named issue as `named-issue`.
+With --request the card records `kind=request` and no slice is detected: no
+epic is read and no slice-line.md or epic.md is written.
 Refusals:
   init=refused reason=exists       The run already has a card or stage cards;
                                    resume it with `ferrule run reconcile <slug>`Errors (stderr):
@@ -246,6 +249,9 @@ pub enum RunCommand {
         /// The issue the user named: a GitHub number or URL, or a Jira key.
         #[arg(long)]
         issue: Option<ItemRef>,
+        /// Mark the run as a `/fe-request` run: no slice is detected.
+        #[arg(long)]
+        request: bool,
     },
     /// Reconcile a run's cards with git and the host before resuming.
     ///
@@ -352,7 +358,11 @@ pub enum RunCommand {
 
 pub fn run(command: &RunCommand, out: &mut impl Write) -> io::Result<u8> {
     match command {
-        RunCommand::Init { slug, issue } => start::init(slug, issue.as_ref(), out),
+        RunCommand::Init {
+            slug,
+            issue,
+            request,
+        } => start::init(slug, issue.as_ref(), *request, out),
         RunCommand::Reconcile { slug, local } => start::reconcile(slug, *local, out),
         RunCommand::Rebuild { issue, pr } => start::rebuild(issue, pr, out),
         RunCommand::Cleanup { slug } => finish::cleanup(slug, out),

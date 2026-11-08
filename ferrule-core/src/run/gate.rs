@@ -208,13 +208,17 @@ fn comments(item: &Item) -> String {
 /// Creates the parent card and the run's directory. With an issue the user
 /// named, stores its request and any brief it carries; a slice issue also
 /// gets its `**Part of epic**` line and the epic as it stands, and the card
-/// records `kind: slice` and `epic`. Returns the epic of a slice.
+/// records `kind: slice` and `epic`, and the card records the named issue as
+/// `named-issue`. With `request` the run is a `/fe-request` run: the card
+/// records `kind: request` and no epic is looked up. Returns the epic of a
+/// slice.
 pub fn init(
     db: &mut Board,
     layout: &Layout,
     config: &Config,
     slug: &str,
     issue: Option<&ItemRef>,
+    request: bool,
     now: &str,
 ) -> Result<Option<String>, Error> {
     let conn = db.conn_mut();
@@ -226,12 +230,19 @@ pub fn init(
     let item = issue.map(|n| tracker.view(n)).transpose()?;
     let epic = item
         .as_ref()
+        .filter(|_| !request)
         .and_then(|i| request::part(&i.body, Part::Epic).into_iter().next());
     let epic_item = epic
         .as_deref()
         .map(|e| ItemRef::parse(e).and_then(|e| tracker.view(&e)))
         .transpose()?;
     let mut fields = Vec::new();
+    if request {
+        fields.push(("kind".to_owned(), "request".to_owned()));
+    }
+    if let Some(n) = issue {
+        fields.push(("named-issue".to_owned(), n.to_string()));
+    }
     if let Some(e) = &epic {
         fields.push(("kind".to_owned(), "slice".to_owned()));
         fields.push(("epic".to_owned(), e.clone()));

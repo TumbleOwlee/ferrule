@@ -11,11 +11,24 @@ use ferrule_core::run::{self as core_run, Error, diverged, gate, rebuild};
 use crate::commands::board::{create_store, run_on, store};
 use crate::commands::{exit, internal, layout, refuse};
 
-pub(super) fn init(slug: &str, issue: Option<&ItemRef>, out: &mut impl Write) -> io::Result<u8> {
+pub(super) fn init(
+    slug: &str,
+    issue: Option<&ItemRef>,
+    request: bool,
+    out: &mut impl Write,
+) -> io::Result<u8> {
     let layout = layout();
     let config = crate::commands::config()?;
     let mut s = create_store()?;
-    match gate::init(&mut s, &layout, &config, slug, issue, &board::now()) {
+    match gate::init(
+        &mut s,
+        &layout,
+        &config,
+        slug,
+        issue,
+        request,
+        &board::now(),
+    ) {
         Ok(epic) => {
             write!(out, "init=done slug={slug}")?;
             if let Some(e) = epic {
