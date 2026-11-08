@@ -221,6 +221,14 @@ pub const VOCABULARY: &[Event] = &[
     .by("ferrule issue post <slug>"),
     ev(Parent, "ci=", V::Any, P::None, &[], Text::No).by("ferrule ci wait <slug>"),
     ev(Parent, "ci-waived", V::None, P::None, &[], Text::Required),
+    ev(
+        Parent,
+        "issue-waived",
+        V::None,
+        P::None,
+        &[],
+        Text::Required,
+    ),
 ];
 
 /// The longest log line, timestamp included, in chars.
@@ -1073,6 +1081,7 @@ mod tests {
                 "spec-keep=",
                 "overturned",
                 "ci-waived",
+                "issue-waived",
             ]
         );
     }

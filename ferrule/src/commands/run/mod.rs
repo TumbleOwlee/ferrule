@@ -108,6 +108,9 @@ Output:
                                    (`ferrule run export` writes it back), in
                                    one transaction; then the worktree, local
                                    branch and run directory are removed
+  cleanup=done archive=<id> issue=<n>
+                                   The run references issue <n>: the one it
+                                   filed, else the one `run init --issue` named
   cleanup=done archive=none        Nothing was left to archive
   cleanup=done archive=<id> resumed
                                    An earlier cleanup archived the run but
@@ -123,6 +126,16 @@ Refusals before the archive is written (nothing is changed):
   cleanup=refused reason=no-ci                No ci= logged; `ferrule ci wait`
   cleanup=refused reason=ci-red               The last ci= is not 0 and no later
                                               ci-waived line exists
+  cleanup=refused reason=issue-open           The run opened no PR and its issue
+                                              is still open; finish the run or
+                                              close the issue
+  cleanup=refused reason=issue-unreadable     The run opened no PR and its
+                                              issue's state could not be read;
+                                              on the user's word only, log
+                                              `issue-waived` with a reason
+CI is not asked of a request run (`kind=request`), an epic, or a run
+without a PR whose issue is not open (no issue, or a closed one); its metrics
+line records ci=-. A run with a PR needs a green or waived CI result.
 Refusals after it (the run is archived; rerun to finish):
   cleanup=refused reason=worktree-remove-failed
                                               git could not remove the worktree;
@@ -277,8 +290,10 @@ pub enum RunCommand {
     /// Clean up a finished run.
     ///
     /// Removes the worktree and the local branch and archives the cards and
-    /// files. Refuses while the worktree holds unpushed work or CI is not
-    /// green.
+    /// files. Refuses while the worktree holds unpushed work, while CI is
+    /// not green (a request run, an epic and a run without a PR whose issue
+    /// is not open need no CI result), or while a run without a PR has an
+    /// issue that is open or cannot be read.
     #[command(after_long_help = CLEANUP_AFTER_LONG_HELP)]
     Cleanup {
         /// The run's slug.

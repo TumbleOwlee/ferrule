@@ -910,3 +910,19 @@ fn it_pr_push_help_lists_diverged() {
         "{help}"
     );
 }
+
+/// RU-R-011 — the `run cleanup` help states the CI exemptions and the issue refusals.
+#[test]
+fn it_cleanup_help_states_exemptions_and_issue_refusals() {
+    let help = help_of("run cleanup");
+    for want in [
+        "reason=issue-open",
+        "reason=issue-unreadable",
+        "issue=<n>",
+        "kind=request",
+        "issue-waived",
+        "without a PR whose issue is not open",
+    ] {
+        assert!(help.contains(want), "{want}: {help}");
+    }
+}

@@ -6,6 +6,7 @@ use std::path::Path;
 use ferrule_core::card::board;
 use ferrule_core::project::DIR;
 use ferrule_core::refusal::Refusal;
+use ferrule_core::remote;
 use ferrule_core::run::archive::{self, Error as ArchiveError};
 
 use crate::commands::board::store;
@@ -54,13 +55,18 @@ pub(super) fn cleanup(slug: &str, out: &mut impl Write) -> io::Result<u8> {
     let Some(mut s) = store()? else {
         return refuse(out, &Refusal::card("cleanup"));
     };
-    let refusal = match archive::cleanup(&mut s, &layout, slug, &board::now()) {
+    let config = crate::commands::config()?;
+    let tracker = remote::issue_tracker(&config, &layout.root);
+    let refusal = match archive::cleanup(&mut s, &layout, slug, &board::now(), &*tracker) {
         Ok(done) => {
             let id = done
                 .archive
                 .map_or_else(|| "none".to_owned(), |i| i.to_string());
             let resumed = if done.resumed { " resumed" } else { "" };
-            writeln!(out, "cleanup=done archive={id}{resumed}")?;
+            let issue = done
+                .issue
+                .map_or_else(String::new, |i| format!(" issue={i}"));
+            writeln!(out, "cleanup=done archive={id}{resumed}{issue}")?;
             return Ok(exit::OK);
         }
         Err(ArchiveError::Refused(r)) => r.refusal(slug),

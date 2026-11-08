@@ -208,7 +208,7 @@ fn comments(item: &Item) -> String {
 /// Creates the parent card and the run's directory. With an issue the user
 /// named, stores its request and any brief it carries; a slice issue also
 /// gets its `**Part of epic**` line and the epic as it stands, and the card
-/// records `kind: slice` and `epic`, and the card records the named issue as
+/// records `kind: slice` and `epic`. The card records the named issue as
 /// `named-issue`. With `request` the run is a `/fe-request` run: the card
 /// records `kind: request` and no epic is looked up. Returns the epic of a
 /// slice.
