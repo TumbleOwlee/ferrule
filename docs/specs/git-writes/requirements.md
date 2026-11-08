@@ -135,3 +135,5 @@
 **GW-R-062** — In a run with a rebase recorded since its last push, a remote-head check that cannot complete lets the gauntlet and the leased force-push go on.
 
 **GW-R-064** — After a mapped rebase, `ferrule run status` prints `gauntlet=-` until a later gauntlet line is logged.
+**GW-R-065** — After a mapped rebase, the PR body's status line takes its coverage only from a gauntlet line logged after the run's last `rebase=`.
+**GW-R-066** — After a mapped rebase, a stage's auto-continue notice takes its coverage and commit only from a `gauntlet=pass` logged after the run's last `rebase=`.

@@ -983,7 +983,8 @@ fn next_stage(run: &Run, me: u32) -> Result<Option<u32>, Error> {
         .find(|&n| n > me))
 }
 
-/// The one-line notice of a stage that auto-continues.
+/// The one-line notice of a stage that auto-continues: its coverage and commit
+/// come from the newest pass after the run's last `rebase=`.
 fn auto(run: &Run, args: &[(String, String)]) -> Result<Vec<String>, Error> {
     let sid = arg(args, "stage").ok_or(Error::Usage)?;
     let me: u32 = sid
@@ -991,10 +992,11 @@ fn auto(run: &Run, args: &[(String, String)]) -> Result<Vec<String>, Error> {
         .parse()
         .map_err(|_| Error::Usage)?;
     let next = next_stage(run, me)?.map_or_else(|| "gate 4".to_owned(), |n| format!("s{n}"));
-    let events = board::events(run.conn, run.slug, &[Name::Gauntlet])?;
+    let events = board::events(run.conn, run.slug, &[Name::Gauntlet, Name::Rebase])?;
     let (cov, sha) = events
         .iter()
         .rev()
+        .take_while(|e| !matches!(e.typed(), Typed::Rebase { .. }))
         .find_map(|e| match e.typed() {
             Typed::Gauntlet {
                 result: Verdict::Pass,

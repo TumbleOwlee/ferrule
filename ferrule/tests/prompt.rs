@@ -6,7 +6,7 @@ mod golden;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use golden::{Run, check, fixtures};
+use golden::{Run, check, fixtures, seed_log};
 
 const NOW: &str = "2026-10-05T09:00";
 
@@ -258,6 +258,37 @@ fn it_render_blocked_diverged() {
     .golden("prompt-render-blocked-diverged");
     let shown = ferrule(p, &["board", "show", "demo"]).text();
     assert!(shown.contains(" stop kind=blocked"), "{shown}");
+}
+
+/// GW-R-066 — the auto-continue notice shows no pass from before the run's last rebase.
+#[test]
+fn it_render_auto_shows_no_pass_from_before_a_rebase() {
+    let p = project();
+    let p = p.path();
+    let at = "2026-10-05T09:00";
+    let notice = || render(p, &["demo", "auto", "--stage", "s1"]).text();
+    assert!(notice().contains("gauntlet pass 81.2% · pushed bbb2222"));
+    seed_log(
+        p,
+        at,
+        "demo",
+        &["rebase=ccc3333", "base=origin/main", "from=bbb2222"],
+    );
+    assert!(notice().contains("gauntlet pass - · pushed -"));
+    seed_log(
+        p,
+        at,
+        "demo",
+        &["gauntlet=fail", "step=test", "sha=ccc3333"],
+    );
+    assert!(notice().contains("gauntlet pass - · pushed -"));
+    seed_log(
+        p,
+        at,
+        "demo",
+        &["gauntlet=pass", "cov=90.0%", "sha=ccc3333"],
+    );
+    assert!(notice().contains("gauntlet pass 90.0% · pushed ccc3333"));
 }
 
 /// GW-R-028 — one head alone is a usage error; both or neither render.
