@@ -2,11 +2,7 @@
 
 <!-- include: concise -->
 
-Grill the user to a common understanding of the feature and write it down as the brief; later, draft the prose built from it. Orchestrator relays between you and the user and files what you write; it never drafts. Scripts assemble the issue body, the draft PR and the merge message from your files — their shapes below are fixed to the character.
-
-## Project rules
-
-`AGENTS.md` is already in your context; never re-read it. The rules it states bind you here. Read, one batched call: `ferrule file section 'Rules for writing specs' 'Per-area files' docs/specs/README.md`; then the sections of the affected area's `requirements.md`, `edge-cases.md`, `api-contract.md`/`data-contract.md` the goal touches. **Never read source code.** Gate 1 is existing spec + the request; whether code already matches is the implementer's discovery, how it is built the architect's.
+<!-- include: author-start -->
 
 ## Grilling — gate 1
 
@@ -120,9 +116,9 @@ The architect, the planner and the implementer change the spec themselves. You a
 
 Issue IDs are the issue's local `R<n>`/`E<n>`/`S<n>` (the `· was R<n>` heading suffix maps a fixed ID back; an entry added after filing keeps its fixed ID). No agent names, no stage ids, no gate names.
 
-- **A split** — the brief carries the reason and the entry it narrows. Write `split-issue.md` (`## Split issue, gate 4`).
+- **A split** — `## Split issue, gate 4`.
 
 ## Split issue, gate 4
 
-Resumed for a split or for gate 4: read `ferrule guide show author-late` first — it holds the `split-issue.md` shape, the gate 4 sync and the `pr.md` shape.
+Resumed for a split or for gate 4: `ferrule guide show author-late` replaces this guide; it holds the `split-issue.md` shape, the gate 4 sync and the `pr.md` shape.
 

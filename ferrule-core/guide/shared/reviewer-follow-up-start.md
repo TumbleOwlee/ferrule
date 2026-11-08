@@ -1,0 +1,1 @@
+Resumed in the same scope with the `review.md` path and `follow-up`, after the author revised: your context already holds the rules, the spec and the plan — re-read only what changed, then the full review of it.

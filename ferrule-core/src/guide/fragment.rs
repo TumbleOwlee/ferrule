@@ -42,6 +42,19 @@ fragments! {
     Questions "questions",
     Concise "concise",
     IdCitation "id-citation",
+    AuthorStart "author-start",
+    ArchitectStart "architect-start",
+    ArchitectSpecEdits "architect-spec-edits",
+    ArchitectOutput "architect-output",
+    ArchitectEnd "architect-end",
+    PlannerStart "planner-start",
+    PlannerOutput "planner-output",
+    PlannerRules "planner-rules",
+    ReviewerStart "reviewer-start",
+    ReviewerInputs "reviewer-inputs",
+    ReviewerFollowUpStart "reviewer-follow-up-start",
+    ReviewerFollowUpEnd "reviewer-follow-up-end",
+    ReviewerOutput "reviewer-output",
 }
 
 /// The fragment an include line `<!-- include: <name> -->` names.

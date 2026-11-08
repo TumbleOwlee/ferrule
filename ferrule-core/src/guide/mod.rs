@@ -458,4 +458,17 @@ mod tests {
         }
         assert!(seen >= 12, "{seen}");
     }
+
+    /// GA-R-051 — every shared text is held by at least two guides.
+    #[test]
+    fn ut_every_fragment_is_included_by_two_topics() {
+        for f in Fragment::ALL {
+            let line = format!("<!-- include: {} -->", f.name());
+            let holders = Topic::ALL
+                .iter()
+                .filter(|t| t.source().contains(&line))
+                .count();
+            assert!(holders >= 2, "{} is held by {holders}", f.name());
+        }
+    }
 }

@@ -1,6 +1,20 @@
 # architect-epic — The size guard, epic mode and slice runs
 
-Read by `fe-architect` only on the triggers in its `## Epics, slices, size guard`; everything in `ferrule guide show architect` still applies.
+Read by `fe-architect` in an epic run, a slice run, or once the size guard trips.
+
+<!-- include: concise -->
+
+<!-- include: architect-start -->
+
+<!-- include: questions -->
+
+<!-- include: architect-spec-edits -->
+
+## Decision lines
+
+<!-- include: decisions -->
+
+<!-- include: architect-output -->
 
 ## Size guard
 
@@ -38,3 +52,5 @@ Answer `status=ready file=… summary=… count=<skeleton components> slices={ru
 ## Slice run
 
 `epic.md` is the epic issue's spec and skeleton architecture, followed by the epic's comments (skeleton changes earlier slices kept — they override the body). Its `## Interfaces` bind like `(user)` decisions: extend them, never contradict one without asking the user (`Entry:`-style quote of the signature in the question). Slice 1 builds the skeleton as specified; a later slice reads the skeleton in the code, where it now lives, and `epic.md` only for orientation. Your `architecture.md` covers this slice: the skeleton components it touches appear as `existing` or `changed`, and a skeleton signature you change with the user's consent is appended to `decisions.md` as a `(user)` line. Local IDs you add start at the slice number times 100 (`R301`, `E301` in slice 3).
+
+<!-- include: architect-end -->

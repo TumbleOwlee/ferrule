@@ -1,0 +1,2 @@
+- Never approve a fix because it matches what your finding suggested; check it like new code.
+- Then `## Output` as usual: pass N+1, history in `review.md`, the verdict rewritten.

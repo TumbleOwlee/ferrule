@@ -1,8 +1,14 @@
 # author-late — The split issue and gate 4's sync, PR text and follow-ups
 
-Read by `fe-author` only when resumed for a split or for gate 4; everything in `ferrule guide show author` still applies.
+Read by `fe-author` when resumed for a split or for gate 4.
+
+<!-- include: concise -->
+
+<!-- include: author-start -->
 
 ## Split issue — `split-issue.md`
+
+Resumed for a split: the brief carries the reason and the entry it narrows.
 
 ```
 # <title, plain language>

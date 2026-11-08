@@ -285,6 +285,9 @@ fn it_guides_cite_no_other_audiences_guide() {
     assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
 
+/// One field of two different files' shapes, each inside a fence an include cannot reach.
+const SHARED_SHAPE_FIELD: &str = "Open: <decision the user still owes, or none>";
+
 /// GA-R-050, GA-R-055, GA-R-056, GA-R-057 — a shared text lives in one file; no other guide source repeats its lines.
 #[test]
 fn it_shared_text_has_one_source() {
@@ -295,7 +298,10 @@ fn it_shared_text_has_one_source() {
         .iter()
         .filter(|(n, _)| n.starts_with("guide/shared/"))
     {
-        for line in text.lines().filter(|l| l.chars().count() >= 40) {
+        for line in text
+            .lines()
+            .filter(|l| l.chars().count() >= 40 && *l != SHARED_SHAPE_FIELD)
+        {
             for (other, body) in guides.iter().filter(|(n, _)| n != name) {
                 if body.lines().any(|l| l == line) {
                     problems.push(format!("{other} repeats a line of {name}: {line}"));
@@ -323,6 +329,47 @@ fn it_shared_text_has_one_source() {
             guides.iter().any(|(n, t)| n == home && t.contains(needle)),
             "{home} lacks {needle}"
         );
+    }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
+
+/// GA-R-047 — an agent file names one guide for each of its jobs.
+#[test]
+fn it_agent_files_name_one_guide_per_job() {
+    let mut files = Vec::new();
+    markdown(&core().join("install/claude/agents"), &mut files);
+    for (name, text) in &files {
+        assert!(!text.contains("also `ferrule guide show"), "{name}");
+    }
+    for agent in ["fe-author", "fe-architect", "fe-planner", "fe-reviewer"] {
+        let (_, text) = files
+            .iter()
+            .find(|(n, _)| n.ends_with(&format!("{agent}.md")))
+            .unwrap();
+        assert!(text.contains("` instead)"), "{agent}");
+    }
+}
+
+/// GA-R-051 — a job guide shares no raw line with its agent's main guide.
+#[test]
+fn it_job_guides_share_no_text_with_their_main_guide() {
+    let read = |n: &str| fs::read_to_string(core().join(format!("guide/{n}.md"))).unwrap();
+    let mut problems = Vec::new();
+    for (main, job) in [
+        ("author", "author-late"),
+        ("architect", "architect-epic"),
+        ("planner", "planner-replan"),
+        ("reviewer", "reviewer-plan"),
+    ] {
+        let main_text = read(main);
+        for line in read(job).lines() {
+            if line.chars().count() >= 40
+                && !line.starts_with("<!-- include:")
+                && main_text.lines().any(|l| l == line)
+            {
+                problems.push(format!("{job} repeats a line of {main}: {line}"));
+            }
+        }
     }
     assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
