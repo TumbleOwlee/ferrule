@@ -605,6 +605,33 @@ fn it_bootstrap_suggests_no_project_rules_override() {
     assert!(skill.contains("with a `## Checks` section"), "{skill}");
 }
 
+/// GA-R-038, S1 — the re-plan guide's question citation prints the question format.
+#[test]
+fn it_replan_question_citation_prints_the_question_format() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let replan = ok(root, &["guide", "planner-replan", "--slug", "demo"]);
+    let (_, rest) = replan
+        .split_once("Questions as in `ferrule guide show planner ")
+        .unwrap_or_else(|| panic!("{replan}"));
+    let (cited, _) = rest.split_once('`').unwrap_or_else(|| panic!("{replan}"));
+    let mut args = vec!["guide", "planner", "--slug", "demo"];
+    for part in cited.split("--section '").skip(1) {
+        let (heading, _) = part.split_once('\'').unwrap_or_else(|| panic!("{cited}"));
+        args.extend(["--section", heading]);
+    }
+    assert!(args.len() > 4, "{cited}");
+    let text = ok(root, &args);
+    for needle in [
+        "# demo — questions (gate 2)",
+        "One block per decision:",
+        "`Why you:` is mandatory.",
+    ] {
+        assert!(text.contains(needle), "{needle}: {text}");
+    }
+}
+
 /// GW-R-006, S2 — the implementer guide blocks a clean-worktree nothing-staged refusal with `head=` and an `--adopt` suggestion.
 #[test]
 fn it_implementer_guide_blocks_a_clean_nothing_staged() {
