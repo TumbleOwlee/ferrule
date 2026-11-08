@@ -203,7 +203,7 @@ fn guard_list(
         if let Some(o) = c.opaque {
             return Some(opaque_reason(o).to_owned());
         }
-        let Some((name, args)) = shell::program(&c.words) else {
+        let Some((name, args)) = shell::judged_program(&c.words) else {
             if let Some(reason) = owned_redirect(c, cwd) {
                 return Some(reason);
             }
@@ -1780,5 +1780,47 @@ mod tests {
             let r = shell(cmd, &other, policy).unwrap_or_else(|| panic!("{cmd} allowed"));
             assert!(r.contains("ferrule run rebase"), "{cmd}: {r}");
         }
+    }
+
+    /// SG-R-010 — `rtk git` gets the hints of bare `git`.
+    #[test]
+    fn ut_rtk_git_gets_the_bare_hints() {
+        let root = tempfile::tempdir().unwrap();
+        let wt = root.path().join("wt");
+        std::fs::create_dir_all(&wt).unwrap();
+        let rebasing = [wt.clone()];
+        let policy = Policy {
+            allow: &[],
+            rebasing: &rebasing,
+        };
+        let other = root.path();
+        let guard = |c: &str| shell(c, other, policy);
+        assert_eq!(guard("rtk git push"), guard("git push"));
+        assert!(guard("rtk git push").is_some());
+        let r = guard("rtk git rebase main").unwrap();
+        assert!(r.contains("ferrule run rebase"), "{r}");
+    }
+
+    /// SG-R-010 — `rtk git` follows a rebase in progress like bare `git`.
+    #[test]
+    fn ut_rtk_git_follows_a_rebase_in_progress() {
+        let root = tempfile::tempdir().unwrap();
+        let wt = root.path().join("wt");
+        std::fs::create_dir_all(&wt).unwrap();
+        let rebasing = [wt.clone()];
+        let policy = Policy {
+            allow: &[],
+            rebasing: &rebasing,
+        };
+        for cmd in [
+            "rtk git add f",
+            "rtk git rm f",
+            "rtk git rebase --continue",
+            "rtk git rebase --abort",
+        ] {
+            assert_eq!(shell(cmd, &wt, policy), None, "{cmd}");
+        }
+        let r = shell("rtk git commit -m x", &wt, policy).unwrap();
+        assert!(r.contains("rebase is in progress"), "{r}");
     }
 }

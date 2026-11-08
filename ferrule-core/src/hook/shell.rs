@@ -703,6 +703,56 @@ pub fn program(words: &[String]) -> Option<(&str, &[String])> {
     Some((base(name), &words[i + 1..]))
 }
 
+/// The program a guard judges and its arguments: `program`, with
+/// `rtk`'s listed subcommands resolved to the program they run.
+#[must_use]
+pub fn judged_program(words: &[String]) -> Option<(&str, &[String])> {
+    let (name, args) = program(words)?;
+    if name != "rtk" {
+        return Some((name, args));
+    }
+    let start = args.iter().take_while(|w| rtk_global_flag(w)).count();
+    let Some(sub) = args.get(start) else {
+        return Some(("rtk", args));
+    };
+    let rest = &args[start + 1..];
+    if let Some(listed) = RTK_LISTED.iter().find(|p| **p == sub) {
+        return Some((listed, rest));
+    }
+    if sub == "read" {
+        return Some((read_program(rest), rest));
+    }
+    Some(("rtk", args))
+}
+
+/// Programs `rtk <program> <args>` runs as `<program> <args>`.
+const RTK_LISTED: &[&str] = &[
+    "git", "cargo", "grep", "rg", "find", "ls", "tree", "wc", "diff",
+];
+
+/// A global flag `rtk` declares; none takes a value.
+fn rtk_global_flag(word: &str) -> bool {
+    matches!(
+        word,
+        "--verbose" | "--ultra-compact" | "--skip-env" | "-h" | "--help" | "-V" | "--version"
+    ) || word
+        .strip_prefix('-')
+        .is_some_and(|v| !v.is_empty() && v.chars().all(|c| c == 'v'))
+}
+
+/// The program `rtk read <args>` stands for: `head` under a `--max-lines`
+/// bound, `tail` under `--tail-lines`, else `cat`.
+fn read_program(args: &[String]) -> &'static str {
+    let flags = || args.iter().map(String::as_str).take_while(|w| *w != "--");
+    if flags().any(|w| w == "--max-lines" || w.starts_with("--max-lines=") || w.starts_with("-m")) {
+        "head"
+    } else if flags().any(|w| w == "--tail-lines" || w.starts_with("--tail-lines=")) {
+        "tail"
+    } else {
+        "cat"
+    }
+}
+
 /// Whether the program stands behind anything but shell keywords: an
 /// assignment (`A=b cmd`) or a wrapper (`timeout 5 cmd`).
 #[must_use]
@@ -1048,5 +1098,96 @@ mod tests {
             .to_vec();
         let g = git(&w).unwrap();
         assert_eq!((g.dir, g.sub, g.args.len()), (Some("/r"), "commit", 2));
+    }
+
+    fn judged(src: &str) -> Option<(String, Vec<String>)> {
+        let w: Vec<String> = src.split_whitespace().map(str::to_owned).collect();
+        judged_program(&w).map(|(n, a)| (n.to_owned(), a.to_vec()))
+    }
+
+    fn judged_as(src: &str, name: &str, args: &str) {
+        let want: Vec<String> = args.split_whitespace().map(str::to_owned).collect();
+        assert_eq!(judged(src), Some((name.to_owned(), want)), "{src}");
+    }
+
+    /// SG-R-009 — `rtk` with a listed program resolves to that program.
+    #[test]
+    fn ut_judged_program_resolves_the_listed_programs() {
+        for p in [
+            "git", "cargo", "grep", "rg", "find", "ls", "tree", "wc", "diff",
+        ] {
+            judged_as(&format!("rtk {p} log -1"), p, "log -1");
+        }
+    }
+
+    /// SG-R-011, SG-R-012, SG-R-015, SG-R-016, SG-E-006 — `rtk read` is
+    /// `cat`, `head` or `tail` by its line bound, flags and values kept.
+    #[test]
+    fn ut_judged_program_resolves_rtk_read() {
+        judged_as("rtk read f", "cat", "f");
+        for c in [
+            "rtk read f --max-lines 50",
+            "rtk read f --max-lines=50",
+            "rtk read -m 5 f",
+            "rtk read -m5 f",
+            "rtk read f --tail-lines 20 --max-lines 5",
+        ] {
+            assert_eq!(judged(c).unwrap().0, "head", "{c}");
+        }
+        for c in ["rtk read f --tail-lines 20", "rtk read f --tail-lines=20"] {
+            assert_eq!(judged(c).unwrap().0, "tail", "{c}");
+        }
+        for c in [
+            "rtk read -- -m5",
+            "rtk read -- --max-lines=5",
+            "rtk read -- --tail-lines=5",
+        ] {
+            assert_eq!(judged(c).unwrap().0, "cat", "{c}");
+        }
+        judged_as("rtk read -l minimal f", "cat", "-l minimal f");
+    }
+
+    /// SG-R-013 — declared global flags before the subcommand are skipped.
+    #[test]
+    fn ut_judged_program_skips_declared_flags() {
+        for f in [
+            "-v",
+            "-vv",
+            "--verbose",
+            "--ultra-compact",
+            "--skip-env",
+            "-h",
+            "--help",
+            "-V",
+            "--version",
+        ] {
+            judged_as(&format!("rtk {f} git log -1"), "git", "log -1");
+        }
+        assert_eq!(judged("rtk -v read f").unwrap().0, "cat");
+    }
+
+    /// SG-R-014, SG-E-003, SG-E-005 — every other form stays `rtk`.
+    #[test]
+    fn ut_judged_program_leaves_other_forms_as_rtk() {
+        for c in [
+            "rtk",
+            "rtk --version",
+            "rtk run x",
+            "rtk proxy x",
+            "rtk --foo git log -1",
+            "rtk -- git log -1",
+        ] {
+            let (n, a) = judged(c).unwrap();
+            assert_eq!(n, "rtk", "{c}");
+            assert_eq!(a.len(), c.split_whitespace().count() - 1, "{c}");
+        }
+    }
+
+    /// SG-R-009 — a qualified or assigned `rtk` resolves too.
+    #[test]
+    fn ut_judged_program_sees_a_qualified_or_assigned_rtk() {
+        judged_as("/usr/bin/rtk git log", "git", "log");
+        judged_as("A=b rtk git log", "git", "log");
+        judged_as("git log", "git", "log");
     }
 }

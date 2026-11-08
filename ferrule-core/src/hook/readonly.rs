@@ -181,7 +181,7 @@ pub fn readonly(
         if let Some(o) = c.opaque {
             return Some(opaque_reason(o).to_owned());
         }
-        let program = shell::program(&c.words);
+        let program = shell::judged_program(&c.words);
         if let Some(("cd", args)) = program {
             if let Some(dir) = cd_target(&cwd, args) {
                 cwd = dir;
@@ -199,6 +199,7 @@ pub fn readonly(
                     let (append, targets) = tee_targets(args);
                     targets.iter().all(|t| writable(&cwd, t, append))
                 }
+                "rtk" => false,
                 _ => {
                     (allowed_program(name, args) || has_prefix(name, args, allow))
                         && !has_prefix(name, args, mutating)
@@ -400,5 +401,47 @@ mod tests {
         assert!(at("make", &[]).is_some());
         assert!(at("make install", &[]).is_some());
         assert!(at("make check", &["make check".to_owned()]).is_some());
+    }
+
+    /// SG-R-014 — `[hook.readonly] allow` does not reopen an `rtk` subcommand.
+    #[test]
+    fn ut_allow_does_not_reopen_an_rtk_subcommand() {
+        let r = readonly(
+            "rtk run x",
+            Path::new("/nonexistent-ferrule-guard"),
+            &[],
+            &["rtk run".to_owned()],
+        );
+        assert!(r.is_some());
+    }
+
+    /// SG-R-011, SG-R-015, SG-R-016 — `rtk read` is judged as `cat`, `head`
+    /// or `tail` by its line bound.
+    #[test]
+    fn ut_rtk_read_is_judged_by_its_line_bound() {
+        let at = |cmd: &str, prefix: &str| {
+            readonly(
+                cmd,
+                Path::new("/nonexistent-ferrule-guard"),
+                &[prefix.to_owned()],
+                &[],
+            )
+        };
+        for (cmd, p) in [
+            ("rtk read f", "cat"),
+            ("rtk read f --max-lines 5", "head"),
+            ("rtk read -m5 f", "head"),
+            ("rtk read f --tail-lines 5", "tail"),
+            ("rtk read -- -m5", "cat"),
+        ] {
+            assert!(at(cmd, p).is_some(), "{cmd} / {p}");
+        }
+        for (cmd, p) in [
+            ("rtk read f --max-lines 5", "cat"),
+            ("rtk read f --tail-lines 5", "head"),
+            ("rtk read f", "head"),
+        ] {
+            assert!(at(cmd, p).is_none(), "{cmd} / {p}");
+        }
     }
 }
