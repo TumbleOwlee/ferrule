@@ -34,7 +34,7 @@ pub enum Name {
 }
 
 impl Name {
-    pub const ALL: [Name; 22] = [
+    pub const ALL: [Name; 23] = [
         Name::Commit,
         Name::Gauntlet,
         Name::Pr,
