@@ -558,7 +558,7 @@ fn it_asking_agents_state_the_question_batch() {
     };
     let body = |text: &str| {
         text.lines()
-            .filter(|line| !line.starts_with("# demo — questions (") && !line.starts_with("exit="))
+            .filter(|line| !line.starts_with("Title line of ") && !line.starts_with("exit="))
             .collect::<Vec<_>>()
             .join("\n")
             .trim_end()
@@ -687,24 +687,13 @@ fn it_bootstrap_suggests_no_project_rules_override() {
     assert!(skill.contains("with a `## Checks` section"), "{skill}");
 }
 
-/// GA-R-038, S1 — the re-plan guide's question citation prints the question format.
+/// GA-R-038 — the re-plan guide states the question format itself.
 #[test]
-fn it_replan_question_citation_prints_the_question_format() {
+fn it_replan_guide_states_the_question_format() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
     seed_card(root, "demo", "open", &["lane=full"]);
-    let replan = ok(root, &["guide", "planner-replan", "--slug", "demo"]);
-    let (_, rest) = replan
-        .split_once("Questions as in `ferrule guide show planner ")
-        .unwrap_or_else(|| panic!("{replan}"));
-    let (cited, _) = rest.split_once('`').unwrap_or_else(|| panic!("{replan}"));
-    let mut args = vec!["guide", "planner", "--slug", "demo"];
-    for part in cited.split("--section '").skip(1) {
-        let (heading, _) = part.split_once('\'').unwrap_or_else(|| panic!("{cited}"));
-        args.extend(["--section", heading]);
-    }
-    assert!(args.len() > 4, "{cited}");
-    let text = ok(root, &args);
+    let text = ok(root, &["guide", "planner-replan", "--slug", "demo"]);
     for needle in [
         "# demo — questions (gate 2)",
         "One block per decision:",
@@ -712,6 +701,7 @@ fn it_replan_question_citation_prints_the_question_format() {
     ] {
         assert!(text.contains(needle), "{needle}: {text}");
     }
+    assert!(!text.contains("ferrule guide show planner"), "{text}");
 }
 
 /// GW-R-006, S2 — the implementer guide blocks a clean-worktree nothing-staged refusal with `head=` and an `--adopt` suggestion.
@@ -804,4 +794,182 @@ fn it_principles_guide_names_the_run_without_a_pr_ending() {
         principles.contains("a run without a PR ends at `ferrule run cleanup`"),
         "{principles}"
     );
+}
+
+/// GA-R-044 — each guide that records decisions states the line shape and its rules.
+#[test]
+fn it_guides_state_the_decision_line_shape() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    for topic in ["author", "architect", "planner", "implementer"] {
+        let text = ok(
+            root,
+            &[
+                "guide",
+                topic,
+                "--slug",
+                "demo",
+                "--section",
+                "Decision lines",
+            ],
+        );
+        for needle in ["- <choice> (<user | chosen>) [", "Append only"] {
+            assert!(text.contains(needle), "{topic}: {text}");
+        }
+        assert!(!text.contains("{run_dir}"), "{topic}: {text}");
+    }
+}
+
+/// GA-R-048, GA-R-049 — the `decisions` topic no longer ships.
+#[test]
+fn it_guide_decisions_topic_is_gone() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    let out = ferrule(root, root, &["guide", "show", "decisions"]);
+    assert!(!out.ends_with("exit=0"), "{out}");
+    assert!(
+        out.contains("guide=refused reason=unknown topic=decisions"),
+        "{out}"
+    );
+    let list = ok(root, &["guide", "list"]);
+    assert!(
+        !list
+            .lines()
+            .any(|l| l.split_whitespace().next() == Some("decisions")),
+        "{list}"
+    );
+}
+
+/// GA-E-002 — an override of a section holding shared text changes that guide only.
+#[test]
+fn it_guide_override_of_shared_text_stays_in_that_guide() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let guide = root.join(".ferrule/guide");
+    std::fs::create_dir_all(&guide).unwrap();
+    std::fs::write(guide.join("planner.md"), "## Decision lines\n\nmine\n").unwrap();
+    let planner = ok(root, &["guide", "planner", "--slug", "demo"]);
+    assert!(
+        planner.contains("mine") && !planner.contains("Append only"),
+        "{planner}"
+    );
+    let author = ok(root, &["guide", "author", "--slug", "demo"]);
+    assert!(author.contains("Append only"), "{author}");
+}
+
+/// GA-E-003 — a project's own `decisions` file is a project topic.
+#[test]
+fn it_project_decisions_file_is_a_project_topic() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    let guide = root.join(".ferrule/guide");
+    std::fs::create_dir_all(&guide).unwrap();
+    std::fs::write(guide.join("decisions.md"), "# decisions — ours\n\nbody\n").unwrap();
+    let list = ok(root, &["guide", "list"]);
+    let (_, project) = list.split_once("Project:").expect("a Project heading");
+    assert!(project.contains("decisions"), "{list}");
+    let shown = ok(root, &["guide", "show", "decisions"]);
+    assert!(shown.contains("body"), "{shown}");
+}
+
+/// GA-R-045 — a job guide cites no other guide.
+#[test]
+fn it_job_guides_cite_no_other_guide() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    for topic in [
+        "author-late",
+        "architect-epic",
+        "planner-replan",
+        "reviewer-plan",
+    ] {
+        let text = ok(root, &["guide", topic, "--slug", "demo"]);
+        assert!(!text.contains("ferrule guide show "), "{topic}: {text}");
+    }
+}
+
+/// GA-R-046, GA-R-052, GA-R-053, GA-R-054 — a job guide states what its job needs, read alone.
+#[test]
+fn it_job_guides_state_what_their_job_needs() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let shape = "- <choice> (<user | chosen>) [";
+    let mut missing = Vec::new();
+    for (topic, needles) in [
+        (
+            "author-late",
+            &[
+                "**Concise, compact, facts only.**",
+                "Orchestrator relays between you and the user",
+                "`AGENTS.md` is already in your context",
+                "the brief carries the reason and the entry it narrows",
+            ][..],
+        ),
+        (
+            "architect-epic",
+            &[
+                "Lay down the structure the change is built on",
+                "Look up facts yourself",
+                shape,
+                "# demo — architecture (rev N)",
+                "Every decision of the run",
+            ][..],
+        ),
+        (
+            "planner-replan",
+            &[
+                "Draft the implementation plan",
+                "Look up facts yourself",
+                shape,
+                "## Stage title",
+                "| Stage | Title | Files | Blocked by |",
+                "Never create/move task cards",
+                "Every decision of the run",
+            ][..],
+        ),
+        (
+            "reviewer-plan",
+            &[
+                "`AGENTS.md` is already in your context",
+                "**`plan.md`:**",
+                "**`decisions.md`**",
+                "Resumed in the same scope",
+                "Never approve a fix because it matches",
+                "Verdict: <clean — ready for approval",
+            ][..],
+        ),
+    ] {
+        let text = ok(root, &["guide", topic, "--slug", "demo"]);
+        for needle in needles {
+            if !text.contains(needle) {
+                missing.push(format!("{topic}: {needle}"));
+            }
+        }
+    }
+    assert!(missing.is_empty(), "{}", missing.join("\n"));
+}
+
+/// S8 — a tripped size guard hands the architect to the epic guide.
+#[test]
+fn it_architect_guide_hands_a_tripped_size_guard_to_the_epic_guide() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let text = ok(
+        root,
+        &[
+            "guide",
+            "architect",
+            "--slug",
+            "demo",
+            "--section",
+            "Epics, slices, size guard",
+        ],
+    );
+    assert!(text.contains("ferrule guide show architect-epic"), "{text}");
+    assert!(text.contains("replaces this guide"), "{text}");
 }

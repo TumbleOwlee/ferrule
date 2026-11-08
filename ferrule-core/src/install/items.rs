@@ -137,6 +137,11 @@ fn versioned(t: &str) -> String {
     t.replace("{version}", VERSION)
 }
 
+/// An installed agent or skill template: includes spliced, version filled.
+fn template(text: &str) -> String {
+    versioned(&crate::guide::expand(text))
+}
+
 /// The project's lefthook configuration file, if it has one.
 pub(super) fn lefthook(root: &Path) -> Option<&'static str> {
     LEFTHOOK_FILES
@@ -178,14 +183,14 @@ pub(super) fn items(root: &Path) -> Vec<Item> {
     for (name, text) in AGENTS {
         out.push(Item::File {
             path: format!(".claude/agents/fe-{name}.md"),
-            text: versioned(text),
+            text: template(text),
             exec: false,
         });
     }
     for (name, text) in SKILLS {
         out.push(Item::File {
             path: format!(".claude/skills/fe-{name}/SKILL.md"),
-            text: versioned(text),
+            text: template(text),
             exec: false,
         });
     }
@@ -222,4 +227,63 @@ pub(super) fn foreign_extends(root: &Path, file: &str) -> bool {
         None => text,
     };
     outside.lines().any(|l| l.starts_with("extends:"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::guide::{Fragment, VARS};
+
+    fn claude_files() -> Vec<(String, String)> {
+        let dir = tempfile::tempdir().unwrap();
+        items(dir.path())
+            .into_iter()
+            .filter_map(|i| match i {
+                Item::File { path, text, .. } if path.starts_with(".claude/") => Some((path, text)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// GA-R-058 — an installed agent file holds its role fragment's text,
+    /// spliced from an include line its source holds.
+    #[test]
+    fn ut_templates_splice_their_role_fragment() {
+        let files = claude_files();
+        let pairs = [
+            ("author", Fragment::AuthorRole),
+            ("architect", Fragment::ArchitectRole),
+            ("planner", Fragment::PlannerRole),
+            ("implementer", Fragment::ImplementerRole),
+        ];
+        for (agent, f) in pairs {
+            let path = format!(".claude/agents/fe-{agent}.md");
+            let (_, text) = files.iter().find(|(p, _)| *p == path).unwrap();
+            assert!(text.contains(f.text().trim_end()), "{agent}");
+            let raw = AGENTS.iter().find(|(n, _)| *n == agent).unwrap().1;
+            assert!(!raw.contains(f.text().trim_end()), "{agent} raw");
+            assert!(raw.contains(&format!("<!-- include: {agent}-role -->")));
+        }
+    }
+
+    /// GA-E-004 — no installed file keeps an include line, a run
+    /// placeholder or a lane or done tag.
+    #[test]
+    fn ut_installed_templates_take_no_placeholders_or_tags() {
+        let files = claude_files();
+        assert!(files.len() >= 9);
+        for (path, text) in files {
+            assert!(!text.contains("<!-- include:"), "{path}");
+            for v in VARS {
+                assert!(!text.contains(&format!("{{{v}}}")), "{path}: {v}");
+            }
+            for l in text.lines() {
+                let l = l.trim_start();
+                assert!(
+                    !l.starts_with("<!-- lane:") && !l.starts_with("<!-- done:"),
+                    "{path}"
+                );
+            }
+        }
+    }
 }

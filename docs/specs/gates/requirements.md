@@ -66,7 +66,7 @@
 
 **GA-R-028** — The planner guide states that an entry too coarse is split so each entry holds one rule.
 
-**GA-R-029** — An agent's guide cites only that agent's guides and topics meant for several audiences.
+**GA-R-029** — An agent's guide cites only the guide of another of that agent's jobs.
 
 **GA-R-030** — A workflow topic cites no agent's guide.
 
@@ -84,4 +84,46 @@
 
 **GA-R-037** — The bootstrap skill suggests no `## Project rules` override.
 
-**GA-R-038** — The command the `planner-replan` guide names for questions prints the `question.md` shape.
+**GA-R-038** — The `planner-replan` guide states the `question.md` shape.
+
+**GA-R-039** — A command's help cites no agent's guide.
+
+**GA-R-040** — The `ferrule stage commit` help cites the `stages` topic.
+
+**GA-R-041** — The help of `ferrule run diff`, `run log`, `run plan-diff`, `spec related`, `spec next` and `spec refs` has no `See:` line.
+
+**GA-R-042** — A shipped skill other than `fe-review` cites no agent's guide.
+
+**GA-R-043** — The README cites no agent's guide.
+
+**GA-R-044** — The author, architect, planner and implementer guides each state the `decisions.md` line shape and its rules.
+
+**GA-R-045** — The `author-late`, `architect-epic`, `planner-replan` and `reviewer-plan` guides each cite no other guide.
+
+**GA-R-046** — The `author-late` guide states the author's working rules, `AGENTS.md` handling and the split brief.
+
+**GA-R-047** — An agent file names one guide for each of that agent's jobs.
+
+**GA-R-048** — `ferrule guide show decisions` refuses the topic as unknown.
+
+**GA-R-049** — `ferrule guide list` lists no `decisions` topic.
+
+**GA-R-050** — The shipped guide sources hold the `decisions.md` line shape and its rules once.
+
+**GA-R-051** — The shipped guide sources hold once any text a single-job guide prints that its agent's main guide also prints.
+
+**GA-R-052** — The `architect-epic` guide states the architect's procedure, the `decisions.md` line shape and the `architecture.md` shape.
+
+**GA-R-053** — The `planner-replan` guide states the planner's procedure, the `decisions.md` line shape and the `plan.md` shape and rules.
+
+**GA-R-054** — The `reviewer-plan` guide states the reviewer's project rules, inputs, follow-up pass and output shape.
+
+**GA-R-055** — The shipped guide sources hold the `question.md` batch and its rules once.
+
+**GA-R-056** — The shipped guide sources hold the ID citation rule once.
+
+**GA-R-057** — The shipped guide sources hold the line `**Concise, compact, facts only.**` once.
+
+**GA-R-058** — Ferrule's sources hold once a paragraph an installed agent file shares with a guide.
+
+**GA-R-059** — No heading section of ferrule's shipped guide or installed-file sources repeats the text of another.

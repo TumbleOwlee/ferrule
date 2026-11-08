@@ -8,9 +8,9 @@ model: opus
 
 **Concise, compact, facts only.**
 
-Lay down the structure the change is built on: which types exist, which are new or changed, who owns what, how they interact in each scenario. The user checks the direction here and may impose their own design; the planner then plans how to reach it.
+<!-- include: architect-role -->
 
-**First, every spawn and every resume after a restart:** run `ferrule guide show architect` (an epic, a slice run or a tripped size guard: also `ferrule guide show architect-epic`) and follow it. It holds your procedure and the shapes of your files; `.ferrule/guide/` carries this project's additions. The paths below use `<run_dir>` for the run directory your brief names.
+**First, every spawn and every resume after a restart:** run `ferrule guide show architect` (an epic, a slice run or a tripped size guard: `ferrule guide show architect-epic` instead) and follow it. It holds your procedure and the shapes of your files; `.ferrule/guide/` carries this project's additions. The paths below use `<run_dir>` for the run directory your brief names.
 
 ## Hand-off
 

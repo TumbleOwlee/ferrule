@@ -20,6 +20,51 @@ const PROGRAMS: &[&str] = &[
 /// Counter-examples: commands the text tells an agent never to run.
 const REFUSED: &[&str] = &["git add -A", "git commit", "git checkout"];
 
+const AGENTS: &[&[&str]] = &[
+    &["author", "author-late"],
+    &["architect", "architect-epic"],
+    &["planner", "planner-replan"],
+    &["implementer"],
+    &["reviewer", "reviewer-plan"],
+];
+
+/// Every guide an agent reads, flattened.
+fn agent_guides() -> Vec<&'static str> {
+    AGENTS
+        .iter()
+        .flat_map(|family| family.iter().copied())
+        .collect()
+}
+
+/// The topic of each `ferrule guide show <topic>` in `text`.
+fn citations(text: &str) -> Vec<String> {
+    let pattern = "ferrule guide show ";
+    text.match_indices(pattern)
+        .map(|(at, _)| {
+            text[at + pattern.len()..]
+                .chars()
+                .take_while(|c| c.is_ascii_lowercase() || *c == '-')
+                .collect()
+        })
+        .collect()
+}
+
+fn cites_agent_guide(text: &str) -> bool {
+    citations(text)
+        .iter()
+        .any(|c| agent_guides().contains(&c.as_str()))
+}
+
+/// Every command path under `path`, `path` included.
+fn command_paths(help: &mut Help, path: &[&str], out: &mut Vec<Vec<String>>) {
+    out.push(path.iter().map(|s| (*s).to_owned()).collect());
+    for sub in help.of(path).1.clone() {
+        let mut next = path.to_vec();
+        next.push(&sub);
+        command_paths(help, &next, out);
+    }
+}
+
 fn core() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../ferrule-core")
 }
@@ -276,30 +321,284 @@ fn it_guides_cite_no_agents_heading_or_readme_rule() {
 /// GA-R-029, GA-R-030 — a guide states what its own audience needs rather than citing another audience's guide.
 #[test]
 fn it_guides_cite_no_other_audiences_guide() {
-    const AGENTS: &[&[&str]] = &[
-        &["author", "author-late"],
-        &["architect", "architect-epic"],
-        &["planner", "planner-replan"],
-        &["implementer"],
-        &["reviewer", "reviewer-plan"],
-    ];
     let mut guides = Vec::new();
     markdown(&core().join("guide"), &mut guides);
     let mut problems = Vec::new();
     for (name, text) in guides {
         let topic = name.trim_start_matches("guide/").trim_end_matches(".md");
         let family = AGENTS.iter().find(|family| family.contains(&topic));
-        for (at, pattern) in text.match_indices("ferrule guide show ") {
-            let cited: String = text[at + pattern.len()..]
-                .chars()
-                .take_while(|c| c.is_ascii_lowercase() || *c == '-')
-                .collect();
+        for cited in citations(&text) {
             let refused = match family {
-                Some(family) => cited != "decisions" && !family.contains(&cited.as_str()),
+                Some(family) => !family.contains(&cited.as_str()),
                 None => AGENTS.iter().any(|family| family.contains(&cited.as_str())),
             };
             if refused {
                 problems.push(format!("{name}: {cited}"));
+            }
+        }
+    }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
+
+/// One field of two different files' shapes, each inside a fence an include cannot reach.
+const SHARED_SHAPE_FIELD: &str = "Open: <decision the user still owes, or none>";
+
+/// GA-R-050, GA-R-055, GA-R-056, GA-R-057 — a shared text lives in one file; no other guide source repeats its lines.
+#[test]
+fn it_shared_text_has_one_source() {
+    let mut guides = Vec::new();
+    markdown(&core().join("guide"), &mut guides);
+    let mut problems = Vec::new();
+    for (name, text) in guides
+        .iter()
+        .filter(|(n, _)| n.starts_with("guide/shared/"))
+    {
+        for line in text
+            .lines()
+            .filter(|l| l.chars().count() >= 40 && *l != SHARED_SHAPE_FIELD)
+        {
+            for (other, body) in guides.iter().filter(|(n, _)| n != name) {
+                if body.lines().any(|l| l == line) {
+                    problems.push(format!("{other} repeats a line of {name}: {line}"));
+                }
+            }
+        }
+    }
+    for (needle, home) in [
+        ("- <choice> (", "guide/shared/decisions.md"),
+        (
+            "**Concise, compact, facts only.**",
+            "guide/shared/concise.md",
+        ),
+        (
+            "its assertions directly verify",
+            "guide/shared/id-citation.md",
+        ),
+    ] {
+        for (name, text) in &guides {
+            if name != home && text.contains(needle) {
+                problems.push(format!("{name} holds {needle}"));
+            }
+        }
+        assert!(
+            guides.iter().any(|(n, t)| n == home && t.contains(needle)),
+            "{home} lacks {needle}"
+        );
+    }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
+
+/// GA-R-047 — an agent file names one guide for each of its jobs.
+#[test]
+fn it_agent_files_name_one_guide_per_job() {
+    let mut files = Vec::new();
+    markdown(&core().join("install/claude/agents"), &mut files);
+    for (name, text) in &files {
+        assert!(!text.contains("also `ferrule guide show"), "{name}");
+    }
+    for agent in ["fe-author", "fe-architect", "fe-planner", "fe-reviewer"] {
+        let (_, text) = files
+            .iter()
+            .find(|(n, _)| n.ends_with(&format!("{agent}.md")))
+            .unwrap();
+        assert!(text.contains("` instead)"), "{agent}");
+    }
+}
+
+/// GA-R-051 — a job guide shares no raw line with its agent's main guide.
+#[test]
+fn it_job_guides_share_no_text_with_their_main_guide() {
+    let read = |n: &str| fs::read_to_string(core().join(format!("guide/{n}.md"))).unwrap();
+    let mut problems = Vec::new();
+    for family in AGENTS {
+        let [main, job] = family else { continue };
+        let main_text = read(main);
+        for line in read(job).lines() {
+            if line.chars().count() >= 40
+                && !line.starts_with("<!-- include:")
+                && main_text.lines().any(|l| l == line)
+            {
+                problems.push(format!("{job} repeats a line of {main}: {line}"));
+            }
+        }
+    }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
+
+/// GA-R-039 — no command's help cites an agent's guide.
+#[test]
+fn it_command_help_cites_no_agents_guide() {
+    let mut help = Help(HashMap::new());
+    let mut paths = Vec::new();
+    command_paths(&mut help, &[], &mut paths);
+    let mut seen = 0;
+    let mut problems = Vec::new();
+    for path in &paths {
+        let args: Vec<&str> = path.iter().map(String::as_str).collect();
+        let text = help.of(&args).0.clone();
+        if text.contains("See: ferrule guide show") {
+            seen += 1;
+        }
+        if cites_agent_guide(&text) {
+            problems.push(path.join(" "));
+        }
+    }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+    assert!(seen >= 20, "{seen} helps hold a See line");
+}
+
+/// GA-R-040 — `stage commit` cites the `stages` topic.
+#[test]
+fn it_stage_commit_help_cites_the_stages_topic() {
+    let mut help = Help(HashMap::new());
+    let text = &help.of(&["stage", "commit"]).0;
+    assert!(text.contains("See: ferrule guide show stages"), "{text}");
+}
+
+/// GA-R-041 — six commands carry no `See:` line and keep their own facts.
+#[test]
+fn it_six_commands_have_no_see_line() {
+    let mut help = Help(HashMap::new());
+    for (path, refusal) in [
+        (["run", "diff"], "diff=refused"),
+        (["run", "log"], "log=refused"),
+        (["run", "plan-diff"], "plan-diff=refused"),
+        (["spec", "related"], "related=too-many"),
+        (["spec", "next"], "next=refused"),
+        (["spec", "refs"], "refs=refused"),
+    ] {
+        let text = &help.of(&path).0;
+        let name = path.join(" ");
+        assert!(!text.contains("See:"), "{name}: {text}");
+        let output = if name == "spec next" {
+            "Output, one line:"
+        } else {
+            "Output"
+        };
+        for needle in ["Exit codes:", output, refusal] {
+            assert!(text.contains(needle), "{name} lacks {needle}: {text}");
+        }
+    }
+}
+
+/// GA-R-042, GA-E-001 — only `fe-review` cites an agent guide, the reviewer's.
+#[test]
+fn it_skills_cite_no_agents_guide() {
+    let mut skills = Vec::new();
+    markdown(&core().join("install/claude/skills"), &mut skills);
+    assert!(skills.len() >= 4, "{} skills", skills.len());
+    for (name, text) in &skills {
+        let cited: Vec<String> = citations(text)
+            .into_iter()
+            .filter(|c| agent_guides().contains(&c.as_str()))
+            .collect();
+        if name.ends_with("fe-review.md") {
+            assert!(
+                !cited.is_empty() && cited.iter().all(|c| c == "reviewer"),
+                "{name}: {cited:?}"
+            );
+        } else {
+            assert!(cited.is_empty(), "{name}: {cited:?}");
+        }
+    }
+}
+
+/// GA-R-043 — the README cites no agent's guide and keeps the stage table.
+#[test]
+fn it_readme_cites_no_agents_guide() {
+    let readme =
+        fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../README.md")).unwrap();
+    assert!(!cites_agent_guide(&readme));
+    assert!(readme.contains("| Stage | Title"));
+}
+
+/// GA-R-058 — no installed-file paragraph of two sentences or more is also
+/// a paragraph of a guide source. A one-sentence paragraph may stay copied.
+#[test]
+fn it_installed_files_share_no_paragraph_with_guides() {
+    let paragraphs = |dir: &str| {
+        let mut files = Vec::new();
+        markdown(&core().join(dir), &mut files);
+        files
+            .into_iter()
+            .flat_map(|(name, text)| {
+                text.split("\n\n")
+                    .map(|p| (name.clone(), p.trim().to_owned()))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>()
+    };
+    let guides = paragraphs("guide");
+    for (name, p) in paragraphs("install/claude") {
+        if !p.contains(". ") {
+            continue;
+        }
+        let held: Vec<&String> = guides
+            .iter()
+            .filter(|(_, g)| *g == p)
+            .map(|(n, _)| n)
+            .collect();
+        assert!(held.is_empty(), "{name} copies a paragraph of {held:?}");
+    }
+}
+
+/// Every shared text is held by at least two sources.
+#[test]
+fn it_every_fragment_has_two_holders() {
+    let all = sources();
+    let mut seen = 0;
+    for entry in fs::read_dir(core().join("guide/shared")).unwrap() {
+        let path = entry.unwrap().path();
+        let name = path.file_stem().unwrap().to_str().unwrap().to_owned();
+        let line = format!("<!-- include: {name} -->");
+        let holders = all
+            .iter()
+            .filter(|(_, t)| t.lines().any(|l| l.trim() == line))
+            .count();
+        assert!(holders >= 2, "{name} is held by {holders}");
+        seen += 1;
+    }
+    assert!(seen >= 17, "{seen} fragments");
+}
+
+/// GA-R-059 — no heading section of a guide or installed-file source repeats
+/// another's body, or holds another's multi-paragraph body. A repeated
+/// sentence may stay copied.
+#[test]
+fn it_heading_sections_have_one_source() {
+    let mut sections: Vec<(String, String)> = Vec::new();
+    for (name, text) in sources() {
+        let mut current: Option<(String, Vec<&str>)> = None;
+        let mut done = Vec::new();
+        for line in ferrule_core::markdown::classified(&text) {
+            let hashes = line.text.chars().take_while(|c| *c == '#').count();
+            let heading =
+                !line.fenced && (1..=6).contains(&hashes) && line.text[hashes..].starts_with(' ');
+            if heading {
+                done.extend(current.take());
+                current = Some((format!("{name}: {}", line.text), Vec::new()));
+            } else if let Some((_, body)) = current.as_mut()
+                && !line.text.starts_with("<!-- include:")
+            {
+                body.push(line.text);
+            }
+        }
+        done.extend(current);
+        for (id, body) in done {
+            let body = body.join("\n").trim().to_owned();
+            if !body.is_empty() {
+                sections.push((id, body));
+            }
+        }
+    }
+    assert!(sections.len() > 100, "{} sections", sections.len());
+    let mut problems = Vec::new();
+    for (i, (a_id, a)) in sections.iter().enumerate() {
+        for (b_id, b) in &sections[i + 1..] {
+            let nested = (a.contains("\n\n") && b.contains(a.as_str()))
+                || (b.contains("\n\n") && a.contains(b.as_str()));
+            if a == b || nested {
+                problems.push(format!("{a_id} and {b_id} repeat text"));
             }
         }
     }

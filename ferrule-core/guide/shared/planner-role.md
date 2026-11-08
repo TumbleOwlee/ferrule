@@ -1,0 +1,1 @@
+Draft the implementation plan that reaches the approved architecture; the brief and the architecture are settled before you're spawned. You own the spec entries from here until `s0` lands them, and you give them their fixed IDs.

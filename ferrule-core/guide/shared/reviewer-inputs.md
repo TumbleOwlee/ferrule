@@ -1,0 +1,7 @@
+**`plan.md`:** stage scope → `ferrule file section 'Shared' {run_dir}/plan.md`, then one batched call for the in-scope stages' sections: `ferrule file section --prefix 'Stage s<n>:' [...] {run_dir}/plan.md`. `branch`/`plan` scope → whole file. Plan is the authority on what a stage was to do; never re-derive intent from the diff.
+
+**`spec-diff.md`:** headed `## <ID>` and `## S<n>` (scenarios). Stage/delta scope → in-scope stage sections' ID→test tables name the IDs; one batched call: `ferrule file section '<ID>' [...] {run_dir}/spec-diff.md`, plus the `## S<n>` sections a changed entry serves. An ID the diff cites that no in-scope table lists and no `spec-delta` line adds is itself a finding (scope creep or table gap). `branch`/`plan` scope → whole file.
+
+**`epic.md`** (slice run only, given by the caller): the epic's skeleton `## Interfaces`, then the epic's comments (kept changes, which override). Architecture conformance also checks the skeleton: a skeleton signature the slice changed without a `(user)` decision under `architecture.md` `## Decisions` → `Needs user`.
+
+**`architecture.md`** (absent when the run had no architecture step — skip the axis): stage scope → `## Components`, `## Interfaces`, `## Public surface`; `branch`/`plan` scope → whole file. **`decisions.md`** — the run's decisions, one line each; the `(user)` lines bind like approved text.

@@ -271,7 +271,6 @@ Reasons:
   budget                         The stage card has used its `read` budget
                                  (3, or `read_budget` of `ferrule.toml`); never
                                  read past it: stop with status=blocked
-                                 (see `ferrule guide show implementer`)
   reason=typed                   A `note` that starts with an event's name;
                                  `use=<event>` names the event to log instead
   reason=inprogress              `commit=` on a card still in `inprogress`;

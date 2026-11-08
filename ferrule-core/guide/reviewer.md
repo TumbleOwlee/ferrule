@@ -1,12 +1,8 @@
 # reviewer — Reviewing a plan, a stage or the branch
 
-**Concise, compact, facts only.**
+<!-- include: concise -->
 
-Review code you did not write. Read-only: report, never fix. Hook-enforced: only read-only programs run (`ferrule`, `rg`, `cat`, `git log`/`diff`/`show`, `cargo test`/`check` …; no wrappers or `sh -c`) and you write only the two files under `## Output`; never `git checkout`/`stash`/`reset` or anything altering the worktree — a probe you needed becomes a finding for the implementer.
-
-## Project rules
-
-`AGENTS.md` is already in your context; never re-read it. The Standards axis is checked against the rules it states; TDD honesty against that axis's own text. Read `ferrule file section 'Rules for writing specs' docs/specs/README.md` — review against these, not the caller's summary. Never reference an issue or PR. Diff: `ferrule run diff {slug} --base <base>` (`--stat` for the file list first). Commits: `ferrule run log {slug} --base <base>`. Both run in the run's worktree; without `--base` they compare with `{main}`.
+<!-- include: reviewer-start -->
 
 ## Scope
 
@@ -14,17 +10,11 @@ Scope token from caller: `plan` (no diff; `## Plan scope`), `plan from s<n>` (a 
 
 **Scope `stage s<n>` or `branch`:** a full-lane stage reaches this review uncommitted, and `--base` omits it. Read both: `ferrule run diff {slug} --base <base>` and `ferrule run diff {slug} --uncommitted` (empty once the work is committed). `--uncommitted` lists untracked files without diffing them: read every `??` path whole, each file of a listed directory too. Only when both are empty: `status=blocked reason=empty diff`.
 
-**`plan.md`:** stage scope → `ferrule file section 'Shared' {run_dir}/plan.md`, then one batched call for the in-scope stages' sections: `ferrule file section --prefix 'Stage s<n>:' [...] {run_dir}/plan.md`. `branch`/`plan` scope → whole file. Plan is the authority on what a stage was to do; never re-derive intent from the diff.
-
-**`spec-diff.md`:** headed `## <ID>` and `## S<n>` (scenarios). Stage/delta scope → in-scope stage sections' ID→test tables name the IDs; one batched call: `ferrule file section '<ID>' [...] {run_dir}/spec-diff.md`, plus the `## S<n>` sections a changed entry serves. An ID the diff cites that no in-scope table lists and no `spec-delta` line adds is itself a finding (scope creep or table gap). `branch`/`plan` scope → whole file.
-
-**`epic.md`** (slice run only, given by the caller): the epic's skeleton `## Interfaces`, then the epic's comments (kept changes, which override). Architecture conformance also checks the skeleton: a skeleton signature the slice changed without a `(user)` decision under `architecture.md` `## Decisions` → `Needs user`.
-
-**`architecture.md`** (absent when the run had no architecture step — skip the axis): stage scope → `## Components`, `## Interfaces`, `## Public surface`; `branch`/`plan` scope → whole file. **`decisions.md`** — the run's decisions, one line each; the `(user)` lines bind like approved text.
+<!-- include: reviewer-inputs -->
 
 ## Plan scope
 
-Scope `plan` or `plan from s<n>`: read `ferrule guide show reviewer-plan` first — it holds the checks.
+Scope `plan` or `plan from s<n>`: `ferrule guide show reviewer-plan` replaces this guide; it holds the checks.
 
 ## Axes, reported separately
 
@@ -32,7 +22,9 @@ Scope `plan` or `plan from s<n>`: read `ferrule guide show reviewer-plan` first 
 
 **Architecture conformance** — the code builds the components of `architecture.md` with their ownership, interactions, interfaces and public surface. A signature that differs from `## Interfaces` (a method added, dropped or re-typed, a field or variant changed) is a deviation. A deviation from a `(user)` decision, a user-approved component or the public surface → `Needs user` (a) keep — the architect revises `architecture.md` to match; b) revert to the approved structure — with your recommendation). Any other deviation → major, fix: conform, or name it as a plan amendment.
 
-**Standards** — every rule `AGENTS.md` states, under any heading; test naming; a test's doc comment lists every requirement or edge-case ID its assertions directly verify, and only those, before the summary (`/// AB-R-012, AB-R-157 — …`); unflagged semver-relevant public surface changes. Comment severity: a comment rule the project states sets its own severity, otherwise a minor.
+**Standards** — every rule `AGENTS.md` states, under any heading; test naming; the ID citation rule below; unflagged semver-relevant public surface changes. Comment severity: a comment rule the project states sets its own severity, otherwise a minor.
+
+<!-- include: id-citation -->
 
 **TDD honesty** — the fixed order, from the stage card's log (`ferrule board show {slug}.s<n>`) and the diff: every test was seen failing first (a `test-red` line naming the test and the failure, before `green`); the code came after, until the tests passed; no test or spec entry changed to pass when the code was what was wrong; a test passing from the start pins existing behavior, and a `note` says so. No cards (caller says so): the diff alone. Plus what only the diff reveals: tests passing against an empty/stub implementation; tests same-commit as their code in an order suggesting after-the-fact authorship.
 
@@ -47,49 +39,9 @@ Every change to `docs/specs/` after `s0` — `ferrule run diff {slug} --base <ba
 
 ## Follow-up pass
 
-Resumed in the same scope with the `review.md` path and `follow-up`, after the author revised: your context already holds the rules, the spec and the plan — re-read only what changed, then the full review of it.
+<!-- include: reviewer-follow-up-start -->
 - `plan` scope: `ferrule run plan-diff {slug}` (and `spec-diff.md`'s sections the revision touched). Every changed section gets every check of `ferrule guide show reviewer-plan`, not only the lines your findings named — a revision breaks things elsewhere as often as it fixes the finding.
 - `stage s<n>` / `delta s<n>` scope: the stage's current diff (the same commands as the first pass) whole — a stage diff is small; your earlier findings don't narrow it.
-- Never approve a fix because it matches what your finding suggested; check it like new code.
-- Then `## Output` as usual: pass N+1, history in `review.md`, the verdict rewritten.
+<!-- include: reviewer-follow-up-end -->
 
-## Output
-
-Append to `{run_dir}/review.md` — append only, never rewrite earlier lines — under `## <scope> <date>`. One line per finding, **≤ 200 characters**: `<stage id> — path:line — severity — problem. fix: <fix>.` Severity ∈ {blocker, major, minor}. `<stage id>` from the plan (lets caller move the right card back to `inprogress/`); `—` if no single stage owns it. Group by axis; clean axis → one line saying so. A probe result worth keeping goes on its own indented line under the finding. A follow-up pass lists only what changed: resolved ids, still-open ids, new findings. Something worth fixing outside the goal in code the diff does not touch (duplicated logic, a missing test elsewhere, a bug) is no finding: one `follow-up — <path> — <what> — <why it matters>` line, never on the verdict, never counted; outside-the-goal changes *in* the diff stay scope-creep findings.
-
-Then rewrite `{run_dir}/review.verdict.md` whole (`>` or `tee`, never append) — the user's file, **≤ 25 lines / 2 KB** (`ferrule prompt show` refuses more). Current state only, no pass history (that is `review.md`). Findings anchor on `<package> <file>` plus a function, test or arm name — never a line number. Blank line between blocks:
-
-```
-# {slug} — review verdict (<scope>, pass N)
-
-Verdict: <clean — ready for approval | findings — <n> must fix, <n> needs you>
-- <stage> — <spec | standards | tdd | docs> — <package> <file> `<fn | test | arm>`: <problem, ≤ 12 words>
-  - fix: <≤ 12 words>
-
-Spec — <n> of <m> pinned<, <IDs> below | >
-Spec changes — <IDs> detail<, <IDs> need you>          ← only with spec changes
-Architecture — <n> findings above                      ← an axis line only for an axis with findings
-Docs — <what is stale>
-Not checked — <what you could not verify, and why> | nothing
-
-Minors (<folded into s<n+1> | fixed before commit>)
-- <axis> — <package> <file> `<name>`: <problem, ≤ 12 words>; <fix, ≤ 8 words>
-
-Needs user
-- <question, one line>
-  - a) <option> (recommended: <why, ≤ 1 line>)
-  - b) <option>
-- none
-```
-
-Minors are information, never asked: `folded into s<n+1>` when a stage follows, `fixed before commit` when none does. Blockers and majors loop at most twice; a third pass lists what is still open under `Needs user`. Every `Needs user` item carries your recommendation. A clean axis has no line: `Spec — 11 of 11 pinned` and `Not checked` are the evidence, a clean pass is those two lines under its `Verdict:`. `Not checked` is never omitted: a Verification step beyond unit tests (demo TUI, real CSMS, device) is one you cannot run — name it; `nothing` only when every claim was checked. A `delta` scope verdict carries only `Verdict:`, `Spec changes`, `Needs user`.
-
-Final message one line:
-
-```
-status=clean file={run_dir}/review.md summary={run_dir}/review.verdict.md
-status=findings file={run_dir}/review.md summary={run_dir}/review.verdict.md count=<blockers+majors> user=<Needs user items> stage=[s2,s4]
-status=blocked reason=<empty diff | unresolvable base ref | …>
-```
-
-Findings needing a user decision (scope question, spec ambiguity, semver call, a meaningful spec change, an architecture deviation) are flagged as `Needs user` with `user=<n>` on the status line, not resolved; with only those, `status=findings count=0 user=<n>`.
+<!-- include: reviewer-output -->
