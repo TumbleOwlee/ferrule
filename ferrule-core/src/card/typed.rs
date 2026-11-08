@@ -13,6 +13,7 @@ pub enum Name {
     Pr,
     Ci,
     CiWaived,
+    IssueWaived,
     Stop,
     StageStop,
     Auto,
@@ -39,6 +40,7 @@ impl Name {
         Name::Pr,
         Name::Ci,
         Name::CiWaived,
+        Name::IssueWaived,
         Name::Stop,
         Name::StageStop,
         Name::Auto,
@@ -67,6 +69,7 @@ impl Name {
             Name::Pr => "pr=",
             Name::Ci => "ci=",
             Name::CiWaived => "ci-waived",
+            Name::IssueWaived => "issue-waived",
             Name::Stop => "stop",
             Name::StageStop => "stop=",
             Name::Auto => "auto=",
@@ -167,6 +170,7 @@ pub enum Typed<'a> {
     Pr(PrState),
     Ci(&'a str),
     CiWaived,
+    IssueWaived,
     /// A parent's stop for the user.
     Stop {
         kind: Option<&'a str>,
@@ -228,6 +232,7 @@ impl Typed<'_> {
             Typed::Pr(_) => Name::Pr,
             Typed::Ci(_) => Name::Ci,
             Typed::CiWaived => Name::CiWaived,
+            Typed::IssueWaived => Name::IssueWaived,
             Typed::Stop { .. } => Name::Stop,
             Typed::StageStop(_) => Name::StageStop,
             Typed::Auto => Name::Auto,
@@ -293,6 +298,7 @@ impl Event {
             }),
             Name::Ci => Typed::Ci(value?),
             Name::CiWaived => Typed::CiWaived,
+            Name::IssueWaived => Typed::IssueWaived,
             Name::Stop => Typed::Stop {
                 kind: key("kind"),
                 gate: key("gate"),

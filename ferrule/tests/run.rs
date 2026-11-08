@@ -3,7 +3,7 @@ mod golden;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use golden::{Run, seed_card, seed_log, seed_set};
+use golden::{FakeGh, GH_FIELDS, Run, gh_json, seed_card, seed_log, seed_set};
 
 const NOW: &str = "2026-10-05T09:00";
 
@@ -344,7 +344,7 @@ fn it_cleanup_refuses_until_pushed_and_green_then_archives() {
     assert_eq!(s.say(&["run", "metrics"]), "");
 
     seed_log(&s.root, NOW, "demo", &["ci=0"]);
-    assert_eq!(cleanup(), "cleanup=done archive=1");
+    assert_eq!(cleanup(), "cleanup=done archive=1 issue=12");
     assert!(!s.wt.exists());
     assert!(!has_ref(&s.root, "refs/heads/feat/demo"));
     assert!(!s.root.join(".ferrule/runs/demo").exists());
@@ -405,10 +405,159 @@ fn it_cleanup_checks_the_worktree_field() {
 #[test]
 fn it_cleanup_of_an_epic_needs_no_ci() {
     let s = pushed_run();
-    assert_eq!(s.say(&["run", "cleanup", "lb"]), "cleanup=done archive=1");
+    assert_eq!(
+        s.say(&["run", "cleanup", "lb"]),
+        "cleanup=done archive=1 issue=70"
+    );
     assert_eq!(
         s.say(&["run", "cleanup", "lb"]),
         "cleanup=done archive=none"
+    );
+}
+
+/// Stdout of `ferrule <args>` with the fake `gh` on the path, the trailing
+/// newline dropped.
+fn say_on(s: &Scratch, gh: &FakeGh, args: &[&str]) -> String {
+    let out = gh.on(s.run(args)).output();
+    String::from_utf8_lossy(&out.stdout).trim_end().to_owned()
+}
+
+/// Serves issue 12 as `state` (`OPEN` or `CLOSED`).
+fn serve_issue(gh: &FakeGh, state: &str) {
+    gh.serve(
+        &["issue", "view", "12", "--json", GH_FIELDS],
+        &gh_json(&format!(
+            "#12 Title [{state}]\nhttps://github.com/o/r/issues/12\nby someone\n\nbody\n"
+        )),
+    );
+}
+
+/// RU-R-001, RU-R-012 — a filed request run archives with no CI result
+/// and no host call, naming its issue.
+#[test]
+fn it_cleanup_of_a_filed_request_run_names_its_issue() {
+    let s = pushed_run();
+    let gh = FakeGh::new();
+    seed_set(&s.root, "demo", &["pr=", "kind=request"]);
+    assert_eq!(
+        say_on(&s, &gh, &["run", "cleanup", "demo"]),
+        "cleanup=done archive=1 issue=12"
+    );
+    assert!(s.say(&["run", "metrics"]).ends_with(" ci=-"));
+    assert_eq!(gh.log(), "");
+}
+
+/// RU-R-001 — an unfiled request run archives without an issue token.
+#[test]
+fn it_cleanup_of_an_unfiled_request_run() {
+    let s = pushed_run();
+    let gh = FakeGh::new();
+    seed_set(&s.root, "demo", &["pr=", "issue=", "kind=request"]);
+    assert_eq!(
+        say_on(&s, &gh, &["run", "cleanup", "demo"]),
+        "cleanup=done archive=1"
+    );
+}
+
+/// RU-R-002, RU-R-012 — a run without a PR or an issue needs no CI.
+#[test]
+fn it_cleanup_without_pr_or_issue_needs_no_ci() {
+    let s = pushed_run();
+    let gh = FakeGh::new();
+    seed_set(&s.root, "demo", &["pr=", "issue="]);
+    assert_eq!(
+        say_on(&s, &gh, &["run", "cleanup", "demo"]),
+        "cleanup=done archive=1"
+    );
+    assert!(s.say(&["run", "metrics"]).ends_with(" ci=-"));
+}
+
+/// RU-R-002 — a run without a PR whose issue is closed archives.
+#[test]
+fn it_cleanup_without_pr_and_closed_issue() {
+    let s = pushed_run();
+    let gh = FakeGh::new();
+    serve_issue(&gh, "CLOSED");
+    seed_set(&s.root, "demo", &["pr="]);
+    assert_eq!(
+        say_on(&s, &gh, &["run", "cleanup", "demo"]),
+        "cleanup=done archive=1 issue=12"
+    );
+}
+
+/// RU-R-003 — a run without a PR whose issue is open is refused.
+#[test]
+fn it_cleanup_refuses_while_the_issue_is_open() {
+    let s = pushed_run();
+    let gh = FakeGh::new();
+    serve_issue(&gh, "OPEN");
+    seed_set(&s.root, "demo", &["pr="]);
+    let state = s.say(&["board", "field", "demo", "state"]);
+    let got = say_on(&s, &gh, &["run", "cleanup", "demo"]);
+    assert!(
+        got.starts_with("cleanup=refused reason=issue-open issue=12 hint="),
+        "{got}"
+    );
+    assert!(s.wt.is_dir());
+    assert_eq!(s.say(&["board", "field", "demo", "state"]), state);
+}
+
+/// RU-R-004, RU-R-005 — an unreadable issue refuses until the user's
+/// `issue-waived` line, then the run archives without a second host call.
+#[test]
+fn it_cleanup_with_unreadable_issue_needs_the_users_waiver() {
+    let s = pushed_run();
+    let gh = FakeGh::new();
+    gh.serve_err(
+        &["issue", "view", "12", "--json", GH_FIELDS],
+        "HTTP 401: Bad credentials",
+        1,
+    );
+    seed_set(&s.root, "demo", &["pr="]);
+    let got = say_on(&s, &gh, &["run", "cleanup", "demo"]);
+    assert!(
+        got.starts_with("cleanup=refused reason=issue-unreadable issue=12 detail="),
+        "{got}"
+    );
+    assert!(
+        got.contains("hint=on the user's word only: ferrule board log demo issue-waived -- <why>"),
+        "{got}"
+    );
+    s.ok(&[
+        "board",
+        "log",
+        "demo",
+        "issue-waived",
+        "--",
+        "user approved",
+    ]);
+    assert_eq!(
+        say_on(&s, &gh, &["run", "cleanup", "demo"]),
+        "cleanup=done archive=1 issue=12"
+    );
+    assert_eq!(gh.log().matches("issue view").count(), 1, "{}", gh.log());
+}
+
+/// RU-E-001 — a run without a PR still gets the unpushed-work refusals.
+#[test]
+fn it_cleanup_without_a_pr_still_refuses_unpushed_work() {
+    let s = pushed_run();
+    let gh = FakeGh::new();
+    seed_set(&s.root, "demo", &["pr=", "issue="]);
+    std::fs::write(s.wt.join("y.txt"), "y\n").unwrap();
+    assert!(
+        say_on(&s, &gh, &["run", "cleanup", "demo"])
+            .starts_with("cleanup=refused reason=uncommitted-changes hint=")
+    );
+    git(&s.wt, &["add", "y.txt"]);
+    git(&s.wt, &["commit", "-q", "-m", "more"]);
+    assert!(
+        say_on(&s, &gh, &["run", "cleanup", "demo"])
+            .starts_with("cleanup=refused reason=unpushed-commits hint=")
+    );
+    assert!(
+        s.say(&["run", "export", "demo"])
+            .starts_with("export=refused reason=no-archive hint=")
     );
 }
 
@@ -886,7 +1035,10 @@ fn it_cleanup_archives_no_symlink() {
     std::os::unix::fs::symlink(&secret, run_dir.join("link.md")).unwrap();
     std::os::unix::fs::symlink(&s.root, run_dir.join("loop")).unwrap();
     seed_log(&s.root, NOW, "demo", &["ci=0"]);
-    assert_eq!(s.say(&["run", "cleanup", "demo"]), "cleanup=done archive=1");
+    assert_eq!(
+        s.say(&["run", "cleanup", "demo"]),
+        "cleanup=done archive=1 issue=12"
+    );
     let to = s.root.join("out");
     s.say(&["run", "export", "demo", "--to", to.to_str().unwrap()]);
     assert!(!to.join("link.md").exists());

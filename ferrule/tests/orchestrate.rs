@@ -1038,6 +1038,62 @@ fn it_init_a_slice_stores_its_epic() {
     assert!(epic_md.starts_with("## Spec (rev 1)\n"), "{epic_md}");
 }
 
+/// RU-R-006, RU-R-007 — `run init --issue` records `named-issue` and not
+/// `issue`; both fields name the command that owns them.
+#[test]
+fn it_init_records_the_named_issue() {
+    let p = Project::new();
+    p.gh.serve(
+        &["issue", "view", "7", "--json", GH_FIELDS],
+        &gh_json(&std::fs::read_to_string(fixtures().join("issue/plain.txt")).unwrap()),
+    );
+    assert_eq!(
+        p.ok(&["run", "init", "demo", "--issue", "7"]),
+        "init=done slug=demo"
+    );
+    assert_eq!(p.field("demo", "named-issue"), "7");
+    assert_eq!(p.field("demo", "issue"), "");
+    let named = p.ferrule(&["board", "set", "demo", "named-issue=8"]).text();
+    assert!(
+        named.contains("ferrule run init <slug> --issue <n>"),
+        "{named}"
+    );
+    let issue = p.ferrule(&["board", "set", "demo", "issue=8"]).text();
+    assert!(
+        issue.contains("ferrule gate approve <slug> gate2 or ferrule issue post <slug>"),
+        "{issue}"
+    );
+}
+
+/// RU-R-007 — gate 2 records the filed issue on the card.
+#[test]
+fn it_gate2_records_the_filed_issue() {
+    let p = Project::new();
+    through_gate2(&p);
+    assert_eq!(p.field("demo", "issue"), "12");
+}
+
+/// RU-E-003 — `run init --request` of a slice issue is a request run: no
+/// epic lookup, no slice files.
+#[test]
+fn it_init_request_of_a_slice_is_no_slice() {
+    let p = Project::new();
+    p.gh.serve(
+        &["issue", "view", "71", "--json", GH_FIELDS],
+        &gh_json(&std::fs::read_to_string(fixtures().join("issue/slice.txt")).unwrap()),
+    );
+    assert_eq!(
+        p.ok(&["run", "init", "rq", "--request", "--issue", "71"]),
+        "init=done slug=rq"
+    );
+    assert_eq!(p.field("rq", "kind"), "request");
+    assert_eq!(p.field("rq", "epic"), "");
+    let dir = p.root.join(".ferrule/runs/rq");
+    assert!(!dir.join("slice-line.md").exists());
+    assert!(!dir.join("epic.md").exists());
+    assert!(!p.gh.log().contains("issue view 70"), "{}", p.gh.log());
+}
+
 #[test]
 fn it_issue_file_variants() {
     let p = Project::new();

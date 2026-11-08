@@ -10,7 +10,7 @@ description: PO-facing entrypoint — grill a requirement into an approved brief
 
 `ferrule guide show gate1` and `ferrule guide show issue` are the authority for the brief and the tracking issue; read `ferrule guide show principles` and `ferrule guide show handoff` once first.
 
-Single session, no resume: `ferrule run init <slug> [--issue <n>]` gives `fe-author` its run directory; skip gate 1's lane question (always the full-lane brief approval) and every other card step. The ticket is the only surviving artifact: its spec carries local IDs and a `### Deferred` list, the architect and planner refine both, and the planner fixes the IDs. Approved spec text never lands in `docs/specs/` here.
+Single session, no resume: `ferrule run init <slug> --request [--issue <n>]` gives `fe-author` its run directory; skip gate 1's lane question (always the full-lane brief approval) and every other card step. The ticket is the only surviving artifact: its spec carries local IDs and a `### Deferred` list, the architect and planner refine both, and the planner fixes the IDs. Approved spec text never lands in `docs/specs/` here.
 
 ## Steps
 

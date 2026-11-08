@@ -19,10 +19,14 @@ Output:
                                    --issue named a slice of epic <n>; the card
                                    records kind and epic
 With --issue the run directory also holds request.md and issue-spec.md (when
-the issue carries them) and, for a slice, slice-line.md and epic.md.
+the issue carries them) and, for a slice, slice-line.md and epic.md; the card
+records the named issue as `named-issue`.
+With --request the card records `kind=request` and no slice is detected: no
+epic is read and no slice-line.md or epic.md is written.
 Refusals:
   init=refused reason=exists       The run already has a card or stage cards;
-                                   resume it with `ferrule run reconcile <slug>`Errors (stderr):
+                                   resume it with `ferrule run reconcile <slug>`
+Errors (stderr):
   init: <host error>               The issue could not be read (exit 1)
 Refusals end in ` hint=<fix>`.
 Exit codes: 0 done, 1 refused, 2 usage, 4 internal error.
@@ -148,6 +152,9 @@ Output:
                                    (`ferrule run export` writes it back), in
                                    one transaction; then the worktree, local
                                    branch and run directory are removed
+  cleanup=done archive=<id> issue=<n>
+                                   The run references issue <n>: the one it
+                                   filed, else the one `run init --issue` named
   cleanup=done archive=none        Nothing was left to archive
   cleanup=done archive=<id> resumed
                                    An earlier cleanup archived the run but
@@ -163,6 +170,16 @@ Refusals before the archive is written (nothing is changed):
   cleanup=refused reason=no-ci                No ci= logged; `ferrule ci wait`
   cleanup=refused reason=ci-red               The last ci= is not 0 and no later
                                               ci-waived line exists
+  cleanup=refused reason=issue-open           A feature run opened no PR and its
+                                              issue is still open; finish the run or
+                                              close the issue
+  cleanup=refused reason=issue-unreadable     A feature run opened no PR and its
+                                              issue's state could not be read;
+                                              on the user's word only, log
+                                              `issue-waived` with a reason
+CI is not asked of a request run (`kind=request`), an epic, or a run
+without a PR whose issue is not open (no issue, or a closed one); its metrics
+line records ci=-. A run with a PR needs a green or waived CI result.
 Refusals after it (the run is archived; rerun to finish):
   cleanup=refused reason=worktree-remove-failed
                                               git could not remove the worktree;
@@ -290,6 +307,9 @@ pub enum RunCommand {
         /// The issue the user named: a GitHub number or URL, or a Jira key.
         #[arg(long)]
         issue: Option<ItemRef>,
+        /// Mark the run as a `/fe-request` run: no slice is detected.
+        #[arg(long)]
+        request: bool,
     },
     /// Reconcile a run's cards with git and the host before resuming.
     ///
@@ -324,8 +344,10 @@ pub enum RunCommand {
     /// Clean up a finished run.
     ///
     /// Removes the worktree and the local branch and archives the cards and
-    /// files. Refuses while the worktree holds unpushed work or CI is not
-    /// green.
+    /// files. Refuses while the worktree holds unpushed work, while CI is
+    /// not green (a request run, an epic and a feature run without a PR whose issue
+    /// is not open need no CI result), or while a feature run without a PR has an
+    /// issue that is open or cannot be read.
     #[command(after_long_help = CLEANUP_AFTER_LONG_HELP)]
     Cleanup {
         /// The run's slug.
@@ -405,7 +427,11 @@ pub enum RunCommand {
 
 pub fn run(command: &RunCommand, out: &mut impl Write) -> io::Result<u8> {
     match command {
-        RunCommand::Init { slug, issue } => start::init(slug, issue.as_ref(), out),
+        RunCommand::Init {
+            slug,
+            issue,
+            request,
+        } => start::init(slug, issue.as_ref(), *request, out),
         RunCommand::Reconcile { slug, local } => start::reconcile(slug, *local, out),
         RunCommand::Rebase { slug, onto } => start::rebase(slug, onto.as_deref(), out),
         RunCommand::Rebuild { issue, pr } => start::rebuild(issue, pr, out),

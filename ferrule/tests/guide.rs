@@ -687,6 +687,33 @@ fn it_bootstrap_suggests_no_project_rules_override() {
     assert!(skill.contains("with a `## Checks` section"), "{skill}");
 }
 
+/// GA-R-038, S1 — the re-plan guide's question citation prints the question format.
+#[test]
+fn it_replan_question_citation_prints_the_question_format() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let replan = ok(root, &["guide", "planner-replan", "--slug", "demo"]);
+    let (_, rest) = replan
+        .split_once("Questions as in `ferrule guide show planner ")
+        .unwrap_or_else(|| panic!("{replan}"));
+    let (cited, _) = rest.split_once('`').unwrap_or_else(|| panic!("{replan}"));
+    let mut args = vec!["guide", "planner", "--slug", "demo"];
+    for part in cited.split("--section '").skip(1) {
+        let (heading, _) = part.split_once('\'').unwrap_or_else(|| panic!("{cited}"));
+        args.extend(["--section", heading]);
+    }
+    assert!(args.len() > 4, "{cited}");
+    let text = ok(root, &args);
+    for needle in [
+        "# demo — questions (gate 2)",
+        "One block per decision:",
+        "`Why you:` is mandatory.",
+    ] {
+        assert!(text.contains(needle), "{needle}: {text}");
+    }
+}
+
 /// GW-R-006, S2 — the implementer guide blocks a clean-worktree nothing-staged refusal with `head=` and an `--adopt` suggestion.
 #[test]
 fn it_implementer_guide_blocks_a_clean_nothing_staged() {
@@ -743,4 +770,38 @@ fn it_stages_guide_routes_an_adopt_suggestion_to_the_blocked_stop() {
         .unwrap_or_else(|| panic!("{section}"));
     assert!(line.contains("1: a"), "{line}");
     assert!(!line.contains("guide show replan"), "{line}");
+}
+
+/// RU-R-008, RU-R-009, RU-R-010 — the cleanup guide states the CI exemptions
+/// beside the epic's, the issue refusals and the closing notices.
+#[test]
+fn it_cleanup_guide_states_exemptions_and_notices() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let text = ok(root, &["guide", "cleanup", "--slug", "demo"]);
+    for want in [
+        "Done · demo · issue #<n> · cleaned up · archived",
+        "Done · demo · cleaned up · archived",
+        "issue-waived",
+        "request run",
+        "an epic",
+        "without a PR whose issue is not open",
+    ] {
+        assert!(text.contains(want), "{want}: {text}");
+    }
+}
+
+/// The principles guide names both endings of a run: a ready PR
+/// with green CI, or cleanup of a run without a PR under its CI exemption.
+#[test]
+fn it_principles_guide_names_the_run_without_a_pr_ending() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let principles = ok(root, &["guide", "principles", "--slug", "demo"]);
+    assert!(
+        principles.contains("a run without a PR ends at `ferrule run cleanup`"),
+        "{principles}"
+    );
 }

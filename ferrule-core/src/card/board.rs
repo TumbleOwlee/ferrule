@@ -200,6 +200,7 @@ pub const PARENT_FIELDS: &[&str] = &[
     "upstream",
     "artifacts",
     "worktree",
+    "named-issue",
 ];
 /// Frontmatter keys a stage card may carry; `id` and `parent` are derived.
 pub const STAGE_FIELDS: &[&str] = &["title", "blocked-by", "files", "branch", "worktree", "stop"];
@@ -216,8 +217,9 @@ pub const FERRULE_FIELDS: &[(&str, &str)] = &[
     ("worktree", "ferrule gate approve <slug> gate2"),
     (
         "issue",
-        "ferrule run init <slug> --issue <n> or ferrule gate approve <slug> gate2",
+        "ferrule gate approve <slug> gate2 or ferrule issue post <slug>",
     ),
+    ("named-issue", "ferrule run init <slug> --issue <n>"),
     ("pr", "ferrule pr open <slug>"),
 ];
 

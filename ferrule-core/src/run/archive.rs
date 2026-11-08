@@ -16,6 +16,7 @@ use crate::card::typed::Typed;
 use crate::git;
 use crate::project::Layout;
 use crate::refusal::Refusal;
+use crate::remote::{IssueTracker, ItemRef, refs};
 use crate::store::{Board, Reader, Writer};
 
 /// Why a run's metrics are refused: its CI is not known green.
@@ -59,6 +60,10 @@ pub enum CleanupRefusal {
     NoUpstream,
     /// The branch has commits its upstream lacks.
     UnpushedCommits,
+    /// The run opened no PR and its issue is still open.
+    IssueOpen(ItemRef),
+    /// The run opened no PR and its issue's state could not be read.
+    IssueUnreadable { issue: ItemRef, error: String },
     /// `git worktree remove` failed.
     WorktreeRemoveFailed(git::GitError),
     /// `git branch -D` failed.
@@ -74,6 +79,8 @@ impl CleanupRefusal {
             CleanupRefusal::UncommittedChanges => "uncommitted-changes",
             CleanupRefusal::NoUpstream => "no-upstream",
             CleanupRefusal::UnpushedCommits => "unpushed-commits",
+            CleanupRefusal::IssueOpen(_) => "issue-open",
+            CleanupRefusal::IssueUnreadable { .. } => "issue-unreadable",
             CleanupRefusal::WorktreeRemoveFailed(_) => "worktree-remove-failed",
             CleanupRefusal::BranchDeleteFailed(_) => "branch-delete-failed",
         }
@@ -90,6 +97,14 @@ impl CleanupRefusal {
             }
             CleanupRefusal::NoUpstream | CleanupRefusal::UnpushedCommits => {
                 r.hint(format!("push the branch: ferrule pr push {slug}"))
+            }
+            CleanupRefusal::IssueOpen(issue) => r
+                .field("issue", issue.to_string())
+                .hint("the issue still waits on this run: finish the run, or close the issue, then rerun"),
+            CleanupRefusal::IssueUnreadable { issue, error } => {
+                r.field("issue", issue.to_string()).detail(error).hint(format!(
+                    "on the user's word only: ferrule board log {slug} issue-waived -- <why>"
+                ))
             }
             CleanupRefusal::WorktreeRemoveFailed(e) => r.detail(&e.stderr).hint(
                 "the shell guard refuses `git worktree remove`; ask the user to remove it, then rerun",
@@ -180,9 +195,24 @@ fn ci(events: &[Event]) -> Result<String, CiRefusal> {
     }
 }
 
+/// Whether a run's metrics line needs a known-green CI result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CiCheck {
+    /// The run's CI must be known green.
+    Required,
+    /// The run needs no CI result; its line records `ci=-`.
+    Exempt,
+}
+
 /// The run's metrics line, recorded (replacing a line for the same run and
 /// start) unless its CI is not known green.
 pub fn metrics(w: &Writer<'_>, slug: &str, now: &str) -> Result<String, Error> {
+    record(w, slug, now, CiCheck::Required)
+}
+
+/// The run's metrics line as [`metrics`] records it; with `check` exempt the
+/// CI value is `-` and no CI result is needed.
+pub fn record(w: &Writer<'_>, slug: &str, now: &str, check: CiCheck) -> Result<String, Error> {
     let conn = w.conn();
     if board::state(conn, slug)?.is_none() {
         return Err(Error::Card);
@@ -213,7 +243,7 @@ pub fn metrics(w: &Writer<'_>, slug: &str, now: &str) -> Result<String, Error> {
     } else {
         board::field(conn, slug, "lane")?.unwrap_or_else(|| "-".to_owned())
     };
-    let ci = if epic {
+    let ci = if epic || check == CiCheck::Exempt {
         "-".to_owned()
     } else {
         ci(&parent).map_err(Error::Ci)?
@@ -313,13 +343,62 @@ fn worktree_clean(wt: &Path) -> Result<String, CleanupRefusal> {
 }
 
 /// What a clean-up did.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Cleaned {
     /// The archive written, `None` when there was nothing to archive.
     pub archive: Option<i64>,
     /// An earlier clean-up had archived the run and only its git and file
     /// steps were left, which this one finished.
     pub resumed: bool,
+    /// The issue the run references, when it has one.
+    pub issue: Option<ItemRef>,
+}
+
+/// The issue a run references: the one it filed, else the one it was
+/// started with.
+fn issue_ref(conn: &Connection, slug: &str) -> rusqlite::Result<Option<ItemRef>> {
+    for key in ["issue", "named-issue"] {
+        let field = board::field(conn, slug, key)?;
+        if let Some(i) = refs(field.as_deref()).into_iter().next() {
+            return Ok(Some(i));
+        }
+    }
+    Ok(None)
+}
+
+/// Whether the run's CI result is needed: not for an epic, a request run, a
+/// run without a PR and without an open issue, or one whose issue the user
+/// waived. Refuses a run without a PR whose issue is open or unreadable.
+fn ci_check(
+    conn: &Connection,
+    slug: &str,
+    issue: Option<&ItemRef>,
+    tracker: &dyn IssueTracker,
+) -> Result<CiCheck, Error> {
+    let kind = board::field(conn, slug, "kind")?;
+    if matches!(kind.as_deref(), Some("epic" | "request")) {
+        return Ok(CiCheck::Exempt);
+    }
+    if board::field(conn, slug, "pr")?.is_some_and(|p| !p.is_empty()) {
+        return Ok(CiCheck::Required);
+    }
+    let Some(issue) = issue else {
+        return Ok(CiCheck::Exempt);
+    };
+    let waived = board::events(conn, slug, &[])?
+        .iter()
+        .any(|e| e.typed() == Typed::IssueWaived);
+    if waived {
+        return Ok(CiCheck::Exempt);
+    }
+    match tracker.view(issue) {
+        Ok(i) if i.open => Err(Error::Refused(CleanupRefusal::IssueOpen(issue.clone()))),
+        Ok(_) => Ok(CiCheck::Exempt),
+        Err(e) => Err(Error::Refused(CleanupRefusal::IssueUnreadable {
+            issue: issue.clone(),
+            error: e.to_string(),
+        })),
+    }
 }
 
 /// An archive whose worktree, branch or run directory is still to remove.
@@ -399,18 +478,28 @@ fn finish(conn: &Connection, layout: &Layout, slug: &str, todo: &Pending) -> Res
 }
 
 /// Cleans up a finished run: refuses while the worktree holds work its PR
-/// would not carry or the run's CI is not green; else, in one transaction,
+/// would not carry, or the run's CI is not green; a request run, an epic and
+/// a run without a PR whose issue is not open need no CI result, and a run
+/// without a PR refuses while its issue is open or cannot be read, unless
+/// an `issue-waived` line is logged. Else, in one transaction,
 /// records the metrics and archives and deletes the cards and artifacts,
 /// marking the worktree, the local branch and the run directory as still to
 /// remove, and then removes them. A rerun after a failure there finishes
 /// only what the archive still marks. Returns what was done.
-pub fn cleanup(db: &mut Board, layout: &Layout, slug: &str, now: &str) -> Result<Cleaned, Error> {
+pub fn cleanup(
+    db: &mut Board,
+    layout: &Layout,
+    slug: &str,
+    now: &str,
+    tracker: &dyn IssueTracker,
+) -> Result<Cleaned, Error> {
     let conn = db.conn_mut();
     if let Some(todo) = pending(conn, slug)? {
         finish(conn, layout, slug, &todo)?;
         return Ok(Cleaned {
             archive: Some(todo.id),
             resumed: true,
+            issue: None,
         });
     }
     let wt = super::worktree(conn, layout, slug, slug)?;
@@ -419,6 +508,8 @@ pub fn cleanup(db: &mut Board, layout: &Layout, slug: &str, now: &str) -> Result
     } else {
         None
     };
+    let issue = issue_ref(conn, slug)?;
+    let check = ci_check(conn, slug, issue.as_ref(), tracker)?;
     let run_dir = layout.run_dir(slug);
     let artifacts = if run_dir.is_dir() {
         files_below(&run_dir)?
@@ -428,7 +519,7 @@ pub fn cleanup(db: &mut Board, layout: &Layout, slug: &str, now: &str) -> Result
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let has_parent = board::state(&tx, slug)?.is_some();
     if has_parent {
-        metrics(&Writer::new(&tx), slug, now)?;
+        record(&Writer::new(&tx), slug, now, check)?;
     }
     let mut cards: Vec<String> = Vec::new();
     if has_parent {
@@ -447,6 +538,7 @@ pub fn cleanup(db: &mut Board, layout: &Layout, slug: &str, now: &str) -> Result
         return Ok(Cleaned {
             archive: None,
             resumed: false,
+            issue,
         });
     }
     tx.execute(
@@ -477,6 +569,7 @@ pub fn cleanup(db: &mut Board, layout: &Layout, slug: &str, now: &str) -> Result
     Ok(Cleaned {
         archive: Some(id),
         resumed: false,
+        issue,
     })
 }
 
@@ -575,5 +668,100 @@ mod tests {
         let z = compress(&data).unwrap();
         assert!(z.len() < data.len());
         assert_eq!(decompress(&z).unwrap(), data);
+    }
+
+    use crate::remote::ItemRef;
+    use crate::remote::fake::FakeTracker;
+
+    fn card(fields: &[(&str, &str)], events: &[&str]) -> crate::store::Store {
+        let mut s = crate::store::Store::memory().unwrap();
+        let f: Vec<(String, String)> = fields
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect();
+        board::create(&mut s.conn, "r", board::State::Open, &f, "t").unwrap();
+        for e in events {
+            board::insert_body(&s.conn, "r", "2026-10-04T11:50", e);
+        }
+        s
+    }
+
+    fn decide(s: &crate::store::Store, t: &FakeTracker) -> Result<CiCheck, Error> {
+        let issue = issue_ref(&s.conn, "r").unwrap();
+        ci_check(&s.conn, "r", issue.as_ref(), t)
+    }
+
+    fn is_exempt(r: &Result<CiCheck, Error>) -> bool {
+        matches!(r, Ok(CiCheck::Exempt))
+    }
+
+    /// RU-R-001 — a request run needs no CI check and no host call.
+    #[test]
+    fn ut_request_run_needs_no_ci_check() {
+        let s = card(&[("kind", "request"), ("issue", "12")], &[]);
+        let t = FakeTracker::default();
+        t.0.borrow_mut().open.push((12, "t".into()));
+        assert!(is_exempt(&decide(&s, &t)));
+        assert!(t.calls().is_empty());
+    }
+
+    /// RU-R-002 — a run without a PR and without an issue needs no CI check;
+    /// a PR makes it required.
+    #[test]
+    fn ut_run_without_pr_or_issue_is_exempt() {
+        let t = FakeTracker::default();
+        assert!(is_exempt(&decide(&card(&[], &[]), &t)));
+        let s = card(&[("pr", "34")], &[]);
+        assert!(matches!(decide(&s, &t), Ok(CiCheck::Required)));
+    }
+
+    /// RU-R-002, RU-R-003 — a closed issue exempts, an open one refuses; the
+    /// named issue counts as the reference.
+    #[test]
+    fn ut_closed_issue_is_exempt_open_refuses() {
+        let t = FakeTracker::default();
+        assert!(is_exempt(&decide(&card(&[("issue", "12")], &[]), &t)));
+        t.0.borrow_mut().open.push((12, "t".into()));
+        for key in ["issue", "named-issue"] {
+            let got = decide(&card(&[(key, "12")], &[]), &t);
+            assert!(
+                matches!(&got, Err(Error::Refused(CleanupRefusal::IssueOpen(i)))
+                    if i == &ItemRef::from(12)),
+                "{key}: {got:?}"
+            );
+        }
+    }
+
+    /// RU-R-005, RU-E-002 — an `issue-waived` line skips reading the issue,
+    /// even while it is open.
+    #[test]
+    fn ut_issue_waiver_skips_the_issue_state() {
+        let t = FakeTracker::default();
+        t.0.borrow_mut().open.push((12, "t".into()));
+        let s = card(&[("issue", "12")], &["issue-waived approved"]);
+        assert!(is_exempt(&decide(&s, &t)));
+        assert!(t.calls().is_empty());
+    }
+
+    /// RU-R-012 — an exempt record writes `ci=-`; a required one without a
+    /// CI result refuses.
+    #[test]
+    fn ut_record_exempt_writes_ci_dash() {
+        let s = card(&[], &[]);
+        let line = record(
+            &Writer::new(&s.conn),
+            "r",
+            "2026-10-04T12:00",
+            CiCheck::Exempt,
+        )
+        .unwrap();
+        assert!(line.ends_with(" ci=-"), "{line}");
+        let got = record(
+            &Writer::new(&s.conn),
+            "r",
+            "2026-10-04T12:00",
+            CiCheck::Required,
+        );
+        assert!(matches!(got, Err(Error::Ci(CiRefusal::NoCi))), "{got:?}");
     }
 }
