@@ -410,12 +410,8 @@ fn it_agent_files_name_one_guide_per_job() {
 fn it_job_guides_share_no_text_with_their_main_guide() {
     let read = |n: &str| fs::read_to_string(core().join(format!("guide/{n}.md"))).unwrap();
     let mut problems = Vec::new();
-    for (main, job) in [
-        ("author", "author-late"),
-        ("architect", "architect-epic"),
-        ("planner", "planner-replan"),
-        ("reviewer", "reviewer-plan"),
-    ] {
+    for family in AGENTS {
+        let [main, job] = family else { continue };
         let main_text = read(main);
         for line in read(job).lines() {
             if line.chars().count() >= 40
@@ -563,4 +559,48 @@ fn it_every_fragment_has_two_holders() {
         seen += 1;
     }
     assert!(seen >= 17, "{seen} fragments");
+}
+
+/// GA-R-059 — no heading section of a guide or installed-file source repeats
+/// another's body, or holds another's multi-paragraph body. A repeated
+/// sentence may stay copied.
+#[test]
+fn it_heading_sections_have_one_source() {
+    let mut sections: Vec<(String, String)> = Vec::new();
+    for (name, text) in sources() {
+        let mut current: Option<(String, Vec<&str>)> = None;
+        let mut done = Vec::new();
+        for line in ferrule_core::markdown::classified(&text) {
+            let hashes = line.text.chars().take_while(|c| *c == '#').count();
+            let heading =
+                !line.fenced && (1..=6).contains(&hashes) && line.text[hashes..].starts_with(' ');
+            if heading {
+                done.extend(current.take());
+                current = Some((format!("{name}: {}", line.text), Vec::new()));
+            } else if let Some((_, body)) = current.as_mut()
+                && !line.text.starts_with("<!-- include:")
+            {
+                body.push(line.text);
+            }
+        }
+        done.extend(current);
+        for (id, body) in done {
+            let body = body.join("\n").trim().to_owned();
+            if !body.is_empty() {
+                sections.push((id, body));
+            }
+        }
+    }
+    assert!(sections.len() > 100, "{} sections", sections.len());
+    let mut problems = Vec::new();
+    for (i, (a_id, a)) in sections.iter().enumerate() {
+        for (b_id, b) in &sections[i + 1..] {
+            let nested = (a.contains("\n\n") && b.contains(a.as_str()))
+                || (b.contains("\n\n") && a.contains(b.as_str()));
+            if a == b || nested {
+                problems.push(format!("{a_id} and {b_id} repeat text"));
+            }
+        }
+    }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
