@@ -22,7 +22,7 @@
 
 ## Commands through rtk
 
-**SG-R-009** — The read-only guard gives `rtk <program> <args>` the verdict it gives `<program> <args>` when `<program>` is `git`, `cargo`, `grep`, `rg`, `find`, `ls`, `tree`, `wc` or `diff`, so SG-R-001 to SG-R-005, SG-E-001 and SG-E-002 hold through `rtk`.
+**SG-R-009** — The read-only guard gives `rtk <program> <args>` the verdict it gives `<program> <args>` when `<program>` is `git`, `cargo`, `grep`, `rg`, `find`, `ls`, `tree`, `wc` or `diff`, so SG-R-001 to SG-R-005, SG-E-001 and SG-E-002 hold through `rtk`, except where SG-R-017 refuses.
 
 **SG-R-010** — The session guard gives `rtk <program> <args>` the verdict and refusal hint it gives `<program> <args>` when `<program>` is `git`, `cargo`, `grep`, `rg`, `find`, `ls`, `tree`, `wc` or `diff`, so SG-R-006 to SG-R-008 hold through `rtk`.
 
