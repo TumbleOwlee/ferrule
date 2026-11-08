@@ -126,10 +126,10 @@ Refusals before the archive is written (nothing is changed):
   cleanup=refused reason=no-ci                No ci= logged; `ferrule ci wait`
   cleanup=refused reason=ci-red               The last ci= is not 0 and no later
                                               ci-waived line exists
-  cleanup=refused reason=issue-open           The run opened no PR and its issue
-                                              is still open; finish the run or
+  cleanup=refused reason=issue-open           A feature run opened no PR and its
+                                              issue is still open; finish the run or
                                               close the issue
-  cleanup=refused reason=issue-unreadable     The run opened no PR and its
+  cleanup=refused reason=issue-unreadable     A feature run opened no PR and its
                                               issue's state could not be read;
                                               on the user's word only, log
                                               `issue-waived` with a reason
