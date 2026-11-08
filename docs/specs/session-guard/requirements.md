@@ -16,6 +16,6 @@
 
 **SG-R-006** — While a rebase is in progress in a run's worktree, the session guard lets through `git add`, `git rm`, `git rebase --continue` and `git rebase --abort` in that worktree.
 
-**SG-R-007** — While a rebase is in progress in a run's worktree, the session guard refuses every git write in that worktree other than those of SG-R-006, `git commit` and `git push` included.
+**SG-R-007** — While a rebase is in progress in a run's worktree, the session guard refuses every git write in that worktree other than those of SG-R-006, `git commit`, `git push` and every other `git rebase` included, with a hint naming what still runs and the rebase command.
 
-**SG-R-008** — The session guard refuses a raw `git rebase` with a hint naming the rebase command, except `--continue` and `--abort` while a rebase is in progress in a run's worktree.
+**SG-R-008** — Outside a run's worktree with a rebase in progress, the session guard refuses a raw `git rebase`, `--continue` and `--abort` included, with a hint naming the rebase command.

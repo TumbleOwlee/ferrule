@@ -144,6 +144,8 @@ pub const REPLACED: &[Replaced] = &[
 pub struct Policy<'a> {
     /// `[guard] allow`: raw commands re-opened.
     pub allow: &'a [String],
+    /// Run worktrees with a rebase in progress.
+    pub rebasing: &'a [PathBuf],
 }
 
 /// The commands every session may not run raw: writes to the files only
@@ -249,9 +251,10 @@ fn guard_list(
             .or_else(|| git_settings(c, name, args, cwd, policy, depth))
             .or_else(|| flood(c, name, args, cwd))
             .or_else(|| hidden(&c.words, name, args, policy))
+            .or_else(|| rebase_check(name, args, cwd, policy))
             .or_else(|| replaced(name, args, policy))
-            .or_else(|| behind(name, args, policy))
-            .or_else(|| interpreted(c, name, args, policy))
+            .or_else(|| behind(name, args, cwd, policy))
+            .or_else(|| interpreted(c, name, args, cwd, policy))
             .or_else(|| nested(name, args, cwd, policy, depth));
         if reason.is_some() {
             return reason;
@@ -332,7 +335,13 @@ fn code_words(code: &str) -> Vec<String> {
 /// A replaced git or gh call inside an interpreter's code: its inline code
 /// (`-c`, `-e`, a script operand), a heredoc or a here-string it reads.
 /// `sed 'e git push'` and `awk 'BEGIN{system("git push")}'` count.
-fn interpreted(c: &Command, name: &str, args: &[String], policy: Policy) -> Option<String> {
+fn interpreted(
+    c: &Command,
+    name: &str,
+    args: &[String],
+    cwd: &Path,
+    policy: Policy,
+) -> Option<String> {
     if !interpreter(name) {
         return None;
     }
@@ -350,7 +359,7 @@ fn interpreted(c: &Command, name: &str, args: &[String], policy: Policy) -> Opti
                 let w = shell::base(&words[i]);
                 let rest = &words[i + 1..words.len().min(i + 24)];
                 (w == "git" || w == "gh" || w.starts_with("git-"))
-                    .then(|| replaced_as(w, rest, policy))
+                    .then(|| replaced_as(w, rest, cwd, policy))
                     .flatten()
             })
         })
@@ -468,7 +477,7 @@ const LITERAL: &[&str] = &[
 /// A replaced git or gh call run by a program the guard does not know as a
 /// wrapper: among its words (`strace -f git push`) or inside one of them
 /// (`flock -c 'git push' lock`).
-fn behind(name: &str, args: &[String], policy: Policy) -> Option<String> {
+fn behind(name: &str, args: &[String], cwd: &Path, policy: Policy) -> Option<String> {
     if LITERAL.contains(&name) {
         return None;
     }
@@ -478,7 +487,7 @@ fn behind(name: &str, args: &[String], policy: Policy) -> Option<String> {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | '_' | '-'));
         let rest = &args[i + 1..];
         let among = if path_like {
-            replaced_as(shell::base(a), rest, policy)
+            replaced_as(shell::base(a), rest, cwd, policy)
         } else {
             (unseen(a)
                 && ["git", "gh"]
@@ -490,7 +499,8 @@ fn behind(name: &str, args: &[String], policy: Policy) -> Option<String> {
             a.contains(char::is_whitespace)
                 .then(|| {
                     shell::parse(a).iter().find_map(|c| {
-                        shell::program(&c.words).and_then(|(n, rest)| replaced_as(n, rest, policy))
+                        shell::program(&c.words)
+                            .and_then(|(n, rest)| replaced_as(n, rest, cwd, policy))
                     })
                 })
                 .flatten()
@@ -499,8 +509,8 @@ fn behind(name: &str, args: &[String], policy: Policy) -> Option<String> {
 }
 
 /// [`replaced`] for a program named `git`, `gh` or `git-<sub>`.
-fn replaced_as(name: &str, args: &[String], policy: Policy) -> Option<String> {
-    match name {
+fn replaced_as(name: &str, args: &[String], cwd: &Path, policy: Policy) -> Option<String> {
+    let found = match name {
         "git" | "gh" => replaced(name, args, policy),
         _ => {
             let sub = name.strip_prefix("git-").filter(|s| !s.is_empty())?;
@@ -509,7 +519,8 @@ fn replaced_as(name: &str, args: &[String], policy: Policy) -> Option<String> {
                 .collect();
             replaced("git", &full, policy)
         }
-    }
+    };
+    found.or_else(|| rebase_as(name, args, cwd, policy))
 }
 
 /// Whether directory `dir` holds `.ferrule` or sits inside one.
@@ -1020,6 +1031,133 @@ fn gh_positional(args: &[String]) -> Vec<&str> {
     out
 }
 
+const REBASE_REASON: &str = "A raw 'git rebase' is ferrule's to run in this project: it maps the rebased commits onto the stage cards. Use: ferrule run rebase <slug> [--onto <base>]. While a rebase it stopped on is in progress, GIT_EDITOR=true git rebase --continue and git rebase --abort run in that worktree.";
+
+const REBASING_REASON: &str = "A rebase is in progress in this worktree: only git add, git rm, git rebase --continue, git rebase --abort and read-only git run until it is continued or aborted. Resolve the conflicts, stage them, GIT_EDITOR=true git rebase --continue, then ferrule run rebase <slug>.";
+
+/// Git subcommands that only read; with [`classify::readonly_git`] for the
+/// ones whose arguments decide.
+const REBASING_READS: &[&str] = &[
+    "status",
+    "diff",
+    "log",
+    "show",
+    "ls-files",
+    "ls-tree",
+    "rev-parse",
+    "rev-list",
+    "cat-file",
+    "blame",
+    "grep",
+    "describe",
+    "shortlog",
+    "show-ref",
+    "name-rev",
+    "merge-base",
+    "diff-tree",
+    "diff-index",
+    "diff-files",
+    "for-each-ref",
+    "ls-remote",
+    "check-ignore",
+    "cherry",
+    "range-diff",
+    "show-branch",
+    "var",
+    "version",
+    "help",
+];
+
+/// [`rebase_check`] for a program named `git` or `git-<sub>`.
+fn rebase_as(name: &str, args: &[String], cwd: &Path, policy: Policy) -> Option<String> {
+    let sub = if name == "git" {
+        None
+    } else {
+        Some(name.strip_prefix("git-").filter(|s| !s.is_empty())?)
+    };
+    let full: Vec<String> = sub
+        .map(str::to_owned)
+        .into_iter()
+        .chain(args.iter().cloned())
+        .collect();
+    rebase_check("git", if sub.is_some() { &full } else { args }, cwd, policy)
+}
+
+/// The alias `sub` stands for, from `-c alias.<sub>=…` or the checkout's
+/// configuration, as the words it expands to.
+fn alias_words(args: &[String], sub: &str, dir: &Path) -> Option<Vec<String>> {
+    let key = format!("alias.{}", sub.to_ascii_lowercase());
+    let globals = &args[..args.len().saturating_sub(1)];
+    let value = globals
+        .windows(2)
+        .rev()
+        .find_map(|w| {
+            let (k, v) = w[1].split_once('=')?;
+            (w[0] == "-c" && k.to_ascii_lowercase() == key).then(|| v.to_owned())
+        })
+        .or_else(|| {
+            dir.is_dir()
+                .then(|| crate::git::out(dir, &["config", "--get", &key]))
+                .flatten()
+        })?;
+    (!value.trim_start().starts_with('!'))
+        .then(|| shell::parse(&value).into_iter().next().map(|c| c.words))
+        .flatten()
+        .filter(|w| !w.is_empty())
+}
+
+fn rebase_check(name: &str, args: &[String], cwd: &Path, policy: Policy) -> Option<String> {
+    rebase_depth(name, args, cwd, policy, 0)
+}
+
+fn rebase_depth(
+    name: &str,
+    args: &[String],
+    cwd: &Path,
+    policy: Policy,
+    depth: usize,
+) -> Option<String> {
+    if name != "git" {
+        return None;
+    }
+    let g = shell::git(args)?;
+    let dir = g.dir.map_or_else(|| cwd.to_path_buf(), |d| resolve(cwd, d));
+    let real = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let dir = real(&dir);
+    if depth < 4
+        && !matches!(g.sub, "rebase")
+        && let Some(words) = alias_words(args, g.sub, &dir)
+    {
+        let mut full: Vec<String> = Vec::new();
+        if let Some(d) = g.dir {
+            full.extend(["-C".to_owned(), d.to_owned()]);
+        }
+        full.extend(words);
+        full.extend(g.args.iter().cloned());
+        return rebase_depth(name, &full, cwd, policy, depth + 1);
+    }
+    let rebasing = policy.rebasing.iter().any(|p| dir.starts_with(real(p)));
+    if g.sub == "rebase" {
+        if rebasing
+            && g.args
+                .first()
+                .is_some_and(|a| a == "--continue" || a == "--abort")
+        {
+            return None;
+        }
+        if rebasing {
+            return Some(REBASING_REASON.to_owned());
+        }
+        let allowed = has_prefix(name, args, policy.allow)
+            || verb_words(name, args).is_some_and(|w| word_prefix(&w, policy.allow));
+        return (!allowed).then(|| REBASE_REASON.to_owned());
+    }
+    let reads = REBASING_READS.contains(&g.sub)
+        || (matches!(g.sub, "stash" | "worktree" | "branch" | "tag" | "config")
+            && crate::hook::classify::readonly_git(g.sub, g.args));
+    (rebasing && !matches!(g.sub, "add" | "rm") && !reads).then(|| REBASING_REASON.to_owned())
+}
+
 fn replaced(name: &str, args: &[String], policy: Policy) -> Option<String> {
     let words = verb_words(name, args)?;
     if has_prefix(name, args, policy.allow) || word_prefix(&words, policy.allow) {
@@ -1191,7 +1329,10 @@ mod tests {
         shell(
             cmd,
             Path::new("/nonexistent-ferrule-guard"),
-            Policy { allow: &[] },
+            Policy {
+                allow: &[],
+                rebasing: &[],
+            },
         )
     }
 
@@ -1384,7 +1525,16 @@ mod tests {
     fn ut_ferrule_dir_and_globbed_names() {
         let root = tempfile::tempdir().unwrap();
         std::fs::create_dir(root.path().join(".ferrule")).unwrap();
-        let g = |cmd: &str| shell(cmd, root.path(), Policy { allow: &[] });
+        let g = |cmd: &str| {
+            shell(
+                cmd,
+                root.path(),
+                Policy {
+                    allow: &[],
+                    rebasing: &[],
+                },
+            )
+        };
         for cmd in [
             "rm -rf .ferrule",
             "rm -rf ./.ferrule/",
@@ -1429,5 +1579,137 @@ mod tests {
     fn ut_tee_options() {
         let args: Vec<String> = ["-ia", "--", "-x"].map(String::from).to_vec();
         assert_eq!(tee_targets(&args), (true, vec!["-x"]));
+    }
+
+    /// SG-R-008 — a raw `git rebase` is refused naming `ferrule run rebase`,
+    /// and `[guard] allow` re-opens it.
+    #[test]
+    fn ut_raw_rebase_is_refused_with_the_rebase_command() {
+        for cmd in [
+            "git rebase main",
+            "git -C x rebase main",
+            "git rebase --continue",
+        ] {
+            let r = guard(cmd).unwrap_or_else(|| panic!("{cmd} allowed"));
+            assert!(r.contains("ferrule run rebase"), "{cmd}: {r}");
+        }
+        let allow = ["git rebase".to_owned()];
+        let policy = Policy {
+            allow: &allow,
+            rebasing: &[],
+        };
+        assert_eq!(
+            shell(
+                "git rebase main",
+                Path::new("/nonexistent-ferrule-guard"),
+                policy
+            ),
+            None
+        );
+    }
+
+    /// SG-R-006, SG-R-007 — in a worktree with a rebase in progress only
+    /// staging, `--continue`, `--abort` and read-only git run.
+    #[test]
+    fn ut_a_rebasing_worktree_opens_staging_and_continue() {
+        let root = tempfile::tempdir().unwrap();
+        let wt = root.path().join("wt");
+        let sub = wt.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        let link = root.path().join("link");
+        std::os::unix::fs::symlink(&wt, &link).unwrap();
+        let other = root.path().join("other");
+        std::fs::create_dir(&other).unwrap();
+        let rebasing = [wt.clone()];
+        let policy = Policy {
+            allow: &[],
+            rebasing: &rebasing,
+        };
+        let at = |cmd: &str, cwd: &Path| shell(cmd, cwd, policy);
+        for cwd in [&wt, &sub, &link] {
+            for cmd in [
+                "git add f",
+                "git rm f",
+                "git rebase --continue",
+                "GIT_EDITOR=true git rebase --continue",
+                "git rebase --abort",
+                "git status",
+                "git diff --stat",
+            ] {
+                assert_eq!(at(cmd, cwd), None, "{cmd} in {}", cwd.display());
+            }
+            for cmd in [
+                "git commit -m x",
+                "git push",
+                "git checkout --ours f",
+                "git rebase --skip",
+                "git reset --hard",
+                "git stash",
+            ] {
+                let r = at(cmd, cwd).unwrap_or_else(|| panic!("{cmd} allowed"));
+                assert!(r.contains("rebase is in progress"), "{cmd}: {r}");
+                if cmd == "git rebase --skip" {
+                    assert!(r.contains("ferrule run rebase"), "{cmd}: {r}");
+                }
+            }
+        }
+        let allow = ["git rebase".to_owned()];
+        let opened = Policy {
+            allow: &allow,
+            rebasing: &rebasing,
+        };
+        for cmd in ["git rebase --skip", "git commit -m x"] {
+            let r = shell(cmd, &wt, opened).unwrap_or_else(|| panic!("{cmd} allowed"));
+            assert!(r.contains("rebase is in progress"), "{cmd}: {r}");
+        }
+        let r = at(&format!("git -C {} commit -m x", wt.display()), &other);
+        assert!(r.is_some_and(|r| r.contains("rebase is in progress")));
+        assert_eq!(at("git add f", &other), None);
+    }
+
+    /// SG-R-007, SG-R-008 — plumbing writes, wrappers, interpreter code and
+    /// aliases do not slip past the rebase rules.
+    #[test]
+    fn ut_rebase_rules_reach_plumbing_wrappers_and_aliases() {
+        let root = tempfile::tempdir().unwrap();
+        let wt = root.path().join("wt");
+        std::fs::create_dir_all(&wt).unwrap();
+        let other = root.path().join("other");
+        std::fs::create_dir(&other).unwrap();
+        let rebasing = [wt.clone()];
+        let policy = Policy {
+            allow: &[],
+            rebasing: &rebasing,
+        };
+        for cmd in [
+            "git update-index --refresh",
+            "git read-tree HEAD",
+            "git bisect reset",
+            "git replace a b",
+            "strace -f git rebase --skip",
+            "flock -c 'git rebase --skip' lock",
+            "python3 -c \"import os; os.system('git rebase --skip')\"",
+            "git -c alias.r=rebase r --skip",
+            "git-update-index --refresh",
+        ] {
+            let r = shell(cmd, &wt, policy).unwrap_or_else(|| panic!("{cmd} allowed"));
+            assert!(r.contains("rebase is in progress"), "{cmd}: {r}");
+        }
+        for cmd in [
+            "git ls-files",
+            "git rev-parse HEAD",
+            "git log -1",
+            "git branch",
+        ] {
+            assert_eq!(shell(cmd, &wt, policy), None, "{cmd}");
+        }
+        for cmd in [
+            "strace -f git rebase main",
+            "python3 -c \"import os; os.system('git rebase main')\"",
+            "git -c alias.r=rebase r main",
+        ] {
+            let r = shell(cmd, &other, policy).unwrap_or_else(|| panic!("{cmd} allowed"));
+            assert!(r.contains("ferrule run rebase"), "{cmd}: {r}");
+        }
     }
 }

@@ -223,7 +223,7 @@ impl Run<'_> {
             &wt,
             &log,
             &self.config.gauntlet.step,
-            false,
+            forced,
             self.now,
         )
         .map_err(|e| Error::Remote(remote::Error::Command(e.to_string())))?;

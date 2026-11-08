@@ -50,7 +50,7 @@ With --adopt <sha>, instead of -m, HEAD (committed outside ferrule) is logged
 as the stage's commit; no commit is created and history is unchanged:
   commit=done sha=<sha> card=<id>
                                  Logged `commit=<sha>` on the card, as above.
-  Checked in order: main, card, state and branch as above (the run needs a
+  Checked in order: main, rebasing, card, state and branch as above (the run needs a
   `branch` field), then each line ends in `hint=<fix>`:
   commit=refused reason=dirty    The worktree holds changes
   commit=refused reason=not-head head=<sha>

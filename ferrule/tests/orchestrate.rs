@@ -2324,6 +2324,55 @@ fn it_rebase_stops_on_a_conflict_and_maps_after_continue() {
     );
 }
 
+/// Whether `ferrule hook shell` lets `cmd` run from the run's worktree.
+fn hook_allows(p: &Project, cmd: &str) -> bool {
+    use std::io::Write;
+    use std::process::Stdio;
+    let wt = p.worktree();
+    let payload = serde_json::json!({
+        "tool_name": "Bash",
+        "tool_input": {"command": cmd, "description": "d"},
+        "cwd": wt,
+    });
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ferrule"))
+        .args(["hook", "shell"])
+        .current_dir(&wt)
+        .env("CLAUDE_PROJECT_DIR", &p.root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(payload.to_string().as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{cmd}");
+    out.stdout.is_empty()
+}
+
+/// SG-R-006, SG-R-007, SG-R-008 — the guard opens staging and `--continue` only while a rebase is stopped.
+#[test]
+fn it_guard_lets_an_agent_finish_a_stopped_rebase() {
+    let p = pushed_s1();
+    conflicted(&p);
+    assert!(hook_allows(&p, "git add src/client.rs"));
+    assert!(hook_allows(&p, "GIT_EDITOR=true git rebase --continue"));
+    assert!(!hook_allows(&p, "git commit -m x"));
+    assert!(!hook_allows(&p, "git rebase origin/main"));
+    let wt = p.worktree();
+    std::fs::write(wt.join("src/client.rs"), "resolved\n").unwrap();
+    git(&wt, &["add", "src/client.rs"]);
+    let cont = git_status(&wt, &["-c", "core.editor=true", "rebase", "--continue"]);
+    assert!(cont.status.success(), "{cont:?}");
+    let got = rebase(&p, &[]);
+    assert!(got.starts_with("rebase=done "), "{got}");
+    assert!(!hook_allows(&p, "git rebase --continue"));
+}
+
 /// GW-R-057 — a rebase already in progress refuses another and logs nothing.
 #[test]
 fn it_rebase_refuses_while_a_rebase_is_in_progress() {
@@ -2472,6 +2521,28 @@ fn it_push_after_a_rebase_reruns_the_gauntlet_and_forces_with_lease() {
     let again = push_text(&p);
     assert!(again.starts_with("push=done "), "{again}");
     assert!(!again.contains("forced"), "{again}");
+}
+
+/// GW-R-045 — a push after a recorded rebase reruns the gauntlet even when the tree's pass is cached.
+#[test]
+fn it_push_after_a_rebase_reruns_a_cached_gauntlet() {
+    let p = pushed_s1();
+    let head = wt_head(&p);
+    seed_log(
+        &p.root,
+        "2026-10-05T09:00",
+        "demo",
+        &[&format!("rebase={head} base=origin/main from={head}")],
+    );
+    let log = p.run_dir().join("gauntlet.log");
+    let _ = std::fs::remove_file(&log);
+    let got = push_text(&p);
+    assert!(
+        got.starts_with(&format!("push=done sha={head} gauntlet=pass forced")),
+        "{got}"
+    );
+    assert!(!got.contains("cached"), "{got}");
+    assert!(log.is_file());
 }
 
 /// GW-R-051 — a remote moved by someone else refuses the force-push before the gauntlet.

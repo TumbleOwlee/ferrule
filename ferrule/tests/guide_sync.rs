@@ -179,7 +179,10 @@ fn it_ferrule_commands_in_the_text_exist() {
 #[test]
 fn it_shell_commands_in_the_guides_pass_the_guard() {
     let dir = tempfile::tempdir().unwrap();
-    let policy = Policy { allow: &[] };
+    let policy = Policy {
+        allow: &[],
+        rebasing: &[],
+    };
     let mut problems = Vec::new();
     let mut checked = 0;
     for (name, text) in sources() {
