@@ -815,11 +815,14 @@ fn it_job_guides_state_what_their_job_needs() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
     seed_card(root, "demo", "open", &["lane=full"]);
+    let shape = "- <choice> (<user | chosen>) [";
+    let mut missing = Vec::new();
     for (topic, needles) in [
         (
             "author-late",
             &[
                 "**Concise, compact, facts only.**",
+                "Orchestrator relays between you and the user",
                 "`AGENTS.md` is already in your context",
                 "the brief carries the reason and the entry it narrows",
             ][..],
@@ -827,7 +830,9 @@ fn it_job_guides_state_what_their_job_needs() {
         (
             "architect-epic",
             &[
+                "Lay down the structure the change is built on",
                 "Look up facts yourself",
+                shape,
                 "# demo — architecture (rev N)",
                 "Every decision of the run",
             ][..],
@@ -835,25 +840,35 @@ fn it_job_guides_state_what_their_job_needs() {
         (
             "planner-replan",
             &[
+                "Draft the implementation plan",
+                "Look up facts yourself",
+                shape,
                 "## Stage title",
                 "| Stage | Title | Files | Blocked by |",
+                "Never create/move task cards",
                 "Every decision of the run",
             ][..],
         ),
         (
             "reviewer-plan",
             &[
-                "Verdict: <clean — ready for approval",
+                "`AGENTS.md` is already in your context",
+                "**`plan.md`:**",
                 "**`decisions.md`**",
+                "Resumed in the same scope",
                 "Never approve a fix because it matches",
+                "Verdict: <clean — ready for approval",
             ][..],
         ),
     ] {
         let text = ok(root, &["guide", topic, "--slug", "demo"]);
         for needle in needles {
-            assert!(text.contains(needle), "{topic}: {needle}");
+            if !text.contains(needle) {
+                missing.push(format!("{topic}: {needle}"));
+            }
         }
     }
+    assert!(missing.is_empty(), "{}", missing.join("\n"));
 }
 
 /// S8 — a tripped size guard hands the architect to the epic guide.
