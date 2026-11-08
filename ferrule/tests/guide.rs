@@ -476,7 +476,7 @@ fn it_asking_agents_state_the_question_batch() {
     };
     let body = |text: &str| {
         text.lines()
-            .filter(|line| !line.starts_with("# demo — questions (") && !line.starts_with("exit="))
+            .filter(|line| !line.starts_with("Title line of ") && !line.starts_with("exit="))
             .collect::<Vec<_>>()
             .join("\n")
             .trim_end()
@@ -722,4 +722,82 @@ fn it_principles_guide_names_the_run_without_a_pr_ending() {
         principles.contains("a run without a PR ends at `ferrule run cleanup`"),
         "{principles}"
     );
+}
+
+/// GA-R-044 — each guide that records decisions states the line shape and its rules.
+#[test]
+fn it_guides_state_the_decision_line_shape() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    for topic in ["author", "architect", "planner", "implementer"] {
+        let text = ok(
+            root,
+            &[
+                "guide",
+                topic,
+                "--slug",
+                "demo",
+                "--section",
+                "Decision lines",
+            ],
+        );
+        for needle in ["- <choice> (<user | chosen>) [", "Append only"] {
+            assert!(text.contains(needle), "{topic}: {text}");
+        }
+        assert!(!text.contains("{run_dir}"), "{topic}: {text}");
+    }
+}
+
+/// GA-R-048, GA-R-049 — the `decisions` topic no longer ships.
+#[test]
+fn it_guide_decisions_topic_is_gone() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    let out = ferrule(root, root, &["guide", "show", "decisions"]);
+    assert!(!out.ends_with("exit=0"), "{out}");
+    assert!(
+        out.contains("guide=refused reason=unknown topic=decisions"),
+        "{out}"
+    );
+    let list = ok(root, &["guide", "list"]);
+    assert!(
+        !list
+            .lines()
+            .any(|l| l.split_whitespace().next() == Some("decisions")),
+        "{list}"
+    );
+}
+
+/// GA-E-002 — an override of a section holding shared text changes that guide only.
+#[test]
+fn it_guide_override_of_shared_text_stays_in_that_guide() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let guide = root.join(".ferrule/guide");
+    std::fs::create_dir_all(&guide).unwrap();
+    std::fs::write(guide.join("planner.md"), "## Decision lines\n\nmine\n").unwrap();
+    let planner = ok(root, &["guide", "planner", "--slug", "demo"]);
+    assert!(
+        planner.contains("mine") && !planner.contains("Append only"),
+        "{planner}"
+    );
+    let author = ok(root, &["guide", "author", "--slug", "demo"]);
+    assert!(author.contains("Append only"), "{author}");
+}
+
+/// GA-E-003 — a project's own `decisions` file is a project topic.
+#[test]
+fn it_project_decisions_file_is_a_project_topic() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    let guide = root.join(".ferrule/guide");
+    std::fs::create_dir_all(&guide).unwrap();
+    std::fs::write(guide.join("decisions.md"), "# decisions — ours\n\nbody\n").unwrap();
+    let list = ok(root, &["guide", "list"]);
+    let (_, project) = list.split_once("Project:").expect("a Project heading");
+    assert!(project.contains("decisions"), "{list}");
+    let shown = ok(root, &["guide", "show", "decisions"]);
+    assert!(shown.contains("body"), "{shown}");
 }

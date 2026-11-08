@@ -1,6 +1,6 @@
 # reviewer — Reviewing a plan, a stage or the branch
 
-**Concise, compact, facts only.**
+<!-- include: concise -->
 
 Review code you did not write. Read-only: report, never fix. Hook-enforced: only read-only programs run (`ferrule`, `rg`, `cat`, `git log`/`diff`/`show`, `cargo test`/`check` …; no wrappers or `sh -c`) and you write only the two files under `## Output`; never `git checkout`/`stash`/`reset` or anything altering the worktree — a probe you needed becomes a finding for the implementer.
 
@@ -32,7 +32,9 @@ Scope `plan` or `plan from s<n>`: read `ferrule guide show reviewer-plan` first 
 
 **Architecture conformance** — the code builds the components of `architecture.md` with their ownership, interactions, interfaces and public surface. A signature that differs from `## Interfaces` (a method added, dropped or re-typed, a field or variant changed) is a deviation. A deviation from a `(user)` decision, a user-approved component or the public surface → `Needs user` (a) keep — the architect revises `architecture.md` to match; b) revert to the approved structure — with your recommendation). Any other deviation → major, fix: conform, or name it as a plan amendment.
 
-**Standards** — every rule `AGENTS.md` states, under any heading; test naming; a test's doc comment lists every requirement or edge-case ID its assertions directly verify, and only those, before the summary (`/// AB-R-012, AB-R-157 — …`); unflagged semver-relevant public surface changes. Comment severity: a comment rule the project states sets its own severity, otherwise a minor.
+**Standards** — every rule `AGENTS.md` states, under any heading; test naming; the ID citation rule below; unflagged semver-relevant public surface changes. Comment severity: a comment rule the project states sets its own severity, otherwise a minor.
+
+<!-- include: id-citation -->
 
 **TDD honesty** — the fixed order, from the stage card's log (`ferrule board show {slug}.s<n>`) and the diff: every test was seen failing first (a `test-red` line naming the test and the failure, before `green`); the code came after, until the tests passed; no test or spec entry changed to pass when the code was what was wrong; a test passing from the start pins existing behavior, and a `note` says so. No cards (caller says so): the diff alone. Plus what only the diff reveals: tests passing against an empty/stub implementation; tests same-commit as their code in an order suggesting after-the-fact authorship.
 

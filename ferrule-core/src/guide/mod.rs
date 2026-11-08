@@ -13,7 +13,12 @@
 //! sections replaces the default's section of the same heading, and one
 //! the default lacks is appended. An override naming no default topic is a
 //! topic of the project's own.
+//!
+//! A shipped topic may hold a line `<!-- include: <name> -->` naming a text
+//! under `guide/shared/`; it is spliced in before overrides, tags and
+//! placeholders apply. Projects have no such line.
 
+mod fragment;
 mod render;
 mod sections;
 
@@ -21,6 +26,7 @@ use std::path::Path;
 
 use crate::markdown;
 
+pub use fragment::Fragment;
 use render::tag;
 pub use render::{Context, Lane, VARS, render};
 pub use sections::{body, headings, merge, select};
@@ -43,8 +49,8 @@ macro_rules! topics {
                 }
             }
 
-            #[must_use]
-            pub fn text(self) -> &'static str {
+            /// The shipped file, include lines unresolved.
+            fn source(self) -> &'static str {
                 match self {
                     $(Topic::$variant => include_str!(concat!("../../guide/", $name, ".md")),)*
                 }
@@ -85,10 +91,15 @@ topics! {
     Implementer "implementer",
     Reviewer "reviewer",
     ReviewerPlan "reviewer-plan",
-    Decisions "decisions",
 }
 
 impl Topic {
+    /// The shipped text with every fragment in place.
+    #[must_use]
+    pub fn text(self) -> String {
+        fragment::expand(self.source())
+    }
+
     #[must_use]
     pub fn parse(name: &str) -> Option<Topic> {
         Topic::ALL.iter().copied().find(|t| t.name() == name)
@@ -108,7 +119,6 @@ impl Topic {
                 | Topic::Implementer
                 | Topic::Reviewer
                 | Topic::ReviewerPlan
-                | Topic::Decisions
         )
     }
 }
@@ -125,8 +135,8 @@ fn override_path(root: &Path, name: &str) -> std::path::PathBuf {
 pub fn load(root: &Path, name: &str) -> Option<String> {
     let over = std::fs::read_to_string(override_path(root, name)).ok();
     match (Topic::parse(name), over) {
-        (Some(t), Some(o)) => Some(merge(t.text(), &o)),
-        (Some(t), None) => Some(t.text().to_owned()),
+        (Some(t), Some(o)) => Some(merge(&t.text(), &o)),
+        (Some(t), None) => Some(t.text()),
         (None, Some(o)) => Some(o),
         (None, None) => None,
     }
@@ -422,11 +432,30 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(check(dir.path()), Vec::<String>::new());
         for t in Topic::ALL {
+            let text = t.text();
             assert!(
-                t.text().starts_with(&format!("# {} — ", t.name())),
+                text.starts_with(&format!("# {} — ", t.name())),
                 "{} lacks its summary line",
                 t.name()
             );
+            assert!(!text.contains("<!-- include:"), "{}", t.name());
         }
+    }
+
+    /// GA-R-050 — a topic holding an include line prints that fragment.
+    #[test]
+    fn ut_topics_print_the_fragments_they_include() {
+        let mut seen = 0;
+        for t in Topic::ALL {
+            for f in Fragment::ALL {
+                if t.source()
+                    .contains(&format!("<!-- include: {} -->", f.name()))
+                {
+                    seen += 1;
+                    assert!(t.text().contains(f.text().trim_end()), "{}", t.name());
+                }
+            }
+        }
+        assert!(seen >= 12, "{seen}");
     }
 }

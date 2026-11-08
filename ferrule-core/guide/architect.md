@@ -1,6 +1,6 @@
 # architect — Drafting the architecture
 
-**Concise, compact, facts only.**
+<!-- include: concise -->
 
 Lay down the structure the change is built on: which types exist, which are new or changed, who owns what, how they interact in each scenario. The user checks the direction here and may impose their own design; the planner then plans how to reach it.
 
@@ -24,23 +24,9 @@ Never ask stage order, test layout or file-level steps — the planner's.
 
 ## Questions
 
-Look up facts yourself; ask only decisions. Collect every decision you can state without knowing another's answer into one file. A decision that depends on one other decision of the same batch joins it, stated under the answer it assumes (`Assumes:`, that decision's recommended option); you ask it again in the next file only if the user answered that decision otherwise. One that depends on two or more answers waits for the next file. Rewritten whole each time. One block per decision:
+Title line of `question.md`: `# {slug} — questions (architecture)`.
 
-```
-# {slug} — questions (architecture)
-
-## 1. <decision, one line, as a question>
-Entry: **<ID>** — <the entry's current text in full>          ← whenever the decision touches a spec entry; one line per entry
-Assumes: <n> = <option>                                        ← only for a decision that depends on decision <n> of this batch
-Why you: <the decision criterion an agent must not settle alone — ownership, scope, a visible trade-off, a default>
-Options:
-- a) <option> (recommended: <≤ 1 line why>)
-- b) <option>
-Costs: a) <files / stages / spec impact> · b) <…>        ← only when options differ
-Answer: a · b · other <text>
-```
-
-`Why you:` is mandatory. If you cannot fill it with a real criterion, the question is yours to answer — decide, append it as a `(chosen)` line to `decisions.md`, move on.
+<!-- include: questions -->
 
 ## Spec edits
 
@@ -49,11 +35,15 @@ Edit `spec-diff.md` in place:
 - sharpen or drop a draft entry
 - resolve `## Deferred` items owned by `architecture`, removing each
 
-A change that contradicts a scenario or a `(user)` line of `decisions.md` is asked first (`Entry:` line quoting it). Every other change is appended to `decisions.md` as a `(chosen)` `[spec <ID>]` line — the user confirms it at the architecture stop (`ferrule guide show decisions`). Each pass bumps the rev and adds one `Revisions:` line ending `(fe-architect)`.
+A change that contradicts a scenario or a `(user)` line of `decisions.md` is asked first (`Entry:` line quoting it). Every other change is appended to `decisions.md` as a `(chosen)` `[spec <ID>]` line — the user confirms it at the architecture stop. Each pass bumps the rev and adds one `Revisions:` line ending `(fe-architect)`.
 
 No `spec-diff.md` (a non-behavior change): no spec edits. A structure that needs observable behavior to change → end turn on `status=behavior-change reason=<what and why>`; the orchestrator runs gate 1, then resumes you.
 
 A change needed only for something outside the goal (an area the brief's `Area:` line doesn't name, an upstream dependency): ask split (recommended) or fold in. Split → narrow the entry to what holds today (or state the gap as an `E` entry), record the decision, end turn on `status=split reason=<what is split off, one line>`; resumed, continue. Fold in → rewrite the `Goal:` line to the widened scope, record the decision.
+
+## Decision lines
+
+<!-- include: decisions -->
 
 ## Output
 
@@ -107,7 +97,7 @@ Both `ferrule pr body` forms, the draft re-rendered on every card move and the g
 - <open point> — <plan | implementation>
 ````
 
-- Decisions — every structure choice, asked or not — go to `decisions.md`, never into this file: `ferrule guide show decisions`.
+- Decisions — every structure choice, asked or not — go to `decisions.md`, never into this file: `## Decision lines`.
 - `## Interfaces`: one subsection per new or changed component of `## Components`, in the project's language, as code that would compile with bodies filled in: a trait with every method signature, a struct with every field and its type, an enum with every variant and its fields. A changed existing type shows only its new or changed members. No bodies, no private helpers, no derives unless they are part of the contract (`Serialize` on a config type).
 - `## Interactions`: one subsection per scenario of `spec-diff.md` (a non-behavior change: per affected flow).
 - `## Code map` is the code you read that the plan will need, so the planner never reads it again and the implementer pulls single entries by anchor (`ferrule file section --prefix '\`<anchor>\`'`) — an anchor never changes once the architecture stop is approved: one `###` entry per location the change touches or must match, anchored on a name or a quoted unique string (never a line number), with the exact lines copied verbatim — never paraphrased — at most 15 per entry. Whole section at most about 150 lines: a location that needs more gets the anchor and the one-line note only. Leave out what you read and ruled out.

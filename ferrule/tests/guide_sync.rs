@@ -274,13 +274,55 @@ fn it_guides_cite_no_other_audiences_guide() {
                 .take_while(|c| c.is_ascii_lowercase() || *c == '-')
                 .collect();
             let refused = match family {
-                Some(family) => cited != "decisions" && !family.contains(&cited.as_str()),
+                Some(family) => !family.contains(&cited.as_str()),
                 None => AGENTS.iter().any(|family| family.contains(&cited.as_str())),
             };
             if refused {
                 problems.push(format!("{name}: {cited}"));
             }
         }
+    }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
+
+/// GA-R-050, GA-R-055, GA-R-056, GA-R-057 — a shared text lives in one file; no other guide source repeats its lines.
+#[test]
+fn it_shared_text_has_one_source() {
+    let mut guides = Vec::new();
+    markdown(&core().join("guide"), &mut guides);
+    let mut problems = Vec::new();
+    for (name, text) in guides
+        .iter()
+        .filter(|(n, _)| n.starts_with("guide/shared/"))
+    {
+        for line in text.lines().filter(|l| l.chars().count() >= 40) {
+            for (other, body) in guides.iter().filter(|(n, _)| n != name) {
+                if body.lines().any(|l| l == line) {
+                    problems.push(format!("{other} repeats a line of {name}: {line}"));
+                }
+            }
+        }
+    }
+    for (needle, home) in [
+        ("- <choice> (", "guide/shared/decisions.md"),
+        (
+            "**Concise, compact, facts only.**",
+            "guide/shared/concise.md",
+        ),
+        (
+            "its assertions directly verify",
+            "guide/shared/id-citation.md",
+        ),
+    ] {
+        for (name, text) in &guides {
+            if name != home && text.contains(needle) {
+                problems.push(format!("{name} holds {needle}"));
+            }
+        }
+        assert!(
+            guides.iter().any(|(n, t)| n == home && t.contains(needle)),
+            "{home} lacks {needle}"
+        );
     }
     assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
