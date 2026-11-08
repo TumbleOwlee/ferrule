@@ -296,14 +296,20 @@ fn reviewer(cmd: &str, cwd: &Path) -> Option<Verdict> {
 /// cannot read refuses the call rather than guess.
 fn shell(cmd: &str, cwd: &Path) -> Option<Verdict> {
     match Config::load(&project::main_checkout()) {
-        Ok(config) => guard::shell(
-            cmd,
-            cwd,
-            guard::Policy {
-                allow: &config.guard.allow,
-            },
-        )
-        .map(Verdict::Deny),
+        Ok(config) => {
+            let rebasing = ferrule_core::run::rebase::rebasing_worktrees(&project::Layout::new(
+                project::main_checkout(),
+            ));
+            guard::shell(
+                cmd,
+                cwd,
+                guard::Policy {
+                    allow: &config.guard.allow,
+                    rebasing: &rebasing,
+                },
+            )
+            .map(Verdict::Deny)
+        }
         Err(e) => Some(Verdict::Deny(format!("ferrule hook shell: {e}"))),
     }
 }

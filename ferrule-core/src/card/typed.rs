@@ -30,10 +30,11 @@ pub enum Name {
     Overturned,
     TestRed,
     Posted,
+    Rebase,
 }
 
 impl Name {
-    pub const ALL: [Name; 22] = [
+    pub const ALL: [Name; 23] = [
         Name::Commit,
         Name::Gauntlet,
         Name::Pr,
@@ -56,6 +57,7 @@ impl Name {
         Name::Overturned,
         Name::TestRed,
         Name::Posted,
+        Name::Rebase,
     ];
 
     /// The name as stored, `=` included for a valued event.
@@ -84,6 +86,7 @@ impl Name {
             Name::Overturned => "overturned",
             Name::TestRed => "test-red",
             Name::Posted => "posted=",
+            Name::Rebase => "rebase=",
         }
     }
 
@@ -98,6 +101,7 @@ impl Name {
             Name::Read => &["path"],
             Name::Overturned => &["count"],
             Name::Posted => &["issue", "sum", "k"],
+            Name::Rebase => &["base", "from"],
             _ => &[],
         }
     }
@@ -209,6 +213,12 @@ pub enum Typed<'a> {
         sum: Option<&'a str>,
         k: Option<u32>,
     },
+    /// A rebase of the run's branch, `rebase=<head>`.
+    Rebase {
+        head: &'a str,
+        base: Option<&'a str>,
+        from: Option<&'a str>,
+    },
     Other,
 }
 
@@ -239,6 +249,7 @@ impl Typed<'_> {
             Typed::Overturned { .. } => Name::Overturned,
             Typed::TestRed => Name::TestRed,
             Typed::Posted { .. } => Name::Posted,
+            Typed::Rebase { .. } => Name::Rebase,
             Typed::Other => return None,
         })
     }
@@ -264,6 +275,11 @@ impl Event {
         let key = |k| self.key(name, k);
         Some(match name {
             Name::Commit => Typed::Commit { sha: value? },
+            Name::Rebase => Typed::Rebase {
+                head: value?,
+                base: key("base"),
+                from: key("from"),
+            },
             Name::Gauntlet => Typed::Gauntlet {
                 result: match value? {
                     "pass" => Verdict::Pass,
@@ -432,6 +448,15 @@ mod tests {
                 cov: Some("81%"),
                 step: None,
                 reason: None,
+            }
+        );
+        let e = Event::parsed("rebase=abc base=origin/main from=def");
+        assert_eq!(
+            e.typed(),
+            Typed::Rebase {
+                head: "abc",
+                base: Some("origin/main"),
+                from: Some("def"),
             }
         );
         let e = Event::parsed("note gauntlet=pass sha=abc");

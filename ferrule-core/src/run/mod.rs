@@ -12,6 +12,7 @@ pub mod ids;
 pub mod inspect;
 pub mod next;
 pub mod push;
+pub mod rebase;
 pub mod rebuild;
 
 use std::ffi::OsStr;

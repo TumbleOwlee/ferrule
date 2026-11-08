@@ -629,11 +629,13 @@ fn blocked(run: &mut Run, args: &[(String, String)]) -> Result<Vec<String>, Erro
             return Ok(vec![
                 format!("Question · {} · 1 decision", run.slug),
                 format!("## 1. the branch has diverged: local={local} remote={remote}"),
-                "Resolve it outside ferrule; never force-push.".to_owned(),
+                "Rebase it through ferrule or resolve it outside ferrule; never force-push by hand."
+                    .to_owned(),
                 "Options:".to_owned(),
-                "- a) resolved outside ferrule, push again".to_owned(),
-                "- b) stop".to_owned(),
-                "Answer: <1: a | b>".to_owned(),
+                "- a) rebase through ferrule".to_owned(),
+                "- b) resolved outside ferrule, push again".to_owned(),
+                "- c) stop".to_owned(),
+                "Answer: <1: a | b | c>".to_owned(),
             ]);
         }
         (None, None) => {}
@@ -981,7 +983,8 @@ fn next_stage(run: &Run, me: u32) -> Result<Option<u32>, Error> {
         .find(|&n| n > me))
 }
 
-/// The one-line notice of a stage that auto-continues.
+/// The one-line notice of a stage that auto-continues: its coverage and commit
+/// come from the newest pass after the run's last `rebase=`.
 fn auto(run: &Run, args: &[(String, String)]) -> Result<Vec<String>, Error> {
     let sid = arg(args, "stage").ok_or(Error::Usage)?;
     let me: u32 = sid
@@ -989,10 +992,11 @@ fn auto(run: &Run, args: &[(String, String)]) -> Result<Vec<String>, Error> {
         .parse()
         .map_err(|_| Error::Usage)?;
     let next = next_stage(run, me)?.map_or_else(|| "gate 4".to_owned(), |n| format!("s{n}"));
-    let events = board::events(run.conn, run.slug, &[Name::Gauntlet])?;
+    let events = board::events(run.conn, run.slug, &[Name::Gauntlet, Name::Rebase])?;
     let (cov, sha) = events
         .iter()
         .rev()
+        .take_while(|e| !matches!(e.typed(), Typed::Rebase { .. }))
         .find_map(|e| match e.typed() {
             Typed::Gauntlet {
                 result: Verdict::Pass,

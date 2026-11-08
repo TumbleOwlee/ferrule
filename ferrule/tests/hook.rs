@@ -761,6 +761,7 @@ fn it_shell_guard_reads_interpreter_code_and_scripts_it_wrote() {
     );
 }
 
+/// SG-R-008 — a raw `git rebase` is refused even when the command it hands to git is harmless.
 #[test]
 fn it_shell_guard_reads_commands_git_settings_hand_to_git() {
     let p = project();
@@ -804,6 +805,7 @@ fn it_shell_guard_reads_commands_git_settings_hand_to_git() {
             ("git --config-env=core.pager=X log", "deny"),
             ("git rebase -x 'git push' HEAD~1", "deny"),
             ("git rebase --exec='git commit --amend' HEAD~1", "deny"),
+            ("git rebase -x 'cargo test' HEAD~2", "deny"),
             ("git bisect run git push", "deny"),
             ("git submodule foreach 'git push'", "deny"),
             ("git pull", "deny"),
@@ -816,7 +818,7 @@ fn it_shell_guard_reads_commands_git_settings_hand_to_git() {
                 "allow",
             ),
             ("git config user.name 'A B'", "allow"),
-            ("git rebase -x 'cargo test' HEAD~2", "allow"),
+            ("git bisect run cargo test", "allow"),
             ("GIT_PAGER=cat git log --stat", "allow"),
             ("git status", "allow"),
         ],

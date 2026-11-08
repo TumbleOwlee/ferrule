@@ -3,10 +3,13 @@
 
 use crate::card::board;
 use crate::card::typed::Name;
+use std::path::Path;
+
 use crate::git;
 use crate::pr::publish::{Error, Run, Sync};
 use crate::refusal::Refusal;
 use crate::remote;
+use crate::run::diverged::{Remote, remote_head};
 use crate::run::gauntlet::{self, Outcome};
 use crate::store::Reader;
 
@@ -23,6 +26,14 @@ pub enum PushRefused {
     Dirty,
     /// The remote head is not an ancestor of the local head.
     Diverged(crate::run::diverged::Diverged),
+    /// After a rebase, origin's branch is not the head ferrule last pushed:
+    /// its short sha (`none` when absent) and the one ferrule pushed.
+    Lease {
+        remote: String,
+        pushed: Option<String>,
+    },
+    /// A rebase is in progress in the worktree.
+    Rebasing,
     /// The gauntlet did not pass: its outcome.
     Gauntlet(Outcome),
     /// `git push` failed.
@@ -49,7 +60,14 @@ impl PushRefused {
             PushRefused::Diverged(d) => Refusal::new("push", "diverged")
                 .field("local", &d.local)
                 .field("remote", &d.remote)
-                .hint("the remote branch holds commits the local one lacks: resolve it outside ferrule, until ferrule supports rebasing a run's branch, and never force-push"),
+                .hint("the remote branch holds commits the local one lacks: in a run, rebase it with ferrule run rebase <slug>, or resolve it outside ferrule; never force-push by hand"),
+            PushRefused::Lease { remote, pushed } => Refusal::new("push", "lease")
+                .field("remote", remote)
+                .field("pushed", pushed.as_deref().unwrap_or("none"))
+                .hint("origin's branch moved since ferrule last pushed it: someone else pushed; ask the user, never force-push by hand"),
+            PushRefused::Rebasing => Refusal::new("push", "rebasing").hint(
+                "a rebase is in progress in the worktree: resolve and GIT_EDITOR=true git rebase --continue, then ferrule run rebase <slug>; or git rebase --abort",
+            ),
             PushRefused::Dirty => Refusal::new("push", "dirty")
                 .hint("commit the changes through `ferrule stage commit`, then push again"),
             PushRefused::Gauntlet(outcome) => match outcome {
@@ -93,6 +111,8 @@ impl std::fmt::Display for PushRefused {
 pub struct Pushed {
     pub sha: String,
     pub cached: bool,
+    /// The push was the leased force-push after a rebase.
+    pub forced: bool,
     pub body: Body,
 }
 
@@ -111,6 +131,9 @@ impl std::fmt::Display for Pushed {
         if self.cached {
             f.write_str(" cached")?;
         }
+        if self.forced {
+            f.write_str(" forced")?;
+        }
         match &self.body {
             Body::Synced(sync) => write!(f, " {sync}"),
             Body::Opened(n) => write!(f, " pr-body=opened pr={n}"),
@@ -119,6 +142,26 @@ impl std::fmt::Display for Pushed {
 }
 
 impl Run<'_> {
+    /// After a rebase: the head ferrule last pushed (full sha, empty when
+    /// none), once origin's branch is still at it or the check cannot
+    /// complete.
+    fn lease(&self, wt: &Path, branch: &str) -> Result<Result<String, PushRefused>, Error> {
+        let pushed = board::last_pushed(self.conn, self.slug)?.and_then(|s| git::commit(wt, &s));
+        let short = |sha: &str| git::out(wt, &["rev-parse", "--short", sha]).unwrap_or_default();
+        let moved = match remote_head(wt, branch) {
+            Some(Remote::At(r)) if Some(&r) != pushed.as_ref() => Some(short(&r)),
+            Some(Remote::Missing) if pushed.is_some() => Some("none".to_owned()),
+            _ => None,
+        };
+        Ok(match moved {
+            Some(remote) => Err(PushRefused::Lease {
+                remote,
+                pushed: pushed.as_deref().map(short),
+            }),
+            None => Ok(pushed.unwrap_or_default()),
+        })
+    }
+
     /// Pushes the worktree's head once it is a stage's verified commit and
     /// the gauntlet passes on it, logs the pass, and updates the draft PR
     /// (the first push opens it).
@@ -133,6 +176,9 @@ impl Run<'_> {
             return Ok(Err(PushRefused::Main));
         }
         let wt = self.worktree()?;
+        if git::rebase_in_progress(&wt) {
+            return Ok(Err(PushRefused::Rebasing));
+        }
         if gauntlet::dirty(&wt) {
             return Ok(Err(PushRefused::Dirty));
         }
@@ -159,9 +205,17 @@ impl Run<'_> {
         )? {
             return Ok(Err(PushRefused::Sha(m.as_str().to_owned())));
         }
-        if let Some(d) = crate::run::diverged::check(&wt, &branch) {
+        let forced = board::rebased_since_push(self.conn, self.slug)?;
+        let lease = if forced {
+            match self.lease(&wt, &branch)? {
+                Ok(lease) => lease,
+                Err(refused) => return Ok(Err(refused)),
+            }
+        } else if let Some(d) = crate::run::diverged::check(&wt, &branch) {
             return Ok(Err(PushRefused::Diverged(d)));
-        }
+        } else {
+            String::new()
+        };
         let log = self.layout.run_dir(self.slug).join("gauntlet.log");
         let outcome = gauntlet::run_in(
             self.conn,
@@ -169,7 +223,7 @@ impl Run<'_> {
             &wt,
             &log,
             &self.config.gauntlet.step,
-            false,
+            forced,
             self.now,
         )
         .map_err(|e| Error::Remote(remote::Error::Command(e.to_string())))?;
@@ -179,7 +233,13 @@ impl Run<'_> {
         else {
             return Ok(Err(PushRefused::Gauntlet(outcome)));
         };
-        if let Err(e) = git::run(&wt, &["push", "-q", "-u", "origin", &branch]) {
+        let pushed = if forced {
+            let leased = format!("--force-with-lease=refs/heads/{branch}:{lease}");
+            git::run(&wt, &["push", "-q", &leased, "-u", "origin", &branch])
+        } else {
+            git::run(&wt, &["push", "-q", "-u", "origin", &branch])
+        };
+        if let Err(e) = pushed {
             return Ok(Err(PushRefused::Push(e)));
         }
         self.log(
@@ -190,6 +250,11 @@ impl Run<'_> {
             Some(sync) => Body::Synced(sync),
             None => Body::Opened(self.open_pr()?.0),
         };
-        Ok(Ok(Pushed { sha, cached, body }))
+        Ok(Ok(Pushed {
+            sha,
+            cached,
+            forced,
+            body,
+        }))
     }
 }

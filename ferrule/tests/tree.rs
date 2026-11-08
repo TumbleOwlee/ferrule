@@ -18,6 +18,7 @@ guide check
 run
 run init
 run reconcile
+run rebase
 run rebuild
 run cleanup
 run metrics

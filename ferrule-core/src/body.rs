@@ -857,11 +857,16 @@ fn full(c: &Ctx, issue: &str, deltas: &[Delta]) -> Result<String, Error> {
             );
         }
     }
-    let gauntlets = board::events(c.conn, c.slug, &[Name::Gauntlet])?;
-    if let Some(cov) = gauntlets.iter().rev().find_map(|e| match e.typed() {
-        Typed::Gauntlet { cov, .. } => cov,
-        _ => None,
-    }) {
+    let gauntlets = board::events(c.conn, c.slug, &[Name::Gauntlet, Name::Rebase])?;
+    if let Some(cov) = gauntlets
+        .iter()
+        .rev()
+        .take_while(|e| !matches!(e.typed(), Typed::Rebase { .. }))
+        .find_map(|e| match e.typed() {
+            Typed::Gauntlet { cov, .. } => cov,
+            _ => None,
+        })
+    {
         let _ = write!(status, " · coverage {cov}");
     }
     if let Some(review) = board::last_value(c.conn, c.slug, Name::Review)? {

@@ -46,7 +46,8 @@ then a summary:
     diverged <b> local=<sha> remote=<sha>
                                    The origin's branch holds commits the local
                                    one lacks; a check that cannot complete
-                                   adds no row
+                                   adds no row; none after a rebase recorded
+                                   since the last push
     issue #<n> ..., pr #<n> ...    The issue is not open or lacks comments, the
                                    PR is closed, merged or behind the board
                                    (Jira: a status of the `done` category is closed)
@@ -62,6 +63,48 @@ Refusals:
                                    No card for the slug
 Exit codes: 0 clean, 1 differ or refused, 2 usage, 4 internal error.
 See: ferrule guide show resume";
+
+/// Shown after `ferrule run rebase --help`.
+const REBASE_AFTER_LONG_HELP: &str = "\
+Rebases the run's branch onto the base (default `origin/<main branch>`, fetched
+first), then logs each stage commit's rebased twin as `commit=` on its card and
+`rebase=` on the run card. Run it from the run's worktree or the main checkout.
+Output:
+  rebase=done head=<sha> mapped=<n>
+      The branch is rebased; `mapped` commit= lines were appended
+  rebase=unchanged head=<sha>
+      The newest logged commit is already on the branch; nothing logged
+  rebase=conflict paths=<n> hint=resolve the conflicts, stage them with git add
+  or git rm, run GIT_EDITOR=true git rebase --continue, then run the same ferrule
+  run rebase again
+      Git stopped on a conflict and the rebase stays in progress: resolve it,
+      stage the files, run `GIT_EDITOR=true git rebase --continue`, then run
+      this command again (exit 1)
+Logged on the run card: `rebase=<head> base=<base> from=<old head>`.
+Refusals (stdout, exit 1):
+  rebase=refused reason=card hint=check the slug with `ferrule board list`
+      No card for the slug
+  rebase=refused reason=branch want=<branch>
+      The worktree's HEAD is not the run's branch
+  rebase=refused reason=no-worktree
+      The run's worktree is missing
+  rebase=refused reason=dirty
+      The worktree holds uncommitted changes, untracked files included
+  rebase=refused reason=state card=<id>
+      A stage card is inprogress
+  rebase=refused reason=in-progress
+      A rebase is already in progress in the worktree
+  rebase=refused reason=no-merge-base
+      The branch point with the base cannot be found
+  rebase=refused reason=count old=<n> new=<n>
+      The rebased branch has another number of commits than the logged ones
+  rebase=refused reason=mismatch at=<n> old=<sha> new=<sha>
+      A rebased commit's message differs from the logged one
+  rebase=refused reason=git detail=\"<git's error>\"
+      A git command failed
+Refusals end in ` hint=<fix>`.
+Exit codes: 0 done or unchanged, 1 conflict or refused, 2 usage, 4 internal error.
+See: ferrule guide show stages";
 
 /// Shown after `ferrule run rebuild --help`.
 const REBUILD_AFTER_LONG_HELP: &str = "\
@@ -188,7 +231,8 @@ Output, local only (no host call):
                                  Commits since main_branch and files with
                                  uncommitted changes; `worktree=missing
                                  path=<path>` when it is not there.
-  gauntlet=<pass|fail> ...       The parent's last gauntlet line, `-` if none.
+  gauntlet=<pass|fail> ...       The parent's last gauntlet line, `-` if none
+                                 or if a rebase= was logged after it.
   ci=<code|->                    The parent's last `ci=`.
   last=<card> <at> <event> ...   The run's last logged line; left out when
                                  the run has logged nothing.
@@ -277,6 +321,15 @@ pub enum RunCommand {
         /// Check git only: skip the divergence check and the issue, PR and PR-body rows.
         #[arg(long)]
         local: bool,
+    },
+    /// Rebase a run's branch onto its base and map the stage commits.
+    #[command(after_long_help = REBASE_AFTER_LONG_HELP)]
+    Rebase {
+        /// The run's slug.
+        slug: Slug,
+        /// The base to rebase onto [default: origin/<main branch>, fetched first].
+        #[arg(long)]
+        onto: Option<String>,
     },
     /// Recreate a lost board from the issue, its draft PR and git.
     ///
@@ -380,6 +433,7 @@ pub fn run(command: &RunCommand, out: &mut impl Write) -> io::Result<u8> {
             request,
         } => start::init(slug, issue.as_ref(), *request, out),
         RunCommand::Reconcile { slug, local } => start::reconcile(slug, *local, out),
+        RunCommand::Rebase { slug, onto } => start::rebase(slug, onto.as_deref(), out),
         RunCommand::Rebuild { issue, pr } => start::rebuild(issue, pr, out),
         RunCommand::Cleanup { slug } => finish::cleanup(slug, out),
         RunCommand::Export { slug, archive, to } => {

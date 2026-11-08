@@ -25,3 +25,7 @@
 **GW-E-011** — `--adopt` refuses a HEAD already logged as `commit=` on any of the run's cards.
 
 **GW-E-012** — `--adopt` accepts a commit that touches no file, since no file of it lies outside the card's `files` list.
+
+**GW-E-013** — A rebase whose conflict resolution changed a stage's content is accepted when the commit messages match, and no review sees the resolution; only the gauntlet checks it.
+
+**GW-E-014** — A rebase that rewords a stage commit's message is refused, even when the content is unchanged.
