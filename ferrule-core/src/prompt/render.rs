@@ -629,11 +629,13 @@ fn blocked(run: &mut Run, args: &[(String, String)]) -> Result<Vec<String>, Erro
             return Ok(vec![
                 format!("Question · {} · 1 decision", run.slug),
                 format!("## 1. the branch has diverged: local={local} remote={remote}"),
-                "Resolve it outside ferrule; never force-push.".to_owned(),
+                "Rebase it through ferrule or resolve it outside ferrule; never force-push by hand."
+                    .to_owned(),
                 "Options:".to_owned(),
-                "- a) resolved outside ferrule, push again".to_owned(),
-                "- b) stop".to_owned(),
-                "Answer: <1: a | b>".to_owned(),
+                "- a) rebase through ferrule".to_owned(),
+                "- b) resolved outside ferrule, push again".to_owned(),
+                "- c) stop".to_owned(),
+                "Answer: <1: a | b | c>".to_owned(),
             ]);
         }
         (None, None) => {}

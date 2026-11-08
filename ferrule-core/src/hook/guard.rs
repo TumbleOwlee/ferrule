@@ -359,7 +359,15 @@ fn interpreted(
                 let w = shell::base(&words[i]);
                 let rest = &words[i + 1..words.len().min(i + 24)];
                 (w == "git" || w == "gh" || w.starts_with("git-"))
-                    .then(|| replaced_as(w, rest, cwd, policy))
+                    .then(|| {
+                        let known = shell::git(rest).is_some_and(|g| builtin_git(g.sub))
+                            || w.starts_with("git-");
+                        if known {
+                            replaced_as(w, rest, cwd, policy)
+                        } else {
+                            replaced_only(w, rest, policy)
+                        }
+                    })
                     .flatten()
             })
         })
@@ -510,7 +518,12 @@ fn behind(name: &str, args: &[String], cwd: &Path, policy: Policy) -> Option<Str
 
 /// [`replaced`] for a program named `git`, `gh` or `git-<sub>`.
 fn replaced_as(name: &str, args: &[String], cwd: &Path, policy: Policy) -> Option<String> {
-    let found = match name {
+    replaced_only(name, args, policy).or_else(|| rebase_as(name, args, cwd, policy))
+}
+
+/// [`replaced_as`] without the rebase rules.
+fn replaced_only(name: &str, args: &[String], policy: Policy) -> Option<String> {
+    match name {
         "git" | "gh" => replaced(name, args, policy),
         _ => {
             let sub = name.strip_prefix("git-").filter(|s| !s.is_empty())?;
@@ -519,8 +532,7 @@ fn replaced_as(name: &str, args: &[String], cwd: &Path, policy: Policy) -> Optio
                 .collect();
             replaced("git", &full, policy)
         }
-    };
-    found.or_else(|| rebase_as(name, args, cwd, policy))
+    }
 }
 
 /// Whether directory `dir` holds `.ferrule` or sits inside one.
@@ -1068,6 +1080,55 @@ const REBASING_READS: &[&str] = &[
     "help",
 ];
 
+/// Built-in git subcommands that change the repository or its files: git
+/// never runs an alias of the same name.
+const BUILTIN_WRITES: &[&str] = &[
+    "checkout",
+    "switch",
+    "restore",
+    "reset",
+    "clean",
+    "commit",
+    "add",
+    "rm",
+    "mv",
+    "merge",
+    "rebase",
+    "cherry-pick",
+    "revert",
+    "apply",
+    "am",
+    "push",
+    "pull",
+    "notes",
+    "update-ref",
+    "symbolic-ref",
+    "filter-branch",
+    "gc",
+    "prune",
+    "reflog",
+    "submodule",
+    "remote",
+    "init",
+    "clone",
+    "stash",
+    "worktree",
+    "branch",
+    "tag",
+    "config",
+    "fetch",
+    "bisect",
+    "update-index",
+    "read-tree",
+    "replace",
+    "commit-tree",
+];
+
+/// Whether `sub` names a built-in git subcommand.
+fn builtin_git(sub: &str) -> bool {
+    BUILTIN_WRITES.contains(&sub) || REBASING_READS.contains(&sub)
+}
+
 /// [`rebase_check`] for a program named `git` or `git-<sub>`.
 fn rebase_as(name: &str, args: &[String], cwd: &Path, policy: Policy) -> Option<String> {
     let sub = if name == "git" {
@@ -1125,7 +1186,7 @@ fn rebase_depth(
     let real = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
     let dir = real(&dir);
     if depth < 4
-        && !matches!(g.sub, "rebase")
+        && !builtin_git(g.sub)
         && let Some(words) = alias_words(args, g.sub, &dir)
     {
         let mut full: Vec<String> = Vec::new();
@@ -1589,6 +1650,7 @@ mod tests {
             "git rebase main",
             "git -C x rebase main",
             "git rebase --continue",
+            "git rebase --abort",
         ] {
             let r = guard(cmd).unwrap_or_else(|| panic!("{cmd} allowed"));
             assert!(r.contains("ferrule run rebase"), "{cmd}: {r}");
@@ -1648,6 +1710,7 @@ mod tests {
             ] {
                 let r = at(cmd, cwd).unwrap_or_else(|| panic!("{cmd} allowed"));
                 assert!(r.contains("rebase is in progress"), "{cmd}: {r}");
+                assert!(r.contains("git add"), "{cmd}: {r}");
                 if cmd == "git rebase --skip" {
                     assert!(r.contains("ferrule run rebase"), "{cmd}: {r}");
                 }
@@ -1695,6 +1758,12 @@ mod tests {
             let r = shell(cmd, &wt, policy).unwrap_or_else(|| panic!("{cmd} allowed"));
             assert!(r.contains("rebase is in progress"), "{cmd}: {r}");
         }
+        let r = shell("git -c alias.reset=log reset --hard", &wt, policy);
+        assert!(r.is_some_and(|r| r.contains("rebase is in progress")));
+        assert_eq!(
+            shell("python3 -c \"print('use git foo here')\"", &wt, policy),
+            None
+        );
         for cmd in [
             "git ls-files",
             "git rev-parse HEAD",

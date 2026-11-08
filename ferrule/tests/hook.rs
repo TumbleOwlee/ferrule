@@ -761,6 +761,7 @@ fn it_shell_guard_reads_interpreter_code_and_scripts_it_wrote() {
     );
 }
 
+/// SG-R-008 — a raw `git rebase` is refused even when the command it hands to git is harmless.
 #[test]
 fn it_shell_guard_reads_commands_git_settings_hand_to_git() {
     let p = project();

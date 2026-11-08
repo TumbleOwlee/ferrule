@@ -1849,6 +1849,12 @@ fn it_diverged_refusal_feeds_the_blocked_stop() {
     );
     assert!(!stop.contains("re-plan"), "{stop}");
     assert!(stop.contains("never force-push"), "{stop}");
+    assert!(stop.contains("a) rebase through ferrule"), "{stop}");
+    assert!(
+        stop.contains("b) resolved outside ferrule, push again"),
+        "{stop}"
+    );
+    assert!(stop.contains("c) stop"), "{stop}");
 }
 
 /// Serves the issue and the PR of `pushed_run` as the host would show them.

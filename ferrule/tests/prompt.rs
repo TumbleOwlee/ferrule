@@ -244,7 +244,7 @@ fn it_render_every_stop() {
     check("prompt-render-stops", &stops(p));
 }
 
-/// GW-R-015, GW-R-016, GW-R-017, GW-R-024, GW-R-027 — the diverged stop shows both heads, two options, no stage.
+/// GW-R-015, GW-R-016, GW-R-017, GW-R-024, GW-R-027 — the diverged stop shows both heads, three options, no stage.
 #[test]
 fn it_render_blocked_diverged() {
     let p = project();

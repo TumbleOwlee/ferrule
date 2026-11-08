@@ -162,7 +162,7 @@ fn it_stage_review_guide_pushes_before_gate4() {
     );
 }
 
-/// GW-R-014 — a diverged push refusal goes to the blocked stop with both heads, never to a re-plan.
+/// GW-R-014, GW-R-016 — a diverged push refusal goes to the blocked stop with both heads, never to a re-plan.
 #[test]
 fn it_stages_guide_sends_a_diverged_refusal_to_the_blocked_stop() {
     let tmp = tempfile::tempdir().unwrap();
@@ -184,13 +184,14 @@ fn it_stages_guide_sends_a_diverged_refusal_to_the_blocked_stop() {
         "{bullet}"
     );
     assert!(!bullet.contains("guide show replan"), "{bullet}");
+    assert!(bullet.contains("rebase through ferrule"), "{bullet}");
     assert!(bullet.contains("resolve it outside ferrule"), "{bullet}");
-    assert!(bullet.contains("never force-push"), "{bullet}");
+    assert!(bullet.contains("never force-push by hand"), "{bullet}");
 }
 
-/// S5 — the blocked stop's `1: a` pushes again, `1: b` halts the run.
+/// GW-R-016 — the blocked stop's `1: a` rebases, `1: b` pushes again, `1: c` halts the run.
 #[test]
-fn it_stages_guide_pushes_again_after_a_resolved_divergence() {
+fn it_stages_guide_rebases_or_pushes_again_after_a_divergence() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
     seed_card(root, "demo", "open", &["lane=full"]);
@@ -200,13 +201,93 @@ fn it_stages_guide_pushes_again_after_a_resolved_divergence() {
         .find(|l| l.contains("--local <sha> --remote <sha>"))
         .unwrap_or_else(|| panic!("{text}"));
     assert!(
-        bullet.contains("`1: a` → `ferrule pr push demo` again"),
+        bullet.contains("`1: a` → `ferrule run rebase demo`"),
         "{bullet}"
     );
-    assert!(bullet.contains("`1: b` → the run halts"), "{bullet}");
+    assert!(
+        bullet.contains("`1: b` → `ferrule pr push demo` again"),
+        "{bullet}"
+    );
+    assert!(bullet.contains("`1: c` → the run halts"), "{bullet}");
 }
 
-/// GW-R-020 — resume names a diverged row and resolves it outside ferrule.
+/// GW-R-058 — a rebase conflict goes to the implementer of the newest committed stage.
+#[test]
+fn it_stages_guide_sends_a_rebase_conflict_to_the_implementer() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let text = ok(root, &["guide", "show", "stages", "--slug", "demo"]);
+    let bullet = text
+        .lines()
+        .find(|l| l.contains("`rebase=conflict paths=<n>`"))
+        .unwrap_or_else(|| panic!("{text}"));
+    assert!(bullet.contains("newest"), "{bullet}");
+    assert!(bullet.contains("commit="), "{bullet}");
+    assert!(bullet.contains("status=rebased"), "{bullet}");
+}
+
+/// GW-R-060 — `status=rebased` reruns the rebase command, then pushes.
+#[test]
+fn it_stages_guide_reruns_the_rebase_after_status_rebased() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let text = ok(root, &["guide", "show", "stages", "--slug", "demo"]);
+    let bullet = text
+        .lines()
+        .find(|l| l.contains("`status=rebased` →"))
+        .unwrap_or_else(|| panic!("{text}"));
+    assert!(
+        bullet.contains("`ferrule run rebase demo` again"),
+        "{bullet}"
+    );
+    assert!(bullet.contains("`ferrule pr push demo`"), "{bullet}");
+    assert!(bullet.contains("rebase=refused"), "{bullet}");
+}
+
+/// GW-R-059 — the implementer resolves only the conflicted files and ends on `status=rebased`.
+#[test]
+fn it_implementer_guide_resolves_only_the_conflicted_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let section = ok(
+        root,
+        &[
+            "guide",
+            "show",
+            "implementer",
+            "--slug",
+            "demo",
+            "--section",
+            "Rebase conflict",
+        ],
+    );
+    assert!(section.contains("--diff-filter=U"), "{section}");
+    assert!(
+        section.contains("GIT_EDITOR=true git rebase --continue"),
+        "{section}"
+    );
+    assert!(section.contains("status=rebased"), "{section}");
+}
+
+/// GW-R-052 — a run whose PR conflicts with its base is rebased through ferrule.
+#[test]
+fn it_resume_guide_rebases_a_pr_conflicting_with_its_base() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let text = ok(root, &["guide", "show", "resume", "--slug", "demo"]);
+    let line = text
+        .lines()
+        .find(|l| l.contains("conflicts with its base"))
+        .unwrap_or_else(|| panic!("{text}"));
+    assert!(line.contains("`ferrule run rebase demo`"), "{line}");
+    assert!(line.contains("`ferrule pr push demo`"), "{line}");
+}
+
+/// GW-R-020 — resume names a diverged row and resolves it by rebase or outside ferrule.
 #[test]
 fn it_resume_guide_resolves_a_diverged_row_outside_ferrule() {
     let tmp = tempfile::tempdir().unwrap();
@@ -218,7 +299,8 @@ fn it_resume_guide_resolves_a_diverged_row_outside_ferrule() {
         .find(|l| l.contains("`diverged <b> local=<sha> remote=<sha>`"))
         .unwrap_or_else(|| panic!("{text}"));
     assert!(row.contains("outside ferrule"), "{row}");
-    assert!(row.contains("never by a force-push"), "{row}");
+    assert!(row.contains("`ferrule run rebase demo`"), "{row}");
+    assert!(row.contains("never by a force-push by hand"), "{row}");
 }
 
 /// GA-R-008, GA-R-009, GA-R-010 — the branch review reads an uncommitted last stage and its spec changes.
