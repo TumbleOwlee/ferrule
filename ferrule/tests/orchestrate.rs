@@ -1660,6 +1660,90 @@ fn push_text(p: &Project) -> String {
     p.ferrule(&["pr", "push", "demo"]).text()
 }
 
+/// Raw git in `dir` without the success assert: a conflicting rebase exits
+/// non-zero.
+fn git_status(dir: &Path, args: &[&str]) -> std::process::Output {
+    Command::new("git")
+        .args([
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "commit.gpgsign=false",
+        ])
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .unwrap()
+}
+
+/// A sibling clone commits `file` on `main` and pushes: the short sha.
+fn push_main(p: &Project, file: &str, text: &str) -> String {
+    let dir = p.sibling("mover", "main");
+    let path = dir.join(file);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, text).unwrap();
+    git(&dir, &["add", "."]);
+    git(&dir, &["commit", "-qm", "moved"]);
+    git(&dir, &["push", "-q", "origin", "main"]);
+    git(&dir, &["rev-parse", "--short", "HEAD"])
+}
+
+/// `ferrule run rebase demo <args>` in the run's worktree.
+fn rebase(p: &Project, args: &[&str]) -> String {
+    let mut all = vec!["run", "rebase", "demo"];
+    all.extend_from_slice(args);
+    p.gh.on(Run::new(all))
+        .env("CLAUDE_PROJECT_DIR", &p.root)
+        .env("FERRULE_NOW", "2026-10-05T09:00")
+        .env("GIT_AUTHOR_NAME", "t")
+        .env("GIT_AUTHOR_EMAIL", "t@t")
+        .env("GIT_COMMITTER_NAME", "t")
+        .env("GIT_COMMITTER_EMAIL", "t@t")
+        .env("GIT_CONFIG_COUNT", "1")
+        .env("GIT_CONFIG_KEY_0", "commit.gpgsign")
+        .env("GIT_CONFIG_VALUE_0", "false")
+        .cwd(p.worktree())
+        .text()
+}
+
+/// A pushed run whose first two stages are done.
+fn pushed_s1() -> Project {
+    let (p, _) = pushed_run();
+    p.land("s1", "src/client.rs");
+    let got = push_text(&p);
+    assert!(got.starts_with("push=done "), "{got}");
+    p.ok(&["board", "move", "demo.s1", "done"]);
+    p
+}
+
+/// Moves `main` so that it conflicts with stage s1 and starts the rebase.
+fn conflicted(p: &Project) {
+    push_main(p, "src/client.rs", "base\n");
+    let got = rebase(p, &[]);
+    assert!(got.starts_with("rebase=conflict paths=1 hint="), "{got}");
+    assert!(
+        got.contains("GIT_EDITOR=true git rebase --continue"),
+        "{got}"
+    );
+    assert!(got.contains("ferrule run rebase"), "{got}");
+    assert!(got.ends_with("exit=1"), "{got}");
+}
+
+fn wt_head(p: &Project) -> String {
+    git(&p.worktree(), &["rev-parse", "--short", "HEAD"])
+}
+
+/// The log of the run card and both stage cards.
+fn cards(p: &Project) -> String {
+    ["demo", "demo.s0", "demo.s1"]
+        .iter()
+        .map(|c| p.ok(&["board", "show", c]))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// GW-R-007, GW-R-013 — a diverged branch is refused with both heads and a hint that never forces.
 #[test]
 fn it_push_refuses_a_diverged_branch() {
@@ -2109,4 +2193,251 @@ fn it_a_mistyped_stop_or_follow_up_list_is_a_usage_error() {
         let got = p.ferrule(args).text();
         assert!(got.ends_with("exit=2"), "{args:?}: {got}");
     }
+}
+
+/// GW-R-039, GW-R-042 — each logged commit is mapped onto the rebased one at its position.
+#[test]
+fn it_rebase_maps_each_logged_commit_onto_the_moved_base() {
+    let p = pushed_s1();
+    let wt = p.worktree();
+    std::fs::write(wt.join("src/client.rs"), "fix\n").unwrap();
+    git(&wt, &["add", "."]);
+    git(&wt, &["commit", "-qm", "fix"]);
+    let fix = wt_head(&p);
+    seed_log(
+        &p.root,
+        "2026-10-05T09:00",
+        "demo.s1",
+        &[&format!("commit={fix}")],
+    );
+    p.diverge_branch("main");
+    git(&wt, &["fetch", "-q", "origin", "main"]);
+    let got = rebase(&p, &["--onto", "origin/main"]);
+    let head = wt_head(&p);
+    assert!(
+        got.starts_with(&format!("rebase=done head={head} mapped=3\n")),
+        "{got}"
+    );
+    let new: Vec<String> = git(
+        &wt,
+        &[
+            "rev-list",
+            "--reverse",
+            "--abbrev-commit",
+            "origin/main..HEAD",
+        ],
+    )
+    .lines()
+    .map(|l| l[..7].to_owned())
+    .collect();
+    assert_eq!(new.len(), 3, "{new:?}");
+    let s0 = p.ok(&["board", "show", "demo.s0"]);
+    assert!(s0.contains(&format!("commit={}", new[0])), "{s0}");
+    let s1 = p.ok(&["board", "show", "demo.s1"]);
+    let at = |sha: &str| s1.find(&format!("commit={sha}")).expect(&s1);
+    assert!(at(&new[1]) < at(&new[2]), "{s1}");
+    assert!(s1.contains(&format!("commit={fix}")), "{s1}");
+    let run = p.ok(&["board", "show", "demo"]);
+    assert!(
+        run.contains(&format!("rebase={head} base=origin/main from={fix}")),
+        "{run}"
+    );
+}
+
+/// GW-R-056 — without a base the main branch is fetched from origin.
+#[test]
+fn it_rebase_without_onto_fetches_the_main_branch() {
+    let p = pushed_s1();
+    p.diverge_branch("main");
+    let got = rebase(&p, &[]);
+    assert!(got.starts_with("rebase=done "), "{got}");
+    git(
+        &p.worktree(),
+        &["merge-base", "--is-ancestor", "origin/main", "HEAD"],
+    );
+}
+
+/// GW-R-018, GW-R-049 — a mapped rebase reconciles clean and shows no diverged row.
+#[test]
+fn it_rebased_run_reconciles_clean() {
+    let p = pushed_s1();
+    p.diverge_branch("main");
+    let got = rebase(&p, &[]);
+    assert!(got.starts_with("rebase=done "), "{got}");
+    serve_host(&p);
+    let out = p.ferrule(&["run", "reconcile", "demo"]).text();
+    assert!(!out.contains("row=diverged"), "{out}");
+    assert!(!out.contains("row=gauntlet"), "{out}");
+    assert_eq!(
+        out,
+        "differ row=pr #34 body behind the board\nreconcile=differ n=1 next=s2\nexit=1"
+    );
+    let local = p.ferrule(&["run", "reconcile", "demo", "--local"]).text();
+    assert!(local.contains("reconcile=clean"), "{local}");
+}
+
+/// GW-R-040 — an untracked file refuses the rebase.
+#[test]
+fn it_rebase_refuses_a_dirty_worktree() {
+    let p = pushed_s1();
+    p.diverge_branch("main");
+    let before = wt_head(&p);
+    std::fs::write(p.worktree().join("loose.txt"), "x\n").unwrap();
+    let got = rebase(&p, &[]);
+    assert!(
+        got.starts_with("rebase=refused reason=dirty hint="),
+        "{got}"
+    );
+    assert_eq!(wt_head(&p), before);
+}
+
+/// GW-R-053 — a stage in progress refuses the rebase.
+#[test]
+fn it_rebase_refuses_with_a_stage_in_progress() {
+    let p = pushed_s1();
+    p.diverge_branch("main");
+    let before = wt_head(&p);
+    p.ok(&["board", "move", "demo.s1", "inprogress"]);
+    let got = rebase(&p, &[]);
+    assert!(
+        got.starts_with("rebase=refused reason=state card=demo.s1 hint="),
+        "{got}"
+    );
+    assert_eq!(wt_head(&p), before);
+}
+
+/// GW-R-041, GW-E-013 — a conflict stops the rebase; the resolved one is mapped on the next run.
+#[test]
+fn it_rebase_stops_on_a_conflict_and_maps_after_continue() {
+    let p = pushed_s1();
+    conflicted(&p);
+    let wt = p.worktree();
+    std::fs::write(wt.join("src/client.rs"), "resolved\n").unwrap();
+    git(&wt, &["add", "src/client.rs"]);
+    let cont = git_status(&wt, &["-c", "core.editor=true", "rebase", "--continue"]);
+    assert!(cont.status.success(), "{cont:?}");
+    let got = rebase(&p, &[]);
+    assert!(
+        got.starts_with(&format!("rebase=done head={} mapped=2\n", wt_head(&p))),
+        "{got}"
+    );
+}
+
+/// GW-R-057 — a rebase already in progress refuses another and logs nothing.
+#[test]
+fn it_rebase_refuses_while_a_rebase_is_in_progress() {
+    let p = pushed_s1();
+    conflicted(&p);
+    let before = cards(&p);
+    let got = rebase(&p, &[]);
+    assert!(
+        got.starts_with("rebase=refused reason=in-progress hint="),
+        "{got}"
+    );
+    for want in [
+        "git rebase --continue",
+        "git rebase --abort",
+        "ferrule run rebase demo",
+    ] {
+        assert!(got.contains(want), "{want}: {got}");
+    }
+    assert_eq!(cards(&p), before);
+}
+
+/// GW-R-047 — an aborted rebase leaves the branch and the cards as before.
+#[test]
+fn it_aborted_rebase_logs_nothing() {
+    let p = pushed_s1();
+    let head = wt_head(&p);
+    let before = cards(&p);
+    conflicted(&p);
+    let abort = git_status(&p.worktree(), &["rebase", "--abort"]);
+    assert!(abort.status.success(), "{abort:?}");
+    assert_eq!(wt_head(&p), head);
+    assert_eq!(cards(&p), before);
+}
+
+/// GW-R-054 — rebasing again once mapped is unchanged and logs nothing.
+#[test]
+fn it_rebase_again_is_unchanged() {
+    let p = pushed_s1();
+    p.diverge_branch("main");
+    let got = rebase(&p, &[]);
+    assert!(got.starts_with("rebase=done "), "{got}");
+    let before = cards(&p);
+    let got = rebase(&p, &[]);
+    assert!(
+        got.starts_with(&format!("rebase=unchanged head={}\n", wt_head(&p))),
+        "{got}"
+    );
+    assert_eq!(cards(&p), before);
+}
+
+/// GW-R-043, GW-E-014 — a dropped or reworded stage commit refuses the mapping.
+#[test]
+fn it_rebase_refuses_a_dropped_or_reworded_commit() {
+    for reword in [false, true] {
+        let p = pushed_s1();
+        p.diverge_branch("main");
+        let wt = p.worktree();
+        git(&wt, &["fetch", "-q", "origin", "main"]);
+        git(&wt, &["rebase", "-q", "origin/main"]);
+        if reword {
+            git(&wt, &["commit", "-q", "--amend", "-m", "changed"]);
+        } else {
+            git(&wt, &["reset", "-q", "--hard", "HEAD^"]);
+        }
+        let before = cards(&p);
+        let got = rebase(&p, &[]);
+        let want = if reword {
+            "rebase=refused reason=mismatch at=2 "
+        } else {
+            "rebase=refused reason=count old=2 new=1 hint="
+        };
+        assert!(got.starts_with(want), "{got}");
+        assert_eq!(cards(&p), before);
+    }
+}
+
+/// GW-R-044 — only committed stages are mapped; a later stage commits on the rebased branch.
+#[test]
+fn it_rebase_mid_run_maps_only_committed_stages() {
+    let (p, _) = pushed_run();
+    p.diverge_branch("main");
+    let got = rebase(&p, &[]);
+    assert!(got.contains("mapped=1\n"), "{got}");
+    let head = wt_head(&p);
+    p.ok(&["board", "move", "demo.s1", "inprogress"]);
+    let wt = p.worktree();
+    std::fs::create_dir_all(wt.join("src")).unwrap();
+    std::fs::write(wt.join("src/client.rs"), "s1\n").unwrap();
+    git(&wt, &["add", "."]);
+    p.ok(&["board", "move", "demo.s1", "inreview"]);
+    let done = p.in_wt(&["stage", "commit", "demo.s1", "-m", "s1"]);
+    let sha = wt_head(&p);
+    assert!(
+        done.starts_with(&format!("commit=done sha={sha} card=demo.s1")),
+        "{done}"
+    );
+    assert_eq!(git(&wt, &["rev-parse", "--short", "HEAD^"]), head);
+    let verify = p.ferrule(&["stage", "verify", "demo", "s1", &sha]).text();
+    assert_eq!(verify, "sha=ok\nexit=0");
+}
+
+/// GW-R-046 — the approved reviews and the done stages stay after a rebase.
+#[test]
+fn it_rebase_keeps_the_approved_reviews() {
+    let p = pushed_s1();
+    seed_log(
+        &p.root,
+        "2026-10-05T09:00",
+        "demo",
+        &["review=approved", "scope=s1"],
+    );
+    p.diverge_branch("main");
+    let got = rebase(&p, &[]);
+    assert!(got.starts_with("rebase=done "), "{got}");
+    let run = p.ok(&["board", "show", "demo"]);
+    assert!(run.contains("review=approved scope=s1"), "{run}");
+    assert!(p.ok(&["board", "show", "demo.s1"]).contains("done"));
 }

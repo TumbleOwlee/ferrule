@@ -1,11 +1,12 @@
-//! Starting a run and putting one back: `run init`, `run reconcile` and
-//! `run rebuild`.
+//! Starting a run and putting one back: `run init`, `run reconcile`,
+//! `run rebase` and `run rebuild`.
 
 use std::io::{self, Write};
 
 use ferrule_core::card::board;
 use ferrule_core::refusal::Refusal;
 use ferrule_core::remote::{self, CodeHost, IssueTracker, Item, ItemRef};
+use ferrule_core::run::rebase::{self as core_rebase, Rebased};
 use ferrule_core::run::{self as core_run, Error, diverged, gate, rebuild};
 
 use crate::commands::board::{create_store, run_on, store};
@@ -46,6 +47,7 @@ pub(super) fn reconcile(slug: &str, local: bool, out: &mut impl Write) -> io::Re
             .map_err(internal)?
             .unwrap_or_default();
         if !branch.is_empty()
+            && !s.read(|r| r.rebased_since_push(slug)).map_err(internal)?
             && let Some(row) = diverged::row(&layout.root, &branch)
         {
             r.differ.push(row);
@@ -66,6 +68,27 @@ pub(super) fn reconcile(slug: &str, local: bool, out: &mut impl Write) -> io::Re
     } else {
         writeln!(out, "reconcile=differ n={} next={next}", r.differ.len())?;
         Ok(exit::REFUSED)
+    }
+}
+
+pub(super) fn rebase(slug: &str, onto: Option<&str>, out: &mut impl Write) -> io::Result<u8> {
+    let layout = layout();
+    let config = crate::commands::config()?;
+    let Some(mut s) = store()? else {
+        return refuse(out, &Refusal::card("rebase"));
+    };
+    match core_rebase::rebase(&mut s, &layout, &config, slug, onto, &board::now()) {
+        Ok(Ok(r @ Rebased::Conflict { .. })) => {
+            writeln!(out, "{r}")?;
+            Ok(exit::REFUSED)
+        }
+        Ok(Ok(r)) => {
+            writeln!(out, "{r}")?;
+            Ok(exit::OK)
+        }
+        Ok(Err(r)) => refuse(out, &r.refusal(slug)),
+        Err(Error::Card) => refuse(out, &Refusal::card("rebase")),
+        Err(Error::Sql(e)) => Err(internal(e)),
     }
 }
 
