@@ -40,6 +40,32 @@ pub fn row(root: &Path, branch: &str) -> Option<String> {
     ))
 }
 
+/// Where `branch` stands on `origin`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Remote {
+    /// The branch does not exist on origin.
+    Missing,
+    /// The branch's head there, full sha.
+    At(String),
+}
+
+/// The head of `branch` on `origin`, or `None` when the check cannot
+/// complete.
+#[must_use]
+pub fn remote_head(dir: &Path, branch: &str) -> Option<Remote> {
+    let name = format!("refs/heads/{branch}");
+    let listing = bounded(dir, &["ls-remote", "origin", &name], Instant::now() + LIMIT)?;
+    Some(
+        listing
+            .lines()
+            .find_map(|line| {
+                let (sha, found) = line.split_once('\t')?;
+                (found.trim() == name).then(|| Remote::At(sha.to_owned()))
+            })
+            .unwrap_or(Remote::Missing),
+    )
+}
+
 fn check_within(dir: &Path, branch: &str, limit: Duration) -> Option<Diverged> {
     let name = format!("refs/heads/{branch}");
     let local = git::commit(dir, &name)?;

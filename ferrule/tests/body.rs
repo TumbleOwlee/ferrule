@@ -6,7 +6,7 @@ mod golden;
 use std::path::Path;
 use std::process::Command;
 
-use golden::{Run, fixtures};
+use golden::{Run, fixtures, seed_log};
 
 /// The fixture board imported and its artifacts under `.ferrule/runs/`.
 fn project() -> tempfile::TempDir {
@@ -145,6 +145,37 @@ fn it_pr_body() {
         ferrule(p, &["pr", "body", "demo", "neither"]).text(),
         "exit=2"
     );
+}
+
+/// GW-R-065 — the PR body's coverage never comes from before the run's last rebase.
+#[test]
+fn it_pr_body_shows_no_coverage_from_before_a_rebase() {
+    let p = project();
+    let p = p.path();
+    let at = "2026-10-05T09:00";
+    let body = || ferrule(p, &["pr", "body", "demo", "full"]).text();
+    assert!(body().contains(" · coverage 81.2%"));
+    seed_log(
+        p,
+        at,
+        "demo",
+        &["rebase=ccc3333", "base=origin/main", "from=bbb2222"],
+    );
+    assert!(!body().contains(" · coverage "));
+    seed_log(
+        p,
+        at,
+        "demo",
+        &["gauntlet=fail", "step=test", "sha=ccc3333"],
+    );
+    assert!(!body().contains(" · coverage "));
+    seed_log(
+        p,
+        at,
+        "demo",
+        &["gauntlet=pass", "cov=90.0%", "sha=ccc3333"],
+    );
+    assert!(body().contains(" · coverage 90.0%"));
 }
 
 fn git(dir: &Path, args: &[&str]) {

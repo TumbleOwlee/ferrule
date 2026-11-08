@@ -19,6 +19,7 @@ const SOURCES: &[(&str, &[&str])] = &[
         &["guide show", "guide check"],
     ),
     ("ferrule-core/src/run/diverged.rs", &["run reconcile"]),
+    ("ferrule-core/src/run/rebase.rs", &["run rebase"]),
     (
         "ferrule-core/src/install/githooks.rs",
         &["setup install", "setup check"],
@@ -183,6 +184,7 @@ const SOURCES: &[(&str, &[&str])] = &[
             "run log",
             "run metrics",
             "run plan-diff",
+            "run rebase",
             "run rebuild",
             "run reconcile",
             "run status",
@@ -198,7 +200,7 @@ const SOURCES: &[(&str, &[&str])] = &[
     ),
     (
         "ferrule/src/commands/run/start.rs",
-        &["run init", "run reconcile", "run rebuild"],
+        &["run init", "run reconcile", "run rebase", "run rebuild"],
     ),
     (
         "ferrule/src/commands/stage.rs",

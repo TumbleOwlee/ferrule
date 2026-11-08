@@ -122,7 +122,8 @@ pub struct Status {
     pub parent: Parent,
     pub stages: Vec<StageLine>,
     pub worktree: Worktree,
-    /// The parent's last gauntlet line, without `gauntlet=`.
+    /// The parent's last gauntlet line, without `gauntlet=`; none when the run card
+    /// logged a `rebase=` after it.
     pub gauntlet: Option<String>,
     /// The parent's last `ci=`.
     pub ci: Option<String>,
@@ -191,8 +192,10 @@ pub fn status(
     } else {
         Worktree::Missing { path }
     };
-    let gauntlet = board::log_lines(c, slug, Some("gauntlet="))?
-        .pop()
+    let gauntlet = board::log_lines(c, slug, None)?
+        .into_iter()
+        .rev()
+        .find(|(_, body)| body.starts_with("gauntlet=") || body.starts_with("rebase="))
         .and_then(|(_, body)| body.strip_prefix("gauntlet=").map(str::to_owned));
     let last = board::run_log_lines(c, slug, None)?
         .pop()
@@ -485,6 +488,37 @@ mod tests {
                 body: "ci=0".into(),
             })
         );
+    }
+
+    /// GW-R-064 — a gauntlet line from before the last rebase is not shown.
+    #[test]
+    fn ut_status_shows_no_gauntlet_line_from_before_a_rebase() {
+        let (_dir, layout) = scratch();
+        let mut s = Store::memory().unwrap();
+        board::create(&mut s.conn, "r", State::InProgress, &[], "t").unwrap();
+        let steps = [
+            (
+                "gauntlet=pass cov=? sha=aaa1111",
+                Some("pass cov=? sha=aaa1111"),
+            ),
+            ("rebase=bbb2222 base=origin/main from=aaa1111", None),
+            (
+                "gauntlet=fail step=test sha=bbb2222",
+                Some("fail step=test sha=bbb2222"),
+            ),
+            ("rebase=ccc3333 base=origin/main from=bbb2222", None),
+            (
+                "gauntlet=pass cov=? sha=ccc3333",
+                Some("pass cov=? sha=ccc3333"),
+            ),
+        ];
+        for (body, want) in steps {
+            board::insert_body(&s.conn, "r", "t1", body);
+            let got = status(Some(&Reader::new(&s.conn)), &layout, "main", "r")
+                .unwrap()
+                .gauntlet;
+            assert_eq!(got.as_deref(), want, "{body}");
+        }
     }
 
     #[test]

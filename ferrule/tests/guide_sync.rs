@@ -224,11 +224,32 @@ fn it_ferrule_commands_in_the_text_exist() {
 #[test]
 fn it_shell_commands_in_the_guides_pass_the_guard() {
     let dir = tempfile::tempdir().unwrap();
-    let policy = Policy { allow: &[] };
+    let policy = Policy {
+        allow: &[],
+        rebasing: &[],
+    };
+    // The guides tell an agent to run these only inside a stopped rebase.
+    let stopped = [dir.path().to_path_buf()];
+    let in_rebase = Policy {
+        allow: &[],
+        rebasing: &stopped,
+    };
     let mut problems = Vec::new();
     let mut checked = 0;
     for (name, text) in sources() {
         for span in spans(&text) {
+            let policy = if [
+                "GIT_EDITOR=true git rebase --continue",
+                "git rebase --continue",
+                "git rebase --abort",
+            ]
+            .iter()
+            .any(|p| span.starts_with(p))
+            {
+                in_rebase
+            } else {
+                policy
+            };
             let first = span.split_whitespace().next().unwrap_or("");
             let command = span.replace(['<', '>'], "");
             if !PROGRAMS.contains(&first) || command.contains('…') {

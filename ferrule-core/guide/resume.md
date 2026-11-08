@@ -19,9 +19,11 @@ A card in `inprogress` or `inreview` (`ferrule board list`), no agent running = 
 | `pr #<n> is merged` or `closed` | the run is over — `ferrule ci wait {slug}`, then `ferrule guide show cleanup` |
 | `pr #<n> is a draft but pr=ready is logged` | publish died half-way: `ferrule pr publish {slug}` again |
 | `pr #<n> body behind the board` | a move or a stage commit never rendered: the next `ferrule board move` or `ferrule pr push` brings it up to date |
-| `diverged <b> local=<sha> remote=<sha>` | origin's branch holds commits the local one lacks: resolve it outside ferrule, never by a force-push, before any stage resumes |
+| `diverged <b> local=<sha> remote=<sha>` | origin's branch holds commits the local one lacks: resolve it with `ferrule run rebase {slug}` or outside ferrule, never by a force-push by hand, before any stage resumes |
 
 No `pr` on the card: the draft never opened; the next `ferrule pr push {slug}` opens it.
+
+A run whose PR conflicts with its base → `ferrule run rebase {slug}`, then `ferrule pr push {slug}`; a `rebase=conflict` goes to the implementer as `ferrule guide show stages` says.
 
 Report differences first. Agree → resume. Disagree → stop and report.
 

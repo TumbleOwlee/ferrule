@@ -32,6 +32,7 @@ Every turn ends on exactly one line; orchestrator reads only this line and your 
 ```
 status=inreview stage=s<n> delta=<n>
 status=committed stage=s<n> sha=<sha> delta=<n>
+status=rebased stage=s<n>                            # rebase conflict resolved
 status=question stage=s<n> file=<run_dir>/question.md count=<n>   # Ask
 status=blocked stage=s<n> reason=<one line>       # Stop
 ```
