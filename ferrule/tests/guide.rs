@@ -682,3 +682,17 @@ fn it_cleanup_guide_states_exemptions_and_notices() {
         assert!(text.contains(want), "{want}: {text}");
     }
 }
+
+/// The principles guide names both endings of a run: a ready PR
+/// with green CI, or cleanup of a run without a PR under its CI exemption.
+#[test]
+fn it_principles_guide_names_the_run_without_a_pr_ending() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let principles = ok(root, &["guide", "principles", "--slug", "demo"]);
+    assert!(
+        principles.contains("a run without a PR ends at `ferrule run cleanup`"),
+        "{principles}"
+    );
+}

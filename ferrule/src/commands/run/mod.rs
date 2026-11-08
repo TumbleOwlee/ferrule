@@ -25,7 +25,8 @@ With --request the card records `kind=request` and no slice is detected: no
 epic is read and no slice-line.md or epic.md is written.
 Refusals:
   init=refused reason=exists       The run already has a card or stage cards;
-                                   resume it with `ferrule run reconcile <slug>`Errors (stderr):
+                                   resume it with `ferrule run reconcile <slug>`
+Errors (stderr):
   init: <host error>               The issue could not be read (exit 1)
 Refusals end in ` hint=<fix>`.
 Exit codes: 0 done, 1 refused, 2 usage, 4 internal error.
@@ -291,8 +292,8 @@ pub enum RunCommand {
     ///
     /// Removes the worktree and the local branch and archives the cards and
     /// files. Refuses while the worktree holds unpushed work, while CI is
-    /// not green (a request run, an epic and a run without a PR whose issue
-    /// is not open need no CI result), or while a run without a PR has an
+    /// not green (a request run, an epic and a feature run without a PR whose issue
+    /// is not open need no CI result), or while a feature run without a PR has an
     /// issue that is open or cannot be read.
     #[command(after_long_help = CLEANUP_AFTER_LONG_HELP)]
     Cleanup {

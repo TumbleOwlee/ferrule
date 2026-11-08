@@ -926,3 +926,10 @@ fn it_cleanup_help_states_exemptions_and_issue_refusals() {
         assert!(help.contains(want), "{want}: {help}");
     }
 }
+
+/// The `run init` help prints `Errors (stderr):` on a line of its own.
+#[test]
+fn it_init_help_breaks_before_the_errors_heading() {
+    let help = help_of("run init");
+    assert!(help.lines().any(|l| l == "Errors (stderr):"), "{help}");
+}
