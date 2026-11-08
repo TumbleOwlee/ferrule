@@ -123,3 +123,7 @@
 **GA-R-056** — The shipped guide sources hold the ID citation rule once.
 
 **GA-R-057** — The shipped guide sources hold the line `**Concise, compact, facts only.**` once.
+
+**GA-R-058** — Ferrule's sources hold once a paragraph an installed agent file shares with a guide.
+
+**GA-R-059** — No heading section of ferrule's shipped guide or installed-file sources repeats the text of another.

@@ -515,3 +515,52 @@ fn it_readme_cites_no_agents_guide() {
     assert!(!cites_agent_guide(&readme));
     assert!(readme.contains("| Stage | Title"));
 }
+
+/// GA-R-058 — no installed-file paragraph of two sentences or more is also
+/// a paragraph of a guide source. A one-sentence paragraph may stay copied.
+#[test]
+fn it_installed_files_share_no_paragraph_with_guides() {
+    let paragraphs = |dir: &str| {
+        let mut files = Vec::new();
+        markdown(&core().join(dir), &mut files);
+        files
+            .into_iter()
+            .flat_map(|(name, text)| {
+                text.split("\n\n")
+                    .map(|p| (name.clone(), p.trim().to_owned()))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>()
+    };
+    let guides = paragraphs("guide");
+    for (name, p) in paragraphs("install/claude") {
+        if !p.contains(". ") {
+            continue;
+        }
+        let held: Vec<&String> = guides
+            .iter()
+            .filter(|(_, g)| *g == p)
+            .map(|(n, _)| n)
+            .collect();
+        assert!(held.is_empty(), "{name} copies a paragraph of {held:?}");
+    }
+}
+
+/// Every shared text is held by at least two sources.
+#[test]
+fn it_every_fragment_has_two_holders() {
+    let all = sources();
+    let mut seen = 0;
+    for entry in fs::read_dir(core().join("guide/shared")).unwrap() {
+        let path = entry.unwrap().path();
+        let name = path.file_stem().unwrap().to_str().unwrap().to_owned();
+        let line = format!("<!-- include: {name} -->");
+        let holders = all
+            .iter()
+            .filter(|(_, t)| t.lines().any(|l| l.trim() == line))
+            .count();
+        assert!(holders >= 2, "{name} is held by {holders}");
+        seen += 1;
+    }
+    assert!(seen >= 17, "{seen} fragments");
+}

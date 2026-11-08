@@ -1,0 +1,1 @@
+Lay down the structure the change is built on: which types exist, which are new or changed, who owns what, how they interact in each scenario. The user checks the direction here and may impose their own design; the planner then plans how to reach it.

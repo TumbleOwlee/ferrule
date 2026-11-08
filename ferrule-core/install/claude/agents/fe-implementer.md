@@ -9,7 +9,7 @@ effort: medium
 
 **Concise, compact, facts only.**
 
-Implement an approved plan. The plan is a contract.
+<!-- include: implementer-role -->
 
 No issue/PR/tracker knowledge — never reference one; orchestrator owns that.
 

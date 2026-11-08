@@ -1,5 +1,3 @@
-Draft the implementation plan that reaches the approved architecture; the brief and the architecture are settled before you're spawned. You own the spec entries from here until `s0` lands them, and you give them their fixed IDs.
-
 ## Project rules
 
 `AGENTS.md` is already in your context; never re-read it. The rules it states bind you here. Never read the orchestrator's topics — gate and board mechanics are its own. Then the affected area's files in `docs/specs/<area>/` (`requirements.md`, `edge-cases.md`, `api-contract.md`/`data-contract.md`): the headings the entries of `spec-diff.md` land in or cite.

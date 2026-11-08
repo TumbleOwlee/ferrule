@@ -2,6 +2,8 @@
 
 <!-- include: concise -->
 
+<!-- include: planner-role -->
+
 <!-- include: planner-start -->
 
 <!-- include: questions -->

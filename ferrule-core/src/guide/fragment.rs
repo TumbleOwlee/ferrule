@@ -1,5 +1,5 @@
-//! Texts shared by several topics, kept once under `guide/shared/` and
-//! spliced into a topic wherever it holds an include line.
+//! Texts shared by several topics and installed templates, kept once under `guide/shared/` and
+//! spliced wherever a source holds an include line.
 
 use crate::markdown;
 
@@ -42,6 +42,10 @@ fragments! {
     Questions "questions",
     Concise "concise",
     IdCitation "id-citation",
+    AuthorRole "author-role",
+    ArchitectRole "architect-role",
+    PlannerRole "planner-role",
+    ImplementerRole "implementer-role",
     AuthorStart "author-start",
     ArchitectStart "architect-start",
     ArchitectSpecEdits "architect-spec-edits",
@@ -69,7 +73,7 @@ fn included(line: &str) -> Option<Fragment> {
 
 /// `source` with every include line outside fenced code replaced by its
 /// fragment's text. A line naming no fragment stays as it is.
-pub(super) fn expand(source: &str) -> String {
+pub(crate) fn expand(source: &str) -> String {
     let mut out = String::with_capacity(source.len());
     for line in markdown::classified(source) {
         match included(line.text).filter(|_| !line.fenced) {

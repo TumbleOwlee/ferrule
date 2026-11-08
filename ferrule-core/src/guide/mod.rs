@@ -14,7 +14,7 @@
 //! the default lacks is appended. An override naming no default topic is a
 //! topic of the project's own.
 //!
-//! A shipped topic may hold a line `<!-- include: <name> -->` naming a text
+//! A shipped topic or installed agent or skill template may hold a line `<!-- include: <name> -->` naming a text
 //! under `guide/shared/`; it is spliced in before overrides, tags and
 //! placeholders apply. Projects have no such line.
 
@@ -27,6 +27,7 @@ use std::path::Path;
 use crate::markdown;
 
 pub use fragment::Fragment;
+pub(crate) use fragment::expand;
 use render::tag;
 pub use render::{Context, Lane, VARS, render};
 pub use sections::{body, headings, merge, select};
@@ -457,18 +458,5 @@ mod tests {
             }
         }
         assert!(seen >= 12, "{seen}");
-    }
-
-    /// Every shared text is held by at least two guides.
-    #[test]
-    fn ut_every_fragment_is_included_by_two_topics() {
-        for f in Fragment::ALL {
-            let line = format!("<!-- include: {} -->", f.name());
-            let holders = Topic::ALL
-                .iter()
-                .filter(|t| t.source().contains(&line))
-                .count();
-            assert!(holders >= 2, "{} is held by {holders}", f.name());
-        }
     }
 }

@@ -4,6 +4,8 @@ Read by `fe-architect` in an epic run, a slice run, or once the size guard trips
 
 <!-- include: concise -->
 
+<!-- include: architect-role -->
+
 <!-- include: architect-start -->
 
 <!-- include: questions -->

@@ -4,6 +4,8 @@ Read by `fe-author` when resumed for a split or for gate 4.
 
 <!-- include: concise -->
 
+<!-- include: author-role -->
+
 <!-- include: author-start -->
 
 ## Split issue — `split-issue.md`

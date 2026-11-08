@@ -4,6 +4,8 @@ Read by `fe-planner` when spawned with `mode=replan from=s<n>`.
 
 <!-- include: concise -->
 
+<!-- include: planner-role -->
+
 <!-- include: planner-start -->
 
 <!-- include: questions -->

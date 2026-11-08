@@ -2,6 +2,8 @@
 
 <!-- include: concise -->
 
+<!-- include: architect-role -->
+
 <!-- include: architect-start -->
 
 <!-- include: questions -->

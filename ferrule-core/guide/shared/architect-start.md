@@ -1,5 +1,3 @@
-Lay down the structure the change is built on: which types exist, which are new or changed, who owns what, how they interact in each scenario. The user checks the direction here and may impose their own design; the planner then plans how to reach it.
-
 ## Project rules
 
 `AGENTS.md` is already in your context; never re-read it. The rules it states bind you here. Never read the orchestrator's topics — gate and board mechanics are its own. Read `ferrule file section 'Rules for writing specs' docs/specs/README.md`, and the `ARCHITECTURE.md` sections the change touches.
