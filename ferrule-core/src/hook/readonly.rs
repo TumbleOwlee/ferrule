@@ -203,9 +203,10 @@ pub fn readonly(
                 _ => {
                     let rtk_grep =
                         name == "grep" && shell::program(&c.words).is_some_and(|(n, _)| n == "rtk");
-                    (allowed_program(name, args) && (!rtk_grep || allowed_program("rg", args))
-                        || has_prefix(name, args, allow))
+                    (allowed_program(name, args) || has_prefix(name, args, allow))
                         && !has_prefix(name, args, mutating)
+                        && (!rtk_grep
+                            || allowed_program("rg", args) && !has_prefix("rg", args, mutating))
                 }
             };
             if !ok {
@@ -448,12 +449,25 @@ mod tests {
         }
     }
 
-    /// SG-R-009 — `rtk grep` runs `rg`, so it is also refused where `rg` is.
+    /// SG-R-017 — `rtk grep` runs `rg`, so it is also refused where `rg` is,
+    /// whatever `allow` and `mutating` name.
     #[test]
     fn ut_rtk_grep_is_refused_with_rg_flags() {
         assert!(check("rtk grep x .").is_none());
         assert!(check("rtk grep --pre ./p x .").is_some());
         assert!(check("rtk grep x . --hostname-bin p").is_some());
         assert!(check("grep --pre x .").is_none());
+        let at = |cmd: &str, mutating: &[&str], allow: &[&str]| {
+            let own = |l: &[&str]| l.iter().map(|x| (*x).to_owned()).collect::<Vec<_>>();
+            readonly(
+                cmd,
+                Path::new("/nonexistent-ferrule-guard"),
+                &own(mutating),
+                &own(allow),
+            )
+        };
+        assert!(at("rtk grep x . --pre ./p", &[], &["grep"]).is_some());
+        assert!(at("rtk grep x", &["rg"], &[]).is_some());
+        assert!(at("grep x", &["rg"], &[]).is_none());
     }
 }

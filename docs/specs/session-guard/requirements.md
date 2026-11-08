@@ -22,7 +22,7 @@
 
 ## Commands through rtk
 
-**SG-R-009** — The read-only guard gives `rtk <program> <args>` the verdict it gives `<program> <args>` when `<program>` is `git`, `cargo`, `grep`, `rg`, `find`, `ls`, `tree`, `wc` or `diff`, so SG-R-001 to SG-R-005, SG-E-001 and SG-E-002 hold through `rtk`; `rtk grep` is also refused wherever `rg` is, since `rtk` runs `rg` for it.
+**SG-R-009** — The read-only guard gives `rtk <program> <args>` the verdict it gives `<program> <args>` when `<program>` is `git`, `cargo`, `grep`, `rg`, `find`, `ls`, `tree`, `wc` or `diff`, so SG-R-001 to SG-R-005, SG-E-001 and SG-E-002 hold through `rtk`.
 
 **SG-R-010** — The session guard gives `rtk <program> <args>` the verdict and refusal hint it gives `<program> <args>` when `<program>` is `git`, `cargo`, `grep`, `rg`, `find`, `ls`, `tree`, `wc` or `diff`, so SG-R-006 to SG-R-008 hold through `rtk`.
 
@@ -37,3 +37,5 @@
 **SG-R-015** — Each guard judges `rtk read <args>` as `head <args>` when, before any `--`, `<args>` holds `-m` or `--max-lines`, value attached or not.
 
 **SG-R-016** — Each guard judges `rtk read <args>` as `tail <args>` when, before any `--`, `<args>` holds `--tail-lines`, value attached or not, and neither `-m` nor `--max-lines`.
+
+**SG-R-017** — The read-only guard also refuses `rtk grep <args>` wherever it refuses `rg <args>`, since `rtk` runs `rg` for it.
