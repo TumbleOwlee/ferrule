@@ -856,7 +856,7 @@ fn it_job_guides_state_what_their_job_needs() {
     }
 }
 
-/// GA-R-029 — a tripped size guard hands the architect to the epic guide.
+/// S8 — a tripped size guard hands the architect to the epic guide.
 #[test]
 fn it_architect_guide_hands_a_tripped_size_guard_to_the_epic_guide() {
     let tmp = tempfile::tempdir().unwrap();

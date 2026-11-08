@@ -442,7 +442,7 @@ mod tests {
         }
     }
 
-    /// GA-R-050 — a topic holding an include line prints that fragment.
+    /// S10 — a topic holding an include line prints that fragment.
     #[test]
     fn ut_topics_print_the_fragments_they_include() {
         let mut seen = 0;
@@ -459,7 +459,7 @@ mod tests {
         assert!(seen >= 12, "{seen}");
     }
 
-    /// GA-R-051 — every shared text is held by at least two guides.
+    /// Every shared text is held by at least two guides.
     #[test]
     fn ut_every_fragment_is_included_by_two_topics() {
         for f in Fragment::ALL {

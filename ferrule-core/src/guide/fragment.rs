@@ -88,7 +88,7 @@ pub(super) fn expand(source: &str) -> String {
 mod tests {
     use super::*;
 
-    /// GA-R-050 — an include line becomes the fragment's text.
+    /// An include line becomes the fragment's text.
     #[test]
     fn ut_expand_splices_a_named_fragment() {
         let out = expand("a\n<!-- include: concise -->\nb\n");
@@ -99,7 +99,7 @@ mod tests {
         assert!(!expand("<!--include:concise-->").ends_with('\n'));
     }
 
-    /// GA-R-050 — fenced and unknown include lines stay.
+    /// Fenced and unknown include lines stay.
     #[test]
     fn ut_expand_keeps_fenced_and_unknown_lines() {
         let src = "```\n<!-- include: concise -->\n```\n<!-- include: nope -->\n";

@@ -306,11 +306,7 @@ fn it_guides_cite_no_other_audiences_guide() {
     for (name, text) in guides {
         let topic = name.trim_start_matches("guide/").trim_end_matches(".md");
         let family = AGENTS.iter().find(|family| family.contains(&topic));
-        for (at, pattern) in text.match_indices("ferrule guide show ") {
-            let cited: String = text[at + pattern.len()..]
-                .chars()
-                .take_while(|c| c.is_ascii_lowercase() || *c == '-')
-                .collect();
+        for cited in citations(&text) {
             let refused = match family {
                 Some(family) => !family.contains(&cited.as_str()),
                 None => AGENTS.iter().any(|family| family.contains(&cited.as_str())),
