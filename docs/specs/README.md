@@ -9,6 +9,7 @@ The authoritative description of what this project does, one directory per capab
 | Gates | gates/ | GA |
 | Git writes | git-writes/ | GW |
 | Session guard | session-guard/ | SG |
+| Runs | runs/ | RU |
 
 ## Per-area files
 

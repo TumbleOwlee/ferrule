@@ -662,3 +662,37 @@ fn it_stages_guide_routes_an_adopt_suggestion_to_the_blocked_stop() {
     assert!(line.contains("1: a"), "{line}");
     assert!(!line.contains("guide show replan"), "{line}");
 }
+
+/// RU-R-008, RU-R-009, RU-R-010 — the cleanup guide states the CI exemptions
+/// beside the epic's, the issue refusals and the closing notices.
+#[test]
+fn it_cleanup_guide_states_exemptions_and_notices() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let text = ok(root, &["guide", "cleanup", "--slug", "demo"]);
+    for want in [
+        "Done · demo · issue #<n> · cleaned up · archived",
+        "Done · demo · cleaned up · archived",
+        "issue-waived",
+        "request run",
+        "an epic",
+        "without a PR whose issue is not open",
+    ] {
+        assert!(text.contains(want), "{want}: {text}");
+    }
+}
+
+/// The principles guide names both endings of a run: a ready PR
+/// with green CI, or cleanup of a run without a PR under its CI exemption.
+#[test]
+fn it_principles_guide_names_the_run_without_a_pr_ending() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let principles = ok(root, &["guide", "principles", "--slug", "demo"]);
+    assert!(
+        principles.contains("a run without a PR ends at `ferrule run cleanup`"),
+        "{principles}"
+    );
+}
