@@ -95,14 +95,14 @@ impl RebaseRefused {
                 .field("old", old)
                 .field("new", new)
                 .hint(format!(
-                    "the rebase dropped, squashed or added a commit: ask the user; `git reset --hard` to the newest commit= on the run's cards (`ferrule board show {slug}`) restores the branch"
+                    "the rebase dropped, squashed or added a commit: ask the user; `git reset --hard` to the newest commit= on the stage cards (`ferrule board show {slug}.s<n>`) restores the branch"
                 )),
             RebaseRefused::Mismatch { at, old, new } => Refusal::new("rebase", "mismatch")
                 .field("at", at)
                 .field("old", old)
                 .field("new", new)
                 .hint(format!(
-                    "the rebase reordered or reworded a stage commit: ask the user; `git reset --hard` to the newest commit= on the run's cards (`ferrule board show {slug}`) restores the branch"
+                    "the rebase reordered or reworded a stage commit: ask the user; `git reset --hard` to the newest commit= on the stage cards (`ferrule board show {slug}.s<n>`) restores the branch"
                 )),
             RebaseRefused::Git(e) => Refusal::new("rebase", "git")
                 .detail(&e.stderr)

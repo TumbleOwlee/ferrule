@@ -126,8 +126,11 @@ See: ferrule guide show stages";
 
 const PR_PUSH_AFTER_LONG_HELP: &str = "\
 Output:
-  push=done sha=<sha> gauntlet=pass [cached] pr-body=pushed
-      Pushed the branch. `cached` when the commit is the reviewed tree. The
+  push=done sha=<sha> gauntlet=pass [cached] [forced] pr-body=pushed
+      Pushed the branch. `cached` when the commit is the reviewed tree.
+      `forced` when a rebase was recorded since the last push: the push was
+      `--force-with-lease=refs/heads/<branch>:<sha>` on the head ferrule
+      last pushed. The
       pass is logged as `gauntlet=pass` with cov= and sha= on the card.
       The PR's draft body was updated. `pr-body=unchanged` when it already
       matched.
@@ -150,12 +153,20 @@ Refusals (stdout, exit 1):
   push=refused reason=sha mismatch=<why> hint=push a stage's last commit= on the run's branch: ferrule stage verify
       The worktree head is not a stage's last verified `commit=`. <why> is
       card, missing, off-branch or card-commit (see `ferrule stage verify`).
-  push=refused reason=diverged local=<sha> remote=<sha> hint=the remote branch holds commits the local one lacks: resolve it outside ferrule, until ferrule supports rebasing a run's branch, and never force-push
+  push=refused reason=diverged local=<sha> remote=<sha> hint=the remote branch holds commits the local one lacks: in a run, rebase it with ferrule run rebase <slug>, or resolve it outside ferrule; never force-push by hand
       The remote branch's head is not an ancestor of the local head: the
       local branch is behind it or both moved. Checked after `git fetch`,
       before the gauntlet, with `--no-run` too. A check that cannot complete
       (no network, a remote asking for credentials, 60 seconds) lets the push
-      go on. Fix: resolve it outside ferrule, never force-push.
+      go on. Fix: `ferrule run rebase <slug>` in a run, or resolve it outside
+      ferrule; never force-push by hand.
+  push=refused reason=lease remote=<sha|none> pushed=<sha|none> hint=origin's branch moved since ferrule last pushed it: someone else pushed; ask the user, never force-push by hand
+      Only after a rebase recorded since the last push: origin's branch is
+      not the head ferrule last pushed (`none`: absent). Checked before the
+      gauntlet; a check that cannot complete lets the push go on. `--no-run`
+      never forces.
+  push=refused reason=rebasing hint=a rebase is in progress in the worktree: resolve and GIT_EDITOR=true git rebase --continue, then ferrule run rebase <slug>; or git rebase --abort
+      A rebase is in progress in the run's worktree.
   push=refused reason=dirty hint=commit the changes through `ferrule stage commit`, then push again
       The worktree holds changes beyond HEAD (modified or untracked
       files). Fix: commit them through `ferrule stage commit`, push again.

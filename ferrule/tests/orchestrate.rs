@@ -1753,7 +1753,8 @@ fn it_push_refuses_a_diverged_branch() {
     assert!(got.starts_with(&line), "{got}");
     assert!(got.contains("outside ferrule"), "{got}");
     assert!(got.contains("rebas"), "{got}");
-    assert!(got.contains("force-push"), "{got}");
+    assert!(got.contains("ferrule run rebase"), "{got}");
+    assert!(got.contains("never force-push by hand"), "{got}");
     assert!(got.ends_with("exit=1"), "{got}");
     assert_eq!(p.origin_head("feat/demo"), remote);
 }
@@ -2440,4 +2441,125 @@ fn it_rebase_keeps_the_approved_reviews() {
     let run = p.ok(&["board", "show", "demo"]);
     assert!(run.contains("review=approved scope=s1"), "{run}");
     assert!(p.ok(&["board", "show", "demo.s1"]).contains("done"));
+}
+
+/// A pushed run with its main branch moved and rebased through ferrule: the
+/// project and the head pushed before the rebase.
+fn rebased_after_push() -> (Project, String) {
+    let p = pushed_s1();
+    let pushed = wt_head(&p);
+    p.diverge_branch("main");
+    let got = rebase(&p, &[]);
+    assert!(got.starts_with("rebase=done "), "{got}");
+    (p, pushed)
+}
+
+/// GW-R-007, GW-R-045, GW-R-050 — a push after a rebase reruns the gauntlet and forces with a lease.
+#[test]
+fn it_push_after_a_rebase_reruns_the_gauntlet_and_forces_with_lease() {
+    let (p, _) = rebased_after_push();
+    let head = wt_head(&p);
+    let log = p.run_dir().join("gauntlet.log");
+    let _ = std::fs::remove_file(&log);
+    let got = push_text(&p);
+    assert!(
+        got.starts_with(&format!("push=done sha={head} gauntlet=pass forced")),
+        "{got}"
+    );
+    assert!(!got.contains("cached"), "{got}");
+    assert!(log.is_file());
+    assert_eq!(p.origin_head("feat/demo"), head);
+    let again = push_text(&p);
+    assert!(again.starts_with("push=done "), "{again}");
+    assert!(!again.contains("forced"), "{again}");
+}
+
+/// GW-R-051 — a remote moved by someone else refuses the force-push before the gauntlet.
+#[test]
+fn it_push_after_a_rebase_refuses_a_remote_moved_by_someone_else() {
+    let (p, pushed) = rebased_after_push();
+    let dir = p.sibling("someone", "feat/demo");
+    std::fs::write(dir.join("theirs.txt"), "x\n").unwrap();
+    git(&dir, &["add", "."]);
+    git(&dir, &["commit", "-qm", "theirs"]);
+    git(&dir, &["push", "-q", "origin", "feat/demo"]);
+    let other = p.origin_head("feat/demo");
+    let log = p.run_dir().join("gauntlet.log");
+    let _ = std::fs::remove_file(&log);
+    let got = push_text(&p);
+    assert!(
+        got.starts_with(&format!(
+            "push=refused reason=lease remote={other} pushed={pushed} hint="
+        )),
+        "{got}"
+    );
+    assert_eq!(p.origin_head("feat/demo"), other);
+    assert!(!log.exists());
+}
+
+/// GW-R-051 — a branch deleted on origin refuses the force-push before the gauntlet.
+#[test]
+fn it_push_after_a_rebase_refuses_a_branch_deleted_on_origin() {
+    let (p, pushed) = rebased_after_push();
+    git(&p.origin(), &["branch", "-D", "feat/demo"]);
+    let log = p.run_dir().join("gauntlet.log");
+    let _ = std::fs::remove_file(&log);
+    let got = push_text(&p);
+    assert!(
+        got.starts_with(&format!(
+            "push=refused reason=lease remote=none pushed={pushed} hint="
+        )),
+        "{got}"
+    );
+    assert!(!log.exists());
+    let heads = git(&p.origin(), &["branch", "--list", "feat/demo"]);
+    assert!(heads.is_empty(), "{heads}");
+}
+
+/// GW-R-062 — a remote check that cannot complete lets the gauntlet and the push go on.
+#[test]
+fn it_push_after_a_rebase_goes_on_when_the_remote_is_unreadable() {
+    let (p, _) = rebased_after_push();
+    let gone = p.root.parent().unwrap().join("gone.git");
+    git(
+        &p.root,
+        &["remote", "set-url", "origin", gone.to_str().unwrap()],
+    );
+    let log = p.run_dir().join("gauntlet.log");
+    let _ = std::fs::remove_file(&log);
+    let got = push_text(&p);
+    assert!(got.starts_with("push=refused reason=push "), "{got}");
+    assert!(log.is_file());
+}
+
+/// GW-R-055 — `--no-run` never force-pushes.
+#[test]
+fn it_push_no_run_never_forces() {
+    let (p, _) = rebased_after_push();
+    let before = p.origin_head("feat/demo");
+    let got = p.in_wt(&["pr", "push", "--no-run"]);
+    assert!(got.starts_with("push=refused reason=diverged "), "{got}");
+    assert_eq!(p.origin_head("feat/demo"), before);
+}
+
+/// GW-R-048, GW-R-061 — a rebase in progress refuses the push and the commit, adopted or not.
+#[test]
+fn it_push_and_commit_refuse_while_a_rebase_is_in_progress() {
+    let p = pushed_s1();
+    conflicted(&p);
+    let got = push_text(&p);
+    assert!(
+        got.starts_with("push=refused reason=rebasing hint="),
+        "{got}"
+    );
+    for args in [
+        &["stage", "commit", "demo.s1", "-m", "x"][..],
+        &["stage", "commit", "demo.s1", "--adopt", "HEAD"],
+    ] {
+        let got = p.in_wt(args);
+        assert!(
+            got.starts_with("commit=refused reason=rebasing hint="),
+            "{args:?}: {got}"
+        );
+    }
 }

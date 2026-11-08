@@ -27,6 +27,11 @@ Refusals (checked in this order; each line ends in `hint=<fix>`):
                                  branch: `ferrule gate approve <slug> gate2`
                                  creates it and its worktree (cd there); with
                                  --no-run, check out another branch first
+  commit=refused reason=rebasing
+                                 A rebase is in progress in the worktree, with
+                                 and without --adopt: resolve it and run
+                                 `GIT_EDITOR=true git rebase --continue`, then
+                                 `ferrule run rebase <slug>`, or `git rebase --abort`
   commit=refused reason=card     No such card; check it with
                                  `ferrule board list`
   commit=refused reason=state state=<s>

@@ -22,6 +22,8 @@ pub enum CommitRefused {
     State(State),
     /// HEAD is not the run's branch, named.
     Branch(String),
+    /// A rebase is in progress in the worktree.
+    Rebasing,
     /// `git commit` failed.
     Git,
     /// The index equals HEAD: HEAD's short sha, and whether the worktree holds changes.
@@ -66,6 +68,9 @@ impl CommitRefused {
                 .hint(format!(
                     "check out {want}, the run's branch, and commit there"
                 )),
+            CommitRefused::Rebasing => Refusal::new("commit", "rebasing").hint(
+                "a rebase is in progress in the worktree: resolve and GIT_EDITOR=true git rebase --continue, then ferrule run rebase <slug>; or git rebase --abort",
+            ),
             CommitRefused::Git => Refusal::new("commit", "git")
                 .hint("git commit failed; read the message git prints on stderr"),
             CommitRefused::NothingStaged { head, dirty } => {
@@ -145,6 +150,9 @@ pub fn commit(
     }
     let mut on = None;
     if let Some(id) = card {
+        if rebasing(here) {
+            return Ok(Err(CommitRefused::Rebasing));
+        }
         match stage_checks(db, id, branch.as_deref(), false)? {
             Ok(pair) => on = Some(pair),
             Err(r) => return Ok(Err(r)),
@@ -166,6 +174,12 @@ pub fn commit(
     let sha = git::out(here, &["rev-parse", "--short", "HEAD"]).unwrap_or_default();
     let logged = on.map(|(db, id)| log_commit(db, id, &sha, now));
     Ok(Ok(Committed { sha, logged }))
+}
+
+/// Whether a rebase is stopped in the checkout `here` belongs to.
+fn rebasing(here: &Path) -> bool {
+    let top = git::out(here, &["rev-parse", "--show-toplevel"]);
+    git::rebase_in_progress(top.as_deref().map_or(here, Path::new))
 }
 
 fn log_commit(db: &mut Board, id: &str, sha: &str, now: &str) -> Result<String, String> {
@@ -218,6 +232,9 @@ pub fn adopt(
     let branch = git::out(here, &["symbolic-ref", "--short", "-q", "HEAD"]);
     if branch.as_deref() == Some(main) {
         return Ok(Err(CommitRefused::Main(main.to_owned())));
+    }
+    if rebasing(here) {
+        return Ok(Err(CommitRefused::Rebasing));
     }
     let (db, id) = match stage_checks(db, card, branch.as_deref(), true)? {
         Ok(pair) => pair,
