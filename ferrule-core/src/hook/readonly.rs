@@ -201,7 +201,10 @@ pub fn readonly(
                 }
                 "rtk" => false,
                 _ => {
-                    (allowed_program(name, args) || has_prefix(name, args, allow))
+                    let rtk_grep =
+                        name == "grep" && shell::program(&c.words).is_some_and(|(n, _)| n == "rtk");
+                    (allowed_program(name, args) && (!rtk_grep || allowed_program("rg", args))
+                        || has_prefix(name, args, allow))
                         && !has_prefix(name, args, mutating)
                 }
             };
@@ -443,5 +446,14 @@ mod tests {
         ] {
             assert!(at(cmd, p).is_none(), "{cmd} / {p}");
         }
+    }
+
+    /// SG-R-009 — `rtk grep` runs `rg`, so it is also refused where `rg` is.
+    #[test]
+    fn ut_rtk_grep_is_refused_with_rg_flags() {
+        assert!(check("rtk grep x .").is_none());
+        assert!(check("rtk grep --pre ./p x .").is_some());
+        assert!(check("rtk grep x . --hostname-bin p").is_some());
+        assert!(check("grep --pre x .").is_none());
     }
 }

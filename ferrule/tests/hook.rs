@@ -876,6 +876,8 @@ fn it_read_only_guard_judges_rtk_commands_as_the_bare_program() {
         "rtk cargo fmt --check -- --config x=y",
         "rtk -v git commit -m x",
         "rtk rg --pre x y",
+        "rtk grep --pre x y",
+        "rtk grep x . --hostname-bin y",
         "rtk find . -delete",
         "rtk tree -o x",
         "ls; rtk git commit -m x",
