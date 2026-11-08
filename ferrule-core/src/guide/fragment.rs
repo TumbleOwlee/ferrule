@@ -96,7 +96,8 @@ mod tests {
             out,
             format!("a\n{}\nb\n", Fragment::Concise.text().trim_end())
         );
-        assert!(!expand("<!--include:concise-->").ends_with('\n'));
+        let spliced = expand("<!-- include: concise -->");
+        assert_eq!(spliced, Fragment::Concise.text().trim_end());
     }
 
     /// Fenced and unknown include lines stay.
