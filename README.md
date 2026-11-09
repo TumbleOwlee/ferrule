@@ -125,7 +125,7 @@ Commands are grouped by what they act on. Most are run by the orchestrating agen
 
 | Command | Does |
 |---|---|
-| `ferrule run init <slug> [--issue <n>] [--request]` | Start a run: parent card, run directory, the named issue's request and brief; a slice's epic; `--request` marks a `/fe-request` run |
+| `ferrule run init <slug> [--issue <n>] [--request] [--start-blocked]` | Start a run: parent card, run directory, the named issue's request and brief; a slice's milestone description (or epic); an open blocker refuses a slice until `--start-blocked`; `--request` marks a `/fe-request` run |
 | `ferrule run status <slug>` | Where a run stands: parent and stage cards, worktree, gauntlet, CI, last event |
 | `ferrule run diff <slug> [--specs] [--stat] [--base <ref>]` | The run branch's diff against main, in its worktree; `--uncommitted` for the work not yet committed |
 | `ferrule run log <slug>` | The run branch's commits against main |
@@ -212,6 +212,7 @@ Commands are grouped by what they act on. Most are run by the orchestrating agen
 | `ferrule issue view <n\|url\|KEY>` | An issue's title, body and a one-line index of its comments; `--comment <n\|a-b>` or `--comments` prints them in full |
 | `ferrule issue request <n> [--spec\|--epic\|--slice-line\|--comments]` | A reused issue's original request, or the part named |
 | `ferrule issue body <slug> [--slice <n>]` | The tracking issue's body from the run's artifacts; exit 3 when it names a stage or an agent |
+| `ferrule issue milestones [--view <n>]` | The open milestones as `#n title`, or one milestone's description; GitHub only |
 | `ferrule issue post <slug> [--slice <n>\|--split\|--follow-up <k>\|--comment] [--reuse <n>]` | Post an issue or comment from the run's files; adopts an open issue with the same title |
 
 ### PR

@@ -13,14 +13,14 @@ ferrule issue post {slug}               # new; an open issue with the same title
 ferrule issue post {slug} --reuse <n>   # reuse: title and body replaced
 ```
 
-It assembles the body from the run's files (`ferrule issue body {slug}` prints it), records `issue` and prints `issue=<n> action=<created|adopted|edited|recorded>`; `recorded` means the card already named the issue and nothing was posted.
+Filing also labels the issue: `area:<area>` for each area the brief's `Area:` line names (created when the repository lacks it). It assembles the body from the run's files (`ferrule issue body {slug}` prints it), records `issue` and prints `issue=<n> action=<created|adopted|edited|recorded>`; `recorded` means the card already named the issue and nothing was posted.
 
-**After filing, the body is never rewritten** — it carries no status: the draft PR, linked to the issue, shows the progress. One exception: an epic's body is edited once, at `ferrule guide show epic` step 5.3, to link its slice issues.
+**After filing, the body is never rewritten** — it carries no status: the draft PR, linked to the issue, shows the progress. One exception, on a tracker without milestones only: an epic's body is edited once, at `ferrule guide show epic` step 5.3, to link its slice issues. On GitHub an epic is a milestone and no issue is rewritten.
 
 Every requirement or scenario change kept after filing, detail or meaningful (`ferrule guide show spec-changes`), gets `issue-comment.md` from `fe-author`, which the orchestrator posts with no further approval:
 
 ```sh
-ferrule issue post {slug} --comment     # a slice run: on the epic too
+ferrule issue post {slug} --comment     # a slice run: also updates the milestone from milestone-change.md
 ```
 
 Each target posted is logged (`posted=comment issue=<n> sum=<hash>`); after a failure, rerun the same command — it posts only to the targets still missing that text (`action=recorded` when none is).

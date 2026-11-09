@@ -8,7 +8,7 @@ use serde::Deserialize;
 
 use super::github::Gh;
 use super::jira::Jira;
-use super::{Error, Item, ItemRef};
+use super::{Error, Item, ItemRef, Milestones};
 use crate::config::{Config, Tracker};
 
 /// The most hits [`IssueTracker::find_open`] reads.
@@ -79,6 +79,11 @@ pub trait IssueTracker {
         state: SearchState,
         limit: usize,
     ) -> Result<Vec<Found>, Error>;
+
+    /// The milestone operations, for a tracker that has them.
+    fn milestones(&self) -> Option<&dyn Milestones> {
+        None
+    }
 }
 
 /// The configured issue tracker, running its programs in `root`.

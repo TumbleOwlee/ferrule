@@ -444,3 +444,161 @@ mod tests {
         assert_eq!(rev("# ns\n"), None);
     }
 }
+
+/// A filed text split into its title, body and the metadata lines at the
+/// top of the body.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Draft {
+    pub title: String,
+    pub body: String,
+    /// From an `Areas:` line under the title; `None` without one.
+    pub areas: Option<Vec<String>>,
+    /// From a `Milestone:` line; `None` without one or for `none`.
+    pub milestone: Option<String>,
+}
+
+#[must_use]
+pub fn draft(text: &str) -> Draft {
+    let (title, rest) = crate::pr::publish::split_title(text);
+    let mut areas = None;
+    let mut milestone = None;
+    let mut body = rest.as_str();
+    loop {
+        let (line, after) = body.split_once('\n').unwrap_or((body, ""));
+        if let Some(list) = line.strip_prefix("Areas: ") {
+            areas = Some(
+                list.split(',')
+                    .map(str::trim)
+                    .filter(|a| !a.is_empty())
+                    .map(str::to_owned)
+                    .collect(),
+            );
+        } else if line.trim_end() == "Areas:" {
+            areas = Some(Vec::new());
+        } else if let Some(m) = line.strip_prefix("Milestone: ") {
+            milestone = Some(m.trim().to_owned()).filter(|m| m != "none" && !m.is_empty());
+        } else {
+            break;
+        }
+        body = after;
+    }
+    Draft {
+        title,
+        body: body.trim_start_matches('\n').to_owned(),
+        areas,
+        milestone,
+    }
+}
+
+/// The areas named by a brief's `Area:` line.
+#[must_use]
+pub fn brief_areas(spec_diff: &str) -> Vec<String> {
+    let line = markdown::classified(spec_diff)
+        .filter(|l| !l.fenced && !l.delimiter)
+        .find_map(|l| l.text.strip_prefix("Area: "));
+    let mut out: Vec<String> = Vec::new();
+    for part in line.unwrap_or("").split("; ") {
+        let area = part.split(" — ").next().unwrap_or("").trim();
+        if !area.is_empty() && !out.iter().any(|a| a == area) {
+            out.push(area.to_owned());
+        }
+    }
+    out
+}
+
+/// `area:<area>` for each area that is a directory of `specs_dir`.
+#[must_use]
+pub fn area_labels(specs_dir: &Path, areas: &[String]) -> Vec<String> {
+    areas
+        .iter()
+        .filter_map(|a| {
+            let mut parts = Path::new(a).components();
+            let (Some(std::path::Component::Normal(name)), None) = (parts.next(), parts.next())
+            else {
+                return None;
+            };
+            let name = name.to_str()?;
+            specs_dir
+                .join(name)
+                .is_dir()
+                .then(|| format!("area:{name}"))
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod milestone_tests {
+    use super::*;
+
+    /// The metadata lines leave the body, the title stays.
+    #[test]
+    fn ut_draft_reads_areas_and_milestone() {
+        let d = draft("# T\n\nAreas: runs, git-writes\nMilestone: Epic one\n\n\nBody\nmore\n");
+        assert_eq!(d.title, "T");
+        assert_eq!(
+            d.areas.as_deref(),
+            Some(&["runs".to_owned(), "git-writes".to_owned()][..])
+        );
+        assert_eq!(d.milestone.as_deref(), Some("Epic one"));
+        assert_eq!(d.body, "Body\nmore\n");
+        let bare = draft("# T\n\nBody\n");
+        assert_eq!(
+            (bare.areas, bare.milestone, bare.body.as_str()),
+            (None, None, "Body\n")
+        );
+    }
+
+    /// `Milestone: none` names no milestone.
+    #[test]
+    fn ut_draft_milestone_none_is_none() {
+        assert_eq!(draft("# T\n\nMilestone: none\nBody\n").milestone, None);
+    }
+
+    /// Empty names in `Areas:` are dropped.
+    #[test]
+    fn ut_draft_drops_empty_areas() {
+        let d = draft("# T\n\nAreas: runs, , ,git\nBody\n");
+        assert_eq!(d.areas, Some(vec!["runs".to_owned(), "git".to_owned()]));
+        assert_eq!(draft("# T\n\nAreas: \nBody\n").areas, Some(vec![]));
+        let bare = draft("# T\n\nAreas:\nBody\n");
+        assert_eq!((bare.areas, bare.body.as_str()), (Some(vec![]), "Body\n"));
+    }
+
+    /// The first `Area:` line gives each area's name, repeats once, fences skipped.
+    #[test]
+    fn ut_brief_areas_reads_several() {
+        let t = "```\nArea: fenced — x\n```\nArea: runs — why; git-writes — why; runs — again; \nArea: later — no\n";
+        assert_eq!(brief_areas(t), ["runs", "git-writes"]);
+        assert!(brief_areas("nothing\n").is_empty());
+    }
+
+    /// RU-E-014 — an area with no directory in the specs gets no label.
+    #[test]
+    fn ut_area_labels_drops_an_area_outside_the_specs() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("runs")).unwrap();
+        std::fs::write(dir.path().join("file"), "").unwrap();
+        let areas: Vec<String> = ["runs", "ghost", "file"].map(String::from).to_vec();
+        assert_eq!(area_labels(dir.path(), &areas), ["area:runs"]);
+    }
+
+    /// RU-E-014 — an empty, parent or nested name gets no label.
+    #[test]
+    fn ut_area_labels_refuses_empty_and_parent_names() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("runs/sub")).unwrap();
+        let areas: Vec<String> = ["", "..", ".", "runs/sub", "runs"]
+            .map(String::from)
+            .to_vec();
+        assert_eq!(area_labels(dir.path(), &areas), ["area:runs"]);
+    }
+
+    /// A trailing separator names the same area, labelled by its name.
+    #[test]
+    fn ut_area_labels_use_the_component_name() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("runs")).unwrap();
+        let areas = vec!["runs/".to_owned()];
+        assert_eq!(area_labels(dir.path(), &areas), ["area:runs"]);
+    }
+}

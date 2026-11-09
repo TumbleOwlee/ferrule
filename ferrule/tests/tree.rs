@@ -69,6 +69,7 @@ issue search
 issue view
 issue request
 issue body
+issue milestones
 issue post
 pr
 pr view

@@ -14,6 +14,7 @@ pub enum Name {
     Ci,
     CiWaived,
     IssueWaived,
+    BlockedStart,
     Stop,
     StageStop,
     Auto,
@@ -34,13 +35,14 @@ pub enum Name {
 }
 
 impl Name {
-    pub const ALL: [Name; 23] = [
+    pub const ALL: [Name; 24] = [
         Name::Commit,
         Name::Gauntlet,
         Name::Pr,
         Name::Ci,
         Name::CiWaived,
         Name::IssueWaived,
+        Name::BlockedStart,
         Name::Stop,
         Name::StageStop,
         Name::Auto,
@@ -70,6 +72,7 @@ impl Name {
             Name::Ci => "ci=",
             Name::CiWaived => "ci-waived",
             Name::IssueWaived => "issue-waived",
+            Name::BlockedStart => "blocked-start",
             Name::Stop => "stop",
             Name::StageStop => "stop=",
             Name::Auto => "auto=",
@@ -171,6 +174,10 @@ pub enum Typed<'a> {
     Ci(&'a str),
     CiWaived,
     IssueWaived,
+    /// The user approved starting a slice with open blockers, which `blockers` lists.
+    BlockedStart {
+        blockers: &'a str,
+    },
     /// A parent's stop for the user.
     Stop {
         kind: Option<&'a str>,
@@ -233,6 +240,7 @@ impl Typed<'_> {
             Typed::Ci(_) => Name::Ci,
             Typed::CiWaived => Name::CiWaived,
             Typed::IssueWaived => Name::IssueWaived,
+            Typed::BlockedStart { .. } => Name::BlockedStart,
             Typed::Stop { .. } => Name::Stop,
             Typed::StageStop(_) => Name::StageStop,
             Typed::Auto => Name::Auto,
@@ -299,6 +307,9 @@ impl Event {
             Name::Ci => Typed::Ci(value?),
             Name::CiWaived => Typed::CiWaived,
             Name::IssueWaived => Typed::IssueWaived,
+            Name::BlockedStart => Typed::BlockedStart {
+                blockers: self.text.as_deref().unwrap_or(""),
+            },
             Name::Stop => Typed::Stop {
                 kind: key("kind"),
                 gate: key("gate"),

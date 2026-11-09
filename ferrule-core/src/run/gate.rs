@@ -24,7 +24,7 @@ use crate::pr::publish::{self, Target};
 use crate::project::Layout;
 use crate::prompt;
 use crate::refusal::Refusal;
-use crate::remote::{self, Item, ItemRef};
+use crate::remote::{self, IssueTracker, Item, ItemRef, Milestones};
 use crate::store::Board;
 
 /// Why `run init`, `gate approve` or `stage replan` refused.
@@ -61,6 +61,14 @@ pub enum GateRefusal {
     Branch(String),
     /// The new plan redefines a stage already committed.
     Committed(u32),
+    /// A slice run on an issue with open blockers, before the user approved.
+    Blocked {
+        issue: String,
+        /// The open blockers' cites; none when only hidden ones are open.
+        blockers: Vec<String>,
+        /// Open blockers the host counts but does not show.
+        unreadable: u32,
+    },
 }
 
 impl GateRefusal {
@@ -81,6 +89,7 @@ impl GateRefusal {
             GateRefusal::Epic => "epic",
             GateRefusal::Branch(_) => "branch",
             GateRefusal::Committed(_) => "committed",
+            GateRefusal::Blocked { .. } => "blocked",
         }
     }
 
@@ -126,6 +135,27 @@ impl GateRefusal {
             GateRefusal::Committed(n) => r.field("stage", format!("s{n}")).hint(format!(
                 "s{n} is committed and stays; number the new plan's stages around it"
             )),
+            GateRefusal::Blocked {
+                issue,
+                blockers,
+                unreadable,
+            } => {
+                let named = if blockers.is_empty() {
+                    "-".to_owned()
+                } else {
+                    blockers.join(",")
+                };
+                let r = r.field("issue", issue).field("blockers", named);
+                let r = if *unreadable > 0 {
+                    r.field("unreadable", unreadable)
+                } else {
+                    r
+                };
+                r.hint(format!(
+                    "ask the user, naming the blockers; on approval: \
+                     ferrule run init {slug} --issue {issue} --start-blocked"
+                ))
+            }
         }
     }
 }
@@ -205,47 +235,189 @@ fn comments(item: &Item) -> String {
     after.strip_prefix('\n').unwrap_or(after).to_owned()
 }
 
+/// What `run init` starts a run on.
+#[derive(Debug, Clone, Copy)]
+pub struct Init<'a> {
+    pub issue: Option<&'a ItemRef>,
+    /// A `/fe-request` run: no slice is detected.
+    pub request: bool,
+    /// The user approved starting a slice with open blockers.
+    pub start_blocked: bool,
+}
+
+/// What the issue of a new run is a slice of.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SliceOf {
+    /// The epic a `**Part of epic**` line names, on a tracker without milestones.
+    Epic(String),
+    /// A milestone, and the issue's place in it.
+    Milestone { number: u64, rank: u32 },
+}
+
+/// The longest blocker text a `blocked-start` line carries, in chars.
+const BLOCKER_TEXT: usize = 100;
+
+/// The open blockers as the card logs them: the cites joined by `, `, then
+/// the unreadable count; cites are dropped from the end, a `+<j> more`
+/// standing for them, until the text fits.
+fn blocker_text(cites: &[&str], unreadable: u32) -> String {
+    let unread = |lead: bool| match (unreadable, lead) {
+        (0, _) => None,
+        (k, true) => Some(format!("+{k} unreadable")),
+        (k, false) => Some(format!("{k} unreadable")),
+    };
+    let join = |kept: usize| {
+        let head = cites[..kept].join(", ");
+        let more = (kept < cites.len()).then(|| format!("+{} more", cites.len() - kept));
+        let lead = !head.is_empty() || more.is_some();
+        [Some(head).filter(|h| !h.is_empty()), more, unread(lead)]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    (0..=cites.len())
+        .rev()
+        .map(join)
+        .find(|t| t.chars().count() <= BLOCKER_TEXT)
+        .unwrap_or_else(|| join(0))
+}
+
+/// An issue's place in its milestone, read from the host.
+struct InMilestone {
+    number: u64,
+    rank: u32,
+    description: String,
+    /// The `blocked-start` line of an approved start with open blockers.
+    log: Vec<(String, Vec<String>)>,
+}
+
+/// The milestone `n` is in, `None` when it is in none. Open blockers refuse
+/// the start unless `start_blocked`.
+fn milestone_slice(
+    ms: &dyn Milestones,
+    n: &ItemRef,
+    start_blocked: bool,
+) -> Result<Option<InMilestone>, Error> {
+    let links = ms.links(n)?;
+    let Some(m) = links.milestone else {
+        return Ok(None);
+    };
+    let issues = ms.issues_in(m.number)?;
+    let at = issues.iter().position(|i| Some(*i) == n.number());
+    let open: Vec<&str> = links
+        .blocked_by
+        .iter()
+        .filter(|b| b.open)
+        .map(|b| b.cite.as_str())
+        .collect();
+    let mut log = Vec::new();
+    if !open.is_empty() || links.unreadable > 0 {
+        if !start_blocked {
+            return Err(Error::Refused(GateRefusal::Blocked {
+                issue: n.to_string(),
+                blockers: open.iter().map(|c| (*c).to_owned()).collect(),
+                unreadable: links.unreadable,
+            }));
+        }
+        log.push((
+            "blocked-start".to_owned(),
+            vec!["--".to_owned(), blocker_text(&open, links.unreadable)],
+        ));
+    }
+    Ok(Some(InMilestone {
+        number: m.number,
+        rank: u32::try_from(at.unwrap_or(issues.len()) + 1).unwrap_or(u32::MAX),
+        description: m.description,
+        log,
+    }))
+}
+
 /// Creates the parent card and the run's directory. With an issue the user
-/// named, stores its request and any brief it carries; a slice issue also
-/// gets its `**Part of epic**` line and the epic as it stands, and the card
-/// records `kind: slice` and `epic`. The card records the named issue as
-/// `named-issue`. With `request` the run is a `/fe-request` run: the card
-/// records `kind: request` and no epic is looked up. Returns the epic of a
-/// slice.
+/// named, stores its request and any brief it carries. On a tracker with
+/// milestones an issue in one is a slice of it: the card records `kind:
+/// slice`, `milestone` and `slice`, the milestone's description is
+/// `epic.md`, and open blockers refuse the start until `start_blocked`
+/// (the card then logs `blocked-start`). On a tracker without, a slice
+/// issue gets its `**Part of epic**` line and the epic as it stands, and
+/// the card records `kind: slice` and `epic`. The card records the named
+/// issue as `named-issue`. With `request` the run is a `/fe-request` run:
+/// the card records `kind: request` and nothing is looked up.
+///
+/// # Errors
+///
+/// The run exists, the issue or its links cannot be read, or an open
+/// blocker is not approved.
 pub fn init(
     db: &mut Board,
     layout: &Layout,
     config: &Config,
     slug: &str,
-    issue: Option<&ItemRef>,
-    request: bool,
+    spec: Init<'_>,
     now: &str,
-) -> Result<Option<String>, Error> {
+) -> Result<Option<SliceOf>, Error> {
+    let tracker = remote::issue_tracker(config, &layout.root);
+    init_with(db, layout, &*tracker, slug, spec, now)
+}
+
+fn init_with(
+    db: &mut Board,
+    layout: &Layout,
+    tracker: &dyn IssueTracker,
+    slug: &str,
+    spec: Init<'_>,
+    now: &str,
+) -> Result<Option<SliceOf>, Error> {
+    let Init {
+        issue,
+        request,
+        start_blocked,
+    } = spec;
     let conn = db.conn_mut();
     if board::state(conn, slug)?.is_some() || !board::stages(conn, slug)?.is_empty() {
         return Err(Error::Refused(GateRefusal::Exists));
     }
-    let root = &layout.root;
-    let tracker = remote::issue_tracker(config, root);
     let item = issue.map(|n| tracker.view(n)).transpose()?;
-    let epic = item
-        .as_ref()
-        .filter(|_| !request)
-        .and_then(|i| request::part(&i.body, Part::Epic).into_iter().next());
-    let epic_item = epic
-        .as_deref()
-        .map(|e| ItemRef::parse(e).and_then(|e| tracker.view(&e)))
-        .transpose()?;
     let mut fields = Vec::new();
+    let mut log = Vec::new();
+    let mut slice = None;
+    let mut description = None;
+    let mut epic_item = None;
     if request {
         fields.push(("kind".to_owned(), "request".to_owned()));
     }
     if let Some(n) = issue {
         fields.push(("named-issue".to_owned(), n.to_string()));
     }
-    if let Some(e) = &epic {
-        fields.push(("kind".to_owned(), "slice".to_owned()));
-        fields.push(("epic".to_owned(), e.clone()));
+    match (tracker.milestones(), issue) {
+        (Some(ms), Some(n)) if !request => {
+            if let Some(f) = milestone_slice(ms, n, start_blocked)? {
+                fields.push(("kind".to_owned(), "slice".to_owned()));
+                fields.push(("milestone".to_owned(), f.number.to_string()));
+                fields.push(("slice".to_owned(), f.rank.to_string()));
+                log.extend(f.log);
+                slice = Some(SliceOf::Milestone {
+                    number: f.number,
+                    rank: f.rank,
+                });
+                description = Some(f.description);
+            }
+        }
+        (None, Some(_)) if !request => {
+            let epic = item
+                .as_ref()
+                .and_then(|i| request::part(&i.body, Part::Epic).into_iter().next());
+            epic_item = epic
+                .as_deref()
+                .map(|e| ItemRef::parse(e).and_then(|e| tracker.view(&e)))
+                .transpose()?;
+            if let Some(e) = epic {
+                fields.push(("kind".to_owned(), "slice".to_owned()));
+                fields.push(("epic".to_owned(), e.clone()));
+                slice = Some(SliceOf::Epic(e));
+            }
+        }
+        _ => {}
     }
     board::create_all(
         conn,
@@ -253,7 +425,7 @@ pub fn init(
             id: slug.to_owned(),
             state: State::Open,
             fields,
-            log: Vec::new(),
+            log,
         }],
         now,
     )
@@ -284,7 +456,10 @@ pub fn init(
             }
         }
     }
-    Ok(epic)
+    if let Some(d) = description.filter(|d| !d.is_empty()) {
+        std::fs::write(dir.join("epic.md"), d)?;
+    }
+    Ok(slice)
 }
 
 /// A gate the user approved.
@@ -851,5 +1026,253 @@ mod tests {
         let summary = "| Stage | What | Pins | Files | Stop |\n|---|---|---|---|---|\n| s0 | a | b | c | — |\n| s1 | a | b | c | yes — new variant |\n";
         assert_eq!(summary_stops(summary), [1]);
         assert_eq!(stop_arg(Some("s1, s3")), [1, 3]);
+    }
+
+    use crate::remote::fake::{FakeTracker, Issues};
+    use crate::remote::{Blocker, IssueLinks, Milestone};
+
+    fn setup() -> (tempfile::TempDir, Board, Layout) {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = Layout::new(dir.path().to_owned());
+        (dir, Board::memory().unwrap(), layout)
+    }
+
+    fn tracker(setup: impl FnOnce(&mut Issues)) -> FakeTracker {
+        let t = FakeTracker::default();
+        setup(&mut t.0.borrow_mut());
+        t
+    }
+
+    fn blocker(cite: &str, n: u64, open: bool) -> Blocker {
+        Blocker {
+            cite: cite.to_owned(),
+            reference: ItemRef::Number(n),
+            open,
+        }
+    }
+
+    fn in_milestone(blocked_by: Vec<Blocker>, unreadable: u32) -> IssueLinks {
+        IssueLinks {
+            open: true,
+            milestone: Some(Milestone {
+                number: 4,
+                title: "Retry".to_owned(),
+                description: "The retry brief.".to_owned(),
+                open: true,
+            }),
+            blocked_by,
+            unreadable,
+            ..IssueLinks::default()
+        }
+    }
+
+    /// A tracker serving issue 11 in milestone 4 beside issues 10 and 12.
+    fn slice_tracker(links: IssueLinks) -> FakeTracker {
+        tracker(|s| {
+            s.open = vec![(11, "Slice".to_owned())];
+            s.bodies.insert(11, "Reconnect.".to_owned());
+            s.issues_in.insert(4, vec![10, 11, 12]);
+            s.links.insert(11, links);
+        })
+    }
+
+    fn start(
+        db: &mut Board,
+        layout: &Layout,
+        tracker: &FakeTracker,
+        start_blocked: bool,
+    ) -> Result<Option<SliceOf>, Error> {
+        let issue = ItemRef::Number(11);
+        let spec = Init {
+            issue: Some(&issue),
+            request: false,
+            start_blocked,
+        };
+        init_with(db, layout, tracker, "r", spec, "2026-01-02T03:04")
+    }
+
+    fn blocked(r: Result<Option<SliceOf>, Error>) -> (Vec<String>, u32) {
+        match r {
+            Err(Error::Refused(GateRefusal::Blocked {
+                blockers,
+                unreadable,
+                ..
+            })) => (blockers, unreadable),
+            other => panic!("not refused as blocked: {other:?}"),
+        }
+    }
+
+    /// RU-R-017, RU-R-018, RU-E-004 — an issue in a milestone is a slice of
+    /// it at its rank, and the milestone's description is its only epic
+    /// context.
+    #[test]
+    fn ut_gate_slice_in_a_milestone() {
+        let (_d, mut db, layout) = setup();
+        let t = slice_tracker(in_milestone(Vec::new(), 0));
+        let got = start(&mut db, &layout, &t, false).unwrap();
+        assert_eq!(got, Some(SliceOf::Milestone { number: 4, rank: 2 }));
+        let mut f = |k| board::field(db.conn_mut(), "r", k).unwrap();
+        assert_eq!(f("kind").as_deref(), Some("slice"));
+        assert_eq!(f("milestone").as_deref(), Some("4"));
+        assert_eq!(f("slice").as_deref(), Some("2"));
+        assert_eq!(f("epic"), None);
+        let dir = layout.run_dir("r");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("epic.md")).unwrap(),
+            "The retry brief."
+        );
+        assert!(!dir.join("slice-line.md").exists());
+    }
+
+    /// RU-R-017 — an issue its milestone does not list ranks after the
+    /// last.
+    #[test]
+    fn ut_gate_slice_absent_from_its_milestone_ranks_last() {
+        let (_d, mut db, layout) = setup();
+        let t = slice_tracker(in_milestone(Vec::new(), 0));
+        t.0.borrow_mut().issues_in.insert(4, vec![10, 12]);
+        let got = start(&mut db, &layout, &t, false).unwrap();
+        assert_eq!(got, Some(SliceOf::Milestone { number: 4, rank: 3 }));
+    }
+
+    /// RU-R-032 — a blocked slice refuses, naming each open blocker and
+    /// not the closed ones, and creates no card.
+    #[test]
+    fn ut_gate_blocked_slice_refuses_and_names_blockers() {
+        let (_d, mut db, layout) = setup();
+        let blockers = vec![
+            blocker("#3", 3, true),
+            blocker("#4", 4, false),
+            blocker("o/r#5", 5, true),
+        ];
+        let t = slice_tracker(in_milestone(blockers, 0));
+        let (names, unreadable) = blocked(start(&mut db, &layout, &t, false));
+        assert_eq!(names, ["#3", "o/r#5"]);
+        assert_eq!(unreadable, 0);
+        assert_eq!(board::state(db.conn_mut(), "r").unwrap(), None);
+        assert!(!layout.run_dir("r").exists());
+    }
+
+    /// RU-E-009 — a blocker GitHub counts but does not show is open.
+    #[test]
+    fn ut_gate_unreadable_blocker_counts_as_open() {
+        let (_d, mut db, layout) = setup();
+        let t = slice_tracker(in_milestone(vec![blocker("#4", 4, false)], 2));
+        let (names, unreadable) = blocked(start(&mut db, &layout, &t, false));
+        assert!(names.is_empty());
+        assert_eq!(unreadable, 2);
+    }
+
+    /// RU-R-033, RU-R-034 — with the flag a blocked slice starts and its
+    /// card logs the blockers.
+    #[test]
+    fn ut_gate_blocked_slice_starts_with_the_flag() {
+        let (_d, mut db, layout) = setup();
+        let t = slice_tracker(in_milestone(vec![blocker("#3", 3, true)], 1));
+        start(&mut db, &layout, &t, true).unwrap();
+        let events = board::events(db.conn_mut(), "r", &[Name::BlockedStart]).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].text.as_deref(), Some("#3 +1 unreadable"));
+        assert_eq!(
+            events[0].typed(),
+            Typed::BlockedStart {
+                blockers: "#3 +1 unreadable"
+            }
+        );
+    }
+
+    /// RU-R-034 — the flag on a slice with no open blocker logs nothing.
+    #[test]
+    fn ut_gate_flag_without_open_blockers_logs_nothing() {
+        let (_d, mut db, layout) = setup();
+        let t = slice_tracker(in_milestone(vec![blocker("#4", 4, false)], 0));
+        start(&mut db, &layout, &t, true).unwrap();
+        let events = board::events(db.conn_mut(), "r", &[Name::BlockedStart]).unwrap();
+        assert!(events.is_empty());
+    }
+
+    /// RU-R-034 — a long blocker list is cut to fit the card's log line.
+    #[test]
+    fn ut_gate_long_blocker_list_fits_the_log_line() {
+        let (_d, mut db, layout) = setup();
+        let many: Vec<Blocker> = (0..30)
+            .map(|n| blocker(&format!("owner/repo#{}", 1000 + n), 1000 + n, true))
+            .collect();
+        let t = slice_tracker(in_milestone(many, 3));
+        start(&mut db, &layout, &t, true).unwrap();
+        let events = board::events(db.conn_mut(), "r", &[Name::BlockedStart]).unwrap();
+        let text = events[0].text.as_deref().unwrap();
+        assert!(text.chars().count() <= 100, "{text}");
+        assert!(text.starts_with("owner/repo#1000, "), "{text}");
+        assert!(text.contains(" more"), "{text}");
+        assert!(text.ends_with(" +3 unreadable"), "{text}");
+    }
+
+    /// RU-E-007 — an issue with the old marker and no milestone runs
+    /// plain.
+    #[test]
+    fn ut_gate_marker_without_milestone_runs_plain() {
+        let (_d, mut db, layout) = setup();
+        let t = slice_tracker(IssueLinks::default());
+        t.0.borrow_mut().bodies.insert(
+            11,
+            "**Part of epic** #70 · **Slice** 1 of 3 · **Depends on** none".to_owned(),
+        );
+        let got = start(&mut db, &layout, &t, false).unwrap();
+        assert_eq!(got, None);
+        assert_eq!(board::field(db.conn_mut(), "r", "kind").unwrap(), None);
+        assert!(!t.calls().iter().any(|c| c == "view 70"));
+    }
+
+    /// A tracker without milestones keeps reading the marker.
+    #[test]
+    fn ut_gate_prose_path_reads_the_marker() {
+        let (_d, mut db, layout) = setup();
+        let t = slice_tracker(IssueLinks::default());
+        {
+            let mut s = t.0.borrow_mut();
+            s.no_milestones = true;
+            s.open.push((70, "Epic".to_owned()));
+            s.bodies.insert(
+                11,
+                "**Part of epic** #70 · **Slice** 1 of 3 · **Depends on** none".to_owned(),
+            );
+            s.bodies
+                .insert(70, "## Spec (rev 1)\n\nthe epic".to_owned());
+        }
+        let got = start(&mut db, &layout, &t, false).unwrap();
+        assert_eq!(got, Some(SliceOf::Epic("70".to_owned())));
+        assert_eq!(
+            board::field(db.conn_mut(), "r", "epic").unwrap().as_deref(),
+            Some("70")
+        );
+        let dir = layout.run_dir("r");
+        assert!(dir.join("slice-line.md").exists());
+        assert!(
+            std::fs::read_to_string(dir.join("epic.md"))
+                .unwrap()
+                .starts_with("## Spec (rev 1)")
+        );
+        assert!(!t.calls().iter().any(|c| c.starts_with("links")));
+    }
+
+    /// RU-E-003 — a request run reads no links and is no slice.
+    #[test]
+    fn ut_gate_request_reads_no_links() {
+        let (_d, mut db, layout) = setup();
+        let t = slice_tracker(in_milestone(vec![blocker("#3", 3, true)], 0));
+        let issue = ItemRef::Number(11);
+        let spec = Init {
+            issue: Some(&issue),
+            request: true,
+            start_blocked: false,
+        };
+        let got = init_with(&mut db, &layout, &t, "r", spec, "2026-01-02T03:04").unwrap();
+        assert_eq!(got, None);
+        assert!(!t.calls().iter().any(|c| c.starts_with("links")));
+        assert_eq!(
+            board::field(db.conn_mut(), "r", "kind").unwrap().as_deref(),
+            Some("request")
+        );
     }
 }

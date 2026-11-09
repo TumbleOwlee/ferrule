@@ -22,7 +22,7 @@ Ask only what changes scope (in/out), the user-visible flow, an edge-case outcom
 
 Stop asking once no scope, flow or conflict decision remains. After the second batch, propose stopping in the next `question.md`: every open point goes to `## Deferred` unless the user wants another round.
 
-**Slice IDs.** In a slice run, local IDs you add start at the slice number times 100 (`R301` in slice 3, from the issue's `**Part of epic**` line), never colliding with the epic's or another slice's.
+**Slice IDs.** In a slice run, local IDs you add start at the slice number times 100 (`R301` in slice 3; the number is `ferrule board field {slug} slice`), never colliding with the epic's or another slice's.
 
 **Size.** A brief with more than about 8 scenarios, more than about 12 `R`/`E` entries, or entries in more than one area is too big for one run: add `size=epic reason=<the counts>` to the `ready` line — the user decides between an epic and a single run. Never for a slice (`epic.md` present). An epic's brief is complete for the whole feature but stays coarse: slicing it is the architect's.
 
@@ -43,7 +43,7 @@ Title line of `question.md`: `# {slug} — questions (gate 1)`.
 
 ## Summary
 Goal: <one line>
-Area: <area> — requirements.md `## <heading>`, edge-cases.md `## <heading>`, api-contract.md
+Area: <area> — requirements.md `## <heading>`, edge-cases.md `## <heading>`, api-contract.md (several areas on one `Area:` line, separated by `; `)
 Revisions:
 - rev 2 — <what changed and what forced it> (<fe-architect | fe-planner | fe-author | user>)
 
@@ -117,6 +117,20 @@ The architect, the planner and the implementer change the spec themselves. You a
 ```
 
 Issue IDs are the issue's local `R<n>`/`E<n>`/`S<n>` (the `· was R<n>` heading suffix maps a fixed ID back; an entry added after filing keeps its fixed ID). No agent names, no stage ids, no gate names.
+
+On a slice run, every kept change also gets `{run_dir}/milestone-change.md`, which the orchestrator posts with `--comment` to update the milestone's description in place:
+
+```
+Decision: <the user's decision, one line>
+Summary: <what changed, one line>
+@@ old
+<text in the description today, verbatim>
+@@ new
+<its replacement>
+@@ end
+```
+
+One `@@ old` … `@@ end` block per edit; an `old` text the description no longer holds refuses the post (`reason=milestone-stale`), so redraft against `ferrule issue milestones --view <n>`.
 
 - **A split** — `## Split issue, gate 4`.
 

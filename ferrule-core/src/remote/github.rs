@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 use super::host::{Checks, CodeHost, PrState, PrStatus, comment_id};
+use super::milestones::{Blocker, IssueLinks, Milestone, Milestones, NewIssue};
 use super::tracker::{FIND_LIMIT, Found, IssueTracker, SearchState, title_query};
 use super::{
     Error, GH_FIELDS, GhItem, Item, ItemRef, MAX_PAGES, Query, json, number_of, pick_job, run,
@@ -454,6 +455,10 @@ impl IssueTracker for Gh {
         )?;
         json(&out, "gh issue list")
     }
+
+    fn milestones(&self) -> Option<&dyn Milestones> {
+        Some(self)
+    }
 }
 
 /// Whether `gh pr checks` output says the pull request has no checks (it
@@ -776,6 +781,472 @@ fn threads(
     )))
 }
 
+/// The labels of `want` that `have` lacks, compared without case as GitHub
+/// does.
+fn missing_labels<'a>(have: &[String], want: &'a [String]) -> Vec<&'a str> {
+    want.iter()
+        .filter(|l| !have.iter().any(|h| h.eq_ignore_ascii_case(l)))
+        .map(String::as_str)
+        .collect()
+}
+
+/// `key=value`, built apart from a literal so `gh` gets one argument.
+fn kv(key: &str, value: impl std::fmt::Display) -> String {
+    format!("{key}={value}")
+}
+
+/// The call creating label `name` with `color`.
+fn new_label_args(name: &str, color: &str) -> Vec<String> {
+    [
+        "api",
+        "-X",
+        "POST",
+        "repos/{owner}/{repo}/labels",
+        "-f",
+        &kv("name", name),
+        "-f",
+        &kv("color", color),
+    ]
+    .map(str::to_owned)
+    .to_vec()
+}
+
+/// Six random hex digits, a label's color.
+fn random_color() -> String {
+    use std::hash::{BuildHasher, Hasher};
+    let bits = std::collections::hash_map::RandomState::new()
+        .build_hasher()
+        .finish();
+    format!("{:06x}", bits & 0x00ff_ffff)
+}
+
+/// One milestone as the REST API answers it.
+#[derive(Deserialize)]
+struct RestMilestone {
+    number: u64,
+    title: String,
+    description: Option<String>,
+    state: String,
+}
+
+impl From<RestMilestone> for Milestone {
+    fn from(m: RestMilestone) -> Self {
+        Milestone {
+            number: m.number,
+            title: m.title,
+            description: m.description.unwrap_or_default(),
+            open: m.state.eq_ignore_ascii_case("open"),
+        }
+    }
+}
+
+/// The milestones of a `--paginate --slurp` answer: an array of pages.
+fn milestones_of(text: &str) -> Result<Vec<Milestone>, Error> {
+    let pages: Vec<Vec<RestMilestone>> = json(text, "gh api milestones")?;
+    Ok(pages.into_iter().flatten().map(Milestone::from).collect())
+}
+
+/// The issues, pull requests dropped, of a `--paginate --slurp` answer:
+/// number and title, ascending by number.
+fn issues_of(text: &str) -> Result<Vec<(u64, String)>, Error> {
+    #[derive(Deserialize)]
+    struct Issue {
+        number: u64,
+        title: String,
+        pull_request: Option<serde_json::Value>,
+    }
+    let pages: Vec<Vec<Issue>> = json(text, "gh api issues")?;
+    let mut all: Vec<(u64, String)> = pages
+        .into_iter()
+        .flatten()
+        .filter(|i| i.pull_request.is_none())
+        .map(|i| (i.number, i.title))
+        .collect();
+    all.sort_unstable_by_key(|(n, _)| *n);
+    Ok(all)
+}
+
+/// A write of a milestone description GitHub refused with a 422 is
+/// [`Error::Rejected`], with the text's length in characters; any other
+/// error passes unchanged.
+fn rejected(e: Error, description: &str) -> Error {
+    match e {
+        Error::Command(detail) if detail.contains("HTTP 422") => Error::Rejected {
+            length: description.chars().count(),
+            detail,
+        },
+        other => other,
+    }
+}
+
+#[derive(Deserialize)]
+struct LinkRepo {
+    #[serde(rename = "nameWithOwner")]
+    name_with_owner: String,
+}
+
+#[derive(Deserialize)]
+struct LinkRef {
+    number: u64,
+    url: String,
+    repository: LinkRepo,
+    #[serde(default)]
+    state: String,
+}
+
+#[derive(Deserialize)]
+struct LinkNodes<T> {
+    nodes: Vec<T>,
+}
+
+#[derive(Deserialize)]
+struct LinkSummary {
+    #[serde(rename = "blockedBy")]
+    blocked_by: u32,
+}
+
+#[derive(Deserialize)]
+struct LinkName {
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct LinkIssue {
+    state: String,
+    milestone: Option<RestMilestone>,
+    labels: LinkNodes<LinkName>,
+    parent: Option<LinkRef>,
+    #[serde(rename = "blockedBy")]
+    blocked_by: LinkNodes<LinkRef>,
+    #[serde(rename = "issueDependenciesSummary")]
+    summary: LinkSummary,
+    #[serde(rename = "relatesTo")]
+    relates_to: LinkNodes<LinkRef>,
+}
+
+#[derive(Deserialize)]
+struct LinkLinksRepo {
+    #[serde(rename = "nameWithOwner")]
+    name_with_owner: String,
+    issue: LinkIssue,
+}
+
+/// An issue's links from the `LINKS` answer. An item of the queried
+/// repository is a number citing `#7`; one of another repository is a URL
+/// citing `owner/repo#7`.
+fn links_of(text: &str) -> Result<IssueLinks, Error> {
+    #[derive(Deserialize)]
+    struct Data {
+        repository: LinkLinksRepo,
+    }
+    #[derive(Deserialize)]
+    struct Root {
+        data: Data,
+    }
+    let repo: LinkLinksRepo = json::<Root>(text, "gh api graphql")?.data.repository;
+    let here = repo.name_with_owner;
+    let cite = |r: &LinkRef| {
+        if r.repository.name_with_owner == here {
+            (format!("#{}", r.number), ItemRef::Number(r.number))
+        } else {
+            (
+                format!("{}#{}", r.repository.name_with_owner, r.number),
+                ItemRef::Url {
+                    url: r.url.clone(),
+                    number: r.number,
+                },
+            )
+        }
+    };
+    let issue = repo.issue;
+    let blocked_by: Vec<Blocker> = issue
+        .blocked_by
+        .nodes
+        .iter()
+        .map(|b| {
+            let (cite, reference) = cite(b);
+            Blocker {
+                cite,
+                reference,
+                open: b.state.eq_ignore_ascii_case("open"),
+            }
+        })
+        .collect();
+    let shown = u32::try_from(blocked_by.iter().filter(|b| b.open).count()).unwrap_or(u32::MAX);
+    Ok(IssueLinks {
+        open: issue.state.eq_ignore_ascii_case("open"),
+        milestone: issue.milestone.map(Milestone::from),
+        labels: issue.labels.nodes.into_iter().map(|l| l.name).collect(),
+        parent: issue.parent.as_ref().map(|p| cite(p).1),
+        unreadable: issue.summary.blocked_by.saturating_sub(shown),
+        blocked_by,
+        relates_to: issue.relates_to.nodes.iter().map(|r| cite(r).1).collect(),
+    })
+}
+
+const LINKS: &str = "query($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    nameWithOwner
+    issue(number: $number) {
+      state
+      milestone { number title description state }
+      labels(first: 100) { nodes { name } }
+      parent { number url repository { nameWithOwner } }
+      blockedBy(first: 100) { nodes { number url state repository { nameWithOwner } } }
+      issueDependenciesSummary { blockedBy }
+      relatesTo(first: 100) { nodes { number url repository { nameWithOwner } } }
+    }
+  }
+}";
+
+const ISSUE_ID: &str = "query($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) { issue(number: $number) { id } }
+}";
+
+const ADD_BLOCKED_BY: &str = "mutation($issue: ID!, $other: ID!) { addBlockedBy(input: {issueId: $issue, blockingIssueId: $other}) { clientMutationId } }";
+const ADD_SUB_ISSUE: &str = "mutation($issue: ID!, $other: ID!) { addSubIssue(input: {issueId: $other, subIssueId: $issue}) { clientMutationId } }";
+const ADD_RELATES_TO: &str = "mutation($issue: ID!, $other: ID!) { addRelatesTo(input: {issueId: $issue, relatedIssueId: $other}) { clientMutationId } }";
+
+impl Gh {
+    fn milestone_json(&self, args: &[&str], stdin: Option<&str>) -> Result<Milestone, Error> {
+        let out = self.gh(args, stdin)?;
+        Ok(json::<RestMilestone>(&out, "gh api milestone")?.into())
+    }
+
+    /// A GraphQL node id of an issue of the checkout's repository, or of
+    /// the one its URL names.
+    fn node_id(&self, issue: &ItemRef) -> Result<String, Error> {
+        #[derive(Deserialize)]
+        struct Id {
+            id: String,
+        }
+        #[derive(Deserialize)]
+        struct Repo {
+            issue: Id,
+        }
+        #[derive(Deserialize)]
+        struct Data {
+            repository: Repo,
+        }
+        #[derive(Deserialize)]
+        struct Root {
+            data: Data,
+        }
+        let (owner, name, number) = Self::coordinates(issue)?;
+        let out = self.gh(
+            &[
+                "api",
+                "graphql",
+                "-F",
+                &kv("owner", owner),
+                "-F",
+                &kv("repo", name),
+                "-F",
+                &kv("number", number),
+                "-f",
+                &kv("query", ISSUE_ID),
+            ],
+            None,
+        )?;
+        Ok(json::<Root>(&out, "gh api graphql")?
+            .data
+            .repository
+            .issue
+            .id)
+    }
+
+    /// Owner, repository and number of an issue reference.
+    fn coordinates(issue: &ItemRef) -> Result<(String, String, u64), Error> {
+        let number = issue
+            .number()
+            .ok_or_else(|| Error::Ref(format!("{issue} is not a GitHub issue")))?;
+        let repo = repo_of(issue)?;
+        let (owner, name) = repo.split_once('/').unwrap_or((&repo, ""));
+        Ok((owner.to_owned(), name.to_owned(), number))
+    }
+
+    /// One relationship mutation between two issues.
+    fn link(&self, mutation: &str, issue: &ItemRef, other: &ItemRef) -> Result<(), Error> {
+        let (a, b) = (self.node_id(issue)?, self.node_id(other)?);
+        self.gh(
+            &[
+                "api",
+                "graphql",
+                "-f",
+                &kv("issue", a),
+                "-f",
+                &kv("other", b),
+                "-f",
+                &kv("query", mutation),
+            ],
+            None,
+        )
+        .map(drop)
+    }
+}
+
+impl Milestones for Gh {
+    fn login(&self) -> Result<String, Error> {
+        Ok(self
+            .gh(&["api", "user", "--jq", ".login"], None)?
+            .trim()
+            .to_owned())
+    }
+
+    fn list(&self, state: SearchState) -> Result<Vec<Milestone>, Error> {
+        let path = format!(
+            "repos/{{owner}}/{{repo}}/milestones?state={}&per_page=100",
+            state.as_str()
+        );
+        milestones_of(&self.gh(&["api", "--paginate", "--slurp", &path], None)?)
+    }
+
+    fn get(&self, number: u64) -> Result<Milestone, Error> {
+        let path = format!("repos/{{owner}}/{{repo}}/milestones/{number}");
+        self.milestone_json(&["api", &path], None)
+    }
+
+    fn create(&self, title: &str, description: &str) -> Result<Milestone, Error> {
+        let body = serde_json::json!({"title": title, "description": description}).to_string();
+        self.milestone_json(
+            &[
+                "api",
+                "-X",
+                "POST",
+                "repos/{owner}/{repo}/milestones",
+                "--input",
+                "-",
+            ],
+            Some(&body),
+        )
+        .map_err(|e| rejected(e, description))
+    }
+
+    fn set_description(&self, number: u64, description: &str) -> Result<(), Error> {
+        let path = format!("repos/{{owner}}/{{repo}}/milestones/{number}");
+        let body = serde_json::json!({"description": description}).to_string();
+        self.gh(&["api", "-X", "PATCH", &path, "--input", "-"], Some(&body))
+            .map(drop)
+            .map_err(|e| rejected(e, description))
+    }
+
+    fn issues_in(&self, number: u64) -> Result<Vec<u64>, Error> {
+        let path =
+            format!("repos/{{owner}}/{{repo}}/issues?milestone={number}&state=all&per_page=100");
+        let all = issues_of(&self.gh(&["api", "--paginate", "--slurp", &path], None)?)?;
+        Ok(all.into_iter().map(|(n, _)| n).collect())
+    }
+
+    fn find_open_in(&self, milestone: u64, title: &str) -> Result<Option<ItemRef>, Error> {
+        let path = format!(
+            "repos/{{owner}}/{{repo}}/issues?milestone={milestone}&state=open&per_page=100"
+        );
+        let all = issues_of(&self.gh(&["api", "--paginate", "--slurp", &path], None)?)?;
+        Ok(all
+            .into_iter()
+            .find(|(_, t)| t == title)
+            .map(|(n, _)| ItemRef::Number(n)))
+    }
+
+    fn links(&self, issue: &ItemRef) -> Result<IssueLinks, Error> {
+        let (owner, name, number) = Self::coordinates(issue)?;
+        let out = self.gh(
+            &[
+                "api",
+                "graphql",
+                "-F",
+                &kv("owner", owner),
+                "-F",
+                &kv("repo", name),
+                "-F",
+                &kv("number", number),
+                "-f",
+                &kv("query", LINKS),
+            ],
+            None,
+        )?;
+        links_of(&out)
+    }
+
+    fn create_issue(&self, new: &NewIssue<'_>) -> Result<ItemRef, Error> {
+        let mut args = vec!["issue", "create", "--title", new.title, "--body-file", "-"];
+        if let Some(m) = new.milestone {
+            args.extend(["--milestone", m]);
+        }
+        for l in new.labels {
+            args.extend(["--label", l]);
+        }
+        let url = self.gh(&args, Some(new.body))?;
+        number_of(&url).map(ItemRef::Number)
+    }
+
+    fn set_milestone(&self, issue: &ItemRef, title: &str) -> Result<(), Error> {
+        self.gh(
+            &["issue", "edit", &issue.to_string(), "--milestone", title],
+            None,
+        )
+        .map(drop)
+    }
+
+    fn ensure_labels(&self, labels: &[String]) -> Result<(), Error> {
+        #[derive(Deserialize)]
+        struct Label {
+            name: String,
+        }
+        if labels.is_empty() {
+            return Ok(());
+        }
+        let out = self.gh(
+            &[
+                "api",
+                "--paginate",
+                "--slurp",
+                "repos/{owner}/{repo}/labels?per_page=100",
+            ],
+            None,
+        )?;
+        let pages: Vec<Vec<Label>> = json(&out, "gh api labels")?;
+        let have: Vec<String> = pages.into_iter().flatten().map(|l| l.name).collect();
+        for l in missing_labels(&have, labels) {
+            let args = new_label_args(l, &random_color());
+            let args: Vec<&str> = args.iter().map(String::as_str).collect();
+            self.gh(&args, None)?;
+        }
+        Ok(())
+    }
+
+    fn add_labels(&self, issue: &ItemRef, labels: &[String]) -> Result<(), Error> {
+        if labels.is_empty() {
+            return Ok(());
+        }
+        let (owner, name, number) = Self::coordinates(issue)?;
+        let path = format!("repos/{owner}/{name}/issues/{number}/labels");
+        let body = serde_json::json!({ "labels": labels }).to_string();
+        self.gh(&["api", "-X", "POST", &path, "--input", "-"], Some(&body))
+            .map(drop)
+    }
+
+    fn add_blocked_by(&self, issue: &ItemRef, blocker: &ItemRef) -> Result<(), Error> {
+        self.link(ADD_BLOCKED_BY, issue, blocker)
+    }
+
+    fn set_parent(&self, issue: &ItemRef, parent: &ItemRef) -> Result<(), Error> {
+        self.link(ADD_SUB_ISSUE, issue, parent)
+    }
+
+    fn add_relates_to(&self, issue: &ItemRef, other: &ItemRef) -> Result<(), Error> {
+        self.link(ADD_RELATES_TO, issue, other)
+    }
+
+    fn close(&self, issue: &ItemRef, comment: &str) -> Result<(), Error> {
+        self.gh(
+            &["issue", "close", &issue.to_string(), "--comment", comment],
+            None,
+        )
+        .map(drop)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -887,5 +1358,133 @@ mod tests {
             gh.reply(&ItemRef::Number(1), "1/../../x", "t"),
             Err(Error::Ref(_))
         ));
+    }
+
+    const LINKS_JSON: &str = r#"{"data":{"repository":{"nameWithOwner":"o/r","issue":{
+        "state":"OPEN",
+        "milestone":{"number":3,"title":"Epic","description":null,"state":"OPEN"},
+        "labels":{"nodes":[{"name":"area:runs"},{"name":"bug"}]},
+        "parent":{"number":2,"url":"https://github.com/o/r/issues/2","repository":{"nameWithOwner":"o/r"}},
+        "blockedBy":{"nodes":[
+            {"number":7,"url":"https://github.com/o/r/issues/7","state":"OPEN","repository":{"nameWithOwner":"o/r"}},
+            {"number":8,"url":"https://github.com/o/r/issues/8","state":"CLOSED","repository":{"nameWithOwner":"o/r"}}]},
+        "issueDependenciesSummary":{"blockedBy":1},
+        "relatesTo":{"nodes":[{"number":9,"url":"https://github.com/o/r/issues/9","repository":{"nameWithOwner":"o/r"}}]}
+    }}}}"#;
+
+    /// Pages from `--slurp` flatten, and a null description reads as empty.
+    #[test]
+    fn ut_milestone_pages_flatten_and_read_a_null_description() {
+        let text = r#"[[{"number":1,"title":"A","description":null,"state":"open"}],
+            [{"number":2,"title":"B","description":"text","state":"closed"}]]"#;
+        let got = milestones_of(text).unwrap();
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0].description, "");
+        assert!(got[0].open);
+        assert_eq!(got[1].title, "B");
+        assert_eq!(got[1].description, "text");
+        assert!(!got[1].open);
+    }
+
+    /// Pull requests are dropped and the issues come ranked by number.
+    #[test]
+    fn ut_issues_in_drops_pull_requests_and_sorts() {
+        let text = r#"[[{"number":9,"title":"c"},{"number":4,"title":"pr","pull_request":{}}],
+            [{"number":2,"title":"a"}]]"#;
+        let got = issues_of(text).unwrap();
+        assert_eq!(got, vec![(2, "a".to_owned()), (9, "c".to_owned())]);
+    }
+
+    /// Links carry the milestone, labels, parent, blockers and relations.
+    #[test]
+    fn ut_links_maps_relationships() {
+        let l = links_of(LINKS_JSON).unwrap();
+        assert!(l.open);
+        let m = l.milestone.unwrap();
+        assert_eq!((m.number, m.description.as_str(), m.open), (3, "", true));
+        assert_eq!(l.labels, vec!["area:runs", "bug"]);
+        assert_eq!(l.parent, Some(ItemRef::Number(2)));
+        assert_eq!(l.blocked_by.len(), 2);
+        assert_eq!(l.blocked_by[0].cite, "#7");
+        assert_eq!(l.blocked_by[0].reference, ItemRef::Number(7));
+        assert!(l.blocked_by[0].open);
+        assert!(!l.blocked_by[1].open);
+        assert_eq!(l.relates_to, vec![ItemRef::Number(9)]);
+    }
+
+    /// An item of another repository is a URL and cites its repository.
+    #[test]
+    fn ut_links_cites_another_repository() {
+        let text = LINKS_JSON.replace(
+            r#"{"number":7,"url":"https://github.com/o/r/issues/7","state":"OPEN","repository":{"nameWithOwner":"o/r"}}"#,
+            r#"{"number":7,"url":"https://github.com/x/y/issues/7","state":"OPEN","repository":{"nameWithOwner":"x/y"}}"#,
+        );
+        let l = links_of(&text).unwrap();
+        assert_eq!(l.blocked_by[0].cite, "x/y#7");
+        assert_eq!(
+            l.blocked_by[0].reference,
+            ItemRef::Url {
+                url: "https://github.com/x/y/issues/7".to_owned(),
+                number: 7
+            }
+        );
+    }
+
+    /// Blockers GitHub counts open but does not list are `unreadable`.
+    #[test]
+    fn ut_unreadable_counts_hidden_open_blockers() {
+        assert_eq!(links_of(LINKS_JSON).unwrap().unreadable, 0);
+        let hidden = LINKS_JSON.replace(r#""blockedBy":1"#, r#""blockedBy":4"#);
+        assert_eq!(links_of(&hidden).unwrap().unreadable, 3);
+        let fewer = LINKS_JSON.replace(r#""blockedBy":1"#, r#""blockedBy":0"#);
+        assert_eq!(links_of(&fewer).unwrap().unreadable, 0);
+    }
+
+    /// RU-E-010 — a 422 on a description write is rejected with its length and message.
+    #[test]
+    fn ut_a_422_on_a_description_is_rejected() {
+        let e = Error::Command("gh: Validation Failed (HTTP 422)".to_owned());
+        match rejected(e, "héllo") {
+            Error::Rejected { length, detail } => {
+                assert_eq!(length, 5);
+                assert!(detail.contains("HTTP 422"));
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// Any other failure passes through unchanged.
+    #[test]
+    fn ut_other_errors_are_not_rejected() {
+        let e = rejected(Error::Command("gh: HTTP 500".to_owned()), "x");
+        assert!(matches!(e, Error::Command(m) if m == "gh: HTTP 500"));
+        let e = rejected(Error::NotFound("x".to_owned()), "x");
+        assert!(matches!(e, Error::NotFound(_)));
+    }
+
+    /// RU-R-041 — a label ferrule creates carries a color of six hex digits.
+    #[test]
+    fn ut_new_label_carries_a_color() {
+        let args = new_label_args("area:runs", "1a2b3c");
+        assert!(args.contains(&"name=area:runs".to_owned()), "{args:?}");
+        assert!(args.contains(&"color=1a2b3c".to_owned()), "{args:?}");
+        let c = random_color();
+        assert_eq!(c.len(), 6, "{c}");
+        assert!(c.bytes().all(|b| b.is_ascii_hexdigit()), "{c}");
+    }
+
+    /// RU-R-041 — the colors differ from one label to the next.
+    #[test]
+    fn ut_label_colors_vary() {
+        let all: std::collections::HashSet<String> = (0..16).map(|_| random_color()).collect();
+        assert!(all.len() > 1, "{all:?}");
+    }
+
+    /// RU-R-042 — a label the repository has, under another case too, is left as it is.
+    #[test]
+    fn ut_labels_match_without_case() {
+        let have = vec!["Area:Runs".to_owned()];
+        let want = vec!["area:runs".to_owned(), "area:card".to_owned()];
+        assert_eq!(missing_labels(&have, &want), vec!["area:card"]);
     }
 }

@@ -151,6 +151,7 @@ const SOURCES: &[(&str, &[&str])] = &[
         "ferrule/src/commands/issue.rs",
         &[
             "issue body",
+            "issue milestones",
             "issue post",
             "issue search",
             "issue view",
@@ -223,6 +224,10 @@ const SOURCES: &[(&str, &[&str])] = &[
 
 /// Tokens that are not CLI output: a file, or `file:token`, and why.
 const IGNORED: &[(&str, &str)] = &[
+    (
+        "ferrule-core/src/issue/changelog.rs",
+        "a hidden marker inside milestone text, not a status line",
+    ),
     (
         "ferrule-core/src/card/board.rs:gauntlet=pass",
         "matched in the card log, not printed",
@@ -601,6 +606,7 @@ const REFUSAL_SOURCES: &[(&str, &[&str])] = &[
             "ci failed",
             "ci wait",
             "gate approve",
+            "issue milestones",
             "issue post",
             "issue request",
             "issue search",

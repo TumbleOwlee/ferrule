@@ -36,13 +36,14 @@ The epic run settles only what every slice builds on, then cuts the feature into
 ## Slice 1: <title, ≤ 4 words>
 Goal: <what the user can do once it lands, one line>
 Depends on: none | <slice numbers>
+Areas: <spec areas the slice touches, separated by `, `>
 Scenarios: S1, S4
 Entries: R1, R2, E1
 Adds: <components and interfaces it lands or extends, one line>
 Deferred: <the brief's Deferred items it settles, separated by `; `, or none>
 ```
 
-`Depends on` takes bare slice numbers separated by `, `; `Scenarios` and `Entries` take the brief's IDs separated by `, `, or `none`.
+`Areas` labels the slice's issue `area:<area>`; `Depends on` takes bare slice numbers separated by `, `; `Scenarios` and `Entries` take the brief's IDs separated by `, `, or `none`.
 
 - **Slice 1 is the walking skeleton**: it lands every interface of `## Interfaces` with the smallest working bodies and one scenario end to end.
 - Every scenario, every `R`/`E` entry and every `## Deferred` item of the brief belongs to exactly one slice.
@@ -53,6 +54,6 @@ Answer `status=ready file=… summary=… count=<skeleton components> slices={ru
 
 ## Slice run
 
-`epic.md` is the epic issue's spec and skeleton architecture, followed by the epic's comments (skeleton changes earlier slices kept — they override the body). Its `## Interfaces` bind like `(user)` decisions: extend them, never contradict one without asking the user (`Entry:`-style quote of the signature in the question). Slice 1 builds the skeleton as specified; a later slice reads the skeleton in the code, where it now lives, and `epic.md` only for orientation. Your `architecture.md` covers this slice: the skeleton components it touches appear as `existing` or `changed`, and a skeleton signature you change with the user's consent is appended to `decisions.md` as a `(user)` line. Local IDs you add start at the slice number times 100 (`R301`, `E301` in slice 3).
+`epic.md` is the milestone's description: the epic's spec and skeleton architecture and its `## Changelog` of skeleton changes earlier slices kept (without milestones: the epic issue's spec and skeleton, followed by its comments) — a kept change overrides the text it edits. Its `## Interfaces` bind like `(user)` decisions: extend them, never contradict one without asking the user (`Entry:`-style quote of the signature in the question). Slice 1 builds the skeleton as specified; a later slice reads the skeleton in the code, where it now lives, and `epic.md` only for orientation. Your `architecture.md` covers this slice: the skeleton components it touches appear as `existing` or `changed`, and a skeleton signature you change with the user's consent is appended to `decisions.md` as a `(user)` line. Local IDs you add start at the slice number times 100 (`R301`, `E301` in slice 3).
 
 <!-- include: architect-end -->
