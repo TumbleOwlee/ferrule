@@ -12,6 +12,7 @@ mod github;
 mod host;
 mod item_ref;
 mod jira;
+mod milestones;
 mod tracker;
 
 pub use bitbucket::Bitbucket;
@@ -19,6 +20,7 @@ pub use github::Gh;
 pub use host::{Checks, CodeHost, PrState, PrStatus, code_host};
 pub use item_ref::{ItemRef, ref_list, refs, slot_list, slots};
 pub use jira::Jira;
+pub use milestones::{Blocker, IssueLinks, Milestone, Milestones, NewIssue};
 pub use tracker::{FIND_LIMIT, Found, IssueTracker, SearchState, issue_tracker, title_query};
 
 use std::fmt::Write as _;
@@ -54,6 +56,8 @@ pub enum Error {
     PullRequest(String),
     /// The pull request has no checks: `gh pr checks`' own words.
     NoChecks(String),
+    /// GitHub refused a milestone description.
+    Rejected { length: usize, detail: String },
 }
 
 impl Error {
@@ -87,6 +91,10 @@ impl Error {
             Error::PullRequest(n) => Refusal::new(verb, "pull-request")
                 .field("pr", n)
                 .hint(format!("#{n} is a pull request: ferrule pr view {n}")),
+            Error::Rejected { length, detail } => Refusal::new(verb, "rejected")
+                .field("length", length)
+                .detail(detail)
+                .hint("shorten the text and rerun; nothing was written"),
             Error::Command(e) | Error::Shape(e) => Refusal::new(verb, "host")
                 .detail(e)
                 .hint("the host did not answer; check your login and network, then retry"),
@@ -103,6 +111,7 @@ impl std::fmt::Display for Error {
             | Error::NotFound(e)
             | Error::NoChecks(e)
             | Error::Ref(e) => f.write_str(e),
+            Error::Rejected { detail, .. } => f.write_str(detail),
             Error::Unsupported { host, op } => write!(f, "{op} is not implemented for {host} yet"),
             Error::PullRequest(n) => {
                 write!(
