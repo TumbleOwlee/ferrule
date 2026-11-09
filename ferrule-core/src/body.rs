@@ -285,12 +285,26 @@ fn md_section<'a>(text: &'a str, name: &str) -> Vec<&'a str> {
         .collect()
 }
 
+/// Where an issue's milestone and relationships live.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Metadata {
+    /// The tracker carries milestone and relationships.
+    Native,
+    /// Today's marker line, title prefix and slice list.
+    Prose,
+}
+
 /// The tracking issue's body, or slice `slice`'s own issue.
+///
+/// # Errors
+/// A missing artifact, an unknown slice, a stage or agent name in the text,
+/// or an empty body.
 pub fn issue(
     r: &Reader<'_>,
     layout: &Layout,
     slug: &str,
     slice: Option<u32>,
+    metadata: Metadata,
 ) -> Result<String, Error> {
     let conn = r.conn();
     let c = Ctx {
@@ -300,18 +314,21 @@ pub fn issue(
     };
     let issue = c.need("issue.md")?;
     let text = match slice {
-        Some(n) => slice_issue(&c, &issue, n)?,
-        None => run_issue(&c, &issue)?,
+        Some(n) => slice_issue(&c, &issue, n, metadata)?,
+        None => run_issue(&c, &issue, metadata)?,
     };
     finish(&text)
 }
 
-fn slice_issue(c: &Ctx, issue: &str, n: u32) -> Result<String, Error> {
+fn slice_issue(c: &Ctx, issue: &str, n: u32, metadata: Metadata) -> Result<String, Error> {
     let all = artifacts::slices(&c.need("slices.md")?);
     let Some(s) = all.iter().find(|s| s.n == n) else {
         return Err(Error::NoSlice(n));
     };
-    let mut out = format!("{}: {}\n\n", first_line(issue), s.title);
+    let mut out = match metadata {
+        Metadata::Native => format!("# {}\n\n", s.title),
+        Metadata::Prose => format!("{}: {}\n\n", first_line(issue), s.title),
+    };
     let slices_field = c.field("slices")?;
     let deps: Vec<String> = s
         .get("Depends on")
@@ -328,12 +345,14 @@ fn slice_issue(c: &Ctx, issue: &str, n: u32) -> Result<String, Error> {
     } else {
         deps.join(", ")
     };
-    let _ = write!(
-        out,
-        "**Part of epic** #{} · **Slice** {n} of {} · **Depends on** {deps}\n\n",
-        c.field("issue")?.as_deref().unwrap_or("?"),
-        all.len()
-    );
+    if metadata == Metadata::Prose {
+        let _ = write!(
+            out,
+            "**Part of epic** #{} · **Slice** {n} of {} · **Depends on** {deps}\n\n",
+            c.field("issue")?.as_deref().unwrap_or("?"),
+            all.len()
+        );
+    }
     let _ = write!(out, "## Goal\n{}\n\n", s.get("Goal"));
     let only: Vec<String> = format!("{} {}", s.get("Scenarios"), s.get("Entries"))
         .split([',', ' '])
@@ -348,10 +367,11 @@ fn slice_issue(c: &Ctx, issue: &str, n: u32) -> Result<String, Error> {
     Ok(out)
 }
 
-fn run_issue(c: &Ctx, issue: &str) -> Result<String, Error> {
+fn run_issue(c: &Ctx, issue: &str, metadata: Metadata) -> Result<String, Error> {
     let kind = c.field("kind")?;
     let mut out = format!("{}\n\n", first_line(issue));
-    if kind.as_deref() == Some("slice")
+    if metadata == Metadata::Prose
+        && kind.as_deref() == Some("slice")
         && let Some(line) = c.read("slice-line.md").filter(|t| !t.is_empty())
     {
         let _ = write!(out, "{}\n\n", first_line(&line));
@@ -363,7 +383,7 @@ fn run_issue(c: &Ctx, issue: &str) -> Result<String, Error> {
     }
     out.push_str(&section(issue, "Out of scope"));
     if kind.as_deref() == Some("epic") {
-        epic_parts(c, &mut out)?;
+        epic_parts(c, &mut out, metadata)?;
     }
     if let Some(req) = c.read("request.md").filter(|t| !t.is_empty()) {
         let _ = write!(
@@ -376,7 +396,7 @@ fn run_issue(c: &Ctx, issue: &str) -> Result<String, Error> {
     Ok(out)
 }
 
-fn epic_parts(c: &Ctx, out: &mut String) -> Result<(), Error> {
+fn epic_parts(c: &Ctx, out: &mut String, metadata: Metadata) -> Result<(), Error> {
     if let Some(summary) = c.read("architecture.summary.md") {
         let _ = write!(out, "## Architecture\n{}\n\n", decide(&summary));
         for l in summary.lines().filter(|l| l.starts_with('|')) {
@@ -401,7 +421,9 @@ fn epic_parts(c: &Ctx, out: &mut String) -> Result<(), Error> {
             }
         }
     }
-    if let Some(text) = c.read("slices.md") {
+    if metadata == Metadata::Prose
+        && let Some(text) = c.read("slices.md")
+    {
         let slices_field = c.field("slices")?;
         out.push_str("## Slices\n");
         for s in artifacts::slices(&text) {
@@ -979,5 +1001,91 @@ mod tests {
         assert_eq!(nth(Some("[-, 72]"), 1), None);
         assert_eq!(nth(Some("[-, 72]"), 2).as_deref(), Some("#72"));
         assert_eq!(nth(Some("[71]"), 0), None);
+    }
+
+    const ISSUE: &str = "# Epic title\n\n## Goal\nDo it.\n";
+    const SLICES: &str = "## Slice 1: Core\nGoal: build core\nDepends on: none\n\n## Slice 2: Edge\nGoal: build edge\nDepends on: 1\n";
+
+    /// The issue of a run with `kind`, rendered for `slice`.
+    fn rendered(kind: &str, slice: Option<u32>, metadata: Metadata) -> String {
+        rendered_with(kind, "[11, 12]", slice, metadata)
+    }
+
+    fn rendered_with(kind: &str, slices: &str, slice: Option<u32>, metadata: Metadata) -> String {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = Layout::new(dir.path().to_path_buf());
+        let run = layout.run_dir("ns");
+        std::fs::create_dir_all(&run).unwrap();
+        std::fs::write(run.join("issue.md"), ISSUE).unwrap();
+        std::fs::write(run.join("slices.md"), SLICES).unwrap();
+        std::fs::write(run.join("slice-line.md"), "**Part of epic** #5\n").unwrap();
+        let mut board = crate::store::Board::memory().unwrap();
+        board
+            .write(|w| {
+                w.create(
+                    "ns",
+                    State::Open,
+                    &[
+                        ("kind".to_owned(), kind.to_owned()),
+                        ("issue".to_owned(), "5".to_owned()),
+                        ("slices".to_owned(), slices.to_owned()),
+                    ],
+                    "t",
+                )
+            })
+            .unwrap();
+        board
+            .read(|r| issue(r, &layout, "ns", slice, metadata))
+            .unwrap()
+    }
+
+    /// RU-R-022 — a native slice issue has no title prefix and no marker line.
+    #[test]
+    fn ut_native_slice_has_no_marker_or_prefix() {
+        let out = rendered("epic", Some(2), Metadata::Native);
+        assert!(out.starts_with("# Edge\n\n## Goal\nbuild edge\n"), "{out}");
+        assert!(!out.contains("Part of epic"), "{out}");
+        let run = rendered("slice", None, Metadata::Native);
+        assert!(!run.contains("Part of epic"), "{run}");
+    }
+
+    /// The prose slice issue keeps its prefix and marker line.
+    #[test]
+    fn ut_prose_slice_keeps_the_marker() {
+        let out = rendered("epic", Some(2), Metadata::Prose);
+        assert!(out.starts_with("# Epic title: Edge\n\n**Part of epic** #5 · **Slice** 2 of 2 · **Depends on** #11\n\n"), "{out}");
+        let run = rendered("slice", None, Metadata::Prose);
+        assert!(run.contains("**Part of epic** #5\n"), "{run}");
+    }
+
+    /// RU-R-015 — a native epic body carries no slice list.
+    #[test]
+    fn ut_native_epic_lists_no_slices() {
+        let out = rendered("epic", None, Metadata::Native);
+        assert!(!out.contains("## Slices"), "{out}");
+        assert!(!out.contains("Slice 1"), "{out}");
+    }
+
+    /// The prose epic body lists its slices with their links.
+    #[test]
+    fn ut_prose_epic_lists_slices() {
+        let out = rendered("epic", None, Metadata::Prose);
+        assert!(
+            out.contains("## Slices\n- [ ] **Slice 1: Core** — #11\n"),
+            "{out}"
+        );
+    }
+
+    /// A prose body names an unfiled slice "not filed yet" and cites it as "slice <n>".
+    #[test]
+    fn ut_prose_unfiled_slots_keep_their_texts() {
+        let epic = rendered_with("epic", "[-, 12]", None, Metadata::Prose);
+        assert!(
+            epic.contains("**Slice 1: Core** — not filed yet\n"),
+            "{epic}"
+        );
+        assert!(epic.contains("**Slice 2: Edge** — #12\n"), "{epic}");
+        let two = rendered_with("epic", "[-, 12]", Some(2), Metadata::Prose);
+        assert!(two.contains("**Depends on** slice 1\n"), "{two}");
     }
 }

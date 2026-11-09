@@ -50,7 +50,7 @@
 
 ## Issue draft lines
 
-- `Areas: <a>, <b>` — a line at the top of a split-off or follow-up draft body, and a slice's key in an epic's architecture, naming the spec areas to label (RU-R-024)
+- `Areas: <a>, <b>` — a line at the top of a split-off or follow-up draft body, and a slice's `Areas:` key in an epic's slices.md, naming the spec areas to label (RU-R-024)
 - `Milestone: <exact title> | none` — a follow-up draft's milestone, read for a slice run only (RU-R-028, RU-R-039, RU-R-040, RU-E-015, RU-E-016)
 
 ## Run files

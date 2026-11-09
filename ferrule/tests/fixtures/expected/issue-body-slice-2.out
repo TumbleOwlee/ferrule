@@ -1,6 +1,4 @@
-# Load balancing core: Batteries
-
-**Part of epic** #70 · **Slice** 2 of 3 · **Depends on** #71
+# Batteries
 
 ## Goal
 A battery covers demand above the limit.

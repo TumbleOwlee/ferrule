@@ -2219,10 +2219,7 @@ fn it_slices_keep_their_position() {
     );
     assert_eq!(p.field("lb", "slices"), "[-, 72]");
     let epic = p.ok(&["issue", "body", "lb"]);
-    assert!(
-        epic.contains("**Slice 1: Walking skeleton** — not filed yet"),
-        "{epic}"
-    );
+    assert!(!epic.contains("## Slices"), "{epic}");
     assert_eq!(
         p.ok(&["issue", "post", "lb", "--slice", "1"]),
         "issue=71 action=created"
@@ -2233,7 +2230,8 @@ fn it_slices_keep_their_position() {
         "issue=72 action=recorded"
     );
     let body3 = p.ok(&["issue", "body", "lb", "--slice", "3"]);
-    assert!(body3.contains("#71, #72"), "{body3}");
+    assert!(!body3.contains("Depends on"), "{body3}");
+    assert!(body3.starts_with("# Nested groups\n"), "{body3}");
     let zero = p.ferrule(&["issue", "post", "lb", "--slice", "0"]).output();
     assert_eq!(zero.status.code(), Some(1));
     assert!(

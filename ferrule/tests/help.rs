@@ -224,6 +224,10 @@ const SOURCES: &[(&str, &[&str])] = &[
 /// Tokens that are not CLI output: a file, or `file:token`, and why.
 const IGNORED: &[(&str, &str)] = &[
     (
+        "ferrule-core/src/issue/changelog.rs",
+        "a hidden marker inside milestone text, not a status line",
+    ),
+    (
         "ferrule-core/src/card/board.rs:gauntlet=pass",
         "matched in the card log, not printed",
     ),

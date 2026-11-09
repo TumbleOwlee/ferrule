@@ -522,7 +522,19 @@ fn body(
         Some(s) => s,
         None => ferrule_core::store::Board::memory().map_err(internal)?,
     };
-    print_body(s.read(|r| body::issue(r, &layout, slug, slice)), style, out)
+    let metadata = if remote::issue_tracker(&config()?, &layout.root)
+        .milestones()
+        .is_some()
+    {
+        body::Metadata::Native
+    } else {
+        body::Metadata::Prose
+    };
+    print_body(
+        s.read(|r| body::issue(r, &layout, slug, slice, metadata)),
+        style,
+        out,
+    )
 }
 
 /// Prints the `<verb>=refused` line of a failed post, or what went wrong

@@ -95,7 +95,9 @@ impl Run<'_> {
     }
 
     fn file_run(&mut self, reuse: Option<ItemRef>) -> Result<(ItemRef, Action), Error> {
-        let rendered = snapshot(self.conn, |r| body::issue(r, self.layout, self.slug, None))?;
+        let rendered = snapshot(self.conn, |r| {
+            body::issue(r, self.layout, self.slug, None, body::Metadata::Prose)
+        })?;
         let (title, body) = split_title(&rendered);
         let current = remote::refs(self.field("issue")?.as_deref())
             .into_iter()
@@ -125,7 +127,13 @@ impl Run<'_> {
             return Ok((n.clone(), Action::Recorded));
         }
         let rendered = snapshot(self.conn, |r| {
-            body::issue(r, self.layout, self.slug, Some(slice))
+            body::issue(
+                r,
+                self.layout,
+                self.slug,
+                Some(slice),
+                body::Metadata::Prose,
+            )
         })?;
         let (title, body) = split_title(&rendered);
         let (n, action) = self.adopt_or_create(&title, &body)?;
