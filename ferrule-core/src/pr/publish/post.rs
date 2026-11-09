@@ -41,9 +41,14 @@ impl Run<'_> {
         {
             return Ok((n, Action::Recorded));
         }
-        let (title, body) = split_title(&self.artifact(&format!("follow-up-{k}.md"))?);
-        let body = format!("{}\n\nFound in {}\n", body.trim_end(), issue.cite());
-        let (n, action) = self.adopt_or_create(&title, &body)?;
+        let text = self.artifact(&format!("follow-up-{k}.md"))?;
+        let (n, action) = if self.tracker.milestones().is_some() {
+            self.file_native_follow_up(&text, &issue)?
+        } else {
+            let (title, body) = split_title(&text);
+            let body = format!("{}\n\nFound in {}\n", body.trim_end(), issue.cite());
+            self.adopt_or_create(&title, &body)?
+        };
         self.log(
             "posted=follow-up",
             &[format!("issue={n}"), format!("k={k}")],
@@ -51,16 +56,93 @@ impl Run<'_> {
         Ok((n, action))
     }
 
+    /// A follow-up on a tracker with milestones: in the milestone its draft
+    /// names when the run is a slice run, related to `issue`.
+    fn file_native_follow_up(
+        &self,
+        text: &str,
+        issue: &ItemRef,
+    ) -> Result<(ItemRef, Action), Error> {
+        let d = artifacts::draft(text);
+        let ms = self.milestones()?;
+        let milestone = match d.milestone.as_deref() {
+            Some(title) if self.field("kind")?.as_deref() == Some("slice") => {
+                let found = ms
+                    .list(SearchState::All)?
+                    .into_iter()
+                    .find(|m| m.title == title)
+                    .ok_or_else(|| Error::Remote(remote::Error::NotFound(title.to_owned())))?;
+                if !found.open {
+                    return Err(Error::MilestoneClosed(found.number));
+                }
+                Some((found.number, found.title))
+            }
+            _ => None,
+        };
+        let labels = self.draft_labels(d.areas.as_deref());
+        let (n, action) = self.file_linked(&d.title, &d.body, &labels, milestone.as_ref())?;
+        if !ms.links(&n)?.relates_to.contains(issue) {
+            ms.add_relates_to(&n, issue)?;
+        }
+        Ok((n, action))
+    }
+
+    /// The labels of `areas`, or of the brief's when the draft names none.
+    fn draft_labels(&self, areas: Option<&[String]>) -> Vec<String> {
+        match areas {
+            Some(a) if !a.is_empty() => {
+                artifacts::area_labels(&self.root.join("docs").join("specs"), a)
+            }
+            _ => self.run_labels(),
+        }
+    }
+
+    /// Adopts the open issue titled `title` (inside `milestone` when given),
+    /// else files it, labelled; an adopted one is edited only when its text
+    /// differs and gets only the labels it lacks.
+    fn file_linked(
+        &self,
+        title: &str,
+        body: &str,
+        labels: &[String],
+        milestone: Option<&(u64, String)>,
+    ) -> Result<(ItemRef, Action), Error> {
+        let ms = self.milestones()?;
+        let found = match milestone {
+            Some((m, _)) => ms.find_open_in(*m, title)?,
+            None => self.tracker.find_open(title)?,
+        };
+        if let Some(n) = found {
+            self.edit_if_changed(&n, title, body)?;
+            self.label_missing(&n, labels)?;
+            return Ok((n, Action::Adopted));
+        }
+        if !labels.is_empty() {
+            ms.ensure_labels(labels)?;
+        }
+        let n = ms.create_issue(&NewIssue {
+            title,
+            body,
+            milestone: milestone.map(|(_, t)| t.as_str()),
+            labels,
+        })?;
+        Ok((n, Action::Created))
+    }
+
     /// issue-comment.md on the tracking issue and a slice's epic, each
     /// target once per text: a `posted=comment issue=<n> sum=<hash>`
-    /// marks one done, so a rerun after a failure posts only the rest.
+    /// marks one done, so a rerun after a failure posts only the rest. On a
+    /// tracker with milestones the run's issue alone is commented, then
+    /// labelled, and a slice run's kept change is written to its milestone.
     fn file_comment(&mut self) -> Result<(ItemRef, Action), Error> {
         let issue = self.issue()?;
         let text = self.artifact("issue-comment.md")?;
         let text = attribution::strip(&text).unwrap_or(text);
         let sum = crate::install::hash(&text);
+        let native = self.tracker.milestones().is_some();
         let mut targets = vec![issue.clone()];
-        if self.field("kind")?.as_deref() == Some("slice")
+        if !native
+            && self.field("kind")?.as_deref() == Some("slice")
             && let Some(epic) = remote::refs(self.field("epic")?.as_deref())
                 .into_iter()
                 .next()
@@ -95,7 +177,55 @@ impl Run<'_> {
             )?;
             action = Action::Commented;
         }
+        if native {
+            self.label_missing(&issue, &self.run_labels())?;
+            self.write_kept_change()?;
+        }
         Ok((issue, action))
+    }
+
+    /// The milestone on the card of a slice run.
+    fn slice_milestone(&self) -> Result<Option<u64>, Error> {
+        if self.field("kind")?.as_deref() != Some("slice") {
+            return Ok(None);
+        }
+        Ok(self
+            .field("milestone")?
+            .and_then(|n| n.trim().parse::<u64>().ok()))
+    }
+
+    /// A slice run's kept change written to its milestone: the description
+    /// read again just before, the edits applied and one changelog entry
+    /// added. Nothing is written when the entry is there already or an old
+    /// text is gone.
+    fn write_kept_change(&self) -> Result<(), Error> {
+        if self.field("kind")?.as_deref() != Some("slice") {
+            return Ok(());
+        }
+        let Some(m) = self.slice_milestone()? else {
+            return Ok(());
+        };
+        let path = self.layout.run_dir(self.slug).join("milestone-change.md");
+        let raw = self.artifact("milestone-change.md")?;
+        let change = crate::issue::changelog::parse(&raw).ok_or(Error::Missing(path))?;
+        let sum = crate::install::hash(&raw);
+        let ms = self.milestones()?;
+        let current = ms.get(m)?;
+        if crate::issue::changelog::has_entry(&current.description, &sum) {
+            return Ok(());
+        }
+        let login = ms.login()?;
+        let entry = crate::issue::changelog::Entry {
+            at: self.now,
+            author: &login,
+            decision: &change.decision,
+            summary: &change.summary,
+            sum: &sum,
+        };
+        let description = crate::issue::changelog::apply(&current.description, &change, &entry)
+            .map_err(|e| Error::MilestoneStale(e.0))?;
+        ms.set_description(m, &description)?;
+        Ok(())
     }
 
     /// Whether this run files its epic as a milestone.
@@ -126,11 +256,10 @@ impl Run<'_> {
         let (title, body) = split_title(&rendered);
         let (m, action) = self.settle_milestone(&title, &body)?;
         self.set("milestone", &m.to_string())?;
-        let issue = reuse.or_else(|| {
-            remote::refs(self.field("named-issue").ok().flatten().as_deref())
-                .into_iter()
-                .next()
-        });
+        let named = remote::refs(self.field("named-issue")?.as_deref())
+            .into_iter()
+            .next();
+        let issue = reuse.or(named);
         if let Some(i) = issue {
             let ms = self.milestones()?;
             if ms.links(&i)?.open {
@@ -398,6 +527,64 @@ impl Run<'_> {
     }
 
     fn file_split(&mut self) -> Result<(ItemRef, Action), Error> {
+        let (n, action) = if self.tracker.milestones().is_some() {
+            self.file_native_split()?
+        } else {
+            self.file_prose_split()?
+        };
+        let mut split = remote::refs(self.field("split")?.as_deref());
+        if !split.contains(&n) {
+            split.push(n.clone());
+            self.set("split", &remote::ref_list(&split))?;
+        }
+        Ok((n, action))
+    }
+
+    /// A split-off on a tracker with milestones: in the slice's milestone
+    /// for a slice run, a child of the issue it came from unless it has
+    /// another parent, and noted in the milestone's changelog.
+    fn file_native_split(&self) -> Result<(ItemRef, Action), Error> {
+        let source = self.issue()?;
+        let d = artifacts::draft(&self.artifact("split-issue.md")?);
+        let ms = self.milestones()?;
+        let in_milestone = match self.slice_milestone()? {
+            Some(m) => Some((m, ms.get(m)?.title)),
+            None => None,
+        };
+        let labels = self.draft_labels(d.areas.as_deref());
+        let (n, action) = self.file_linked(&d.title, &d.body, &labels, in_milestone.as_ref())?;
+        if ms.links(&n)?.parent.is_none() {
+            ms.set_parent(&n, &source)?;
+        }
+        if let Some((m, _)) = in_milestone {
+            self.note_split(m, &n, &d.title)?;
+        }
+        Ok((n, action))
+    }
+
+    /// One changelog entry on milestone `m` for split-off `n`, once.
+    fn note_split(&self, m: u64, n: &ItemRef, title: &str) -> Result<(), Error> {
+        let ms = self.milestones()?;
+        let sum = crate::install::hash(&format!("split:{n}"));
+        let current = ms.get(m)?;
+        if crate::issue::changelog::has_entry(&current.description, &sum) {
+            return Ok(());
+        }
+        let login = ms.login()?;
+        let decision = format!("Split off {}", n.cite());
+        let entry = crate::issue::changelog::Entry {
+            at: self.now,
+            author: &login,
+            decision: &decision,
+            summary: title,
+            sum: &sum,
+        };
+        let description = crate::issue::changelog::append(&current.description, &entry);
+        ms.set_description(m, &description)?;
+        Ok(())
+    }
+
+    fn file_prose_split(&self) -> Result<(ItemRef, Action), Error> {
         let issue = self.issue()?.cite();
         let (title, body) = split_title(&self.artifact("split-issue.md")?);
         let epic = if self.field("kind")?.as_deref() == Some("slice") {
@@ -421,11 +608,6 @@ impl Run<'_> {
         if let (Some(e), Action::Created) = (&epic, action) {
             let note = format!("Split off {} from {issue}.\n", n.cite());
             self.tracker.comment(e, &note)?;
-        }
-        let mut split = remote::refs(self.field("split")?.as_deref());
-        if !split.contains(&n) {
-            split.push(n.clone());
-            self.set("split", &remote::ref_list(&split))?;
         }
         Ok((n, action))
     }

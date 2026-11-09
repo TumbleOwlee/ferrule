@@ -935,6 +935,16 @@ fn gate2(run: &Run, args: &[(String, String)], facts: &Facts) -> Result<Approval
     ))
 }
 
+/// `  - <k>: <title> → milestone "<m>"` for follow-up draft `text`, or
+/// `→ no milestone`: only a slice run files in the milestone its draft names.
+fn follow_up_line(k: u32, text: &str, slice_run: bool) -> String {
+    let d = artifacts::draft(text);
+    match d.milestone.filter(|_| slice_run) {
+        Some(m) => format!("  - {k}: {} → milestone \"{m}\"", d.title),
+        None => format!("  - {k}: {} → no milestone", d.title),
+    }
+}
+
 fn gate4(run: &Run, args: &[(String, String)]) -> Result<Approval, Error> {
     let pr = match arg(args, "pr") {
         Some(p) if !p.is_empty() => Some(p.to_owned()),
@@ -947,6 +957,13 @@ fn gate4(run: &Run, args: &[(String, String)]) -> Result<Approval, Error> {
     )];
     if k > 0 {
         w.push(format!("- file the {k} follow-up issues"));
+        if run.milestones {
+            let slice_run = run.field("kind")?.as_deref() == Some("slice");
+            for (n, path) in artifacts::follow_ups(&run.layout.run_dir(run.slug)) {
+                let text = std::fs::read_to_string(path).unwrap_or_default();
+                w.push(follow_up_line(n, &text, slice_run));
+            }
+        }
     }
     w.push("- wait for CI, clean up".to_owned());
     let hold = "stop (hold, e.g. for a manual run first)";
@@ -1103,6 +1120,29 @@ mod tests {
         assert_eq!(
             epic_steps(Some("12"), 3, false)[0],
             "rewrite issue #12 as the epic"
+        );
+    }
+
+    /// RU-R-029 — gate 4 shows each follow-up's milestone, or that it has none.
+    #[test]
+    fn ut_gate4_shows_each_follow_ups_milestone() {
+        let text = "# Share the helper\n\nMilestone: Epic one\nBody\n";
+        assert_eq!(
+            follow_up_line(1, text, true),
+            "  - 1: Share the helper → milestone \"Epic one\""
+        );
+        assert_eq!(
+            follow_up_line(2, "# Other\n\nMilestone: none\nBody\n", true),
+            "  - 2: Other → no milestone"
+        );
+        assert_eq!(
+            follow_up_line(3, "# Plain\n\nBody\n", true),
+            "  - 3: Plain → no milestone"
+        );
+        // A run that is no slice run files in no milestone, whatever the draft names.
+        assert_eq!(
+            follow_up_line(1, text, false),
+            "  - 1: Share the helper → no milestone"
         );
     }
 

@@ -539,7 +539,7 @@ mod tests {
         let (_dir, mut db, layout, host) =
             setup(&[("issue", "12"), ("kind", "slice"), ("epic", "#9")]);
         std::fs::write(layout.run_dir("r").join("issue-comment.md"), "Kept R3.\n").unwrap();
-        let tracker = FakeTracker::default();
+        let tracker = tracker_with(|s| s.no_milestones = true);
         let config = Config::default();
         let mut run = run_on(&mut db, &layout, &config, &host);
         run.tracker = Box::new(tracker.clone());
@@ -1188,6 +1188,543 @@ mod tests {
                 calls.contains(&format!("add_labels {issue} area:runs")),
                 "{calls:?}"
             );
+            assert_eq!(
+                calls.iter().filter(|c| c.starts_with("add_labels")).count(),
+                1,
+                "{calls:?}"
+            );
         }
+    }
+
+    const SPLIT: &str = "# Split title\n\nBody of split.\n";
+    const FOLLOW: &str = "# Follow title\n\nBody of follow.\n";
+
+    /// A run on issue 12 with spec areas `runs` and `card`, a brief naming `runs`, a split-off
+    /// and a follow-up draft.
+    fn linked_setup(fields: &[(&str, &str)]) -> (tempfile::TempDir, Board, Layout, FakeHost) {
+        let mut all = vec![("issue", "12")];
+        all.extend_from_slice(fields);
+        let (dir, db, layout, host) = setup(&all);
+        let run = layout.run_dir("r");
+        std::fs::write(run.join("spec-diff.md"), "Area: runs — the runs\n").unwrap();
+        std::fs::write(run.join("split-issue.md"), SPLIT).unwrap();
+        std::fs::write(run.join("follow-up-1.md"), FOLLOW).unwrap();
+        for area in ["runs", "card"] {
+            std::fs::create_dir_all(layout.root.join("docs/specs").join(area)).unwrap();
+        }
+        (dir, db, layout, host)
+    }
+
+    /// A tracker numbering from 8 with milestone 4 and `extra` applied.
+    fn linked_tracker(extra: impl FnOnce(&mut remote::fake::Issues)) -> FakeTracker {
+        tracker_with(|s| {
+            s.next = 8;
+            s.milestones = vec![milestone(4, "brief", true)];
+            extra(s);
+        })
+    }
+
+    fn file_target(
+        db: &mut Board,
+        layout: &Layout,
+        host: &FakeHost,
+        tracker: &FakeTracker,
+        target: Target,
+    ) -> Result<(ItemRef, Action), Error> {
+        let config = Config::default();
+        let mut run = run_on(db, layout, &config, host);
+        run.tracker = Box::new(tracker.clone());
+        run.file(target, None)
+    }
+
+    /// RU-R-025 — a split-off issue gets the source as its parent and carries no `Split from`
+    /// line.
+    #[test]
+    fn ut_split_sets_parent_and_carries_no_line() {
+        let (_dir, mut db, layout, host) = linked_setup(&[]);
+        let tracker = linked_tracker(|_| {});
+        assert_eq!(
+            file_target(&mut db, &layout, &host, &tracker, Target::Split).unwrap(),
+            (ItemRef::Number(8), Action::Created)
+        );
+        let calls = tracker.calls();
+        assert!(calls.contains(&"set_parent 8 12".to_owned()), "{calls:?}");
+        let body = tracker.0.borrow().bodies[&8].clone();
+        assert!(!body.contains("Split from"), "{body}");
+        assert!(body.contains("Body of split."), "{body}");
+        assert_eq!(field(&mut db, "split").as_deref(), Some("[8]"));
+    }
+
+    /// RU-R-026 — a split-off of a slice run is filed in the slice's milestone, which records
+    /// the split in its changelog once.
+    #[test]
+    fn ut_split_of_a_slice_is_in_its_milestone() {
+        let (_dir, mut db, layout, host) = linked_setup(&[("kind", "slice"), ("milestone", "4")]);
+        let tracker = linked_tracker(|s| s.login = "ann".into());
+        file_target(&mut db, &layout, &host, &tracker, Target::Split).unwrap();
+        let calls = tracker.calls();
+        assert!(
+            calls.contains(&"find_open_in 4 Split title".to_owned()),
+            "{calls:?}"
+        );
+        assert!(
+            calls
+                .iter()
+                .any(|c| c.starts_with("create_issue Split title milestone=4")),
+            "{calls:?}"
+        );
+        let d = tracker.0.borrow().milestones[0].description.clone();
+        assert!(d.contains("@ann · Split off #8 — Split title"), "{d}");
+        // A rerun records no second entry.
+        board::set(db.conn_mut(), "r", "split", "").unwrap();
+        file_target(&mut db, &layout, &host, &tracker, Target::Split).unwrap();
+        let d = tracker.0.borrow().milestones[0].description.clone();
+        assert_eq!(d.matches("ferrule:change").count(), 1, "{d}");
+    }
+
+    /// RU-E-017 — an adopted split-off keeps the parent it already has.
+    #[test]
+    fn ut_adopted_split_keeps_its_other_parent() {
+        let (_dir, mut db, layout, host) = linked_setup(&[]);
+        let tracker = linked_tracker(|s| {
+            s.open = vec![(30, "Split title".into())];
+            s.links.insert(
+                30,
+                remote::IssueLinks {
+                    open: true,
+                    parent: Some(ItemRef::Number(9)),
+                    ..Default::default()
+                },
+            );
+        });
+        assert_eq!(
+            file_target(&mut db, &layout, &host, &tracker, Target::Split).unwrap(),
+            (ItemRef::Number(30), Action::Adopted)
+        );
+        assert!(!tracker.calls().iter().any(|c| c.starts_with("set_parent")));
+    }
+
+    /// RU-R-024 — a split-off carries the labels of the areas its draft names, else the brief's.
+    #[test]
+    fn ut_split_carries_its_area_labels() {
+        let (_dir, mut db, layout, host) = linked_setup(&[]);
+        let tracker = linked_tracker(|_| {});
+        std::fs::write(
+            layout.run_dir("r").join("split-issue.md"),
+            "# Split title\n\nAreas: card, ghost\nBody of split.\n",
+        )
+        .unwrap();
+        file_target(&mut db, &layout, &host, &tracker, Target::Split).unwrap();
+        let calls = tracker.calls();
+        assert!(
+            calls.contains(&"create_issue Split title milestone=- labels=area:card".to_owned()),
+            "{calls:?}"
+        );
+        let body = tracker.0.borrow().bodies[&8].clone();
+        assert!(!body.contains("Areas:"), "{body}");
+        board::set(db.conn_mut(), "r", "split", "").unwrap();
+        std::fs::write(layout.run_dir("r").join("split-issue.md"), SPLIT).unwrap();
+        tracker.0.borrow_mut().open.clear();
+        file_target(&mut db, &layout, &host, &tracker, Target::Split).unwrap();
+        assert!(
+            tracker
+                .calls()
+                .contains(&"create_issue Split title milestone=- labels=area:runs".to_owned())
+        );
+    }
+
+    /// RU-R-024 — an adopted split-off gets only the labels it lacks, and no text rewrite when
+    /// it already holds the draft.
+    #[test]
+    fn ut_adopted_split_gets_only_missing_labels() {
+        let (_dir, mut db, layout, host) = linked_setup(&[]);
+        std::fs::write(
+            layout.run_dir("r").join("split-issue.md"),
+            "# Split title\n\nAreas: runs, card\nBody of split.\n",
+        )
+        .unwrap();
+        let tracker = linked_tracker(|s| {
+            s.open = vec![(30, "Split title".into())];
+            s.bodies.insert(30, "Body of split.\n".into());
+            s.links.insert(
+                30,
+                remote::IssueLinks {
+                    open: true,
+                    labels: vec!["area:runs".into()],
+                    parent: Some(ItemRef::Number(12)),
+                    ..Default::default()
+                },
+            );
+        });
+        file_target(&mut db, &layout, &host, &tracker, Target::Split).unwrap();
+        assert_eq!(
+            writes(&tracker, 0),
+            ["ensure_labels area:card", "add_labels 30 area:card"]
+        );
+    }
+
+    /// RU-R-027 — a follow-up gets a `relates to` link to the run's issue and no `Found in`
+    /// line; a rerun adds the link only when it is missing.
+    #[test]
+    fn ut_follow_up_relates_and_carries_no_line() {
+        let (_dir, mut db, layout, host) = linked_setup(&[]);
+        let tracker = linked_tracker(|_| {});
+        assert_eq!(
+            file_target(&mut db, &layout, &host, &tracker, Target::FollowUp(1)).unwrap(),
+            (ItemRef::Number(8), Action::Created)
+        );
+        assert!(tracker.calls().contains(&"add_relates_to 8 12".to_owned()));
+        let body = tracker.0.borrow().bodies[&8].clone();
+        assert!(!body.contains("Found in"), "{body}");
+        assert!(body.contains("Body of follow."), "{body}");
+        db.conn_mut()
+            .execute("DELETE FROM events WHERE name LIKE 'posted%'", [])
+            .unwrap();
+        tracker.0.borrow_mut().links.insert(
+            8,
+            remote::IssueLinks {
+                open: true,
+                relates_to: vec![ItemRef::Number(12)],
+                labels: vec!["area:runs".into()],
+                ..Default::default()
+            },
+        );
+        let from = tracker.calls().len();
+        file_target(&mut db, &layout, &host, &tracker, Target::FollowUp(1)).unwrap();
+        assert!(
+            writes(&tracker, from).is_empty(),
+            "{:?}",
+            writes(&tracker, from)
+        );
+    }
+
+    /// RU-R-028 — a follow-up of a slice run lands in the milestone its draft names.
+    #[test]
+    fn ut_follow_up_lands_in_the_named_milestone() {
+        let (_dir, mut db, layout, host) = linked_setup(&[("kind", "slice"), ("milestone", "4")]);
+        std::fs::write(
+            layout.run_dir("r").join("follow-up-1.md"),
+            "# Follow title\n\nMilestone: Other\nBody of follow.\n",
+        )
+        .unwrap();
+        let mut other = milestone(5, "x", true);
+        "Other".clone_into(&mut other.title);
+        let tracker = linked_tracker(|s| s.milestones.push(other));
+        file_target(&mut db, &layout, &host, &tracker, Target::FollowUp(1)).unwrap();
+        let calls = tracker.calls();
+        assert!(
+            calls.contains(&"find_open_in 5 Follow title".to_owned()),
+            "{calls:?}"
+        );
+        assert!(
+            calls
+                .iter()
+                .any(|c| c.starts_with("create_issue Follow title milestone=5")),
+            "{calls:?}"
+        );
+        let body = tracker.0.borrow().bodies[&8].clone();
+        assert!(!body.contains("Milestone:"), "{body}");
+    }
+
+    /// RU-E-015 — a follow-up naming a closed milestone refuses and files nothing.
+    #[test]
+    fn ut_follow_up_naming_a_closed_milestone_refuses() {
+        let (_dir, mut db, layout, host) = linked_setup(&[("kind", "slice"), ("milestone", "4")]);
+        std::fs::write(
+            layout.run_dir("r").join("follow-up-1.md"),
+            "# Follow title\n\nMilestone: Retry clients\nBody.\n",
+        )
+        .unwrap();
+        let tracker = linked_tracker(|s| s.milestones = vec![milestone(4, "x", false)]);
+        let e = file_target(&mut db, &layout, &host, &tracker, Target::FollowUp(1)).unwrap_err();
+        assert!(matches!(e, Error::MilestoneClosed(4)), "{e}");
+        assert!(writes(&tracker, 0).is_empty());
+        assert_eq!(field(&mut db, "issue").as_deref(), Some("12"));
+    }
+
+    /// RU-E-015 — a follow-up naming an absent milestone refuses, names it and files nothing.
+    #[test]
+    fn ut_follow_up_naming_an_absent_milestone_refuses() {
+        let (_dir, mut db, layout, host) = linked_setup(&[("kind", "slice"), ("milestone", "4")]);
+        std::fs::write(
+            layout.run_dir("r").join("follow-up-1.md"),
+            "# Follow title\n\nMilestone: Nowhere\nBody.\n",
+        )
+        .unwrap();
+        let tracker = linked_tracker(|_| {});
+        let e = file_target(&mut db, &layout, &host, &tracker, Target::FollowUp(1)).unwrap_err();
+        assert!(
+            matches!(&e, Error::Remote(remote::Error::NotFound(t)) if t == "Nowhere"),
+            "{e}"
+        );
+        assert!(writes(&tracker, 0).is_empty());
+    }
+
+    /// RU-E-016 — a follow-up of a run that is no slice run is filed in no milestone, whatever
+    /// its draft names.
+    #[test]
+    fn ut_follow_up_of_a_plain_run_has_no_milestone() {
+        let (_dir, mut db, layout, host) = linked_setup(&[("milestone", "4")]);
+        std::fs::write(
+            layout.run_dir("r").join("follow-up-1.md"),
+            "# Follow title\n\nMilestone: Retry clients\nBody.\n",
+        )
+        .unwrap();
+        let tracker = linked_tracker(|_| {});
+        file_target(&mut db, &layout, &host, &tracker, Target::FollowUp(1)).unwrap();
+        let calls = tracker.calls();
+        assert!(
+            calls
+                .iter()
+                .any(|c| c.starts_with("create_issue Follow title milestone=- ")),
+            "{calls:?}"
+        );
+        assert!(!calls.iter().any(|c| c.starts_with("list")), "{calls:?}");
+    }
+
+    /// RU-R-024 — a follow-up carries the labels of the areas its draft names, else the brief's.
+    #[test]
+    fn ut_follow_up_carries_its_area_labels() {
+        let (_dir, mut db, layout, host) = linked_setup(&[]);
+        let tracker = linked_tracker(|_| {});
+        file_target(&mut db, &layout, &host, &tracker, Target::FollowUp(1)).unwrap();
+        assert!(
+            tracker
+                .calls()
+                .contains(&"create_issue Follow title milestone=- labels=area:runs".to_owned())
+        );
+        std::fs::write(
+            layout.run_dir("r").join("follow-up-2.md"),
+            "# Second title\n\nAreas: card\nBody.\n",
+        )
+        .unwrap();
+        file_target(&mut db, &layout, &host, &tracker, Target::FollowUp(2)).unwrap();
+        assert!(
+            tracker
+                .calls()
+                .contains(&"create_issue Second title milestone=- labels=area:card".to_owned())
+        );
+    }
+
+    /// RU-R-024 — an adopted follow-up gets only the labels it lacks.
+    #[test]
+    fn ut_adopted_follow_up_gets_only_missing_labels() {
+        let (_dir, mut db, layout, host) = linked_setup(&[]);
+        std::fs::write(
+            layout.run_dir("r").join("follow-up-1.md"),
+            "# Follow title\n\nAreas: runs, card\nBody of follow.\n",
+        )
+        .unwrap();
+        let tracker = linked_tracker(|s| {
+            s.open = vec![(30, "Follow title".into())];
+            s.bodies.insert(30, "Body of follow.\n".into());
+            s.links.insert(
+                30,
+                remote::IssueLinks {
+                    open: true,
+                    labels: vec!["area:runs".into()],
+                    relates_to: vec![ItemRef::Number(12)],
+                    ..Default::default()
+                },
+            );
+        });
+        file_target(&mut db, &layout, &host, &tracker, Target::FollowUp(1)).unwrap();
+        assert_eq!(
+            writes(&tracker, 0),
+            ["ensure_labels area:card", "add_labels 30 area:card"]
+        );
+    }
+
+    const CHANGE: &str = "Decision: keep retries\nSummary: retries stay\n\n@@ old\nold text\n@@ new\nnew text\n@@ end\n";
+
+    /// A slice run on issue 12 in milestone 4 holding `description`, with a kept change.
+    fn kept_setup(description: &str) -> (tempfile::TempDir, Board, Layout, FakeHost, FakeTracker) {
+        let (dir, db, layout, host) = linked_setup(&[("kind", "slice"), ("milestone", "4")]);
+        let run = layout.run_dir("r");
+        std::fs::write(run.join("issue-comment.md"), "Kept R3.\n").unwrap();
+        std::fs::write(run.join("milestone-change.md"), CHANGE).unwrap();
+        let description = description.to_owned();
+        let tracker = linked_tracker(|s| {
+            s.login = "ann".into();
+            s.milestones[0].description = description;
+            s.links.insert(
+                12,
+                remote::IssueLinks {
+                    open: true,
+                    labels: vec!["area:runs".into()],
+                    ..Default::default()
+                },
+            );
+        });
+        (dir, db, layout, host, tracker)
+    }
+
+    /// RU-R-020 — a kept change edits the milestone description in place and adds one changelog
+    /// entry, once.
+    #[test]
+    fn ut_kept_change_updates_the_description() {
+        let (_dir, mut db, layout, host, tracker) = kept_setup("Goal\nold text\n");
+        file_target(&mut db, &layout, &host, &tracker, Target::Comment).unwrap();
+        let d = tracker.0.borrow().milestones[0].description.clone();
+        assert!(d.starts_with("Goal\nnew text\n"), "{d}");
+        assert!(
+            d.contains("2026-01-02T03:04 UTC · @ann · keep retries — retries stay"),
+            "{d}"
+        );
+        // The comment goes to the run's issue alone, not an epic.
+        assert_eq!(tracker.0.borrow().comments.len(), 1);
+        db.conn_mut()
+            .execute("DELETE FROM events WHERE name LIKE 'posted%'", [])
+            .unwrap();
+        let from = tracker.calls().len();
+        file_target(&mut db, &layout, &host, &tracker, Target::Comment).unwrap();
+        assert!(
+            !tracker.calls()[from..]
+                .iter()
+                .any(|c| c.starts_with("set_description")),
+            "{:?}",
+            tracker.calls()
+        );
+    }
+
+    /// RU-E-005 — the description is read just before it is written.
+    #[test]
+    fn ut_kept_change_reads_just_before_writing() {
+        let (_dir, mut db, layout, host, tracker) = kept_setup("Goal\nold text\n");
+        file_target(&mut db, &layout, &host, &tracker, Target::Comment).unwrap();
+        let calls = tracker.calls();
+        let n = calls.len();
+        assert_eq!(
+            calls[n - 3..],
+            ["get 4", "login", "set_description 4"],
+            "{calls:?}"
+        );
+    }
+
+    /// RU-E-011 — an old text no longer in the description refuses and leaves it unchanged.
+    #[test]
+    fn ut_stale_old_text_refuses_and_writes_nothing() {
+        let (_dir, mut db, layout, host, tracker) = kept_setup("Goal\nsomething else\n");
+        let e = file_target(&mut db, &layout, &host, &tracker, Target::Comment).unwrap_err();
+        assert!(
+            matches!(&e, Error::MilestoneStale(t) if t == "old text"),
+            "{e}"
+        );
+        assert!(
+            !tracker
+                .calls()
+                .iter()
+                .any(|c| c.starts_with("set_description")),
+            "{:?}",
+            tracker.calls()
+        );
+        assert_eq!(
+            tracker.0.borrow().milestones[0].description,
+            "Goal\nsomething else\n"
+        );
+    }
+
+    /// A slice run without a readable change file refuses naming it.
+    #[test]
+    fn ut_kept_change_needs_a_readable_change_file() {
+        let (_dir, mut db, layout, host, tracker) = kept_setup("Goal\nold text\n");
+        let path = layout.run_dir("r").join("milestone-change.md");
+        std::fs::write(&path, "no decision here\n").unwrap();
+        let e = file_target(&mut db, &layout, &host, &tracker, Target::Comment).unwrap_err();
+        assert!(matches!(&e, Error::Missing(p) if *p == path), "{e}");
+        std::fs::remove_file(&path).unwrap();
+        let e = file_target(&mut db, &layout, &host, &tracker, Target::Comment).unwrap_err();
+        assert!(matches!(&e, Error::Missing(p) if *p == path), "{e}");
+    }
+
+    /// RU-R-036 — a kept change adds the label of an area the brief now names, none removed.
+    #[test]
+    fn ut_kept_change_adds_a_new_area_label() {
+        let (_dir, mut db, layout, host, tracker) = kept_setup("Goal\nold text\n");
+        std::fs::write(
+            layout.run_dir("r").join("spec-diff.md"),
+            "Area: runs — a; card — b\n",
+        )
+        .unwrap();
+        tracker.0.borrow_mut().links.get_mut(&12).unwrap().labels =
+            vec!["area:runs".into(), "bug".into()];
+        file_target(&mut db, &layout, &host, &tracker, Target::Comment).unwrap();
+        let calls = tracker.calls();
+        assert!(
+            calls.contains(&"add_labels 12 area:card".to_owned()),
+            "{calls:?}"
+        );
+        assert!(!calls.iter().any(|c| c.contains("add_labels 12 area:runs")));
+    }
+
+    /// A tracker without milestones gets the split-off's marker, its `Split from` line and a
+    /// note on the epic.
+    #[test]
+    fn ut_prose_split_keeps_its_marker_and_line() {
+        let (_dir, mut db, layout, host) = linked_setup(&[("kind", "slice"), ("epic", "#9")]);
+        let tracker = tracker_with(|s| {
+            s.no_milestones = true;
+            s.next = 8;
+            s.open = vec![(30, "Split title".into())];
+        });
+        assert_eq!(
+            file_target(&mut db, &layout, &host, &tracker, Target::Split).unwrap(),
+            (ItemRef::Number(30), Action::Adopted)
+        );
+        let body = tracker.0.borrow().bodies[&30].clone();
+        assert!(
+            body.starts_with("**Part of epic** #9 · split from #12\n\n"),
+            "{body}"
+        );
+        assert!(body.ends_with("\n\nSplit from #12\n"), "{body}");
+        tracker.0.borrow_mut().open.clear();
+        board::set(db.conn_mut(), "r", "split", "").unwrap();
+        file_target(&mut db, &layout, &host, &tracker, Target::Split).unwrap();
+        assert!(tracker.calls().contains(&"comment 9".to_owned()));
+        assert!(!tracker.calls().iter().any(|c| c.starts_with("set_parent")));
+    }
+
+    /// A tracker without milestones gets the follow-up's `Found in` line and no relationship.
+    #[test]
+    fn ut_prose_follow_up_keeps_its_found_in_line() {
+        let (_dir, mut db, layout, host) = linked_setup(&[]);
+        let tracker = tracker_with(|s| {
+            s.no_milestones = true;
+            s.open = vec![(30, "Follow title".into())];
+        });
+        file_target(&mut db, &layout, &host, &tracker, Target::FollowUp(1)).unwrap();
+        let body = tracker.0.borrow().bodies[&30].clone();
+        assert!(body.ends_with("\n\nFound in #12\n"), "{body}");
+        assert!(
+            !tracker
+                .calls()
+                .iter()
+                .any(|c| c.starts_with("add_relates_to"))
+        );
+    }
+
+    /// A tracker without milestones comments on the epic as well, and a rerun after the issue's
+    /// comment was logged posts only the epic's.
+    #[test]
+    fn ut_prose_comment_retries_only_the_epic() {
+        let (_dir, mut db, layout, host) =
+            setup(&[("issue", "12"), ("kind", "slice"), ("epic", "#9")]);
+        std::fs::write(layout.run_dir("r").join("issue-comment.md"), "Kept R3.\n").unwrap();
+        let tracker = tracker_with(|s| s.no_milestones = true);
+        let text = "Kept R3.\n";
+        let sum = crate::install::hash(text);
+        board::log(
+            db.conn_mut(),
+            "r",
+            "posted=comment",
+            &["issue=12".to_owned(), format!("sum={sum}")],
+            "t",
+        )
+        .unwrap();
+        assert_eq!(
+            file_target(&mut db, &layout, &host, &tracker, Target::Comment).unwrap(),
+            (ItemRef::Number(12), Action::Commented)
+        );
+        assert_eq!(tracker.calls(), ["view 9", "comment 9"]);
     }
 }
