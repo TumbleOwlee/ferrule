@@ -166,7 +166,7 @@ pub(crate) struct Issues {
     pub calls: Vec<String>,
     /// Comments posted: the issue and the body.
     pub comments: Vec<(u64, String)>,
-    /// The milestones, numbered from 1 in creation order.
+    /// The milestones, numbered from `next` in creation order.
     pub milestones: Vec<Milestone>,
     /// What `links` answers, by issue.
     pub links: HashMap<u64, IssueLinks>,
@@ -235,12 +235,11 @@ impl IssueTracker for FakeTracker {
         })
     }
 
-    fn create(&self, title: &str, body: &str) -> Result<ItemRef, Error> {
+    fn create(&self, title: &str, _body: &str) -> Result<ItemRef, Error> {
         self.write("issue create", format!("create {title}"))?;
         let mut s = self.0.borrow_mut();
         let n = s.next;
         s.open.push((n, title.to_owned()));
-        s.bodies.insert(n, body.to_owned());
         s.next += 1;
         Ok(ItemRef::Number(n))
     }

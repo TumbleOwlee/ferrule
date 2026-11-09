@@ -46,4 +46,13 @@
 
 ## ferrule issue milestones
 
-- `ferrule issue milestones` lists open milestones as `#<n> <title>`; `--view <n>` prints one description (RU-R-028)
+- `ferrule issue milestones` lists open milestones as `#<n> <title>`; `--view <n>` prints one description (RU-R-028, RU-R-039)
+
+## Issue draft lines
+
+- `Areas: <a>, <b>` — a line at the top of a split-off or follow-up draft body, and a slice's key in an epic's architecture, naming the spec areas to label (RU-R-024)
+- `Milestone: <exact title> | none` — a follow-up draft's milestone, read for a slice run only (RU-R-028, RU-R-039, RU-R-040, RU-E-015, RU-E-016)
+
+## Run files
+
+- `milestone-change.md` — a kept change on a slice run: a `Decision:` line, a `Summary:` line, then `@@ old`, `@@ new` and `@@ end` blocks of the text to replace in the milestone description (RU-R-020, RU-R-021)

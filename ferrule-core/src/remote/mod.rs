@@ -12,7 +12,7 @@ mod github;
 mod host;
 mod item_ref;
 mod jira;
-mod milestones;
+pub mod milestones;
 mod tracker;
 
 pub use bitbucket::Bitbucket;

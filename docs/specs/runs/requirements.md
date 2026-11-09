@@ -62,7 +62,11 @@
 
 **RU-R-027** — A follow-up issue has a `relates to` relationship to the issue it came from and carries no `Found in` line.
 
-**RU-R-028** — A follow-up of a slice run is filed in the run's milestone when its context fits that milestone, else in another open milestone whose context fits it, else in no milestone.
+**RU-R-028** — A follow-up of a slice run is filed in the run's milestone when its context fits that milestone.
+
+**RU-R-039** — A follow-up of a slice run whose context does not fit the run's milestone is filed in another open milestone whose context fits it.
+
+**RU-R-040** — A follow-up of a slice run whose context fits no open milestone is filed in no milestone.
 
 **RU-R-029** — The gate 4 stop shows the milestone proposed for each follow-up, or that it has none.
 
