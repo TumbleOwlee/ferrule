@@ -679,6 +679,33 @@ fn it_implementer_reads_the_spec_rules_before_a_spec_change() {
     assert!(text.contains("Before a spec change, read the rules that bind the text: `ferrule file section 'Rules for writing specs' docs/specs/README.md`"), "{text}");
 }
 
+/// GA-R-060, GA-R-061 — the planner and re-plan guides read the rules that bind a spec edit first.
+#[test]
+fn it_planner_guides_read_the_spec_rules_before_a_spec_edit() {
+    const READ: &str = "Before you edit an entry, read the rules that bind the text: `ferrule file section 'Rules for writing specs' docs/specs/README.md`.";
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    for guide in ["planner", "planner-replan"] {
+        let text = ok(
+            root,
+            &[
+                "guide",
+                guide,
+                "--slug",
+                "demo",
+                "--section",
+                "Interview before drafting",
+            ],
+        );
+        let read = text.find(READ).unwrap_or_else(|| panic!("{guide}: {text}"));
+        let edit = text
+            .find("edit `spec-diff.md` in place")
+            .unwrap_or_else(|| panic!("{guide}: {text}"));
+        assert!(read < edit, "{guide}: {text}");
+    }
+}
+
 /// GA-R-037 — the bootstrap suggests only the override that keeps the guide's text.
 #[test]
 fn it_bootstrap_suggests_no_project_rules_override() {
