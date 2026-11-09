@@ -201,6 +201,8 @@ pub const PARENT_FIELDS: &[&str] = &[
     "artifacts",
     "worktree",
     "named-issue",
+    "milestone",
+    "slice",
 ];
 /// Frontmatter keys a stage card may carry; `id` and `parent` are derived.
 pub const STAGE_FIELDS: &[&str] = &["title", "blocked-by", "files", "branch", "worktree", "stop"];
@@ -220,6 +222,11 @@ pub const FERRULE_FIELDS: &[(&str, &str)] = &[
         "ferrule gate approve <slug> gate2 or ferrule issue post <slug>",
     ),
     ("named-issue", "ferrule run init <slug> --issue <n>"),
+    (
+        "milestone",
+        "ferrule issue post <slug> or ferrule run init <slug> --issue <n>",
+    ),
+    ("slice", "ferrule run init <slug> --issue <n>"),
     ("pr", "ferrule pr open <slug>"),
 ];
 
@@ -1660,6 +1667,20 @@ mod tests {
         let mut ids: Vec<String> = reworded_ids(&s.conn, "r").unwrap().into_iter().collect();
         ids.sort();
         assert_eq!(ids, ["MB-R-294", "MB-R-301"]);
+    }
+
+    /// `milestone` and `slice` are parent fields only a ferrule command sets.
+    #[test]
+    fn ut_milestone_and_slice_are_ferrule_only_parent_fields() {
+        assert!(PARENT_FIELDS.contains(&"milestone") && PARENT_FIELDS.contains(&"slice"));
+        assert_eq!(
+            field_owner("milestone"),
+            Some("ferrule issue post <slug> or ferrule run init <slug> --issue <n>")
+        );
+        assert_eq!(
+            field_owner("slice"),
+            Some("ferrule run init <slug> --issue <n>")
+        );
     }
 
     #[test]

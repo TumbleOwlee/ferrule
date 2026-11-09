@@ -14,8 +14,8 @@ Slices:
 Issue: new — Load balancing core
 Confirm: nothing flagged
 Approving will:
-- file the epic issue
-- file 3 slice issues in order and link them from the epic
+- file the milestone
+- file 3 slice issues in order in the milestone
 - clean up — no code, no worktree
 Answer: approve · change <what> · stop
 exit=0

@@ -45,6 +45,10 @@ pub enum Error {
     NoPr,
     /// A stage card the board would not move back: its number and why.
     Moved(u32, String),
+    /// The milestone of the epic's title is closed: its number.
+    MilestoneClosed(u64),
+    /// A milestone text an edit expected is no longer there: the old text.
+    MilestoneStale(String),
     Remote(remote::Error),
     Sql(rusqlite::Error),
 }
@@ -75,6 +79,16 @@ impl Error {
                     .field("stage", format!("s{n}"))
                     .hint(format!("stage s{n} cannot move back to inprogress: {why}")),
             ),
+            Error::MilestoneClosed(n) => Some(
+                Refusal::new(verb, "milestone-closed")
+                    .field("milestone", n)
+                    .hint(format!(
+                        "milestone #{n} is closed; reopen it on GitHub, or retitle the draft or its Milestone: line, and rerun"
+                    )),
+            ),
+            Error::MilestoneStale(_) => Some(Refusal::new(verb, "milestone-stale").hint(
+                "another run changed that text; redraft milestone-change.md against `ferrule issue milestones --view <n>` and rerun",
+            )),
             Error::Remote(e) => Some(e.refusal(verb)),
             Error::Missing(p) => Some(
                 Refusal::new(verb, "missing")
@@ -99,6 +113,8 @@ impl std::fmt::Display for Error {
             Error::Card => f.write_str("the run has no card"),
             Error::NoPr => f.write_str("the run has no PR recorded"),
             Error::Moved(n, why) => write!(f, "stage s{n} cannot move back: {why}"),
+            Error::MilestoneClosed(n) => write!(f, "milestone #{n} is closed"),
+            Error::MilestoneStale(t) => write!(f, "the milestone no longer holds: {t}"),
             Error::Remote(e) => write!(f, "{e}"),
             Error::Sql(e) => write!(f, "state database: {e}"),
         }
@@ -116,6 +132,8 @@ impl std::error::Error for Error {
             | Error::NoBranch
             | Error::Card
             | Error::NoPr
+            | Error::MilestoneClosed(_)
+            | Error::MilestoneStale(_)
             | Error::Moved(..) => None,
         }
     }
@@ -466,6 +484,7 @@ mod tests {
     fn ut_gate2_issue_adopts_the_open_issue_of_the_same_title() {
         let (_dir, mut db, layout, host) = setup(&[]);
         let tracker = FakeTracker::default();
+        tracker.0.borrow_mut().no_milestones = true;
         tracker.0.borrow_mut().open =
             vec![(30, "Retry client".into()), (31, "Retry clients".into())];
         let config = Config::default();
@@ -497,6 +516,7 @@ mod tests {
         let (_dir, mut db, layout, host) = setup(&[]);
         let tracker = FakeTracker::default();
         tracker.0.borrow_mut().next = 8;
+        tracker.0.borrow_mut().no_milestones = true;
         let config = Config::default();
         let mut run = run_on(&mut db, &layout, &config, &host);
         run.tracker = Box::new(tracker.clone());
@@ -649,5 +669,525 @@ mod tests {
     fn ut_numbers() {
         assert_eq!(numbers(Some("[71, #72]")), [71, 72]);
         assert!(numbers(None).is_empty());
+    }
+
+    /// RU-E-006 — a closed milestone refuses with its number and a way out.
+    #[test]
+    fn ut_milestone_refusals_name_their_fix() {
+        let closed = Error::MilestoneClosed(7)
+            .refusal("post")
+            .unwrap()
+            .to_string();
+        assert!(
+            closed.starts_with("post=refused reason=milestone-closed milestone=7 hint="),
+            "{closed}"
+        );
+        assert!(closed.contains("milestone #7 is closed"), "{closed}");
+        let stale = Error::MilestoneStale("x".into())
+            .refusal("post")
+            .unwrap()
+            .to_string();
+        assert!(
+            stale.starts_with("post=refused reason=milestone-stale hint="),
+            "{stale}"
+        );
+        assert!(stale.contains("ferrule issue milestones --view"), "{stale}");
+    }
+
+    const SLICES: &str = "## Slice 1: Core\nGoal: build core\nDepends on: none\nAreas: runs, ghost\n\n## Slice 2: Edge\nGoal: build edge\nDepends on: 1\n";
+
+    /// An epic run: its artifacts, a spec area `runs`, and `fields`.
+    fn epic_setup(fields: &[(&str, &str)]) -> (tempfile::TempDir, Board, Layout, FakeHost) {
+        let mut all = vec![("kind", "epic")];
+        all.extend_from_slice(fields);
+        let (dir, db, layout, host) = setup(&all);
+        let run = layout.run_dir("r");
+        std::fs::write(run.join("slices.md"), SLICES).unwrap();
+        std::fs::write(run.join("spec-diff.md"), "Area: runs — the runs\n").unwrap();
+        std::fs::write(
+            run.join("architecture.summary.md"),
+            "Decide: use a pool\n\n| Component | Role |\n|---|---|\n| Pool | holds |\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(layout.root.join("docs/specs/runs")).unwrap();
+        (dir, db, layout, host)
+    }
+
+    fn milestone(number: u64, description: &str, open: bool) -> remote::Milestone {
+        remote::Milestone {
+            number,
+            title: "Retry clients".to_owned(),
+            description: description.to_owned(),
+            open,
+        }
+    }
+
+    fn tracker_with(setup: impl FnOnce(&mut remote::fake::Issues)) -> FakeTracker {
+        let t = FakeTracker::default();
+        setup(&mut t.0.borrow_mut());
+        t
+    }
+
+    fn field(db: &mut Board, key: &str) -> Option<String> {
+        board::field(db.conn_mut(), "r", key).unwrap()
+    }
+
+    /// RU-R-013 — an epic files one milestone and no issue.
+    #[test]
+    fn ut_epic_files_one_milestone_and_no_issue() {
+        let (_dir, mut db, layout, host) = epic_setup(&[]);
+        let tracker = tracker_with(|s| s.next = 3);
+        let config = Config::default();
+        let mut run = run_on(&mut db, &layout, &config, &host);
+        run.tracker = Box::new(tracker.clone());
+        assert!(run.files_milestone().unwrap());
+        assert_eq!(run.file_epic(None).unwrap(), (3, Action::Created));
+        assert_eq!(
+            tracker.calls(),
+            ["list all", "create_milestone Retry clients"]
+        );
+        assert_eq!(field(&mut db, "milestone").as_deref(), Some("3"));
+        assert_eq!(field(&mut db, "issue"), None);
+    }
+
+    /// RU-R-013 — a run that is no epic, or a tracker without milestones, files none.
+    #[test]
+    fn ut_only_an_epic_on_a_milestone_tracker_files_a_milestone() {
+        let (_dir, mut db, layout, host) = setup(&[]);
+        let config = Config::default();
+        let run = run_on(&mut db, &layout, &config, &host);
+        assert!(!run.files_milestone().unwrap());
+        let (_dir, mut db, layout, host) = epic_setup(&[]);
+        let mut run = run_on(&mut db, &layout, &config, &host);
+        run.tracker = Box::new(tracker_with(|s| s.no_milestones = true));
+        assert!(!run.files_milestone().unwrap());
+    }
+
+    /// RU-R-014 — the description holds the brief and the skeleton, the slice list is not in it.
+    #[test]
+    fn ut_epic_description_holds_brief_and_skeleton() {
+        let (_dir, mut db, layout, host) = epic_setup(&[]);
+        let tracker = FakeTracker::default();
+        let config = Config::default();
+        let mut run = run_on(&mut db, &layout, &config, &host);
+        run.tracker = Box::new(tracker.clone());
+        run.file_epic(None).unwrap();
+        let d = tracker.0.borrow().milestones[0].description.clone();
+        assert!(d.contains("## Goal\nReconnect."), "{d}");
+        assert!(d.contains("## Architecture\nuse a pool"), "{d}");
+        assert!(!d.contains("## Slices"), "{d}");
+        assert!(d.ends_with("## Changelog\n"), "{d}");
+    }
+
+    /// RU-R-019 — an epic on an existing issue closes it and never edits it.
+    #[test]
+    fn ut_epic_on_an_existing_issue_closes_it_unedited() {
+        let (_dir, mut db, layout, host) = epic_setup(&[("named-issue", "12")]);
+        let tracker = tracker_with(|s| {
+            s.next = 3;
+            s.open = vec![(12, "Old epic".into())];
+            s.links.insert(
+                12,
+                remote::IssueLinks {
+                    open: true,
+                    ..Default::default()
+                },
+            );
+        });
+        let config = Config::default();
+        let mut run = run_on(&mut db, &layout, &config, &host);
+        run.tracker = Box::new(tracker.clone());
+        assert_eq!(run.file_epic(None).unwrap(), (3, Action::Created));
+        let calls = tracker.calls();
+        assert!(calls.contains(&"close 12".to_owned()), "{calls:?}");
+        assert!(!calls.iter().any(|c| c.starts_with("edit")), "{calls:?}");
+        assert_eq!(field(&mut db, "issue").as_deref(), Some("12"));
+        // The issue is closed now: a rerun closes nothing again.
+        tracker.0.borrow_mut().links.get_mut(&12).unwrap().open = false;
+        let mut run = run_on(&mut db, &layout, &config, &host);
+        run.tracker = Box::new(tracker.clone());
+        run.file_epic(None).unwrap();
+        assert_eq!(
+            tracker.calls().iter().filter(|c| *c == "close 12").count(),
+            1
+        );
+    }
+
+    /// RU-R-037 — a rerun adopts the open milestone of the title and rewrites its description.
+    #[test]
+    fn ut_rerun_adopts_the_open_milestone() {
+        let (_dir, mut db, layout, host) = epic_setup(&[]);
+        let tracker = tracker_with(|s| s.milestones = vec![milestone(4, "stale", true)]);
+        let config = Config::default();
+        let mut run = run_on(&mut db, &layout, &config, &host);
+        run.tracker = Box::new(tracker.clone());
+        assert_eq!(run.file_epic(None).unwrap(), (4, Action::Adopted));
+        assert_eq!(field(&mut db, "milestone").as_deref(), Some("4"));
+        assert!(tracker.calls().contains(&"set_description 4".to_owned()));
+        assert!(
+            !tracker
+                .calls()
+                .iter()
+                .any(|c| c.starts_with("create_milestone"))
+        );
+        let mut run = run_on(&mut db, &layout, &config, &host);
+        run.tracker = Box::new(tracker.clone());
+        assert_eq!(run.file_epic(None).unwrap(), (4, Action::Recorded));
+        assert_eq!(
+            tracker
+                .calls()
+                .iter()
+                .filter(|c| c.starts_with("set_description"))
+                .count(),
+            1,
+            "an unchanged description is not written again"
+        );
+        tracker.0.borrow_mut().milestones[0].description = "edited by hand".into();
+        let mut run = run_on(&mut db, &layout, &config, &host);
+        run.tracker = Box::new(tracker.clone());
+        assert_eq!(run.file_epic(None).unwrap(), (4, Action::Edited));
+    }
+
+    /// RU-R-037 — a rerun keeps the changelog entries the description already holds.
+    #[test]
+    fn ut_rerun_keeps_the_changelog() {
+        let (_dir, mut db, layout, host) = epic_setup(&[("milestone", "4")]);
+        let entry = crate::issue::changelog::Entry {
+            at: "2026-01-02T03:04",
+            author: "ann",
+            decision: "keep",
+            summary: "kept",
+            sum: "abc",
+        };
+        let old = crate::issue::changelog::append("old brief\n", &entry);
+        let tracker = tracker_with(|s| s.milestones = vec![milestone(4, &old, true)]);
+        let config = Config::default();
+        let mut run = run_on(&mut db, &layout, &config, &host);
+        run.tracker = Box::new(tracker.clone());
+        assert_eq!(run.file_epic(None).unwrap(), (4, Action::Edited));
+        let d = tracker.0.borrow().milestones[0].description.clone();
+        assert!(d.contains("ferrule:change sum=abc"), "{d}");
+        assert!(d.contains("## Goal"), "{d}");
+        assert!(!d.contains("old brief"), "{d}");
+    }
+
+    /// RU-E-006 — a closed milestone of the title, by card or by title, refuses.
+    #[test]
+    fn ut_a_closed_milestone_of_the_title_refuses() {
+        let config = Config::default();
+        for fields in [&[][..], &[("milestone", "4")]] {
+            let (_dir, mut db, layout, host) = epic_setup(fields);
+            let tracker = tracker_with(|s| s.milestones = vec![milestone(4, "x", false)]);
+            let mut run = run_on(&mut db, &layout, &config, &host);
+            run.tracker = Box::new(tracker.clone());
+            assert!(matches!(
+                run.file_epic(None),
+                Err(Error::MilestoneClosed(4))
+            ));
+            let calls = tracker.calls();
+            assert!(
+                !calls
+                    .iter()
+                    .any(|c| c.starts_with("create") || c.starts_with("set_description")),
+                "{calls:?}"
+            );
+        }
+    }
+
+    /// RU-E-008 — filing an epic closes the existing issue only, never a milestone.
+    #[test]
+    fn ut_epic_filing_never_closes_a_milestone() {
+        let (_dir, mut db, layout, host) = epic_setup(&[]);
+        let tracker = tracker_with(|s| s.milestones = vec![milestone(4, "x", true)]);
+        let config = Config::default();
+        for _ in 0..2 {
+            let mut run = run_on(&mut db, &layout, &config, &host);
+            run.tracker = Box::new(tracker.clone());
+            run.file_epic(None).unwrap();
+        }
+        assert!(
+            !tracker.calls().iter().any(|c| c.starts_with("close")),
+            "{:?}",
+            tracker.calls()
+        );
+        assert!(tracker.0.borrow().milestones[0].open);
+    }
+
+    /// An epic run inside milestone 4, on a tracker numbering from 20.
+    fn slice_setup() -> (tempfile::TempDir, Board, Layout, FakeHost, FakeTracker) {
+        let (dir, db, layout, host) = epic_setup(&[("milestone", "4")]);
+        let tracker = tracker_with(|s| {
+            s.next = 20;
+            s.milestones = vec![milestone(4, "brief", true)];
+        });
+        (dir, db, layout, host, tracker)
+    }
+
+    fn file_slice(
+        db: &mut Board,
+        layout: &Layout,
+        host: &FakeHost,
+        tracker: &FakeTracker,
+        n: u32,
+    ) -> Result<(ItemRef, Action), Error> {
+        let config = Config::default();
+        let mut run = run_on(db, layout, &config, host);
+        run.tracker = Box::new(tracker.clone());
+        run.file(Target::Slice(n), None)
+    }
+
+    /// The writes among the calls after the first `from`.
+    fn writes(tracker: &FakeTracker, from: usize) -> Vec<String> {
+        tracker.calls()[from..]
+            .iter()
+            .filter(|c| {
+                ["edit", "add_", "ensure_", "create", "set_", "close"]
+                    .iter()
+                    .any(|w| c.starts_with(w))
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// RU-R-016 — a slice is created inside the epic's milestone, labelled before it is filed.
+    #[test]
+    fn ut_slice_is_created_in_the_epic_milestone() {
+        let (_dir, mut db, layout, host, tracker) = slice_setup();
+        assert_eq!(
+            file_slice(&mut db, &layout, &host, &tracker, 1).unwrap(),
+            (ItemRef::Number(20), Action::Created)
+        );
+        let calls = tracker.calls();
+        let at = |c: &str| calls.iter().position(|x| x == c).unwrap_or(usize::MAX);
+        assert!(at("find_open_in 4 Core") < at("create_issue Core milestone=4 labels=area:runs"));
+        assert!(
+            at("ensure_labels area:runs") < at("create_issue Core milestone=4 labels=area:runs")
+        );
+        assert_eq!(field(&mut db, "slices").as_deref(), Some("[20]"));
+        assert_eq!(
+            file_slice(&mut db, &layout, &host, &tracker, 1).unwrap(),
+            (ItemRef::Number(20), Action::Recorded)
+        );
+    }
+
+    /// RU-R-016 — a slice run without the epic's milestone on its card refuses.
+    #[test]
+    fn ut_slice_without_a_milestone_refuses() {
+        let (_dir, mut db, layout, host) = epic_setup(&[]);
+        let tracker = FakeTracker::default();
+        assert!(matches!(
+            file_slice(&mut db, &layout, &host, &tracker, 1),
+            Err(Error::NoIssue)
+        ));
+        assert!(tracker.calls().is_empty());
+    }
+
+    /// RU-R-023 — a slice is blocked by each slice it depends on; an unfiled one refuses first.
+    #[test]
+    fn ut_slice_gets_blocked_by_its_dependency() {
+        let (_dir, mut db, layout, host, tracker) = slice_setup();
+        let e = file_slice(&mut db, &layout, &host, &tracker, 2).unwrap_err();
+        assert!(matches!(e, Error::Body(body::Error::NoSlice(1))), "{e}");
+        assert!(writes(&tracker, 0).is_empty(), "{:?}", tracker.calls());
+        file_slice(&mut db, &layout, &host, &tracker, 1).unwrap();
+        file_slice(&mut db, &layout, &host, &tracker, 2).unwrap();
+        assert!(tracker.calls().contains(&"add_blocked_by 21 20".to_owned()));
+        assert_eq!(field(&mut db, "slices").as_deref(), Some("[20, 21]"));
+    }
+
+    /// RU-R-024 — a slice's `Areas:` key labels it with each area the specs have; the brief's
+    /// `Area:` line stands in without the key.
+    #[test]
+    fn ut_slice_carries_its_area_labels() {
+        let (_dir, mut db, layout, host, tracker) = slice_setup();
+        file_slice(&mut db, &layout, &host, &tracker, 1).unwrap();
+        file_slice(&mut db, &layout, &host, &tracker, 2).unwrap();
+        let calls = tracker.calls();
+        assert!(
+            calls.contains(&"create_issue Core milestone=4 labels=area:runs".to_owned()),
+            "{calls:?}"
+        );
+        assert!(
+            calls.contains(&"create_issue Edge milestone=4 labels=area:runs".to_owned()),
+            "{calls:?}"
+        );
+        // No spec directory, no label, and no label call.
+        std::fs::write(
+            layout.run_dir("r").join("spec-diff.md"),
+            "Area: ghost — x\n",
+        )
+        .unwrap();
+        db.conn_mut()
+            .execute("DELETE FROM card_fields WHERE key = 'slices'", [])
+            .unwrap();
+        tracker.0.borrow_mut().open.clear();
+        let from = tracker.calls().len();
+        file_slice(&mut db, &layout, &host, &tracker, 1).unwrap();
+        file_slice(&mut db, &layout, &host, &tracker, 2).unwrap();
+        let later = tracker.calls()[from..].to_vec();
+        assert!(
+            later.contains(&"create_issue Edge milestone=4 labels=".to_owned()),
+            "{later:?}"
+        );
+        assert!(
+            !later
+                .iter()
+                .any(|c| c.starts_with("ensure_labels area:ghost"))
+        );
+    }
+
+    /// RU-R-030 — a rerun after a failure writes only the relationship and label still missing.
+    #[test]
+    fn ut_rerun_writes_only_missing_relationships() {
+        let (_dir, mut db, layout, host, tracker) = slice_setup();
+        file_slice(&mut db, &layout, &host, &tracker, 1).unwrap();
+        file_slice(&mut db, &layout, &host, &tracker, 2).unwrap();
+        let blocker = remote::Blocker {
+            cite: "#20".into(),
+            reference: ItemRef::Number(20),
+            open: true,
+        };
+        let reset = |db: &mut Board| {
+            board::set(db.conn_mut(), "r", "slices", "[20, -]").unwrap();
+        };
+        // Everything is there: the rerun writes nothing.
+        reset(&mut db);
+        tracker.0.borrow_mut().links.insert(
+            21,
+            remote::IssueLinks {
+                open: true,
+                labels: vec!["area:runs".into()],
+                blocked_by: vec![blocker],
+                ..Default::default()
+            },
+        );
+        let from = tracker.calls().len();
+        assert_eq!(
+            file_slice(&mut db, &layout, &host, &tracker, 2).unwrap(),
+            (ItemRef::Number(21), Action::Adopted)
+        );
+        assert!(
+            writes(&tracker, from).is_empty(),
+            "{:?}",
+            writes(&tracker, from)
+        );
+        // The blocker is missing: only it is written.
+        reset(&mut db);
+        tracker
+            .0
+            .borrow_mut()
+            .links
+            .get_mut(&21)
+            .unwrap()
+            .blocked_by
+            .clear();
+        let from = tracker.calls().len();
+        file_slice(&mut db, &layout, &host, &tracker, 2).unwrap();
+        assert_eq!(writes(&tracker, from), ["add_blocked_by 21 20"]);
+    }
+
+    /// RU-R-030 — an adopted slice is edited only when its text differs, and gets only the
+    /// labels it lacks.
+    #[test]
+    fn ut_adopted_slice_edits_and_labels_only_what_differs() {
+        let (_dir, mut db, layout, host, tracker) = slice_setup();
+        std::fs::create_dir_all(layout.root.join("docs/specs/card")).unwrap();
+        std::fs::write(
+            layout.run_dir("r").join("slices.md"),
+            "## Slice 1: Core\nGoal: build core\nDepends on: none\nAreas: runs, card\n",
+        )
+        .unwrap();
+        file_slice(&mut db, &layout, &host, &tracker, 1).unwrap();
+        let reset = |db: &mut Board| board::set(db.conn_mut(), "r", "slices", "[-]").unwrap();
+        reset(&mut db);
+        tracker.0.borrow_mut().links.insert(
+            20,
+            remote::IssueLinks {
+                open: true,
+                labels: vec!["area:runs".into()],
+                ..Default::default()
+            },
+        );
+        let from = tracker.calls().len();
+        file_slice(&mut db, &layout, &host, &tracker, 1).unwrap();
+        assert_eq!(
+            writes(&tracker, from),
+            ["ensure_labels area:card", "add_labels 20 area:card"],
+            "the same text is not edited, a present label not added"
+        );
+        reset(&mut db);
+        tracker.0.borrow_mut().bodies.insert(20, "other\n".into());
+        let from = tracker.calls().len();
+        file_slice(&mut db, &layout, &host, &tracker, 1).unwrap();
+        assert_eq!(writes(&tracker, from)[0], "edit 20 Core");
+    }
+
+    /// RU-E-012 — a slice adopts an open issue of its title only inside the milestone.
+    #[test]
+    fn ut_slice_adopts_only_inside_the_milestone() {
+        let (_dir, mut db, layout, host, tracker) = slice_setup();
+        tracker.0.borrow_mut().open = vec![(30, "Core".into())];
+        assert_eq!(
+            file_slice(&mut db, &layout, &host, &tracker, 1).unwrap(),
+            (ItemRef::Number(20), Action::Created)
+        );
+        assert!(!tracker.calls().iter().any(|c| c.starts_with("edit 30")));
+    }
+
+    /// RU-R-030 — a tracking issue whose text is unchanged is not rewritten on a rerun.
+    #[test]
+    fn ut_tracking_issue_rerun_rewrites_nothing_unchanged() {
+        let (_dir, mut db, layout, host) = setup(&[]);
+        let tracker = tracker_with(|s| s.open = vec![(31, "Retry clients".into())]);
+        let config = Config::default();
+        for _ in 0..2 {
+            let mut run = run_on(&mut db, &layout, &config, &host);
+            run.tracker = Box::new(tracker.clone());
+            assert_eq!(
+                run.file(Target::Run, None).unwrap(),
+                (ItemRef::Number(31), Action::Adopted)
+            );
+            db.conn_mut()
+                .execute("DELETE FROM card_fields WHERE key = 'issue'", [])
+                .unwrap();
+        }
+        let edits = tracker
+            .calls()
+            .iter()
+            .filter(|c| c.starts_with("edit"))
+            .count();
+        assert_eq!(edits, 1, "{:?}", tracker.calls());
+    }
+
+    /// RU-R-024 — a tracking issue, created, adopted or reused, gets the label of each area the
+    /// brief names, once.
+    #[test]
+    fn ut_tracking_issue_gets_its_area_label() {
+        let config = Config::default();
+        for (open, reuse, issue) in [
+            (vec![], None, 8),
+            (vec![(31, "Retry clients".to_owned())], None, 31),
+            (vec![], Some(ItemRef::Number(40)), 40),
+        ] {
+            let (_dir, mut db, layout, host) = setup(&[]);
+            std::fs::write(layout.run_dir("r").join("spec-diff.md"), "Area: runs — x\n").unwrap();
+            std::fs::create_dir_all(layout.root.join("docs/specs/runs")).unwrap();
+            let tracker = tracker_with(|s| {
+                s.next = 8;
+                s.open = open;
+            });
+            let mut run = run_on(&mut db, &layout, &config, &host);
+            run.tracker = Box::new(tracker.clone());
+            run.file(Target::Run, reuse).unwrap();
+            let calls = tracker.calls();
+            assert!(
+                calls.contains(&"ensure_labels area:runs".to_owned()),
+                "{calls:?}"
+            );
+            assert!(
+                calls.contains(&format!("add_labels {issue} area:runs")),
+                "{calls:?}"
+            );
+        }
     }
 }

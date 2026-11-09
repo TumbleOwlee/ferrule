@@ -279,6 +279,57 @@ fn no_comments(gh: &FakeGh, n: &str) {
     );
 }
 
+/// The area the demo run's brief names, `area:modbus`, is on issue `n`.
+fn serve_links(gh: &FakeGh, n: &str) {
+    serve_graph(gh, n, &["area:modbus"], &[]);
+}
+
+/// What the host answers for issue `n` to the node-id and the links
+/// queries, which share one fixture key: its `labels` and the `blockers`
+/// that block it.
+fn serve_graph(gh: &FakeGh, n: &str, labels: &[&str], blockers: &[u64]) {
+    let number = format!("number={n}");
+    let labels: Vec<String> = labels
+        .iter()
+        .map(|l| format!(r#"{{"name":"{l}"}}"#))
+        .collect();
+    let blockers: Vec<String> = blockers
+        .iter()
+        .map(|b| {
+            format!(
+                r#"{{"number":{b},"url":"https://github.com/o/r/issues/{b}","state":"OPEN","repository":{{"nameWithOwner":"o/r"}}}}"#
+            )
+        })
+        .collect();
+    gh.serve(
+        &[
+            "api",
+            "graphql",
+            "-F",
+            "owner={owner}",
+            "-F",
+            "repo={repo}",
+            "-F",
+            &number,
+            "-f",
+            "query=query($owner: String!, $repo: String!, $number: Int!) { repository(owner: $owner, name: $repo) { nameWithOwner issue(number: $number) {",
+        ],
+        &format!(
+            r#"{{"data":{{"repository":{{"nameWithOwner":"o/r","issue":{{"id":"I{n}","state":"OPEN","milestone":null,"labels":{{"nodes":[{}]}},"parent":null,"blockedBy":{{"nodes":[{}]}},"issueDependenciesSummary":{{"blockedBy":{}}},"relatesTo":{{"nodes":[]}}}}}}}}}}"#,
+            labels.join(","),
+            blockers.join(","),
+            blockers.len()
+        ),
+    );
+}
+
+/// The reads the host answers for an adopted issue `n` that differs from
+/// the run's text and already carries its label.
+fn adopted_issue(gh: &FakeGh, n: &str) {
+    no_comments(gh, n);
+    serve_links(gh, n);
+}
+
 /// `gh issue edit` giving adopted issue `n` the run's title and body.
 fn edit_issue(n: &str, title: &str) -> Vec<String> {
     ["issue", "edit", n, "--title", title, "--body-file", "-"]
@@ -395,6 +446,7 @@ fn through_gate2(p: &Project) {
         ],
         "https://github.com/o/r/issues/12\n",
     );
+    serve_links(gh, "12");
     let gate2 = p.ok(&["gate", "approve", "demo", "gate2", "--issue", "new"]);
     assert!(
         gate2.starts_with(
@@ -597,6 +649,7 @@ fn publish_and_ci(p: &Project) {
         &edit_issue("40", "Share the backoff helper with the RTU client"),
         "",
     );
+    adopted_issue(gh, "40");
     for _ in 0..2 {
         let published = p.ok(&["pr", "publish", "demo"]);
         assert_eq!(published, "publish=done pr=34 follow-ups=#40");
@@ -872,6 +925,7 @@ fn it_replan_swaps_the_uncommitted_stages() {
         &edit_issue("12", "Reconnect dropped Modbus clients"),
         "",
     );
+    adopted_issue(&p.gh, "12");
     let gate2 = p.ok(&["gate", "approve", "demo", "gate2"]);
     assert!(gate2.contains("issue=12 "), "adopted: {gate2}");
     assert_eq!(p.field("demo", "gate1"), "2026-10-05", "pending: dated");
@@ -946,6 +1000,7 @@ fn it_replan_keeps_a_stage_committed_past_an_uncommitted_one() {
         &edit_issue("12", "Reconnect dropped Modbus clients"),
         "",
     );
+    adopted_issue(&p.gh, "12");
     p.ok(&["gate", "approve", "demo", "gate2"]);
     seed_log(&p.root, "2026-10-05T09:00", "demo.s2", &["commit=abc1234"]);
     assert_eq!(
@@ -990,6 +1045,7 @@ fn it_replan_approve_is_refused_twice() {
         &edit_issue("12", "Reconnect dropped Modbus clients"),
         "",
     );
+    adopted_issue(&p.gh, "12");
     p.ok(&["gate", "approve", "demo", "gate2"]);
     let sha0 = p.land("s0", "docs/specs/modbus/requirements.md");
     seed_log(
@@ -1148,6 +1204,7 @@ fn it_issue_file_variants() {
         ],
         "",
     );
+    adopted_issue(gh, "41");
     assert_eq!(
         p.ok(&["issue", "post", "demo", "--reuse", "41"]),
         "issue=41 action=edited"
@@ -1674,6 +1731,7 @@ fn pushed_run() -> (Project, String) {
         &edit_issue("12", "Reconnect dropped Modbus clients"),
         "",
     );
+    adopted_issue(&p.gh, "12");
     p.ok(&["gate", "approve", "demo", "gate2"]);
     p.land("s0", "docs/specs/modbus/requirements.md");
     p.gh.serve(
@@ -2151,6 +2209,7 @@ fn it_issue_post_retries_post_only_what_is_missing() {
         &format!(r#"[{{"number":50,"title":"{title} too"}},{{"number":51,"title":"{title}"}}]"#),
     );
     serve(gh, &edit_issue("51", title), "");
+    adopted_issue(gh, "51");
     assert_eq!(
         p.ok(&["issue", "post", "demo", "--follow-up", "2"]),
         "issue=51 action=adopted"
@@ -2194,32 +2253,304 @@ fn it_issue_post_retries_post_only_what_is_missing() {
     assert_eq!(gh.log().matches("issue comment 12").count(), 2);
 }
 
-#[test]
-fn it_slices_keep_their_position() {
+const BLOCK: &str = "mutation($issue: ID!, $other: ID!) { addBlockedBy(input: {issueId: $issue, blockingIssueId: $other}) { clientMutationId } }";
+const MILESTONES: &str = "repos/{owner}/{repo}/milestones";
+
+/// The `lb` epic run with its artifacts and `fields` on the card.
+fn epic_project(fields: &[&str]) -> Project {
     let p = Project::new();
-    let gh = &p.gh;
     p.ok(&["run", "init", "lb"]);
     let dir = p.root.join(".ferrule/runs/lb");
     for e in std::fs::read_dir(fixtures().join("board/artifacts/lb")).unwrap() {
         let e = e.unwrap();
         std::fs::copy(e.path(), dir.join(e.file_name())).unwrap();
     }
-    seed_set(&p.root, "lb", &["kind=epic", "issue=70"]);
-    for (n, title) in [(72, "Batteries"), (71, "Walking skeleton")] {
-        let title = format!("Load balancing core: {title}");
-        serve(gh, &find(&title), "[]");
-        gh.serve(
-            &["issue", "create", "--title", &title, "--body-file", "-"],
-            &format!("https://github.com/o/r/issues/{n}\n"),
-        );
-    }
+    let mut all = vec!["kind=epic"];
+    all.extend_from_slice(fields);
+    seed_set(&p.root, "lb", &all);
+    p
+}
+
+fn milestone_json(n: u64, title: &str, description: &str) -> String {
+    format!(
+        r#"{{"number":{n},"title":"{title}","description":{},"state":"open"}}"#,
+        serde_json::json!(description)
+    )
+}
+
+const EPIC: &str = "Load balancing core";
+
+fn serve_list_all(gh: &FakeGh, json: &str) {
+    gh.serve(
+        &[
+            "api",
+            "--paginate",
+            "--slurp",
+            &format!("{MILESTONES}?state=all&per_page=100"),
+        ],
+        json,
+    );
+}
+
+fn create_milestone_args() -> [&'static str; 6] {
+    ["api", "-X", "POST", MILESTONES, "--input", "-"]
+}
+
+fn serve_get_milestone(gh: &FakeGh, n: u64) {
+    gh.serve(
+        &["api", &format!("{MILESTONES}/{n}")],
+        &milestone_json(n, EPIC, "brief"),
+    );
+}
+
+fn serve_milestone_issues(gh: &FakeGh, open: &str) {
+    gh.serve(
+        &[
+            "api",
+            "--paginate",
+            "--slurp",
+            "repos/{owner}/{repo}/issues?milestone=4&state=open&per_page=100",
+        ],
+        open,
+    );
+}
+
+/// The create call of slice issue `title`, answering issue `n`.
+fn serve_slice_create(gh: &FakeGh, title: &str, n: u64) {
+    gh.serve(
+        &[
+            "issue",
+            "create",
+            "--title",
+            title,
+            "--body-file",
+            "-",
+            "--milestone",
+            EPIC,
+        ],
+        &format!("https://github.com/o/r/issues/{n}\n"),
+    );
+}
+
+/// The call making `issue` blocked by `blocker`.
+fn block_args(issue: u64, blocker: u64) -> Vec<String> {
+    vec![
+        "api".into(),
+        "graphql".into(),
+        "-f".into(),
+        format!("issue=I{issue}"),
+        "-f".into(),
+        format!("other=I{blocker}"),
+        "-f".into(),
+        format!("query={BLOCK}"),
+    ]
+}
+
+fn serve_block(gh: &FakeGh, issue: u64, blocker: u64) {
+    serve(gh, &block_args(issue, blocker), "{}");
+}
+
+/// S1, RU-R-013, RU-R-016, RU-R-023 — an epic files a milestone and no issue; its slices go
+/// inside it, the second blocked by the first.
+#[test]
+fn it_epic_files_a_milestone_and_its_slices() {
+    let p = epic_project(&[]);
+    let gh = &p.gh;
+    serve_list_all(gh, "[[]]");
+    gh.serve(&create_milestone_args(), &milestone_json(4, EPIC, "brief"));
+    assert_eq!(p.ok(&["issue", "post", "lb"]), "milestone=4 action=created");
+    assert_eq!(p.field("lb", "milestone"), "4");
+    assert_eq!(p.field("lb", "issue"), "");
+    assert!(!gh.log().contains("issue create"), "{}", gh.log());
+
+    serve_get_milestone(gh, 4);
+    serve_milestone_issues(gh, "[[]]");
+    serve_slice_create(gh, "Walking skeleton", 71);
+    serve_slice_create(gh, "Batteries", 72);
+    serve_graph(gh, "71", &[], &[]);
+    serve_graph(gh, "72", &[], &[]);
+    serve_block(gh, 72, 71);
+    assert_eq!(
+        p.ok(&["issue", "post", "lb", "--slice", "1"]),
+        "issue=71 action=created"
+    );
+    assert_eq!(
+        p.ok(&["issue", "post", "lb", "--slice", "2"]),
+        "issue=72 action=created"
+    );
+    assert_eq!(p.field("lb", "slices"), "[71, 72]");
+    let log = gh.log();
+    assert!(log.contains("--milestone Load balancing core"), "{log}");
+    assert!(log.contains("issue=I72 -f other=I71"), "{log}");
+}
+
+/// S2, RU-R-019 — an epic on an existing issue closes it with a link to the milestone, edits
+/// nothing and keeps the issue on the card.
+#[test]
+fn it_epic_on_an_issue_closes_it_with_a_link() {
+    let p = epic_project(&["named-issue=7"]);
+    let gh = &p.gh;
+    serve_list_all(gh, "[[]]");
+    gh.serve(&create_milestone_args(), &milestone_json(4, EPIC, "brief"));
+    serve_graph(gh, "7", &[], &[]);
+    no_comments(gh, "7");
+    gh.serve(
+        &[
+            "issue",
+            "close",
+            "7",
+            "--comment",
+            "Moved to https://github.com/o/r/milestone/4.\n",
+        ],
+        "",
+    );
+    assert_eq!(p.ok(&["issue", "post", "lb"]), "milestone=4 action=created");
+    assert_eq!(p.field("lb", "issue"), "7");
+    let log = gh.log();
+    assert!(
+        log.contains("issue close 7 --comment Moved to https://github.com/o/r/milestone/4."),
+        "{log}"
+    );
+    assert!(!log.contains("issue edit"), "{log}");
+}
+
+/// S9, RU-R-030 — a slice whose blocker write failed is found in the milestone on the rerun,
+/// which writes the blocker and files no second issue.
+#[test]
+fn it_epic_rerun_after_a_failed_relationship_adds_only_it() {
+    let p = epic_project(&["milestone=4"]);
+    let gh = &p.gh;
+    serve_get_milestone(gh, 4);
+    serve_milestone_issues(gh, "[[]]");
+    serve_slice_create(gh, "Walking skeleton", 71);
+    serve_slice_create(gh, "Batteries", 72);
+    serve_graph(gh, "71", &[], &[]);
+    serve_graph(gh, "72", &[], &[]);
+    p.ok(&["issue", "post", "lb", "--slice", "1"]);
+    let block = block_args(72, 71);
+    let block: Vec<&str> = block.iter().map(String::as_str).collect();
+    gh.serve_err(&block, "boom", 1);
+    let failed = p.ferrule(&["issue", "post", "lb", "--slice", "2"]).text();
+    assert!(failed.ends_with("exit=1"), "{failed}");
+    assert_eq!(
+        p.field("lb", "slices"),
+        "[71]",
+        "the slot waits for the blocker"
+    );
+    // Issue 72 is in the milestone now, its text not the run's.
+    serve_milestone_issues(gh, r#"[[{"number":72,"title":"Batteries"}]]"#);
+    gh.clear(&block);
+    gh.serve(&block, "{}");
+    let text = p.ok(&["issue", "body", "lb", "--slice", "2"]);
+    let (_, body) = text.split_once("\n\n").unwrap();
+    gh.serve(
+        &["issue", "view", "72", "--json", GH_FIELDS],
+        &gh_json(&format!(
+            "#72 Batteries [OPEN]\nhttps://github.com/o/r/issues/72\nby someone\n\n{body}\n"
+        )),
+    );
+    assert_eq!(
+        p.ok(&["issue", "post", "lb", "--slice", "2"]),
+        "issue=72 action=adopted"
+    );
+    assert_eq!(p.field("lb", "slices"), "[71, 72]");
+    let log = gh.log();
+    assert_eq!(
+        log.matches("issue create --title Batteries").count(),
+        1,
+        "{log}"
+    );
+    assert_eq!(log.matches("issue=I72 -f other=I71").count(), 2, "{log}");
+    assert!(!log.contains("issue edit"), "the text is the run's: {log}");
+}
+
+/// RU-E-006 — a closed milestone of the epic's title refuses, writing nothing.
+#[test]
+fn it_epic_refuses_a_closed_milestone() {
+    let p = epic_project(&[]);
+    let gh = &p.gh;
+    let closed = milestone_json(4, EPIC, "x").replace("\"open\"", "\"closed\"");
+    serve_list_all(gh, &format!("[[{closed}]]"));
+    let got = p.ferrule(&["issue", "post", "lb"]).text();
+    assert!(
+        got.starts_with("post=refused reason=milestone-closed milestone=4 hint="),
+        "{got}"
+    );
+    assert!(got.ends_with("exit=1"), "{got}");
+    assert_eq!(p.field("lb", "milestone"), "");
+}
+
+/// RU-E-010 — a description GitHub answers with a 422 refuses with its length, on a create
+/// and on an update.
+#[test]
+fn it_epic_refuses_a_description_the_host_rejects() {
+    let p = epic_project(&[]);
+    let gh = &p.gh;
+    serve_list_all(gh, "[[]]");
+    gh.serve_err(
+        &create_milestone_args(),
+        "gh: Validation Failed (HTTP 422)",
+        1,
+    );
+    let got = p.ferrule(&["issue", "post", "lb"]).text();
+    assert!(
+        got.starts_with("post=refused reason=rejected length="),
+        "{got}"
+    );
+    assert!(got.contains("HTTP 422"), "{got}");
+    assert!(got.contains("hint="), "{got}");
+    assert!(got.ends_with("exit=1"), "{got}");
+    serve_list_all(gh, &format!("[[{}]]", milestone_json(4, EPIC, "old")));
+    gh.serve_err(
+        &[
+            "api",
+            "-X",
+            "PATCH",
+            &format!("{MILESTONES}/4"),
+            "--input",
+            "-",
+        ],
+        "gh: Validation Failed (HTTP 422)",
+        1,
+    );
+    let got = p.ferrule(&["issue", "post", "lb"]).text();
+    assert!(
+        got.starts_with("post=refused reason=rejected length="),
+        "{got}"
+    );
+}
+
+/// RU-R-022 — slices keep the position they were filed at; a slice whose dependency is not
+/// filed refuses and writes nothing.
+#[test]
+fn it_slices_keep_their_position() {
+    let p = epic_project(&["milestone=4"]);
+    let gh = &p.gh;
+    let slices = p.root.join(".ferrule/runs/lb/slices.md");
+    let text = std::fs::read_to_string(&slices).unwrap();
+    std::fs::write(
+        &slices,
+        text.replace("Depends on: 1\n", "Depends on: none\n"),
+    )
+    .unwrap();
+    serve_get_milestone(gh, 4);
+    serve_milestone_issues(gh, "[[]]");
+    serve_slice_create(gh, "Walking skeleton", 71);
+    serve_slice_create(gh, "Batteries", 72);
+    serve_graph(gh, "71", &[], &[]);
+    serve_graph(gh, "72", &[], &[]);
+    serve_block(gh, 72, 71);
+    let early = p.ferrule(&["issue", "post", "lb", "--slice", "3"]).text();
+    assert!(
+        early.starts_with("post=refused reason=no-slice slice=1 "),
+        "{early}"
+    );
+    assert_eq!(p.field("lb", "slices"), "");
     assert_eq!(
         p.ok(&["issue", "post", "lb", "--slice", "2"]),
         "issue=72 action=created"
     );
     assert_eq!(p.field("lb", "slices"), "[-, 72]");
-    let epic = p.ok(&["issue", "body", "lb"]);
-    assert!(!epic.contains("## Slices"), "{epic}");
     assert_eq!(
         p.ok(&["issue", "post", "lb", "--slice", "1"]),
         "issue=71 action=created"
@@ -2229,6 +2560,8 @@ fn it_slices_keep_their_position() {
         p.ok(&["issue", "post", "lb", "--slice", "2"]),
         "issue=72 action=recorded"
     );
+    let epic = p.ok(&["issue", "body", "lb"]);
+    assert!(!epic.contains("## Slices"), "{epic}");
     let body3 = p.ok(&["issue", "body", "lb", "--slice", "3"]);
     assert!(!body3.contains("Depends on"), "{body3}");
     assert!(body3.starts_with("# Nested groups\n"), "{body3}");
@@ -2240,6 +2573,58 @@ fn it_slices_keep_their_position() {
         String::from_utf8_lossy(&zero.stdout)
     );
     assert_eq!(p.field("lb", "slices"), "[71, 72]");
+}
+
+/// The command lists the open milestones, one `#<n> <title>` each.
+#[test]
+fn it_issue_milestones_lists_open() {
+    let p = Project::new();
+    p.gh.serve(
+        &[
+            "api",
+            "--paginate",
+            "--slurp",
+            &format!("{MILESTONES}?state=open&per_page=100"),
+        ],
+        &format!(
+            "[[{},{}]]",
+            milestone_json(4, EPIC, "a"),
+            milestone_json(5, "Load balancing edge", "b")
+        ),
+    );
+    assert_eq!(
+        p.ok(&["issue", "milestones"]),
+        "#4 Load balancing core\n#5 Load balancing edge"
+    );
+}
+
+/// `--view <n>` prints the milestone's description.
+#[test]
+fn it_issue_milestones_view_prints_the_description() {
+    let p = Project::new();
+    serve_get_milestone(&p.gh, 4);
+    assert_eq!(p.ok(&["issue", "milestones", "--view", "4"]), "brief");
+}
+
+/// A tracker without milestones gets the prose form of a body, and a config that does not
+/// load is no reason to fail the read.
+#[test]
+fn it_issue_body_is_prose_without_milestones() {
+    let p = epic_project(&[]);
+    let settings = p.root.join(".ferrule/ferrule.toml");
+    let kept = std::fs::read_to_string(&settings).unwrap();
+    std::fs::write(&settings, "[backend]\ntracker = \"jira\"\n").unwrap();
+    seed_set(&p.root, "lb", &["slices=[71, 72]"]);
+    let got = p.ok(&["issue", "body", "lb", "--slice", "2"]);
+    assert!(
+        got.starts_with("# Load balancing core: Batteries\n"),
+        "{got}"
+    );
+    assert!(got.contains("**Part of epic**"), "{got}");
+    std::fs::write(&settings, "[backend\n").unwrap();
+    let got = p.ferrule(&["issue", "body", "lb", "--slice", "2"]).text();
+    assert!(got.ends_with("exit=0"), "{got}");
+    std::fs::write(&settings, kept).unwrap();
 }
 
 #[test]

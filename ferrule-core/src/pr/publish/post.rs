@@ -3,6 +3,10 @@
 
 use std::fmt::Write as _;
 
+use crate::artifacts;
+use crate::issue::changelog::keep_changelog;
+use crate::remote::{Milestones, NewIssue, SearchState};
+
 use super::{
     Action, Error, ItemRef, Run, Target, attribution, board, body, remote, snapshot, split_title,
 };
@@ -94,28 +98,185 @@ impl Run<'_> {
         Ok((issue, action))
     }
 
-    fn file_run(&mut self, reuse: Option<ItemRef>) -> Result<(ItemRef, Action), Error> {
+    /// Whether this run files its epic as a milestone.
+    ///
+    /// # Errors
+    /// The state database.
+    pub fn files_milestone(&self) -> Result<bool, Error> {
+        Ok(self.field("kind")?.as_deref() == Some("epic") && self.tracker.milestones().is_some())
+    }
+
+    fn milestones(&self) -> Result<&dyn Milestones, Error> {
+        self.tracker.milestones().ok_or_else(|| {
+            Error::Remote(remote::Error::Unsupported {
+                host: self.tracker.name(),
+                op: "milestones",
+            })
+        })
+    }
+
+    /// The milestone, the existing issue closed when there is one.
+    ///
+    /// # Errors
+    /// A closed milestone, a host failure, or a missing artifact.
+    pub fn file_epic(&mut self, reuse: Option<ItemRef>) -> Result<(u64, Action), Error> {
         let rendered = snapshot(self.conn, |r| {
-            body::issue(r, self.layout, self.slug, None, body::Metadata::Prose)
+            body::issue(r, self.layout, self.slug, None, body::Metadata::Native)
+        })?;
+        let (title, body) = split_title(&rendered);
+        let (m, action) = self.settle_milestone(&title, &body)?;
+        self.set("milestone", &m.to_string())?;
+        let issue = reuse.or_else(|| {
+            remote::refs(self.field("named-issue").ok().flatten().as_deref())
+                .into_iter()
+                .next()
+        });
+        if let Some(i) = issue {
+            let ms = self.milestones()?;
+            if ms.links(&i)?.open {
+                let to = self
+                    .tracker
+                    .view(&i)?
+                    .url
+                    .as_deref()
+                    .and_then(|u| milestone_url(u, m))
+                    .unwrap_or_else(|| format!("milestone #{m}"));
+                ms.close(&i, &format!("Moved to {to}.\n"))?;
+            }
+            self.set("issue", &i.to_string())?;
+        }
+        Ok((m, action))
+    }
+
+    /// Finds, adopts or creates the milestone titled `title`, its
+    /// description `body` above the changelog it already holds.
+    fn settle_milestone(&self, title: &str, body: &str) -> Result<(u64, Action), Error> {
+        let ms = self.milestones()?;
+        let from_card = self
+            .field("milestone")?
+            .and_then(|n| n.trim().parse::<u64>().ok());
+        let found = if let Some(n) = from_card {
+            Some(ms.get(n)?)
+        } else {
+            ms.list(SearchState::All)?
+                .into_iter()
+                .find(|m| m.title == title)
+        };
+        let Some(m) = found else {
+            let made = ms.create(title, &keep_changelog(body, ""))?;
+            return Ok((made.number, Action::Created));
+        };
+        if !m.open {
+            return Err(Error::MilestoneClosed(m.number));
+        }
+        let description = keep_changelog(body, &m.description);
+        if description == m.description {
+            return Ok((m.number, Action::Recorded));
+        }
+        ms.set_description(m.number, &description)?;
+        let action = if from_card.is_some() {
+            Action::Edited
+        } else {
+            Action::Adopted
+        };
+        Ok((m.number, action))
+    }
+
+    fn file_run(&mut self, reuse: Option<ItemRef>) -> Result<(ItemRef, Action), Error> {
+        let native = self.tracker.milestones().is_some();
+        let metadata = if native {
+            body::Metadata::Native
+        } else {
+            body::Metadata::Prose
+        };
+        let rendered = snapshot(self.conn, |r| {
+            body::issue(r, self.layout, self.slug, None, metadata)
         })?;
         let (title, body) = split_title(&rendered);
         let current = remote::refs(self.field("issue")?.as_deref())
             .into_iter()
             .next();
+        let is_epic = self.field("kind")?.as_deref() == Some("epic");
         let (n, action) = match (reuse, current) {
-            (Some(n), _) => {
-                self.tracker.edit(&n, &title, &body)?;
-                (n, Action::Edited)
-            }
-            (None, Some(n)) if self.field("kind")?.as_deref() == Some("epic") => {
-                self.tracker.edit(&n, &title, &body)?;
-                (n, Action::Edited)
+            (Some(n), _) => (self.rewrite(native, &n, &title, &body)?, Action::Edited),
+            (None, Some(n)) if is_epic => {
+                (self.rewrite(native, &n, &title, &body)?, Action::Edited)
             }
             (None, Some(n)) => (n, Action::Recorded),
+            (None, None) if native => self.adopt_or_create_native(&title, &body)?,
             (None, None) => self.adopt_or_create(&title, &body)?,
         };
         self.set("issue", &n.to_string())?;
         Ok((n, action))
+    }
+
+    /// The issue `n` given the text, an unchanged one left alone on a
+    /// tracker with milestones.
+    fn rewrite(
+        &self,
+        native: bool,
+        n: &ItemRef,
+        title: &str,
+        body: &str,
+    ) -> Result<ItemRef, Error> {
+        if native {
+            self.edit_if_changed(n, title, body)?;
+            self.label_missing(n, &self.run_labels())?;
+        } else {
+            self.tracker.edit(n, title, body)?;
+        }
+        Ok(n.clone())
+    }
+
+    fn adopt_or_create_native(&self, title: &str, body: &str) -> Result<(ItemRef, Action), Error> {
+        let labels = self.run_labels();
+        if let Some(n) = self.tracker.find_open(title)? {
+            self.edit_if_changed(&n, title, body)?;
+            self.label_missing(&n, &labels)?;
+            return Ok((n, Action::Adopted));
+        }
+        let n = self.tracker.create(title, body)?;
+        self.label_missing(&n, &labels)?;
+        Ok((n, Action::Created))
+    }
+
+    /// The labels of the specs areas the brief names.
+    fn run_labels(&self) -> Vec<String> {
+        let brief = std::fs::read_to_string(self.layout.run_dir(self.slug).join("spec-diff.md"))
+            .unwrap_or_default();
+        artifacts::area_labels(
+            &self.root.join("docs").join("specs"),
+            &artifacts::brief_areas(&brief),
+        )
+    }
+
+    /// Edits `n` only when its body or its title differs from the text.
+    fn edit_if_changed(&self, n: &ItemRef, title: &str, body: &str) -> Result<(), Error> {
+        let item = self.tracker.view(n)?;
+        if item.body.trim_end() != body.trim_end() || !item.head.contains(&format!(" {title} [")) {
+            self.tracker.edit(n, title, body)?;
+        }
+        Ok(())
+    }
+
+    /// Adds to `n` the `labels` it lacks, creating those the repository lacks.
+    fn label_missing(&self, n: &ItemRef, labels: &[String]) -> Result<(), Error> {
+        if labels.is_empty() {
+            return Ok(());
+        }
+        let ms = self.milestones()?;
+        let have = ms.links(n)?.labels;
+        let missing: Vec<String> = labels
+            .iter()
+            .filter(|l| !have.contains(l))
+            .cloned()
+            .collect();
+        if missing.is_empty() {
+            return Ok(());
+        }
+        ms.ensure_labels(&missing)?;
+        ms.add_labels(n, &missing)?;
+        Ok(())
     }
 
     fn file_slice(&mut self, slice: u32) -> Result<(ItemRef, Action), Error> {
@@ -126,23 +287,114 @@ impl Run<'_> {
         if let Some(Some(n)) = slots.get(at) {
             return Ok((n.clone(), Action::Recorded));
         }
+        let native = self.tracker.milestones().is_some();
+        let metadata = if native {
+            body::Metadata::Native
+        } else {
+            body::Metadata::Prose
+        };
         let rendered = snapshot(self.conn, |r| {
-            body::issue(
-                r,
-                self.layout,
-                self.slug,
-                Some(slice),
-                body::Metadata::Prose,
-            )
+            body::issue(r, self.layout, self.slug, Some(slice), metadata)
         })?;
         let (title, body) = split_title(&rendered);
-        let (n, action) = self.adopt_or_create(&title, &body)?;
+        let (n, action) = if native {
+            self.file_slice_in_milestone(slice, &slots, &title, &body)?
+        } else {
+            self.adopt_or_create(&title, &body)?
+        };
         if slots.len() <= at {
             slots.resize(at + 1, None);
         }
         slots[at] = Some(n.clone());
         self.set("slices", &remote::slot_list(&slots))?;
         Ok((n, action))
+    }
+
+    /// Slice `slice`'s issue inside the epic's milestone, labelled and
+    /// blocked by the slices it depends on; the slot is the caller's to
+    /// record once this has returned.
+    fn file_slice_in_milestone(
+        &self,
+        slice: u32,
+        slots: &[Option<ItemRef>],
+        title: &str,
+        body: &str,
+    ) -> Result<(ItemRef, Action), Error> {
+        let m: u64 = self
+            .field("milestone")?
+            .and_then(|n| n.trim().parse().ok())
+            .ok_or(Error::NoIssue)?;
+        let all = artifacts::slices(&self.artifact("slices.md")?);
+        let this = all.iter().find(|s| s.n == slice);
+        let areas: Vec<String> = this
+            .map(|s| {
+                s.get("Areas")
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|a| !a.is_empty())
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .filter(|a: &Vec<String>| !a.is_empty())
+            .unwrap_or_else(|| {
+                let brief =
+                    std::fs::read_to_string(self.layout.run_dir(self.slug).join("spec-diff.md"))
+                        .unwrap_or_default();
+                artifacts::brief_areas(&brief)
+            });
+        let labels = artifacts::area_labels(&self.root.join("docs").join("specs"), &areas);
+        let blockers = Self::blockers(this, slots)?;
+        let ms = self.milestones()?;
+        let (n, action) = if let Some(n) = ms.find_open_in(m, title)? {
+            self.edit_if_changed(&n, title, body)?;
+            self.label_missing(&n, &labels)?;
+            (n, Action::Adopted)
+        } else {
+            let milestone = ms.get(m)?;
+            if !labels.is_empty() {
+                ms.ensure_labels(&labels)?;
+            }
+            let n = ms.create_issue(&NewIssue {
+                title,
+                body,
+                milestone: Some(&milestone.title),
+                labels: &labels,
+            })?;
+            (n, Action::Created)
+        };
+        let have = ms.links(&n)?.blocked_by;
+        for b in blockers {
+            if !have.iter().any(|h| h.reference == b) {
+                ms.add_blocked_by(&n, &b)?;
+            }
+        }
+        Ok((n, action))
+    }
+
+    /// The issues of the slices `this` depends on; an unfiled one is
+    /// `NoSlice`.
+    fn blockers(
+        this: Option<&artifacts::Slice>,
+        slots: &[Option<ItemRef>],
+    ) -> Result<Vec<ItemRef>, Error> {
+        let mut out = Vec::new();
+        for d in this
+            .map(|s| s.get("Depends on"))
+            .unwrap_or_default()
+            .split(',')
+            .map(str::trim)
+            .filter(|d| !d.is_empty() && *d != "none")
+        {
+            let n: u32 = d
+                .parse()
+                .map_err(|_| Error::Body(body::Error::NoSlice(0)))?;
+            let at = (n as usize).checked_sub(1);
+            match at.and_then(|i| slots.get(i)).cloned().flatten() {
+                Some(r) => out.push(r),
+                None => return Err(Error::Body(body::Error::NoSlice(n))),
+            }
+        }
+        Ok(out)
     }
 
     fn file_split(&mut self) -> Result<(ItemRef, Action), Error> {
@@ -177,4 +429,10 @@ impl Run<'_> {
         }
         Ok((n, action))
     }
+}
+
+/// `https://host/o/r/issues/12` → `https://host/o/r/milestone/<m>`.
+fn milestone_url(issue_url: &str, m: u64) -> Option<String> {
+    let at = issue_url.rfind("/issues/")?;
+    Some(format!("{}/milestone/{m}", &issue_url[..at]))
 }

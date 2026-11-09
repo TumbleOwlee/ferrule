@@ -105,11 +105,11 @@ pub fn has_entry(description: &str, sum: &str) -> bool {
 /// `Stale` when an edit's old text is absent above the changelog.
 pub fn apply(description: &str, change: &Change, entry: &Entry<'_>) -> Result<String, Stale> {
     let (above, log) = split(description);
-    if let Some(e) = change.edits.iter().find(|e| !above.contains(&e.old)) {
-        return Err(Stale(e.old.clone()));
-    }
     let mut text = above.to_owned();
     for e in &change.edits {
+        if !text.contains(&e.old) {
+            return Err(Stale(e.old.clone()));
+        }
         text = text.replacen(&e.old, &e.new, 1);
     }
     text.push_str(log);
@@ -257,6 +257,14 @@ mod tests {
             },
         );
         assert_eq!(apply(&in_log, &c, &entry()), Err(Stale("x".into())));
+    }
+
+    /// An edit is checked against the text the earlier edits left.
+    #[test]
+    fn ut_apply_checks_each_edit_against_the_running_text() {
+        let two = "Decision: d\nSummary: s\n\n@@ old\none\n@@ new\ntwo\n@@ end\n\n@@ old\none\n@@ new\nx\n@@ end\n";
+        let c = parse(two).unwrap();
+        assert_eq!(apply("one\n", &c, &entry()), Err(Stale("one".into())));
     }
 
     /// A rendered text keeps the existing history.

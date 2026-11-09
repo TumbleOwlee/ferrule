@@ -11,8 +11,10 @@ use rusqlite::Connection;
 use crate::artifacts;
 use crate::card::board::{self, State};
 use crate::card::typed::{Grant, Name, Typed, Verdict};
+use crate::config::Config;
 use crate::project::Layout;
 use crate::prompt::{approval, lines};
+use crate::remote;
 use crate::store::Board;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -223,6 +225,8 @@ struct Run<'a> {
     layout: &'a Layout,
     slug: &'a str,
     now: &'a str,
+    /// The configured tracker files an epic as a milestone.
+    milestones: bool,
 }
 
 impl Run<'_> {
@@ -496,11 +500,17 @@ pub(crate) fn render_in(
     if board::state(conn, slug)?.is_none() {
         return Err(Error::Card);
     }
+    let milestones = Config::load(&layout.root).is_ok_and(|c| {
+        remote::issue_tracker(&c, &layout.root)
+            .milestones()
+            .is_some()
+    });
     let mut run = Run {
         conn,
         layout,
         slug,
         now,
+        milestones,
     };
     match kind {
         Kind::Approved => return approved(&mut run),
@@ -851,18 +861,36 @@ fn arch(facts: &Facts) -> Approval {
     Approval::new("Architecture", will, opts)
 }
 
+/// The epic stop's two filing lines: the epic itself, then its `n` slices.
+fn epic_steps(issue: Option<&str>, n: usize, milestones: bool) -> [String; 2] {
+    let existing = issue.filter(|i| !i.is_empty() && *i != "new");
+    if milestones {
+        let first = match existing {
+            None => "file the milestone".to_owned(),
+            Some(i) => format!("close issue #{i} and file the milestone"),
+        };
+        return [
+            first,
+            format!("file {n} slice issues in order in the milestone"),
+        ];
+    }
+    let first = match existing {
+        None => "file the epic issue".to_owned(),
+        Some(i) => format!("rewrite issue #{i} as the epic"),
+    };
+    [
+        first,
+        format!("file {n} slice issues in order and link them from the epic"),
+    ]
+}
+
 fn epic(run: &Run, args: &[(String, String)], facts: &Facts) -> Approval {
     let slices = std::fs::read_to_string(run.art("slices.md")).unwrap_or_default();
     let n = artifacts::slices(&slices).len();
-    let issue = match arg(args, "issue") {
-        None | Some("" | "new") => "file the epic issue".to_owned(),
-        Some(i) => format!("rewrite issue #{i} as the epic"),
-    };
+    let [issue, slices] = epic_steps(arg(args, "issue"), n, run.milestones);
     let mut w = brief(facts);
     w.push(format!("- {issue}"));
-    w.push(format!(
-        "- file {n} slice issues in order and link them from the epic"
-    ));
+    w.push(format!("- {slices}"));
     w.push("- clean up — no code, no worktree".to_owned());
     Approval::new("Epic", w, Vec::new())
 }
@@ -1039,11 +1067,43 @@ mod tests {
             layout: &layout,
             slug: "r",
             now: "t",
+            milestones: false,
         };
         for key in ["local", "remote"] {
             let args = [(key.to_owned(), "abc1234".to_owned())];
             assert!(matches!(blocked(&mut run, &args), Err(Error::Usage)));
         }
+    }
+
+    /// The epic stop names a milestone on a tracker with them, an issue and its list otherwise.
+    #[test]
+    fn ut_epic_steps_name_a_milestone_or_an_issue() {
+        assert_eq!(
+            epic_steps(None, 3, true),
+            [
+                "file the milestone",
+                "file 3 slice issues in order in the milestone"
+            ]
+        );
+        assert_eq!(
+            epic_steps(Some("12"), 3, true),
+            [
+                "close issue #12 and file the milestone",
+                "file 3 slice issues in order in the milestone"
+            ]
+        );
+        assert_eq!(epic_steps(Some("new"), 2, true)[0], "file the milestone");
+        assert_eq!(
+            epic_steps(None, 3, false),
+            [
+                "file the epic issue",
+                "file 3 slice issues in order and link them from the epic"
+            ]
+        );
+        assert_eq!(
+            epic_steps(Some("12"), 3, false)[0],
+            "rewrite issue #12 as the epic"
+        );
     }
 
     #[test]
@@ -1059,6 +1119,7 @@ mod tests {
             layout: &layout,
             slug: "r",
             now: "t",
+            milestones: false,
         };
         assert!(!run.replan_unseen().unwrap());
         board::insert_body(run.conn, "r", "t", "replan=pre-authorized");

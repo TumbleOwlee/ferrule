@@ -511,14 +511,18 @@ pub fn brief_areas(spec_diff: &str) -> Vec<String> {
 pub fn area_labels(specs_dir: &Path, areas: &[String]) -> Vec<String> {
     areas
         .iter()
-        .filter(|a| {
+        .filter_map(|a| {
             let mut parts = Path::new(a).components();
-            matches!(
-                (parts.next(), parts.next()),
-                (Some(std::path::Component::Normal(_)), None)
-            ) && specs_dir.join(a).is_dir()
+            let (Some(std::path::Component::Normal(name)), None) = (parts.next(), parts.next())
+            else {
+                return None;
+            };
+            let name = name.to_str()?;
+            specs_dir
+                .join(name)
+                .is_dir()
+                .then(|| format!("area:{name}"))
         })
-        .map(|a| format!("area:{a}"))
         .collect()
 }
 
@@ -556,6 +560,8 @@ mod milestone_tests {
         let d = draft("# T\n\nAreas: runs, , ,git\nBody\n");
         assert_eq!(d.areas, Some(vec!["runs".to_owned(), "git".to_owned()]));
         assert_eq!(draft("# T\n\nAreas: \nBody\n").areas, Some(vec![]));
+        let bare = draft("# T\n\nAreas:\nBody\n");
+        assert_eq!((bare.areas, bare.body.as_str()), (Some(vec![]), "Body\n"));
     }
 
     /// The first `Area:` line gives each area's name, repeats once, fences skipped.
@@ -584,6 +590,15 @@ mod milestone_tests {
         let areas: Vec<String> = ["", "..", ".", "runs/sub", "runs"]
             .map(String::from)
             .to_vec();
+        assert_eq!(area_labels(dir.path(), &areas), ["area:runs"]);
+    }
+
+    /// A trailing separator names the same area, labelled by its name.
+    #[test]
+    fn ut_area_labels_use_the_component_name() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("runs")).unwrap();
+        let areas = vec!["runs/".to_owned()];
         assert_eq!(area_labels(dir.path(), &areas), ["area:runs"]);
     }
 }

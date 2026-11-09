@@ -130,6 +130,21 @@ Refusals:
 Exit codes: 0 ok, 1 refused, 3 content (stage-ref), 4 internal error.
 See: ferrule guide show issue";
 
+const ISSUE_MILESTONES_AFTER_LONG_HELP: &str = "\
+Output (stdout): `#<n> <title>` for each open milestone, or with `--view <n>`
+the milestone's description, nothing else. Reads the tracker; writes nothing.
+Refusals (stdout):
+  milestones=refused reason=unsupported host=<host> hint=<op> is not implemented for <host> yet; do it on <host> by hand
+      The configured tracker has no milestones (Jira). Fix: do it on the
+      tracker by hand.
+  milestones=refused reason=host|credentials|not-found|ref detail=\"<error>\" hint=<fix>
+      The host failed: `host` it did not answer or answered unreadably (auth,
+      network), `credentials` its credentials are missing or malformed,
+      `not-found` no such milestone, `ref` the reference is no issue or PR
+      (exit 2).
+Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
+Backend: GitHub (`gh`).";
+
 const ISSUE_POST_AFTER_LONG_HELP: &str = "\
 Output:
   issue=<n> action=<action>
@@ -146,6 +161,13 @@ Output:
         recorded   Nothing was posted: the card already names the issue,
                    the follow-up was filed before, or every target already
                    carries this issue-comment.md
+  milestone=<n> action=<action>
+      An epic on a tracker with milestones is filed as milestone <n> in
+      place of an issue: the card's `milestone:` records it, an existing
+      issue (`--reuse`, or the run's named one) is closed with a link and
+      kept as the card's `issue:`. <action> is created, adopted (an open
+      milestone of the same title), edited (the description rewritten) or
+      recorded (nothing changed). The description keeps its `## Changelog`.
       Each host write that can be retried is logged on the card, so a rerun
       after a failure does only what is missing:
         posted=comment issue=<n> sum=<hash>
@@ -170,6 +192,15 @@ Refusals (stdout, exit 1):
       A run file the body or comment needs is absent.
   post=refused reason=no-slice slice=<n> hint=name a slice slices.md lists
       `--slice` names a slice slices.md lacks (or 0).
+  post=refused reason=milestone-closed milestone=<n> hint=<fix>
+      The milestone titled like the epic is closed. Fix: reopen it on
+      GitHub, or retitle the draft, and rerun.
+  post=refused reason=milestone-stale hint=<fix>
+      A milestone text an edit expected is no longer there. Fix: redraft
+      against `ferrule issue milestones --view <n>` and rerun.
+  post=refused reason=rejected length=<n> detail=\"<error>\" hint=<fix>
+      GitHub refused a milestone description (HTTP 422), <n> characters
+      long. Fix: shorten the source text.
   post=refused reason=host|credentials|not-found|ref detail=\"<error>\" hint=<fix>
       The host or tracker failed: `host` it did not answer or answered
       unreadably (auth, network), `credentials` its credentials are
@@ -269,6 +300,13 @@ pub enum IssueCommand {
         #[arg(long, value_name = "N")]
         slice: Option<u32>,
     },
+    /// List the open milestones, or print one milestone's description.
+    #[command(after_long_help = ISSUE_MILESTONES_AFTER_LONG_HELP)]
+    Milestones {
+        /// Print this milestone's description instead of the list.
+        #[arg(long, value_name = "N")]
+        view: Option<u64>,
+    },
     /// Post the run's issue, a related one or a comment; record its number.
     ///
     /// An open issue with the same title is adopted, never filed twice.
@@ -329,6 +367,7 @@ pub fn run(command: &IssueCommand, style: Option<Style>, out: &mut impl Write) -
         IssueCommand::View { issue, view: v } => view(issue, v, style, out),
         IssueCommand::Request { issue, part } => request(issue, *part, style, out),
         IssueCommand::Body { slug, slice } => body(slug, *slice, style, out),
+        IssueCommand::Milestones { view } => milestones(*view, style, out),
         IssueCommand::Post {
             slug,
             target,
@@ -522,10 +561,12 @@ fn body(
         Some(s) => s,
         None => ferrule_core::store::Board::memory().map_err(internal)?,
     };
-    let metadata = if remote::issue_tracker(&config()?, &layout.root)
-        .milestones()
-        .is_some()
-    {
+    let native = config().is_ok_and(|c| {
+        remote::issue_tracker(&c, &layout.root)
+            .milestones()
+            .is_some()
+    });
+    let metadata = if native {
         body::Metadata::Native
     } else {
         body::Metadata::Prose
@@ -561,11 +602,91 @@ fn file(slug: &str, t: FileTarget, reuse: Option<ItemRef>, out: &mut impl Write)
     let Some(mut s) = store()? else {
         return refuse(out, &Refusal::card("post"));
     };
-    match run_on(&mut s, &config, slug, |r| r.file(target, reuse)) {
-        Ok((n, action)) => {
+    match run_on(&mut s, &config, slug, |r| filed(r, target, reuse)) {
+        Ok(Filed::Issue(n, action)) => {
             writeln!(out, "issue={n} action={}", action.as_str())?;
             Ok(exit::OK)
         }
+        Ok(Filed::Milestone(n, action)) => {
+            writeln!(out, "milestone={n} action={}", action.as_str())?;
+            Ok(exit::OK)
+        }
         Err(e) => post_failed(e, "post", out),
+    }
+}
+
+/// What a post filed: an issue, or an epic's milestone.
+enum Filed {
+    Issue(ItemRef, publish::Action),
+    Milestone(u64, publish::Action),
+}
+
+fn filed(
+    run: &mut publish::Run,
+    target: Target,
+    reuse: Option<ItemRef>,
+) -> Result<Filed, publish::Error> {
+    if target == Target::Run && run.files_milestone()? {
+        let (n, action) = run.file_epic(reuse)?;
+        return Ok(Filed::Milestone(n, action));
+    }
+    let (n, action) = run.file(target, reuse)?;
+    Ok(Filed::Issue(n, action))
+}
+
+fn milestones(view: Option<u64>, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
+    milestones_of(&*tracker()?, view, style, out)
+}
+
+fn milestones_of(
+    tracker: &dyn IssueTracker,
+    view: Option<u64>,
+    style: Option<Style>,
+    out: &mut impl Write,
+) -> io::Result<u8> {
+    let Some(ms) = tracker.milestones() else {
+        let e = remote::Error::Unsupported {
+            host: tracker.name(),
+            op: "milestones",
+        };
+        return refuse(out, &e.refusal("milestones"));
+    };
+    let result = match view {
+        Some(n) => ms.get(n).map(|m| m.description),
+        None => ms.list(remote::SearchState::Open).map(|all| {
+            all.iter().fold(String::new(), |mut text, m| {
+                let _ = std::fmt::Write::write_fmt(
+                    &mut text,
+                    format_args!("#{} {}\n", m.number, m.title),
+                );
+                text
+            })
+        }),
+    };
+    match result {
+        Ok(text) => {
+            super::doc(out, style, &text)?;
+            Ok(exit::OK)
+        }
+        Err(e) => refuse(out, &e.refusal("milestones")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A tracker without milestones refuses the command with an unsupported line.
+    #[test]
+    fn ut_issue_milestones_refuses_without_the_capability() {
+        let jira = remote::Jira::new(std::path::Path::new("."));
+        let mut out = Vec::new();
+        let code = milestones_of(&jira, None, None, &mut out).unwrap();
+        assert_eq!(code, exit::REFUSED);
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "milestones=refused reason=unsupported host=Jira \
+             hint=milestones is not implemented for Jira yet; do it on Jira by hand\n"
+        );
     }
 }

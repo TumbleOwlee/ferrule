@@ -151,6 +151,7 @@ const SOURCES: &[(&str, &[&str])] = &[
         "ferrule/src/commands/issue.rs",
         &[
             "issue body",
+            "issue milestones",
             "issue post",
             "issue search",
             "issue view",
@@ -605,6 +606,7 @@ const REFUSAL_SOURCES: &[(&str, &[&str])] = &[
             "ci failed",
             "ci wait",
             "gate approve",
+            "issue milestones",
             "issue post",
             "issue request",
             "issue search",

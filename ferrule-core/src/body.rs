@@ -1004,7 +1004,7 @@ mod tests {
     }
 
     const ISSUE: &str = "# Epic title\n\n## Goal\nDo it.\n";
-    const SLICES: &str = "## Slice 1: Core\nGoal: build core\nDepends on: none\n\n## Slice 2: Edge\nGoal: build edge\nDepends on: 1\n";
+    const SLICES: &str = "## Slice 1: Core\nGoal: build core\nDepends on: none\n\n## Slice 2: Edge\nGoal: build edge\nDepends on: 1\n\n## Slice 3: Both\nGoal: build both\nDepends on: 1, 2\n";
 
     /// The issue of a run with `kind`, rendered for `slice`.
     fn rendered(kind: &str, slice: Option<u32>, metadata: Metadata) -> String {
@@ -1053,7 +1053,7 @@ mod tests {
     #[test]
     fn ut_prose_slice_keeps_the_marker() {
         let out = rendered("epic", Some(2), Metadata::Prose);
-        assert!(out.starts_with("# Epic title: Edge\n\n**Part of epic** #5 · **Slice** 2 of 2 · **Depends on** #11\n\n"), "{out}");
+        assert!(out.starts_with("# Epic title: Edge\n\n**Part of epic** #5 · **Slice** 2 of 3 · **Depends on** #11\n\n"), "{out}");
         let run = rendered("slice", None, Metadata::Prose);
         assert!(run.contains("**Part of epic** #5\n"), "{run}");
     }
@@ -1074,6 +1074,13 @@ mod tests {
             out.contains("## Slices\n- [ ] **Slice 1: Core** — #11\n"),
             "{out}"
         );
+    }
+
+    /// The prose marker joins several dependencies with commas.
+    #[test]
+    fn ut_prose_two_dependencies_are_joined_by_commas() {
+        let out = rendered("epic", Some(3), Metadata::Prose);
+        assert!(out.contains("**Depends on** #11, #12\n"), "{out}");
     }
 
     /// A prose body names an unfiled slice "not filed yet" and cites it as "slice <n>".
