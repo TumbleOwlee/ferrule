@@ -199,9 +199,6 @@ impl Run<'_> {
     /// added. Nothing is written when the entry is there already or an old
     /// text is gone.
     fn write_kept_change(&self) -> Result<(), Error> {
-        if self.field("kind")?.as_deref() != Some("slice") {
-            return Ok(());
-        }
         let Some(m) = self.slice_milestone()? else {
             return Ok(());
         };
@@ -514,9 +511,7 @@ impl Run<'_> {
             .map(str::trim)
             .filter(|d| !d.is_empty() && *d != "none")
         {
-            let n: u32 = d
-                .parse()
-                .map_err(|_| Error::Body(body::Error::NoSlice(0)))?;
+            let n: u32 = d.parse().map_err(|_| Error::BadDependency(d.to_owned()))?;
             let at = (n as usize).checked_sub(1);
             match at.and_then(|i| slots.get(i)).cloned().flatten() {
                 Some(r) => out.push(r),

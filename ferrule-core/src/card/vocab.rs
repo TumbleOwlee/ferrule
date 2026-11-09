@@ -238,6 +238,15 @@ pub const VOCABULARY: &[Event] = &[
         &[],
         Text::Required,
     ),
+    ev(
+        Parent,
+        "blocked-start",
+        V::None,
+        P::None,
+        &[],
+        Text::Required,
+    )
+    .by("ferrule run init <slug> --issue <n> --start-blocked"),
 ];
 
 /// The longest log line, timestamp included, in chars.

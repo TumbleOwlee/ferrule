@@ -15,17 +15,29 @@ use ferrule_core::remote::ItemRef;
 const INIT_AFTER_LONG_HELP: &str = "\
 Output:
   init=done slug=<slug>            The card and .ferrule/runs/<slug>/ exist
+  init=done slug=<slug> kind=slice milestone=<n> slice=<k>
+                                   --issue is the <k>th issue of milestone <n>;
+                                   the card records kind, milestone and slice
   init=done slug=<slug> kind=slice epic=<n>
-                                   --issue named a slice of epic <n>; the card
-                                   records kind and epic
+                                   Without milestones, --issue named a slice of
+                                   epic <n>; the card records kind and epic
 With --issue the run directory also holds request.md and issue-spec.md (when
-the issue carries them) and, for a slice, slice-line.md and epic.md; the card
-records the named issue as `named-issue`.
+the issue carries them) and, for a slice, epic.md (the milestone's
+description, or the epic as it stands); the card records the named issue as
+`named-issue`.
+A slice whose issue has open blockers is refused until the user approves;
+--start-blocked then starts it and the card logs `blocked-start`.
 With --request the card records `kind=request` and no slice is detected: no
 epic is read and no slice-line.md or epic.md is written.
 Refusals:
   init=refused reason=exists       The run already has a card or stage cards;
                                    resume it with `ferrule run reconcile <slug>`
+  init=refused reason=blocked issue=<n> blockers=<list> [unreadable=<k>] hint=<fix>
+                                   The slice has open blockers; <list> is their
+                                   cites joined by `,`, `-` when none shows;
+                                   <k> counts open blockers the host does not
+                                   show. Ask the user, then re-run with
+                                   --start-blocked
 Errors (stderr):
   init: <host error>               The issue could not be read (exit 1)
 Refusals end in ` hint=<fix>`.
@@ -307,6 +319,9 @@ pub enum RunCommand {
         /// Mark the run as a `/fe-request` run: no slice is detected.
         #[arg(long)]
         request: bool,
+        /// Start a slice whose issue has open blockers, after the user approved.
+        #[arg(long)]
+        start_blocked: bool,
     },
     /// Reconcile a run's cards with git and the host before resuming.
     ///
@@ -428,7 +443,16 @@ pub fn run(command: &RunCommand, out: &mut impl Write) -> io::Result<u8> {
             slug,
             issue,
             request,
-        } => start::init(slug, issue.as_ref(), *request, out),
+            start_blocked,
+        } => start::init(
+            slug,
+            ferrule_core::run::gate::Init {
+                issue: issue.as_ref(),
+                request: *request,
+                start_blocked: *start_blocked,
+            },
+            out,
+        ),
         RunCommand::Reconcile { slug, local } => start::reconcile(slug, *local, out),
         RunCommand::Rebase { slug, onto } => start::rebase(slug, onto.as_deref(), out),
         RunCommand::Rebuild { issue, pr } => start::rebuild(issue, pr, out),

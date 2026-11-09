@@ -192,6 +192,9 @@ Refusals (stdout, exit 1):
       A run file the body or comment needs is absent.
   post=refused reason=no-slice slice=<n> hint=name a slice slices.md lists
       `--slice` names a slice slices.md lacks (or 0).
+  post=refused reason=bad-dependency value=<text> hint=<fix>
+      A slice's `Depends on:` in slices.md is no slice number or `none`.
+      Fix: write slice numbers, and rerun.
   post=refused reason=milestone-closed milestone=<n> hint=<fix>
       The milestone titled like the epic is closed. Fix: reopen it on
       GitHub, or retitle the draft, and rerun.

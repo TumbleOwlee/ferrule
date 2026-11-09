@@ -49,6 +49,8 @@ pub enum Error {
     MilestoneClosed(u64),
     /// A milestone text an edit expected is no longer there: the old text.
     MilestoneStale(String),
+    /// A slice's `Depends on` names something that is no slice number.
+    BadDependency(String),
     Remote(remote::Error),
     Sql(rusqlite::Error),
 }
@@ -89,6 +91,11 @@ impl Error {
             Error::MilestoneStale(_) => Some(Refusal::new(verb, "milestone-stale").hint(
                 "another run changed that text; redraft milestone-change.md against `ferrule issue milestones --view <n>` and rerun",
             )),
+            Error::BadDependency(d) => Some(
+                Refusal::new(verb, "bad-dependency")
+                    .field("value", d)
+                    .hint("write `Depends on:` in slices.md as slice numbers or `none`, and rerun"),
+            ),
             Error::Remote(e) => Some(e.refusal(verb)),
             Error::Missing(p) => Some(
                 Refusal::new(verb, "missing")
@@ -115,6 +122,7 @@ impl std::fmt::Display for Error {
             Error::Moved(n, why) => write!(f, "stage s{n} cannot move back: {why}"),
             Error::MilestoneClosed(n) => write!(f, "milestone #{n} is closed"),
             Error::MilestoneStale(t) => write!(f, "the milestone no longer holds: {t}"),
+            Error::BadDependency(d) => write!(f, "`Depends on` names `{d}`, not a slice number"),
             Error::Remote(e) => write!(f, "{e}"),
             Error::Sql(e) => write!(f, "state database: {e}"),
         }
@@ -134,6 +142,7 @@ impl std::error::Error for Error {
             | Error::NoPr
             | Error::MilestoneClosed(_)
             | Error::MilestoneStale(_)
+            | Error::BadDependency(_)
             | Error::Moved(..) => None,
         }
     }
@@ -995,6 +1004,23 @@ mod tests {
         assert_eq!(field(&mut db, "slices").as_deref(), Some("[20, 21]"));
     }
 
+    /// A `Depends on` that is no slice number refuses, naming the value, and writes nothing.
+    #[test]
+    fn ut_slice_with_a_non_numeric_dependency_names_it() {
+        let (_dir, mut db, layout, host, tracker) = slice_setup();
+        std::fs::write(
+            layout.run_dir("r").join("slices.md"),
+            "## Slice 1: Core\nGoal: a\nDepends on: none\n\n## Slice 2: Edge\nGoal: b\nDepends on: core\n",
+        )
+        .unwrap();
+        file_slice(&mut db, &layout, &host, &tracker, 1).unwrap();
+        let e = file_slice(&mut db, &layout, &host, &tracker, 2).unwrap_err();
+        assert!(matches!(&e, Error::BadDependency(d) if d == "core"), "{e}");
+        let line = e.refusal("issue").unwrap().to_string();
+        assert!(line.contains("reason=bad-dependency"), "{line}");
+        assert!(line.contains("value=core"), "{line}");
+    }
+
     /// RU-R-024 — a slice's `Areas:` key labels it with each area the specs have; the brief's
     /// `Area:` line stands in without the key.
     #[test]
@@ -1255,8 +1281,8 @@ mod tests {
         assert_eq!(field(&mut db, "split").as_deref(), Some("[8]"));
     }
 
-    /// RU-R-026 — a split-off of a slice run is filed in the slice's milestone, which records
-    /// the split in its changelog once.
+    /// RU-R-021, RU-R-026 — a split-off of a slice run is filed in the slice's milestone, which
+    /// records the split in its changelog once.
     #[test]
     fn ut_split_of_a_slice_is_in_its_milestone() {
         let (_dir, mut db, layout, host) = linked_setup(&[("kind", "slice"), ("milestone", "4")]);

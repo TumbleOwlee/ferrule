@@ -42,6 +42,7 @@
 
 - `post=refused reason=milestone-closed milestone=<n> hint=<fix>` (RU-E-006, RU-E-015)
 - `post=refused reason=milestone-stale hint=<fix>` (RU-E-011)
+- `post=refused reason=bad-dependency value=<text> hint=<fix>`
 - `post=refused reason=rejected length=<n> detail="<host error>" hint=<fix>` (RU-E-010)
 
 ## ferrule issue milestones
