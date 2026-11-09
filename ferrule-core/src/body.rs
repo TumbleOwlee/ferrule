@@ -525,14 +525,32 @@ fn spec_changes(
     ids
 }
 
+/// Whether `id` is a local spec ID (`R<n>`, `E<n>`) the brief no longer
+/// holds: no heading starts with it and none carries it as `· was <id>`.
+fn retired(id: &str, brief: Option<&str>) -> bool {
+    let local = id
+        .strip_prefix(['R', 'E'])
+        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
+    let Some(brief) = brief.filter(|_| local) else {
+        return false;
+    };
+    let head = format!("## {id} ");
+    let was = format!(" · was {id}");
+    !brief
+        .lines()
+        .any(|l| l.starts_with(&head) || l.ends_with(&was))
+}
+
 /// decisions.md's design choices and its chosen spec decisions not already
 /// under the spec changes.
-fn decisions(text: Option<&str>, changed: &HashSet<String>) -> String {
+fn decisions(text: Option<&str>, changed: &HashSet<String>, brief: Option<&str>) -> String {
     let mut seen: Vec<String> = Vec::new();
     for d in artifacts::decisions(text.unwrap_or(""), 0) {
         let keep = match d.tag {
             Some(("design", None)) => true,
-            Some(("spec", Some(id))) => d.by == artifacts::By::Chosen && !changed.contains(id),
+            Some(("spec", Some(id))) => {
+                d.by == artifacts::By::Chosen && !changed.contains(id) && !retired(id, brief)
+            }
             _ => false,
         };
         let who = match d.by {
@@ -693,7 +711,11 @@ fn draft(
         None => HashSet::new(),
     };
     out.push_str(&architecture(c));
-    out.push_str(&decisions(c.read("decisions.md").as_deref(), &changed));
+    out.push_str(&decisions(
+        c.read("decisions.md").as_deref(),
+        &changed,
+        c.read("spec-diff.md").as_deref(),
+    ));
     Ok(out)
 }
 
@@ -926,13 +948,54 @@ fn full(c: &Ctx, issue: &str, deltas: &[Delta]) -> Result<String, Error> {
         changed = spec_changes(d, deltas, &lines, &mut out);
     }
     out.push_str(&architecture(c));
-    out.push_str(&decisions(c.read("decisions.md").as_deref(), &changed));
+    out.push_str(&decisions(
+        c.read("decisions.md").as_deref(),
+        &changed,
+        c.read("spec-diff.md").as_deref(),
+    ));
     Ok(out)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const DECISIONS: &str = "# d\n\n- keep it (chosen) [spec R2] — why · planner\n- gone (chosen) [spec R9] — why · planner\n- fixed (chosen) [spec MB-R-005] — why · planner\n";
+
+    fn listed(brief: Option<&str>) -> String {
+        decisions(Some(DECISIONS), &HashSet::new(), brief)
+    }
+
+    /// GW-R-067 — a chosen decision tagged with a local ID the brief no longer holds is omitted.
+    #[test]
+    fn ut_decisions_omit_a_retired_local_id() {
+        let out = listed(Some("## R2 · added\ntext\n"));
+        assert!(!out.contains("gone"), "{out}");
+        assert!(out.contains("- keep it (chosen)"), "{out}");
+    }
+
+    /// GW-R-067 — a local ID the brief still heads is kept.
+    #[test]
+    fn ut_decisions_keep_a_held_local_id() {
+        let out = listed(Some("## R2 · added\ntext\n## R9 · added\ntext\n"));
+        assert!(out.contains("- gone (chosen)"), "{out}");
+    }
+
+    /// GW-R-067 — a local ID a heading carries as `· was <id>` is kept.
+    #[test]
+    fn ut_decisions_keep_a_was_suffix_id() {
+        let out = listed(Some("## MB-R-001 · was R9\ntext\n"));
+        assert!(out.contains("- gone (chosen)"), "{out}");
+    }
+
+    /// GW-R-067 — a fixed ID and an absent brief are never retired.
+    #[test]
+    fn ut_decisions_keep_a_fixed_id() {
+        let out = listed(Some("## R2 · added\n"));
+        assert!(out.contains("- fixed (chosen)"), "{out}");
+        let out = listed(None);
+        assert!(out.contains("- gone (chosen)"), "{out}");
+    }
 
     #[test]
     fn ut_stage_refs() {

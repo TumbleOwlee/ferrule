@@ -1014,7 +1014,9 @@ mod tests {
         )
         .unwrap();
         file_slice(&mut db, &layout, &host, &tracker, 1).unwrap();
+        let before = tracker.calls().len();
         let e = file_slice(&mut db, &layout, &host, &tracker, 2).unwrap_err();
+        assert!(writes(&tracker, before).is_empty(), "{:?}", tracker.calls());
         assert!(matches!(&e, Error::BadDependency(d) if d == "core"), "{e}");
         let line = e.refusal("issue").unwrap().to_string();
         assert!(line.contains("reason=bad-dependency"), "{line}");
