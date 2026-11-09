@@ -127,3 +127,7 @@
 **GA-R-058** — Ferrule's sources hold once a paragraph an installed agent file shares with a guide.
 
 **GA-R-059** — No heading section of ferrule's shipped guide or installed-file sources repeats the text of another.
+
+**GA-R-060** — The planner guide reads `Rules for writing specs` before a spec edit.
+
+**GA-R-061** — The `planner-replan` guide reads `Rules for writing specs` before a spec edit.
