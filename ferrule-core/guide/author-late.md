@@ -37,7 +37,7 @@ Resumed for a split: the brief carries the reason and the entry it narrows.
   - likely to change | cited
 ```
 
-Existing IDs only, never a planned one. No issue number anywhere — the orchestrator appends `Split from #<issue>`.
+Existing IDs only, never a planned one. No issue number anywhere — on a tracker without milestones the orchestrator appends `Split from #<issue>`. Put `Areas: <a>, <b>` (the spec areas to label) on the line under the title.
 
 ## Gate 4 — sync, then `pr.md`
 
@@ -71,4 +71,4 @@ Existing IDs only, never a planned one. No issue number anywhere — the orchest
 
 ## Gate 4 — follow-ups
 
-Things the run noticed outside its goal: `ferrule board events {slug} --event follow-up` and the `follow-up — ` lines of `review.md`. Merge duplicates; drop one an open issue already covers (`ferrule issue search --state open <keywords>`) or one the branch fixed after all. One `{run_dir}/follow-up-<k>.md` per remaining item, `k` from 1, in the `split-issue.md` shape without `## Existing spec` and `parent assumes`. No issue number anywhere — the orchestrator appends `Found in #<issue>`. None left → no file, `follow-ups=0`.
+Things the run noticed outside its goal: `ferrule board events {slug} --event follow-up` and the `follow-up — ` lines of `review.md`. Merge duplicates; drop one an open issue already covers (`ferrule issue search --state open <keywords>`) or one the branch fixed after all. One `{run_dir}/follow-up-<k>.md` per remaining item, `k` from 1, in the `split-issue.md` shape without `## Existing spec` and `parent assumes`. No issue number anywhere — on a tracker without milestones the orchestrator appends `Found in #<issue>`; on GitHub there is no `Found in` line. Put `Areas: <a>, <b>` under the title. A follow-up on a slice run also carries `Milestone: <exact title> | none` under it, chosen by reading `ferrule issue milestones` and `--view <n>`: the run's own milestone when the follow-up fits its context, else another open one, else `none`. None left → no file, `follow-ups=0`.

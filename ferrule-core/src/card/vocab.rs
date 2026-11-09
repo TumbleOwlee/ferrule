@@ -222,7 +222,7 @@ pub const VOCABULARY: &[Event] = &[
     ev(
         Parent,
         "posted=",
-        V::OneOf(&["comment", "follow-up"]),
+        V::OneOf(&["comment", "follow-up", "split"]),
         P::None,
         &["issue", "sum", "k"],
         Text::No,

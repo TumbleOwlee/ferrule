@@ -176,6 +176,9 @@ Output:
         posted=follow-up issue=<n> k=<k>
                    `--follow-up <k>` (or `pr publish`) filed follow-up-k.md
                    as issue <n>
+        posted=split issue=<n> sum=<hash>
+                   `--split` filed this split-issue.md (by its hash) as issue
+                   <n>; a rerun of the same text answers `recorded`
 Refusals (stdout, exit 1):
   post=refused reason=card hint=check the slug with `ferrule board list`
       No card for the slug.

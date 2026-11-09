@@ -174,6 +174,8 @@ pub(crate) struct Issues {
     pub issues_in: HashMap<u64, Vec<u64>>,
     /// `milestones` answers `None`, as a tracker without them does.
     pub no_milestones: bool,
+    /// A write whose call line starts with this fails after it is recorded.
+    pub fail_on: Option<&'static str>,
     /// The login `login` answers.
     pub login: String,
     /// Issue bodies: what `view` serves, `edit` and `create_issue` store.
@@ -193,7 +195,8 @@ impl FakeTracker {
     fn write(&self, op: &'static str, line: String) -> Result<(), Error> {
         let mut s = self.0.borrow_mut();
         s.calls.push(line);
-        if s.read_only {
+        let line = s.calls.last().cloned().unwrap_or_default();
+        if s.read_only || s.fail_on.is_some_and(|p| line.starts_with(p)) {
             return Err(Error::Unsupported { host: "Fake", op });
         }
         Ok(())

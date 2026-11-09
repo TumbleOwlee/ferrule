@@ -442,9 +442,12 @@ fn through_gate2(p: &Project) {
             "Reconnect dropped Modbus clients",
             "--body-file",
             "-",
+            "--label",
+            "area:modbus",
         ],
         "https://github.com/o/r/issues/12\n",
     );
+    serve_labels(gh, &["area:modbus"]);
     serve_links(gh, "12");
     let gate2 = p.ok(&["gate", "approve", "demo", "gate2", "--issue", "new"]);
     assert!(
@@ -2650,8 +2653,9 @@ fn it_epic_on_an_issue_closes_it_with_a_link() {
     assert!(!log.contains("issue edit"), "{log}");
 }
 
-/// S9, RU-R-030 — a slice whose blocker write failed is found in the milestone on the rerun,
-/// which writes the blocker and files no second issue.
+/// S9, RU-R-030 — a slice whose blocker write failed is recorded at once, so a rerun inside the
+/// host's list lag (the milestone's issue list still empty) writes the blocker and files no
+/// second issue.
 #[test]
 fn it_epic_rerun_after_a_failed_relationship_adds_only_it() {
     let p = epic_project(&["milestone=4"]);
@@ -2670,24 +2674,15 @@ fn it_epic_rerun_after_a_failed_relationship_adds_only_it() {
     assert!(failed.ends_with("exit=1"), "{failed}");
     assert_eq!(
         p.field("lb", "slices"),
-        "[71]",
-        "the slot waits for the blocker"
+        "[71, 72]",
+        "the issue is recorded once created"
     );
-    // Issue 72 is in the milestone now, holding the run's text.
-    serve_milestone_issues(gh, r#"[[{"number":72,"title":"Batteries"}]]"#);
+    // The milestone's list still answers nothing: only the card knows issue 72.
     gh.clear(&block);
     gh.serve(&block, "{}");
-    let text = p.ok(&["issue", "body", "lb", "--slice", "2"]);
-    let (_, body) = text.split_once("\n\n").unwrap();
-    gh.serve(
-        &["issue", "view", "72", "--json", GH_FIELDS],
-        &gh_json(&format!(
-            "#72 Batteries [OPEN]\nhttps://github.com/o/r/issues/72\nby someone\n\n{body}\n"
-        )),
-    );
     assert_eq!(
         p.ok(&["issue", "post", "lb", "--slice", "2"]),
-        "issue=72 action=adopted"
+        "issue=72 action=recorded"
     );
     assert_eq!(p.field("lb", "slices"), "[71, 72]");
     let log = gh.log();
@@ -2697,7 +2692,7 @@ fn it_epic_rerun_after_a_failed_relationship_adds_only_it() {
         "{log}"
     );
     assert_eq!(log.matches("issue=I72 -f other=I71").count(), 2, "{log}");
-    assert!(!log.contains("issue edit"), "the text is the run's: {log}");
+    assert!(!log.contains("issue edit"), "{log}");
 }
 
 /// RU-E-006 — a closed milestone of the epic's title refuses, writing nothing.

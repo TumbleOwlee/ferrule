@@ -39,29 +39,44 @@ impl Run<'_> {
             .into_iter()
             .find_map(|(n, _, kk)| if kk == Some(k) { n } else { None })
         {
+            if self.tracker.milestones().is_some() {
+                self.relate(&n, &issue)?;
+            }
             return Ok((n, Action::Recorded));
         }
         let text = self.artifact(&format!("follow-up-{k}.md"))?;
         let (n, action) = if self.tracker.milestones().is_some() {
-            self.file_native_follow_up(&text, &issue)?
+            self.file_native_follow_up(&text, &issue, k)?
         } else {
             let (title, body) = split_title(&text);
             let body = format!("{}\n\nFound in {}\n", body.trim_end(), issue.cite());
             self.adopt_or_create(&title, &body)?
         };
-        self.log(
-            "posted=follow-up",
-            &[format!("issue={n}"), format!("k={k}")],
-        )?;
+        if self.tracker.milestones().is_none() {
+            self.log(
+                "posted=follow-up",
+                &[format!("issue={n}"), format!("k={k}")],
+            )?;
+        }
         Ok((n, action))
+    }
+
+    /// The `relates to` link from `n` to `issue`, when the host lacks it.
+    fn relate(&self, n: &ItemRef, issue: &ItemRef) -> Result<(), Error> {
+        let ms = self.milestones()?;
+        if !ms.links(n)?.relates_to.contains(issue) {
+            ms.add_relates_to(n, issue)?;
+        }
+        Ok(())
     }
 
     /// A follow-up on a tracker with milestones: in the milestone its draft
     /// names when the run is a slice run, related to `issue`.
     fn file_native_follow_up(
-        &self,
+        &mut self,
         text: &str,
         issue: &ItemRef,
+        k: u32,
     ) -> Result<(ItemRef, Action), Error> {
         let d = artifacts::draft(text);
         let ms = self.milestones()?;
@@ -81,9 +96,11 @@ impl Run<'_> {
         };
         let labels = self.draft_labels(d.areas.as_deref());
         let (n, action) = self.file_linked(&d.title, &d.body, &labels, milestone.as_ref())?;
-        if !ms.links(&n)?.relates_to.contains(issue) {
-            ms.add_relates_to(&n, issue)?;
-        }
+        self.log(
+            "posted=follow-up",
+            &[format!("issue={n}"), format!("k={k}")],
+        )?;
+        self.relate(&n, issue)?;
         Ok((n, action))
     }
 
@@ -361,8 +378,18 @@ impl Run<'_> {
             self.label_missing(&n, &labels)?;
             return Ok((n, Action::Adopted));
         }
-        let n = self.tracker.create(title, body)?;
-        self.label_missing(&n, &labels)?;
+        let n = if labels.is_empty() {
+            self.tracker.create(title, body)?
+        } else {
+            let ms = self.milestones()?;
+            ms.ensure_labels(&labels)?;
+            ms.create_issue(&NewIssue {
+                title,
+                body,
+                milestone: None,
+                labels: &labels,
+            })?
+        };
         Ok((n, Action::Created))
     }
 
@@ -410,10 +437,13 @@ impl Run<'_> {
             return Err(Error::Body(body::Error::NoSlice(slice)));
         };
         let mut slots = remote::slots(self.field("slices")?.as_deref());
+        let native = self.tracker.milestones().is_some();
         if let Some(Some(n)) = slots.get(at) {
+            if native {
+                self.complete_blockers(slice, &slots, n)?;
+            }
             return Ok((n.clone(), Action::Recorded));
         }
-        let native = self.tracker.milestones().is_some();
         let metadata = if native {
             body::Metadata::Native
         } else {
@@ -423,8 +453,11 @@ impl Run<'_> {
             body::issue(r, self.layout, self.slug, Some(slice), metadata)
         })?;
         let (title, body) = split_title(&rendered);
+        if native {
+            self.slice_blockers(slice, &slots)?;
+        }
         let (n, action) = if native {
-            self.file_slice_in_milestone(slice, &slots, &title, &body)?
+            self.file_slice_in_milestone(slice, &title, &body)?
         } else {
             self.adopt_or_create(&title, &body)?
         };
@@ -433,16 +466,41 @@ impl Run<'_> {
         }
         slots[at] = Some(n.clone());
         self.set("slices", &remote::slot_list(&slots))?;
+        if native {
+            self.complete_blockers(slice, &slots, &n)?;
+        }
         Ok((n, action))
     }
 
-    /// Slice `slice`'s issue inside the epic's milestone, labelled and
-    /// blocked by the slices it depends on; the slot is the caller's to
-    /// record once this has returned.
-    fn file_slice_in_milestone(
+    /// The issues slice `slice` depends on; an unfiled one refuses.
+    fn slice_blockers(&self, slice: u32, slots: &[Option<ItemRef>]) -> Result<Vec<ItemRef>, Error> {
+        let all = artifacts::slices(&self.artifact("slices.md")?);
+        Self::blockers(all.iter().find(|s| s.n == slice), slots)
+    }
+
+    /// The `blocked by` links of slice `slice`'s issue `n` it lacks.
+    fn complete_blockers(
         &self,
         slice: u32,
         slots: &[Option<ItemRef>],
+        n: &ItemRef,
+    ) -> Result<(), Error> {
+        let blockers = self.slice_blockers(slice, slots)?;
+        let ms = self.milestones()?;
+        let have = ms.links(n)?.blocked_by;
+        for b in blockers {
+            if !have.iter().any(|h| h.reference == b) {
+                ms.add_blocked_by(n, &b)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Slice `slice`'s issue inside the epic's milestone, labelled; the
+    /// caller records its slot at once and adds its blockers.
+    fn file_slice_in_milestone(
+        &self,
+        slice: u32,
         title: &str,
         body: &str,
     ) -> Result<(ItemRef, Action), Error> {
@@ -469,7 +527,6 @@ impl Run<'_> {
                 artifacts::brief_areas(&brief)
             });
         let labels = artifacts::area_labels(&self.root.join("docs").join("specs"), &areas);
-        let blockers = Self::blockers(this, slots)?;
         let ms = self.milestones()?;
         let (n, action) = if let Some(n) = ms.find_open_in(m, title)? {
             self.edit_if_changed(&n, title, body)?;
@@ -488,12 +545,6 @@ impl Run<'_> {
             })?;
             (n, Action::Created)
         };
-        let have = ms.links(&n)?.blocked_by;
-        for b in blockers {
-            if !have.iter().any(|h| h.reference == b) {
-                ms.add_blocked_by(&n, &b)?;
-            }
-        }
         Ok((n, action))
     }
 
@@ -521,8 +572,26 @@ impl Run<'_> {
         Ok(out)
     }
 
+    /// split-issue.md, filed once per text: a `posted=split issue=<n> sum=<hash>`
+    /// names the issue the text became.
     fn file_split(&mut self) -> Result<(ItemRef, Action), Error> {
-        let (n, action) = if self.tracker.milestones().is_some() {
+        self.issue()?;
+        let native = self.tracker.milestones().is_some();
+        let sum = crate::install::hash(&self.artifact("split-issue.md")?);
+        let filed = self.posted("split")?.into_iter().find_map(|(n, s, _)| {
+            if s.as_deref() == Some(sum.as_str()) {
+                n
+            } else {
+                None
+            }
+        });
+        if let Some(n) = filed {
+            if native {
+                self.complete_split(&n)?;
+            }
+            return Ok((n, Action::Recorded));
+        }
+        let (n, action) = if native {
             self.file_native_split()?
         } else {
             self.file_prose_split()?
@@ -532,14 +601,20 @@ impl Run<'_> {
             split.push(n.clone());
             self.set("split", &remote::ref_list(&split))?;
         }
+        self.log(
+            "posted=split",
+            &[format!("issue={n}"), format!("sum={sum}")],
+        )?;
+        if native {
+            self.complete_split(&n)?;
+        }
         Ok((n, action))
     }
 
     /// A split-off on a tracker with milestones: in the slice's milestone
-    /// for a slice run, a child of the issue it came from unless it has
-    /// another parent, and noted in the milestone's changelog.
+    /// for a slice run, and labelled; its parent and changelog entry follow
+    /// once the issue is recorded.
     fn file_native_split(&self) -> Result<(ItemRef, Action), Error> {
-        let source = self.issue()?;
         let d = artifacts::draft(&self.artifact("split-issue.md")?);
         let ms = self.milestones()?;
         let in_milestone = match self.slice_milestone()? {
@@ -547,14 +622,22 @@ impl Run<'_> {
             None => None,
         };
         let labels = self.draft_labels(d.areas.as_deref());
-        let (n, action) = self.file_linked(&d.title, &d.body, &labels, in_milestone.as_ref())?;
-        if ms.links(&n)?.parent.is_none() {
-            ms.set_parent(&n, &source)?;
+        self.file_linked(&d.title, &d.body, &labels, in_milestone.as_ref())
+    }
+
+    /// A recorded split-off `n` a child of the issue it came from unless it
+    /// has another parent, and noted in the slice's milestone.
+    fn complete_split(&self, n: &ItemRef) -> Result<(), Error> {
+        let source = self.issue()?;
+        let d = artifacts::draft(&self.artifact("split-issue.md")?);
+        let ms = self.milestones()?;
+        if ms.links(n)?.parent.is_none() {
+            ms.set_parent(n, &source)?;
         }
-        if let Some((m, _)) = in_milestone {
-            self.note_split(m, &n, &d.title)?;
+        if let Some(m) = self.slice_milestone()? {
+            self.note_split(m, n, &d.title)?;
         }
-        Ok((n, action))
+        Ok(())
     }
 
     /// One changelog entry on milestone `m` for split-off `n`, once.

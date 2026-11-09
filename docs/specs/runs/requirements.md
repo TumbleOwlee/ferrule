@@ -74,6 +74,10 @@
 
 **RU-R-036** — A kept spec change that adds an area to the run's brief adds that area's label to the run's issue and removes none.
 
+**RU-R-041** — A label ferrule creates in the repository gets a random color.
+
+**RU-R-042** — A label the repository already has is left as it is.
+
 **RU-R-037** — A rerun of an epic filing adopts an open milestone of the same title.
 
 ## Blocked slices

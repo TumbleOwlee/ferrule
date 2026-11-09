@@ -973,3 +973,35 @@ fn it_architect_guide_hands_a_tripped_size_guard_to_the_epic_guide() {
     assert!(text.contains("ferrule guide show architect-epic"), "{text}");
     assert!(text.contains("replaces this guide"), "{text}");
 }
+
+/// RU-R-031 — the epic guide states that a GitHub epic is a milestone and
+/// that slices are the issues in it.
+#[test]
+fn it_epic_guide_states_a_github_epic_is_a_milestone() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let text = ok(root, &["guide", "show", "epic", "--slug", "demo"]);
+    for want in [
+        "a GitHub epic is a milestone",
+        "slices are the issues in it",
+        "milestone-change.md",
+    ] {
+        assert!(text.contains(want), "{want}: {text}");
+    }
+}
+
+/// RU-R-035 — the epic guide's closing notice names the milestone.
+#[test]
+fn it_epic_guide_closing_notice_names_the_milestone() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let text = ok(root, &["guide", "show", "epic", "--slug", "demo"]);
+    assert!(
+        text.contains(
+            "Epic · demo · milestone #<m> · slices #a, #b, … filed · start with /fe-feature on #a"
+        ),
+        "{text}"
+    );
+}

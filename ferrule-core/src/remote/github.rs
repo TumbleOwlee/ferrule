@@ -795,6 +795,31 @@ fn kv(key: &str, value: impl std::fmt::Display) -> String {
     format!("{key}={value}")
 }
 
+/// The call creating label `name` with `color`.
+fn new_label_args(name: &str, color: &str) -> Vec<String> {
+    [
+        "api",
+        "-X",
+        "POST",
+        "repos/{owner}/{repo}/labels",
+        "-f",
+        &kv("name", name),
+        "-f",
+        &kv("color", color),
+    ]
+    .map(str::to_owned)
+    .to_vec()
+}
+
+/// Six random hex digits, a label's color.
+fn random_color() -> String {
+    use std::hash::{BuildHasher, Hasher};
+    let bits = std::collections::hash_map::RandomState::new()
+        .build_hasher()
+        .finish();
+    format!("{:06x}", bits & 0x00ff_ffff)
+}
+
 /// One milestone as the REST API answers it.
 #[derive(Deserialize)]
 struct RestMilestone {
@@ -1183,17 +1208,9 @@ impl Milestones for Gh {
         let pages: Vec<Vec<Label>> = json(&out, "gh api labels")?;
         let have: Vec<String> = pages.into_iter().flatten().map(|l| l.name).collect();
         for l in missing_labels(&have, labels) {
-            self.gh(
-                &[
-                    "api",
-                    "-X",
-                    "POST",
-                    "repos/{owner}/{repo}/labels",
-                    "-f",
-                    &kv("name", l),
-                ],
-                None,
-            )?;
+            let args = new_label_args(l, &random_color());
+            let args: Vec<&str> = args.iter().map(String::as_str).collect();
+            self.gh(&args, None)?;
         }
         Ok(())
     }
@@ -1445,7 +1462,25 @@ mod tests {
         assert!(matches!(e, Error::NotFound(_)));
     }
 
-    /// A label the repository has under another case is not missing.
+    /// RU-R-041 — a label ferrule creates carries a color of six hex digits.
+    #[test]
+    fn ut_new_label_carries_a_color() {
+        let args = new_label_args("area:runs", "1a2b3c");
+        assert!(args.contains(&"name=area:runs".to_owned()), "{args:?}");
+        assert!(args.contains(&"color=1a2b3c".to_owned()), "{args:?}");
+        let c = random_color();
+        assert_eq!(c.len(), 6, "{c}");
+        assert!(c.bytes().all(|b| b.is_ascii_hexdigit()), "{c}");
+    }
+
+    /// RU-R-041 — the colors differ from one label to the next.
+    #[test]
+    fn ut_label_colors_vary() {
+        let all: std::collections::HashSet<String> = (0..16).map(|_| random_color()).collect();
+        assert!(all.len() > 1, "{all:?}");
+    }
+
+    /// RU-R-042 — a label the repository has, under another case too, is left as it is.
     #[test]
     fn ut_labels_match_without_case() {
         let have = vec!["Area:Runs".to_owned()];

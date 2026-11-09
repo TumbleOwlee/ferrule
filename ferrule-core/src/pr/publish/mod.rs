@@ -1212,13 +1212,16 @@ mod tests {
                 calls.contains(&"ensure_labels area:runs".to_owned()),
                 "{calls:?}"
             );
-            assert!(
+            // A created issue carries its labels from the start; the others are labelled after.
+            let created = issue == 8;
+            assert_eq!(
                 calls.contains(&format!("add_labels {issue} area:runs")),
+                !created,
                 "{calls:?}"
             );
             assert_eq!(
                 calls.iter().filter(|c| c.starts_with("add_labels")).count(),
-                1,
+                usize::from(!created),
                 "{calls:?}"
             );
         }
@@ -1310,6 +1313,82 @@ mod tests {
         assert_eq!(d.matches("ferrule:change").count(), 1, "{d}");
     }
 
+    /// RU-R-030 — a split-off whose draft was filed is recorded with it: a rerun inside the
+    /// host's list lag files no second issue, and a changed draft files its own.
+    #[test]
+    fn ut_split_rerun_inside_list_lag_files_once() {
+        let (_dir, mut db, layout, host) = linked_setup(&[("kind", "slice"), ("milestone", "4")]);
+        let tracker = linked_tracker(|s| s.login = "ann".into());
+        let (n, action) = file_target(&mut db, &layout, &host, &tracker, Target::Split).unwrap();
+        assert_eq!(action, Action::Created);
+        // The host's list has not caught up: it answers nothing for the milestone.
+        tracker.0.borrow_mut().open.clear();
+        tracker.0.borrow_mut().issues_in.clear();
+        let (again, action) =
+            file_target(&mut db, &layout, &host, &tracker, Target::Split).unwrap();
+        assert_eq!((again, action), (n, Action::Recorded));
+        let creates = |t: &FakeTracker| {
+            t.calls()
+                .iter()
+                .filter(|c| c.starts_with("create_issue"))
+                .count()
+        };
+        assert_eq!(creates(&tracker), 1, "{:?}", tracker.calls());
+        std::fs::write(
+            layout.run_dir("r").join("split-issue.md"),
+            "# Another split\n\nBody\n",
+        )
+        .unwrap();
+        file_target(&mut db, &layout, &host, &tracker, Target::Split).unwrap();
+        assert_eq!(creates(&tracker), 2, "{:?}", tracker.calls());
+    }
+
+    /// RU-R-030 — a split-off whose parent write failed is recorded when filed: a rerun inside
+    /// the host's list lag files no second issue and writes the missing parent.
+    #[test]
+    fn ut_split_failed_midway_is_recorded_and_completed() {
+        let (_dir, mut db, layout, host) = linked_setup(&[("kind", "slice"), ("milestone", "4")]);
+        let tracker = linked_tracker(|s| {
+            s.login = "ann".into();
+            s.fail_on = Some("set_parent");
+        });
+        assert!(file_target(&mut db, &layout, &host, &tracker, Target::Split).is_err());
+        tracker.0.borrow_mut().fail_on = None;
+        tracker.0.borrow_mut().open.clear();
+        tracker.0.borrow_mut().issues_in.clear();
+        let (n, action) = file_target(&mut db, &layout, &host, &tracker, Target::Split).unwrap();
+        assert_eq!((n, action), (ItemRef::Number(8), Action::Recorded));
+        let calls = tracker.calls();
+        let count = |p: &str| calls.iter().filter(|c| c.starts_with(p)).count();
+        assert_eq!(count("create_issue"), 1, "{calls:?}");
+        assert_eq!(count("set_parent 8 12"), 2, "{calls:?}");
+        let d = tracker.0.borrow().milestones[0].description.clone();
+        assert_eq!(d.matches("ferrule:change").count(), 1, "{d}");
+    }
+
+    /// RU-R-024, RU-R-030 — a tracking issue is created with its area labels in one call, so a
+    /// label write cannot fail after the issue exists.
+    #[test]
+    fn ut_created_tracking_issue_carries_its_labels() {
+        let (_dir, mut db, layout, host) = setup(&[]);
+        std::fs::write(layout.run_dir("r").join("spec-diff.md"), "Area: runs — x\n").unwrap();
+        std::fs::create_dir_all(layout.root.join("docs/specs/runs")).unwrap();
+        let tracker = tracker_with(|s| s.next = 8);
+        let config = Config::default();
+        let mut run = run_on(&mut db, &layout, &config, &host);
+        run.tracker = Box::new(tracker.clone());
+        run.file(Target::Run, None).unwrap();
+        let calls = tracker.calls();
+        assert!(
+            calls.contains(&"create_issue Retry clients milestone=- labels=area:runs".to_owned()),
+            "{calls:?}"
+        );
+        assert!(
+            !calls.iter().any(|c| c.starts_with("add_labels")),
+            "{calls:?}"
+        );
+    }
+
     /// RU-E-017 — an adopted split-off keeps the parent it already has.
     #[test]
     fn ut_adopted_split_keeps_its_other_parent() {
@@ -1389,6 +1468,22 @@ mod tests {
             writes(&tracker, 0),
             ["ensure_labels area:card", "add_labels 30 area:card"]
         );
+    }
+
+    /// RU-R-030 — a follow-up recorded as filed still gets its `relates to` link when the host
+    /// lacks it, and files no second issue.
+    #[test]
+    fn ut_recorded_follow_up_completes_its_link() {
+        let (_dir, mut db, layout, host) = linked_setup(&[]);
+        let tracker = linked_tracker(|_| {});
+        file_target(&mut db, &layout, &host, &tracker, Target::FollowUp(1)).unwrap();
+        // The fake keeps no links: the host lacks the one just added.
+        let again = file_target(&mut db, &layout, &host, &tracker, Target::FollowUp(1)).unwrap();
+        assert_eq!(again, (ItemRef::Number(8), Action::Recorded));
+        let calls = tracker.calls();
+        let n = |p: &str| calls.iter().filter(|c| c.starts_with(p)).count();
+        assert_eq!(n("add_relates_to 8 12"), 2, "{calls:?}");
+        assert_eq!(n("create_issue"), 1, "{calls:?}");
     }
 
     /// RU-R-027 — a follow-up gets a `relates to` link to the run's issue and no `Found in`
@@ -1707,6 +1802,9 @@ mod tests {
         assert!(body.ends_with("\n\nSplit from #12\n"), "{body}");
         tracker.0.borrow_mut().open.clear();
         board::set(db.conn_mut(), "r", "split", "").unwrap();
+        db.conn_mut()
+            .execute("DELETE FROM events WHERE name LIKE 'posted%'", [])
+            .unwrap();
         file_target(&mut db, &layout, &host, &tracker, Target::Split).unwrap();
         assert!(tracker.calls().contains(&"comment 9".to_owned()));
         assert!(!tracker.calls().iter().any(|c| c.starts_with("set_parent")));

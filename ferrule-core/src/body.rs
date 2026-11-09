@@ -974,6 +974,15 @@ mod tests {
         assert!(out.contains("- keep it (chosen)"), "{out}");
     }
 
+    /// GW-R-067 — an `E<n>` tag the brief no longer holds is retired like an `R<n>`.
+    #[test]
+    fn ut_decisions_omit_a_retired_edge_id() {
+        let text = "- edge gone (chosen) [spec E4] — why · planner\n- edge kept (chosen) [spec E5] — why · planner\n";
+        let out = decisions(Some(text), &HashSet::new(), Some("## E5 · added\n"));
+        assert!(!out.contains("edge gone"), "{out}");
+        assert!(out.contains("- edge kept (chosen)"), "{out}");
+    }
+
     /// GW-R-067 — a local ID the brief still heads is kept.
     #[test]
     fn ut_decisions_keep_a_held_local_id() {
