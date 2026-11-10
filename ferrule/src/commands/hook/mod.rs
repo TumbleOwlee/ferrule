@@ -106,7 +106,8 @@ Refuses:
                        (no -exec/-delete/-fprint) sed -n (no w/e commands)
                        awk (no redirection, system, pipes) diff cmp file stat
                        tree pwd echo printf sort uniq cut tr nl basename
-                       dirname realpath jq; git log|show|diff (no --output,
+                       dirname realpath jq date (no -s/--set) sha256sum;
+                       rtk bypass rg; git log|show|diff (no --output,
                        --ext-diff)|status|blame|grep|rev-parse|ls-files|
                        ls-tree|cat-file|merge-base|describe|shortlog, branch
                        and tag only to list; cargo test|check|clippy|tree|
@@ -114,11 +115,12 @@ Refuses:
                        --config); ferrule's read-only commands (board
                        show|list|field|events|vocab, run status|diff|log|
                        plan-diff, stage verify, file, spec, issue view|
-                       search|request|body, pr view|body, guide, prompt
-                       lines). Wrappers (env, timeout, A=b cmd),
+                       search|request|body|milestones, pr view|body,
+                       guide, prompt lines, ci failed). Wrappers (env, timeout, A=b cmd),
                        sh -c, eval and $'...' are refused. Output goes to
-                       /dev/null, appends to review.md or rewrites
-                       review.verdict.md only
+                       /dev/null, appends to review.md, rewrites
+                       review.verdict.md, or, for a ferrule read command,
+                       goes into the system temp directory
   the `[hook.readonly] allow` prefixes of ferrule.toml extend the allowlist
                        (`make check`); `mutating` prefixes are refused even
                        then; record what you needed to probe as a finding for

@@ -3,7 +3,9 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::hook::classify::{has, has_prefix, reads, word_prefix};
+use crate::hook::classify::{
+    awk_runs, file_scripts, has, has_prefix, reads, sed_runs, word_prefix,
+};
 use crate::hook::paths::{
     OWNED, brace_group, braces, cd_target, cd_word, glob, globbed, names_owned, resolve,
     tee_targets,
@@ -447,6 +449,15 @@ fn written_then_run(commands: &[Command], cwd: &Path) -> Option<String> {
                 "source" | "." => args.first().is_some_and(|a| same(a)),
                 s if shell::SHELLS.contains(&s) => {
                     matches!(shell::shell_script(args), Script::File(f) if same(f))
+                }
+                n @ ("sed" | "awk" | "gawk" | "mawk") => {
+                    file_scripts(n, args).iter().any(|f| same(f))
+                        || (operand()
+                            && if n == "sed" {
+                                sed_runs(args)
+                            } else {
+                                awk_runs(args)
+                            })
                 }
                 n if interpreter(n) => operand(),
                 _ => false,
@@ -960,6 +971,7 @@ const OWNED_READERS: &[&str] = &[
     "sha256sum",
     "md5sum",
     "ferrule",
+    "jq",
 ];
 
 /// Readers only in some forms: [`reads`] tells which.
@@ -998,7 +1010,13 @@ fn owned_edit(c: &Command, name: &str, args: &[String], cwd: &Path) -> Option<St
                     _ => false,
                 }))
     };
-    hit.then(|| OWNED_REASON.to_owned())
+    hit.then(|| {
+        if name.starts_with("python") {
+            format!("{OWNED_REASON} To read a settings file, use jq or cat.")
+        } else {
+            OWNED_REASON.to_owned()
+        }
+    })
 }
 
 /// The command's words that name what it does: the program, then its

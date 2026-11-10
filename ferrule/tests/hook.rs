@@ -1081,3 +1081,208 @@ fn it_cat_of_an_unreadable_operand_adds_nothing() {
         ],
     );
 }
+
+/// S15, SG-R-020, SG-R-021, SG-R-022, SG-R-023 — a reviewer's short `cat`, `date`, `sha256sum`,
+/// `rtk bypass rg`, ferrule read commands and an append to `review.md` pass
+/// the reviewer's guard, and a real write is still refused.
+#[test]
+fn it_reviewer_reads_pass_the_guard() {
+    let p = project();
+    check(
+        "reviewer",
+        p.path(),
+        &[
+            ("cat notes.md", "allow"),
+            ("date", "allow"),
+            ("date -u +%F", "allow"),
+            ("sha256sum notes.md", "allow"),
+            ("rtk bypass rg x", "allow"),
+            ("ferrule board show demo", "allow"),
+            ("ferrule issue milestones", "allow"),
+            ("ferrule ci failed", "allow"),
+            ("echo x >> .ferrule/runs/demo/review.md", "allow"),
+            ("echo x > src/lib.rs", "deny"),
+            ("rm -rf target", "deny"),
+            ("git stash", "deny"),
+        ],
+    );
+}
+
+/// SG-E-014 — `date` that sets the clock is refused, a format or a date
+/// operand is not.
+#[test]
+fn it_reviewer_refuses_setting_the_clock() {
+    let p = project();
+    check(
+        "reviewer",
+        p.path(),
+        &[
+            ("date -s 2020-01-01", "deny"),
+            ("date --set=x", "deny"),
+            ("date --se x", "deny"),
+            ("date -us x", "deny"),
+            ("date -Iseconds", "allow"),
+            ("date -dyesterday", "allow"),
+            ("date -u", "allow"),
+        ],
+    );
+}
+
+/// SG-R-014, SG-R-021 — `rtk bypass rg` gets the verdict of `rg`.
+#[test]
+fn it_rtk_bypass_rg_gets_the_verdict_of_rg() {
+    let p = project();
+    check(
+        "reviewer",
+        p.path(),
+        &[
+            ("rtk bypass rg x", "allow"),
+            ("rtk -v bypass rg x", "allow"),
+            ("rtk bypass rg --pre sh x", "deny"),
+        ],
+    );
+}
+
+/// SG-R-014, SG-E-010 — `rtk bypass` of another program stays refused.
+#[test]
+fn it_rtk_bypass_of_another_program_is_refused() {
+    let p = project();
+    check(
+        "reviewer",
+        p.path(),
+        &[
+            ("rtk bypass cat f", "deny"),
+            ("rtk bypass", "deny"),
+            ("rtk run x", "deny"),
+        ],
+    );
+}
+
+/// SG-E-021 — a ferrule read command may redirect into the system temp
+/// directory, and nothing else may.
+#[test]
+fn it_reviewer_redirects_ferrule_reads_into_the_temp_dir() {
+    let p = project();
+    let tmp = std::env::temp_dir();
+    let tmp = tmp.to_string_lossy();
+    let tmp = tmp.trim_end_matches('/');
+    let cases = [
+        (format!("ferrule board list > {tmp}/x"), "allow"),
+        (format!("ferrule board list >> {tmp}/x"), "allow"),
+        (format!("ferrule board log d x > {tmp}/y"), "deny"),
+        (format!("cat notes.md > {tmp}/y"), "deny"),
+        (format!("ferrule board list > {tmp}/../y"), "deny"),
+        (format!("ferrule board list > {tmp}x/y"), "deny"),
+    ];
+    let cases: Vec<(&str, &str)> = cases.iter().map(|(c, w)| (c.as_str(), *w)).collect();
+    check("reviewer", p.path(), &cases);
+}
+
+/// SG-R-023, SG-E-008 — the reviewer appends to `review.md` and never
+/// overwrites it.
+#[test]
+fn it_review_md_takes_appends_only() {
+    let p = project();
+    check(
+        "reviewer",
+        p.path(),
+        &[
+            ("echo x >> .ferrule/runs/demo/review.md", "allow"),
+            ("echo x > .ferrule/runs/demo/review.md", "deny"),
+            ("tee .ferrule/runs/demo/review.md", "deny"),
+        ],
+    );
+}
+
+/// SG-R-024, SG-E-020 — a file written in a call is refused only when the
+/// call runs it, `sed` and `awk` only when they load it as code or their
+/// own script runs commands.
+#[test]
+fn it_written_file_is_refused_only_when_run() {
+    let p = project();
+    check(
+        "shell",
+        p.path(),
+        &[
+            ("echo x > f; cat f", "allow"),
+            ("echo x >> f; sed -n 1p f", "allow"),
+            ("echo x > f; awk '{print}' f", "allow"),
+            ("echo x > f; sed -n 'w me' f", "allow"),
+            ("echo x > f; sh f", "deny"),
+            ("echo x > s; sed -f s t", "deny"),
+            ("echo x > f; sed '1e ls' f", "deny"),
+            ("echo x > f; awk 'BEGIN{system(\"ls\")}' f", "deny"),
+            ("echo x > f; sed -n 'w s\n1e ls' f", "deny"),
+            ("echo x > s; gawk -E s t", "deny"),
+            ("echo x > s; gawk -i s '{print}' f", "deny"),
+            ("echo x > s; gawk --inc s '{print}' f", "deny"),
+            ("echo x > s; gawk --lo s '{print}' f", "deny"),
+            ("echo x > s; gawk --exe s", "deny"),
+            ("echo x > s; gawk --i s '{print}' f", "deny"),
+            ("echo x > s; gawk --e s", "deny"),
+            ("echo x > s; gawk --f s t", "deny"),
+            ("echo x > s; gawk --l s '{print}' f", "deny"),
+            ("echo x > s; gawk --includ s '{print}' f", "deny"),
+            ("echo x > s; gawk --l=s '{print}' f", "deny"),
+            ("echo x > s; gawk --inc=s '{print}' f", "deny"),
+            ("echo x > f; sed -n -if 1p g", "allow"),
+            ("echo x > f; gawk -ef f", "allow"),
+            ("echo x > f; gawk -of '{print}' g", "allow"),
+            ("echo x > f; gawk '@include \"f\"' g", "deny"),
+        ],
+    );
+}
+
+/// SG-R-027 — reading a settings file with `jq` is no write.
+#[test]
+fn it_settings_file_readers_are_no_writes() {
+    let p = project();
+    both(p.path(), &[("jq . .claude/settings.json", "allow")]);
+}
+
+/// SG-E-023 — a Python read of a settings file is refused with a hint
+/// naming `jq` and `cat`.
+#[test]
+fn it_python_read_of_a_settings_file_names_jq() {
+    let p = project();
+    let cmd = "python3 x.py .claude/settings.json";
+    assert_eq!(hook("shell", p.path(), cmd), Got::Deny);
+    let reason = deny_reason("shell", p.path(), cmd);
+    assert!(reason.contains("jq") && reason.contains("cat"), "{reason}");
+}
+
+/// SG-E-021 — a temp directory that is the root or the working directory
+/// opens no redirect.
+#[test]
+fn it_reviewer_refuses_a_temp_dir_that_opens_every_path() {
+    let p = project();
+    for tmpdir in ["/", p.path().to_str().unwrap()] {
+        let payload = json!({
+            "tool_name": "Bash",
+            "tool_input": {"command": "ferrule board list > out.txt", "description": "d"},
+            "cwd": p.path(),
+        });
+        let mut child = Command::new(env!("CARGO_BIN_EXE_ferrule"))
+            .args(["hook", "reviewer"])
+            .current_dir(p.path())
+            .env("CLAUDE_PROJECT_DIR", p.path())
+            .env("TMPDIR", tmpdir)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(payload.to_string().as_bytes())
+            .unwrap();
+        let out = child.wait_with_output().unwrap();
+        let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(
+            v["hookSpecificOutput"]["permissionDecision"], "deny",
+            "TMPDIR={tmpdir}"
+        );
+    }
+}

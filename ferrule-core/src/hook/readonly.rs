@@ -9,7 +9,7 @@ use crate::hook::classify::{
     awk_reads, flags, has, has_prefix, long, readonly_git, sed_reads, short,
 };
 use crate::hook::guard::{ReadLimits, cat_over, opaque_reason};
-use crate::hook::paths::{cd_target, is_artifact, tee_targets};
+use crate::hook::paths::{cd_target, components, is_artifact, tee_targets};
 use crate::hook::shell::{self, RedirectKind};
 
 /// The reviewer guard's project settings.
@@ -26,9 +26,36 @@ pub struct ReadonlyPolicy<'a> {
 /// Programs that read and never write, whatever their arguments; shell
 /// control words, whose commands the lexer lists on their own, included.
 const PLAIN: &[&str] = &[
-    "ls", "cat", "head", "tail", "wc", "grep", "diff", "cmp", "stat", "pwd", "echo", "printf",
-    "cut", "tr", "nl", "basename", "dirname", "realpath", "jq", "test", "[", "true", "false",
-    "for", "case", "select", "done", "fi", "esac",
+    "ls",
+    "cat",
+    "head",
+    "tail",
+    "wc",
+    "grep",
+    "diff",
+    "cmp",
+    "stat",
+    "pwd",
+    "echo",
+    "printf",
+    "cut",
+    "tr",
+    "nl",
+    "basename",
+    "dirname",
+    "realpath",
+    "jq",
+    "test",
+    "[",
+    "true",
+    "false",
+    "for",
+    "case",
+    "select",
+    "done",
+    "fi",
+    "esac",
+    "sha256sum",
 ];
 
 /// The ferrule commands that only read: `(group, subcommands)`.
@@ -41,10 +68,14 @@ const FERRULE_READS: &[(&str, &[&str])] = &[
         "spec",
         &["id", "related", "next", "refs", "collisions", "render"],
     ),
-    ("issue", &["view", "search", "request", "body"]),
+    (
+        "issue",
+        &["view", "search", "request", "body", "milestones"],
+    ),
     ("pr", &["view", "body"]),
     ("guide", &["show", "list", "check"]),
     ("prompt", &["lines"]),
+    ("ci", &["failed"]),
 ];
 
 /// A ferrule call that only reads: a subcommand of [`FERRULE_READS`]
@@ -133,12 +164,31 @@ fn cargo_reads(args: &[String]) -> bool {
     read && !has(args, &["--fix", "--config"])
 }
 
+/// A `date` call that sets the clock: `-s`, `--set`, or `s` in a cluster
+/// before a letter that takes the rest of the cluster as its value.
+fn date_sets(args: &[String]) -> bool {
+    let end = args.iter().position(|a| a == "--").unwrap_or(args.len());
+    let args = &args[..end];
+    if long(args, "--set", 3) {
+        return true;
+    }
+    args.iter().any(|a| {
+        !a.starts_with("--")
+            && a.starts_with('-')
+            && a.chars()
+                .skip(1)
+                .find(|c| matches!(c, 's' | 'd' | 'f' | 'r' | 'I'))
+                == Some('s')
+    })
+}
+
 /// Whether the program is one of the read-only programs, in a read-only
 /// form.
 fn allowed_program(name: &str, args: &[String]) -> bool {
     match name {
         n if PLAIN.contains(&n) => true,
         "rg" => !has(args, &["--pre", "--hostname-bin"]),
+        "date" => !date_sets(args),
         "file" => !short(args, 'C') && !long(args, "--compile", 3),
         "tree" => !short(args, 'o'),
         "find" => !has(
@@ -159,6 +209,19 @@ fn allowed_program(name: &str, args: &[String]) -> bool {
         "cargo" => cargo_reads(args),
         _ => false,
     }
+}
+
+/// A target strictly inside the system temp directory, `..` resolved.
+fn temp_target(cwd: &Path, target: &str) -> bool {
+    let path = crate::hook::paths::resolve(cwd, target);
+    let (path, tmp) = (
+        path.to_string_lossy().into_owned(),
+        std::env::temp_dir().to_string_lossy().into_owned(),
+    );
+    let cwd_text = cwd.to_string_lossy().into_owned();
+    let (path, tmp) = (components(&path), components(&tmp));
+    let here = components(&cwd_text);
+    !tmp.is_empty() && tmp != here && path.len() > tmp.len() && path[..tmp.len()] == tmp[..]
 }
 
 fn writable(cwd: &Path, target: &str, append: bool) -> bool {
@@ -208,7 +271,10 @@ pub fn readonly(command: &str, cwd: &Path, policy: ReadonlyPolicy) -> Option<Str
                     let (append, targets) = tee_targets(args);
                     targets.iter().all(|t| writable(&cwd, t, append))
                 }
-                "rtk" => false,
+                "rtk" => shell::rtk_bypass_rg(&c.words).is_some_and(|a| {
+                    (allowed_program("rg", a) || has_prefix("rg", a, allow))
+                        && !has_prefix("rg", a, mutating)
+                }),
                 _ => {
                     let rtk_grep =
                         name == "grep" && shell::program(&c.words).is_some_and(|(n, _)| n == "rtk");
@@ -220,7 +286,7 @@ pub fn readonly(command: &str, cwd: &Path, policy: ReadonlyPolicy) -> Option<Str
             };
             if !ok {
                 return refuse(
-                    "is not a read-only command on the reviewer's allowlist (ls cat head tail wc grep rg find sed -n awk diff cmp file stat tree sort uniq cut tr nl jq, git log|show|diff|status|blame|grep|rev-parse|ls-files|ls-tree|cat-file|merge-base|describe|shortlog, cargo test|check|clippy|tree|metadata|fmt --check, ferrule; `[hook.readonly] allow` in ferrule.toml adds more)",
+                    "is not a read-only command on the reviewer's allowlist (ls cat head tail wc grep rg find sed -n awk diff cmp file stat tree sort uniq cut tr nl jq date sha256sum, git log|show|diff|status|blame|grep|rev-parse|ls-files|ls-tree|cat-file|merge-base|describe|shortlog, cargo test|check|clippy|tree|metadata|fmt --check, ferrule read commands and ci failed; `[hook.readonly] allow` in ferrule.toml adds more)",
                 );
             }
             if name == "cat"
@@ -230,9 +296,14 @@ pub fn readonly(command: &str, cwd: &Path, policy: ReadonlyPolicy) -> Option<Str
                 return Some(why);
             }
         }
+        let reads_ferrule = matches!(program, Some(("ferrule", a)) if ferrule_reads(a));
         let redirects_ok = c.redirects.iter().all(|r| match r.kind {
-            RedirectKind::Append => writable(&cwd, &r.target, true),
-            RedirectKind::Write => writable(&cwd, &r.target, false),
+            RedirectKind::Append => {
+                writable(&cwd, &r.target, true) || (reads_ferrule && temp_target(&cwd, &r.target))
+            }
+            RedirectKind::Write => {
+                writable(&cwd, &r.target, false) || (reads_ferrule && temp_target(&cwd, &r.target))
+            }
             _ => true,
         });
         if !redirects_ok {

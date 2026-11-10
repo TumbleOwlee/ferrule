@@ -725,6 +725,21 @@ pub fn judged_program(words: &[String]) -> Option<(&str, &[String])> {
     Some(("rtk", args))
 }
 
+/// The arguments of `rtk bypass rg <args>`, after any of `rtk`'s global
+/// flags.
+#[must_use]
+pub fn rtk_bypass_rg(words: &[String]) -> Option<&[String]> {
+    let (name, args) = program(words)?;
+    if name != "rtk" {
+        return None;
+    }
+    let start = args.iter().take_while(|w| rtk_global_flag(w)).count();
+    match args.get(start..)? {
+        [bypass, rg, rest @ ..] if bypass == "bypass" && rg == "rg" => Some(rest),
+        _ => None,
+    }
+}
+
 /// Programs `rtk <program> <args>` runs as `<program> <args>`.
 const RTK_LISTED: &[&str] = &[
     "git", "cargo", "grep", "rg", "find", "ls", "tree", "wc", "diff",
