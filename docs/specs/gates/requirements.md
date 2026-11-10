@@ -131,3 +131,7 @@
 **GA-R-060** — The planner guide reads `Rules for writing specs` before a spec edit.
 
 **GA-R-061** — The `planner-replan` guide reads `Rules for writing specs` before a spec edit.
+
+## Plan gate
+
+**GA-R-062** — The repository for a live check is named at gate 2.

@@ -9,3 +9,7 @@
 **GA-E-003** — A project's existing `.ferrule/guide/decisions.md` is listed as a project topic.
 
 **GA-E-004** — An installed agent file takes no run placeholder and no lane or done tag from shared text.
+
+## Plan gate
+
+**GA-E-005** — `ferrule gate approve <slug> gate2 --live-repo` refuses a value that is not `<owner>/<name>`.
