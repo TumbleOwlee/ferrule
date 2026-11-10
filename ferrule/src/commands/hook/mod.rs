@@ -35,7 +35,7 @@ Refuses:
                        anywhere, git stash --all; setting core.hooksPath;
                        after cd - or popd the guard takes the directory as
                        .ferrule
-  a flood: whole-file cat of a .md or large file, unfiltered git diff/show,
+  a flood: a cat over [guard] cat_max_lines or cat_max_words (200, 1500), unfiltered git diff/show,
                        unfiltered find -type, a raw CI log
   a git or gh call a ferrule command replaces; the reason names it
                        (`[guard] allow` in ferrule.toml lets one through).
@@ -284,11 +284,22 @@ fn reviewer(cmd: &str, cwd: &Path) -> Option<Verdict> {
         Ok(config) => readonly::readonly(
             cmd,
             cwd,
-            &config.hook.readonly.mutating,
-            &config.hook.readonly.allow,
+            readonly::ReadonlyPolicy {
+                mutating: &config.hook.readonly.mutating,
+                allow: &config.hook.readonly.allow,
+                limits: limits(&config),
+            },
         )
         .map(Verdict::Deny),
         Err(e) => Some(Verdict::Deny(format!("ferrule hook reviewer: {e}"))),
+    }
+}
+
+/// The `cat` limits of `[guard]`.
+fn limits(config: &Config) -> guard::ReadLimits {
+    guard::ReadLimits {
+        lines: config.guard.cat_max_lines,
+        words: config.guard.cat_max_words,
     }
 }
 
@@ -304,6 +315,7 @@ fn shell(cmd: &str, cwd: &Path) -> Option<Verdict> {
                 cmd,
                 cwd,
                 guard::Policy {
+                    limits: limits(&config),
                     allow: &config.guard.allow,
                     rebasing: &rebasing,
                 },

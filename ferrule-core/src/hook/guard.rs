@@ -5,13 +5,49 @@ use std::path::{Path, PathBuf};
 
 use crate::hook::classify::{has, has_prefix, reads, word_prefix};
 use crate::hook::paths::{
-    OWNED, brace_group, braces, cd_target, cd_word, glob, globbed, is_markdown, names_owned,
-    resolve, tee_targets,
+    OWNED, brace_group, braces, cd_target, cd_word, glob, globbed, names_owned, resolve,
+    tee_targets,
 };
 use crate::hook::shell::{self, Command, Opaque, RedirectKind, Script};
 
-/// A plain `cat` of a longer file is refused.
-const LARGE_LINES: usize = 80;
+/// The most a `cat` may read: the lines and the words summed over its files.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReadLimits {
+    /// Most lines.
+    pub lines: usize,
+    /// Most words.
+    pub words: usize,
+}
+
+impl ReadLimits {
+    /// The limits when `[guard]` sets none.
+    pub const DEFAULT: ReadLimits = ReadLimits {
+        lines: 200,
+        words: 1500,
+    };
+}
+
+/// The refusal for a `cat` whose files together pass `limits`, or `None`.
+/// What is no readable text file adds nothing; stdin is never counted.
+pub(super) fn cat_over(args: &[String], cwd: &Path, limits: ReadLimits) -> Option<String> {
+    let (mut lines, mut words) = (0, 0);
+    for a in args.iter().filter(|a| !a.starts_with('-')) {
+        let path = resolve(cwd, a);
+        if !path.is_file() {
+            continue;
+        }
+        if let Ok(t) = std::fs::read_to_string(&path) {
+            lines += t.lines().count();
+            words += t.split_whitespace().count();
+        }
+    }
+    (lines > limits.lines || words > limits.words).then(|| {
+        format!(
+            "cat of {lines} lines and {words} words is over the limit of {} lines and {} words. Run: ferrule file headings <file> to see headings, then ferrule file section '<heading>' <file> for just what's needed; or use the Read tool (with offset/limit if only part is needed).",
+            limits.lines, limits.words
+        )
+    })
+}
 
 /// What a session may not run raw, and what to run instead.
 #[derive(Debug, Clone, Copy)]
@@ -142,6 +178,8 @@ pub const REPLACED: &[Replaced] = &[
 /// The guard's project settings.
 #[derive(Debug, Clone, Copy)]
 pub struct Policy<'a> {
+    /// `[guard] cat_max_lines` and `cat_max_words`.
+    pub limits: ReadLimits,
     /// `[guard] allow`: raw commands re-opened.
     pub allow: &'a [String],
     /// Run worktrees with a rebase in progress.
@@ -249,7 +287,7 @@ fn guard_list(
             .or_else(|| stash_all(name, args))
             .or_else(|| git_config(name, args))
             .or_else(|| git_settings(c, name, args, cwd, policy, depth))
-            .or_else(|| flood(c, name, args, cwd))
+            .or_else(|| flood(c, name, args, cwd, policy.limits))
             .or_else(|| hidden(&c.words, name, args, policy))
             .or_else(|| rebase_check(name, args, cwd, policy))
             .or_else(|| replaced(name, args, policy))
@@ -854,32 +892,30 @@ fn config_alias(sub: &str, args: &[String], dir: &Path, policy: Policy) -> Optio
 
 /// Output that would land whole in the context: only when nothing captures
 /// it.
-fn flood(c: &Command, name: &str, args: &[String], cwd: &Path) -> Option<String> {
+fn flood(
+    c: &Command,
+    name: &str,
+    args: &[String],
+    cwd: &Path,
+    limits: ReadLimits,
+) -> Option<String> {
     if c.output_captured() {
         return None;
     }
     match name {
-        "cat" => args.iter().filter(|a| !a.starts_with('-')).find_map(|a| {
-            let path = resolve(cwd, a);
-            if !path.is_file() {
-                return None;
-            }
-            if is_markdown(a) {
-                return Some(format!(
-                    "Whole-file cat of a .md file. Run: ferrule file headings {a} to see headings, then ferrule file section '<heading>' {a} for just what's needed. Genuinely need the whole document? Use the Read tool instead."
-                ));
-            }
-            let lines = std::fs::read_to_string(&path).map_or(0, |t| t.lines().count());
-            (lines > LARGE_LINES).then(|| format!(
-                "Whole-file cat of a {lines}-line file. Use the Read tool (with offset/limit if only part is needed) or sed -n 'START,ENDp' {a}."
-            ))
-        }),
+        "cat" => cat_over(args, cwd, limits),
         "git" => {
             let g = shell::git(args)?;
             let narrowed = g.args.iter().any(|a| {
                 matches!(
                     a.as_str(),
-                    "--stat" | "--shortstat" | "--numstat" | "--name-only" | "--name-status" | "--quiet" | "--"
+                    "--stat"
+                        | "--shortstat"
+                        | "--numstat"
+                        | "--name-only"
+                        | "--name-status"
+                        | "--quiet"
+                        | "--"
                 ) || a.starts_with("--stat=")
                     || (g.sub == "show" && !a.starts_with('-') && a.contains(':'))
             });
@@ -889,9 +925,12 @@ fn flood(c: &Command, name: &str, args: &[String], cwd: &Path) -> Option<String>
         }
         "find" => {
             let typed = args.iter().any(|a| a == "-type");
-            let narrowed = args
-                .iter()
-                .any(|a| matches!(a.as_str(), "-name" | "-iname" | "-path" | "-ipath" | "-regex" | "-iregex"));
+            let narrowed = args.iter().any(|a| {
+                matches!(
+                    a.as_str(),
+                    "-name" | "-iname" | "-path" | "-ipath" | "-regex" | "-iregex"
+                )
+            });
             (typed && !narrowed).then(|| {
                 "Unfiltered 'find -type'. Narrow with -name/-path/-iname/-regex, or pipe through head/grep.".to_owned()
             })
@@ -1391,6 +1430,7 @@ mod tests {
             cmd,
             Path::new("/nonexistent-ferrule-guard"),
             Policy {
+                limits: ReadLimits::DEFAULT,
                 allow: &[],
                 rebasing: &[],
             },
@@ -1591,6 +1631,7 @@ mod tests {
                 cmd,
                 root.path(),
                 Policy {
+                    limits: ReadLimits::DEFAULT,
                     allow: &[],
                     rebasing: &[],
                 },
@@ -1657,6 +1698,7 @@ mod tests {
         }
         let allow = ["git rebase".to_owned()];
         let policy = Policy {
+            limits: ReadLimits::DEFAULT,
             allow: &allow,
             rebasing: &[],
         };
@@ -1684,6 +1726,7 @@ mod tests {
         std::fs::create_dir(&other).unwrap();
         let rebasing = [wt.clone()];
         let policy = Policy {
+            limits: ReadLimits::DEFAULT,
             allow: &[],
             rebasing: &rebasing,
         };
@@ -1718,6 +1761,7 @@ mod tests {
         }
         let allow = ["git rebase".to_owned()];
         let opened = Policy {
+            limits: ReadLimits::DEFAULT,
             allow: &allow,
             rebasing: &rebasing,
         };
@@ -1741,6 +1785,7 @@ mod tests {
         std::fs::create_dir(&other).unwrap();
         let rebasing = [wt.clone()];
         let policy = Policy {
+            limits: ReadLimits::DEFAULT,
             allow: &[],
             rebasing: &rebasing,
         };
@@ -1790,6 +1835,7 @@ mod tests {
         std::fs::create_dir_all(&wt).unwrap();
         let rebasing = [wt.clone()];
         let policy = Policy {
+            limits: ReadLimits::DEFAULT,
             allow: &[],
             rebasing: &rebasing,
         };
@@ -1809,6 +1855,7 @@ mod tests {
         std::fs::create_dir_all(&wt).unwrap();
         let rebasing = [wt.clone()];
         let policy = Policy {
+            limits: ReadLimits::DEFAULT,
             allow: &[],
             rebasing: &rebasing,
         };

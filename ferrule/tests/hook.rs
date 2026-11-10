@@ -48,8 +48,13 @@ fn hook(kind: &str, cwd: &Path, cmd: &str) -> Got {
 
 fn project() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
-    let lines: String = (1..=100).map(|n| n.to_string() + "\n").collect();
-    std::fs::write(dir.path().join("big.txt"), lines).unwrap();
+    let numbered = |n: usize| -> String { (1..=n).map(|i| i.to_string() + "\n").collect() };
+    let words = |n: usize| -> String { "w ".repeat(n).trim_end().to_owned() + "\n" };
+    std::fs::write(dir.path().join("big.txt"), numbered(201)).unwrap();
+    std::fs::write(dir.path().join("big.md"), numbered(201)).unwrap();
+    std::fs::write(dir.path().join("at-limit.txt"), numbered(200)).unwrap();
+    std::fs::write(dir.path().join("wordy.txt"), words(1501)).unwrap();
+    std::fs::write(dir.path().join("wordy-ok.txt"), words(1500)).unwrap();
     std::fs::write(dir.path().join("notes.md"), "# x\n").unwrap();
     dir
 }
@@ -73,7 +78,7 @@ fn it_shell_guard_refuses_floods_and_writes_to_ferrules_files() {
         "shell",
         p.path(),
         &[
-            ("cat notes.md", "deny"),
+            ("cat notes.md", "allow"),
             ("cat notes.md | head -5", "allow"),
             ("cat big.txt", "deny"),
             ("cat big.txt > copy.txt", "allow"),
@@ -276,13 +281,13 @@ fn it_shell_guard_honours_the_projects_allow_list() {
 fn it_shell_guard_resolves_cat_after_cd() {
     let p = project();
     std::fs::create_dir(p.path().join("sub")).unwrap();
-    std::fs::write(p.path().join("sub/inner.md"), "# y\n").unwrap();
+    std::fs::write(p.path().join("sub/inner.md"), "y\n".repeat(201)).unwrap();
     check(
         "shell",
         p.path(),
         &[
             ("cd sub && cat inner.md", "deny"),
-            ("cd nosuch; cat notes.md", "deny"),
+            ("cd nosuch; cat big.md", "deny"),
             ("cat inner.md", "allow"),
         ],
     );
@@ -846,7 +851,7 @@ fn it_shell_guard_sees_gh_writes_however_spelled() {
     );
 }
 
-/// SG-R-009, SG-R-011, SG-R-013, SG-E-004 — the read-only guard judges an
+/// SG-R-009, SG-R-011, SG-R-013, SG-R-018, SG-E-004 — the read-only guard judges an
 /// `rtk`-wrapped command as the bare program.
 #[test]
 fn it_read_only_guard_judges_rtk_commands_as_the_bare_program() {
@@ -864,8 +869,8 @@ fn it_read_only_guard_judges_rtk_commands_as_the_bare_program() {
         "rtk tree",
         "rtk wc notes.md",
         "rtk diff notes.md big.txt",
-        "rtk read big.txt",
-        "rtk read -l minimal big.txt",
+        "rtk read notes.md",
+        "rtk read -l minimal notes.md",
         "rtk read big.txt --max-lines 50",
         "rtk git log -1 | wc -l",
     ];
@@ -882,6 +887,8 @@ fn it_read_only_guard_judges_rtk_commands_as_the_bare_program() {
         "rtk tree -o x",
         "ls; rtk git commit -m x",
         "rtk read big.txt > out.txt",
+        "rtk read big.txt",
+        "rtk read -l minimal big.txt",
     ];
     let cases: Vec<(&str, &str)> = allow
         .iter()
@@ -917,12 +924,15 @@ fn it_read_only_guard_refuses_other_rtk_forms() {
     check("reviewer", p.path(), &cases);
 }
 
-/// SG-R-010, SG-R-012, SG-R-013, SG-R-015, SG-R-016, SG-E-004, SG-E-006 —
+/// SG-R-010, SG-R-012, SG-R-013, SG-R-015, SG-R-016, SG-R-018, SG-E-004, SG-E-006 —
 /// the shell guard judges an `rtk`-wrapped command as the bare program.
 #[test]
 fn it_shell_guard_judges_rtk_commands_as_the_bare_program() {
     let p = project();
     let allow = [
+        "rtk read notes.md",
+        "rtk -v read notes.md",
+        "rtk read -l notes.md nosuch.txt",
         "rtk read .claude/settings.json",
         "rtk read big.txt --max-lines 50",
         "rtk read -m 5 notes.md",
@@ -934,10 +944,9 @@ fn it_shell_guard_judges_rtk_commands_as_the_bare_program() {
         "rtk git log -1",
     ];
     let deny = [
-        "rtk read notes.md",
         "rtk read big.txt",
-        "rtk -v read notes.md",
-        "rtk read -l notes.md nosuch.txt",
+        "rtk -v read big.md",
+        "rtk read -l notes.md big.md",
         "rtk git diff",
         "rtk find . -type f",
         "rtk git commit -m x",
@@ -951,4 +960,124 @@ fn it_shell_guard_judges_rtk_commands_as_the_bare_program() {
         .chain(deny.iter().map(|c| (*c, "deny")))
         .collect();
     check("shell", p.path(), &cases);
+}
+
+/// Runs `cases` on both guards.
+fn both(p: &Path, cases: &[(&str, &str)]) {
+    check("shell", p, cases);
+    check("reviewer", p, cases);
+}
+
+/// The reason a guard gives for denying `cmd`.
+fn deny_reason(kind: &str, cwd: &Path, cmd: &str) -> String {
+    let payload = json!({
+        "tool_name": "Bash",
+        "tool_input": {"command": cmd, "description": "d"},
+        "cwd": cwd,
+    });
+    let out = run_hook(kind, cwd, payload.to_string().as_bytes());
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    v["hookSpecificOutput"]["permissionDecisionReason"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
+/// SG-R-018 — a `cat` within both limits, or an `rtk read` of one, passes
+/// each guard.
+#[test]
+fn it_cat_within_the_limits_passes_each_guard() {
+    let p = project();
+    both(
+        p.path(),
+        &[
+            ("cat notes.md", "allow"),
+            ("cat at-limit.txt", "allow"),
+            ("cat wordy-ok.txt", "allow"),
+            ("rtk read at-limit.txt", "allow"),
+        ],
+    );
+}
+
+/// SG-E-007 — a `cat` over either limit is refused on each guard, with a
+/// hint naming the section read commands.
+#[test]
+fn it_cat_over_a_limit_is_refused_with_the_section_hint() {
+    let p = project();
+    for cmd in ["cat big.txt", "cat wordy.txt", "rtk read big.txt"] {
+        for kind in ["shell", "reviewer"] {
+            assert_eq!(hook(kind, p.path(), cmd), Got::Deny, "{kind} {cmd}");
+            let reason = deny_reason(kind, p.path(), cmd);
+            assert!(
+                reason.contains("ferrule file section"),
+                "{kind} {cmd}: {reason}"
+            );
+        }
+    }
+}
+
+/// SG-E-007 — a `cat` whose output a pipe, substitution or redirect
+/// captures is not limited.
+#[test]
+fn it_captured_cat_is_not_limited() {
+    let p = project();
+    check(
+        "shell",
+        p.path(),
+        &[
+            ("cat big.txt | head -5", "allow"),
+            ("cat big.txt > copy.txt", "allow"),
+            ("echo $(cat big.txt)", "allow"),
+        ],
+    );
+    check("reviewer", p.path(), &[("cat big.txt | head -5", "allow")]);
+}
+
+/// SG-R-019 — `[guard] cat_max_lines` sets the line limit.
+#[test]
+fn it_cat_limits_come_from_the_guard_table() {
+    let p = project();
+    std::fs::create_dir(p.path().join(".ferrule")).unwrap();
+    std::fs::write(
+        p.path().join(".ferrule/ferrule.toml"),
+        "[guard]\ncat_max_lines = 1\n",
+    )
+    .unwrap();
+    both(
+        p.path(),
+        &[("cat at-limit.txt", "deny"), ("cat notes.md", "allow")],
+    );
+}
+
+/// SG-E-024 — the limits apply to the sum over every file a `cat` names.
+#[test]
+fn it_cat_counts_several_files_together() {
+    let p = project();
+    both(p.path(), &[("cat at-limit.txt notes.md", "deny")]);
+}
+
+/// SG-E-025 — what `cat` reads from stdin does not count.
+#[test]
+fn it_cat_of_stdin_is_not_counted() {
+    let p = project();
+    both(p.path(), &[("cat < big.txt", "allow"), ("cat -", "allow")]);
+}
+
+/// SG-E-026 — an operand that is no readable text file adds nothing, a glob
+/// included whether it matches or not.
+#[test]
+fn it_cat_of_an_unreadable_operand_adds_nothing() {
+    let p = project();
+    std::fs::create_dir(p.path().join("adir")).unwrap();
+    std::fs::write(p.path().join("bin.dat"), [0xff_u8, 0xfe, b'\n'].repeat(300)).unwrap();
+    both(
+        p.path(),
+        &[
+            ("cat adir", "allow"),
+            ("cat nosuch.txt", "allow"),
+            ("cat bin.dat", "allow"),
+            ("cat *.nomatch", "allow"),
+            ("cat *.txt", "allow"),
+        ],
+    );
 }

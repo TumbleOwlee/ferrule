@@ -7,6 +7,8 @@ use std::time::Duration;
 
 use serde::{Deserialize, Deserializer};
 
+use crate::hook::guard::ReadLimits;
+
 pub const FILE: &str = "ferrule.toml";
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -156,12 +158,26 @@ pub struct Hook {
 }
 
 /// The command guard of every session.
-#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Guard {
     /// Raw commands the project re-opens although ferrule replaces them,
     /// as word prefixes (`gh api`).
     pub allow: Vec<String>,
+    /// Most lines a `cat` may read.
+    pub cat_max_lines: usize,
+    /// Most words a `cat` may read.
+    pub cat_max_words: usize,
+}
+
+impl Default for Guard {
+    fn default() -> Self {
+        Guard {
+            allow: Vec::new(),
+            cat_max_lines: ReadLimits::DEFAULT.lines,
+            cat_max_words: ReadLimits::DEFAULT.words,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
@@ -259,6 +275,16 @@ mod tests {
         assert_eq!(c.thresholds.stage_stop_files, 2);
         assert_eq!(c.thresholds.stage_stop_lines, 400);
         assert_eq!(c.viewer.command, None);
+    }
+
+    /// SG-R-019 — `[guard]` defaults the `cat` limits to 200 lines and 1,500
+    /// words and reads `cat_max_lines`.
+    #[test]
+    fn ut_guard_defaults_the_cat_limits() {
+        let g = Guard::default();
+        assert_eq!((g.cat_max_lines, g.cat_max_words), (200, 1500));
+        let c: Config = toml::from_str("[guard]\ncat_max_lines = 5\n").unwrap();
+        assert_eq!((c.guard.cat_max_lines, c.guard.cat_max_words), (5, 1500));
     }
 
     #[test]

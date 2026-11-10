@@ -8,9 +8,20 @@ use std::path::Path;
 use crate::hook::classify::{
     awk_reads, flags, has, has_prefix, long, readonly_git, sed_reads, short,
 };
-use crate::hook::guard::opaque_reason;
+use crate::hook::guard::{ReadLimits, cat_over, opaque_reason};
 use crate::hook::paths::{cd_target, is_artifact, tee_targets};
 use crate::hook::shell::{self, RedirectKind};
+
+/// The reviewer guard's project settings.
+#[derive(Debug, Clone, Copy)]
+pub struct ReadonlyPolicy<'a> {
+    /// `[hook.readonly] mutating`: word prefixes to refuse.
+    pub mutating: &'a [String],
+    /// `[hook.readonly] allow`: word prefixes to let through.
+    pub allow: &'a [String],
+    /// `[guard] cat_max_lines` and `cat_max_words`.
+    pub limits: ReadLimits,
+}
 
 /// Programs that read and never write, whatever their arguments; shell
 /// control words, whose commands the lexer lists on their own, included.
@@ -164,12 +175,10 @@ fn writable(cwd: &Path, target: &str, append: bool) -> bool {
 /// `review.verdict.md`. `mutating` adds word prefixes to refuse
 /// (`cargo add`); `allow` adds word prefixes to let through (`make check`).
 #[must_use]
-pub fn readonly(
-    command: &str,
-    cwd: &Path,
-    mutating: &[String],
-    allow: &[String],
-) -> Option<String> {
+pub fn readonly(command: &str, cwd: &Path, policy: ReadonlyPolicy) -> Option<String> {
+    let ReadonlyPolicy {
+        mutating, allow, ..
+    } = policy;
     let mut cwd = cwd.to_path_buf();
     for c in shell::parse(command) {
         let refuse = |why: &str| {
@@ -214,6 +223,12 @@ pub fn readonly(
                     "is not a read-only command on the reviewer's allowlist (ls cat head tail wc grep rg find sed -n awk diff cmp file stat tree sort uniq cut tr nl jq, git log|show|diff|status|blame|grep|rev-parse|ls-files|ls-tree|cat-file|merge-base|describe|shortlog, cargo test|check|clippy|tree|metadata|fmt --check, ferrule; `[hook.readonly] allow` in ferrule.toml adds more)",
                 );
             }
+            if name == "cat"
+                && !c.output_captured()
+                && let Some(why) = cat_over(args, &cwd, policy.limits)
+            {
+                return Some(why);
+            }
         }
         let redirects_ok = c.redirects.iter().all(|r| match r.kind {
             RedirectKind::Append => writable(&cwd, &r.target, true),
@@ -231,8 +246,20 @@ pub fn readonly(
 mod tests {
     use super::*;
 
+    fn at(cmd: &str, mutating: &[String], allow: &[String]) -> Option<String> {
+        readonly(
+            cmd,
+            Path::new("/nonexistent-ferrule-guard"),
+            ReadonlyPolicy {
+                mutating,
+                allow,
+                limits: ReadLimits::DEFAULT,
+            },
+        )
+    }
+
     fn check(cmd: &str) -> Option<String> {
-        readonly(cmd, Path::new("/nonexistent-ferrule-guard"), &[], &[])
+        at(cmd, &[], &[])
     }
 
     /// SG-R-001, SG-R-002, SG-R-003 — `cargo fmt --check` passes, also after `--`
@@ -397,25 +424,18 @@ mod tests {
     #[test]
     fn ut_allow_extends_and_mutating_still_refuses() {
         let allow = vec!["make check".to_owned()];
-        let at = |c: &str, mutating: &[String]| {
-            readonly(c, Path::new("/nonexistent-ferrule-guard"), mutating, &allow)
-        };
-        assert_eq!(at("make check", &[]), None);
-        assert_eq!(at("make check ARGS=x", &[]), None);
-        assert!(at("make", &[]).is_some());
-        assert!(at("make install", &[]).is_some());
-        assert!(at("make check", &["make check".to_owned()]).is_some());
+        let with = |c: &str, mutating: &[String]| at(c, mutating, &allow);
+        assert_eq!(with("make check", &[]), None);
+        assert_eq!(with("make check ARGS=x", &[]), None);
+        assert!(with("make", &[]).is_some());
+        assert!(with("make install", &[]).is_some());
+        assert!(with("make check", &["make check".to_owned()]).is_some());
     }
 
     /// SG-R-014 — `[hook.readonly] allow` does not reopen an `rtk` subcommand.
     #[test]
     fn ut_allow_does_not_reopen_an_rtk_subcommand() {
-        let r = readonly(
-            "rtk run x",
-            Path::new("/nonexistent-ferrule-guard"),
-            &[],
-            &["rtk run".to_owned()],
-        );
+        let r = at("rtk run x", &[], &["rtk run".to_owned()]);
         assert!(r.is_some());
     }
 
@@ -423,14 +443,7 @@ mod tests {
     /// or `tail` by its line bound.
     #[test]
     fn ut_rtk_read_is_judged_by_its_line_bound() {
-        let at = |cmd: &str, prefix: &str| {
-            readonly(
-                cmd,
-                Path::new("/nonexistent-ferrule-guard"),
-                &[prefix.to_owned()],
-                &[],
-            )
-        };
+        let at = |cmd: &str, prefix: &str| at(cmd, &[prefix.to_owned()], &[]);
         for (cmd, p) in [
             ("rtk read f", "cat"),
             ("rtk read f --max-lines 5", "head"),
@@ -459,12 +472,7 @@ mod tests {
         assert!(check("grep --pre x .").is_none());
         let at = |cmd: &str, mutating: &[&str], allow: &[&str]| {
             let own = |l: &[&str]| l.iter().map(|x| (*x).to_owned()).collect::<Vec<_>>();
-            readonly(
-                cmd,
-                Path::new("/nonexistent-ferrule-guard"),
-                &own(mutating),
-                &own(allow),
-            )
+            at(cmd, &own(mutating), &own(allow))
         };
         assert!(at("rtk grep x . --pre ./p", &[], &["grep"]).is_some());
         assert!(at("rtk grep x", &["rg"], &[]).is_some());

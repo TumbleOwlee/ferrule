@@ -331,6 +331,8 @@ command = ["glow"]           # prompt show appends the file path; unset: stdout
 
 [guard]
 allow = ["gh api"]           # raw calls the guard re-opens; see The guard
+cat_max_lines = 200          # most lines a cat may read, summed over its files
+cat_max_words = 1500         # most words a cat may read, summed over its files
 
 [hook.readonly]
 mutating = ["cargo add"]     # word prefixes the reviewer's guard also refuses

@@ -192,12 +192,6 @@ pub(super) fn names_owned(cwd: &Path, word: &str) -> bool {
         })
 }
 
-pub(super) fn is_markdown(path: &str) -> bool {
-    Path::new(path)
-        .extension()
-        .is_some_and(|e| e.eq_ignore_ascii_case("md"))
-}
-
 /// `…/.ferrule/runs/<slug>/<file>`.
 pub(super) fn is_artifact(path: &str, file: &str) -> bool {
     let c = components(path);
