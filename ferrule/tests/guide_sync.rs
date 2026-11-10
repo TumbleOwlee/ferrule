@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use ferrule_core::hook::guard::{self, Policy};
+use ferrule_core::hook::guard::{self, Policy, ReadLimits};
 use golden::Run;
 
 /// Programs whose backticked uses in the guides must pass the shell guard.
@@ -225,12 +225,16 @@ fn it_ferrule_commands_in_the_text_exist() {
 fn it_shell_commands_in_the_guides_pass_the_guard() {
     let dir = tempfile::tempdir().unwrap();
     let policy = Policy {
+        limits: ReadLimits::DEFAULT,
+        live_repos: &[],
         allow: &[],
         rebasing: &[],
     };
     // The guides tell an agent to run these only inside a stopped rebase.
     let stopped = [dir.path().to_path_buf()];
     let in_rebase = Policy {
+        limits: ReadLimits::DEFAULT,
+        live_repos: &[],
         allow: &[],
         rebasing: &stopped,
     };

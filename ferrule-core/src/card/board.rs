@@ -203,6 +203,7 @@ pub const PARENT_FIELDS: &[&str] = &[
     "named-issue",
     "milestone",
     "slice",
+    "live-repo",
 ];
 /// Frontmatter keys a stage card may carry; `id` and `parent` are derived.
 pub const STAGE_FIELDS: &[&str] = &["title", "blocked-by", "files", "branch", "worktree", "stop"];
@@ -213,6 +214,10 @@ pub const STAGE_FIELDS: &[&str] = &["title", "blocked-by", "files", "branch", "w
 /// one stays open.
 pub const FERRULE_FIELDS: &[(&str, &str)] = &[
     ("gate2", "ferrule gate approve <slug> gate2"),
+    (
+        "live-repo",
+        "ferrule gate approve <slug> gate2 --live-repo <owner/name>",
+    ),
     ("gate3", "ferrule gate approve <slug> gate3"),
     ("gate4", "ferrule gate approve <slug> gate4"),
     ("branch", "ferrule gate approve <slug> gate2"),

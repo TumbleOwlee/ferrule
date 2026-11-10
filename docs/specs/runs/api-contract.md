@@ -22,17 +22,23 @@
 - `cleanup=refused reason=issue-open issue=<n> hint=<fix>` (RU-R-003)
 - `cleanup=refused reason=issue-unreadable issue=<n> detail="<host error>" hint=on the user's word only: ferrule board log <slug> issue-waived -- <why>` (RU-R-004)
 
+## ferrule run live-check
+
+- `ferrule run live-check <slug> start|end` — both take the run's slug; `start` refuses with `reason=no-repo` (RU-R-043, RU-R-044, RU-E-019)
+
 ## Card fields
 
 - `named-issue` — the issue `ferrule run init --issue` named; set only by ferrule, `ferrule board set` refuses it (RU-R-006)
 - `kind=request` — a `/fe-request` run, set by `ferrule run init --request` (RU-R-001)
 - `milestone` — the number of the run's milestone; set only by ferrule (RU-R-016)
 - `slice` — a slice run's rank in its milestone; set only by ferrule (RU-R-017)
+- `live-repo` — the repository named at gate 2; set only by ferrule, `ferrule board set` refuses a value (GA-R-062, RU-E-018)
 
 ## Card events
 
 - `issue-waived` — parent-card event with a required reason (RU-R-005)
 - `blocked-start` — parent-card event naming the open blockers the user approved starting with (RU-R-034)
+- `live-check=open` and `live-check=closed` — parent-card events only ferrule logs (RU-R-043, RU-R-044)
 
 ## ferrule issue post output
 

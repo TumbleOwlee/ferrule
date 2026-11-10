@@ -131,6 +131,7 @@ Commands are grouped by what they act on. Most are run by the orchestrating agen
 | `ferrule run log <slug>` | The run branch's commits against main |
 | `ferrule run plan-diff <slug>` | What changed in `plan.md` since the last plan review |
 | `ferrule run reconcile <slug> [--local]` | Cards against git, the run's branch against origin, and the issue, PR and PR body on the host, before an interrupted run resumes |
+| `ferrule run live-check <slug> start\|end` | Open or close the run's live check: while open, a `gh api` write to the `live-repo` named at gate 2 (`ferrule gate approve <slug> gate2 --live-repo <owner/name>`) is allowed |
 | `ferrule run rebase <slug> [--onto <base>]` | Rebase the run's branch onto its base (default `origin/<main>`, fetched) and log the rebased commits on the stage cards |
 | `ferrule run rebuild <issue> <pr>` | Recreate a lost board from the issue, the draft PR and git; re-adds the worktree |
 | `ferrule run cleanup <slug>` | Remove worktree and branch, archive cards and artifacts |
@@ -331,6 +332,8 @@ command = ["glow"]           # prompt show appends the file path; unset: stdout
 
 [guard]
 allow = ["gh api"]           # raw calls the guard re-opens; see The guard
+cat_max_lines = 200          # most lines a cat may read, summed over its files
+cat_max_words = 1500         # most words a cat may read, summed over its files
 
 [hook.readonly]
 mutating = ["cargo add"]     # word prefixes the reviewer's guard also refuses
@@ -369,7 +372,7 @@ Ferrule installs two layers that keep an agent on the workflow.
 - a raw `git rebase`, naming `ferrule run rebase`. While a rebase is in progress in a run's worktree, only `git add`, `git rm`, `git rebase --continue`, `git rebase --abort` and read-only git run there: every other git write, every other `git rebase` included, is refused.
 - the usual ways around it, however they are spelled: wrappers, `sh -c` and `eval`, aliases, git settings and environment variables that run commands, interpreter one-liners, a script written and run in one call.
 
-Some calls are refused only in some forms: `git update-ref` on branches, `gh api` when it writes, `gh run view` with `--log` or `--log-failed` (`ferrule ci failed` replaces those).
+Some calls are refused only in some forms: `git update-ref` on branches, `gh api` when it writes (while a run's live check is open, a write to that run's `live-repo` runs; a `--hostname`, or any call that sets `GH_HOST` (a bare assignment included), is still refused), `gh run view` with `--log` or `--log-failed` (`ferrule ci failed` replaces those).
 
 `[guard] allow` in `ferrule.toml` re-opens a call in the guard and the deny rules alike, a raw `git rebase` included; it re-opens nothing in a worktree with a rebase in progress. An entry matches by whole words as a prefix of the command: `gh issue` re-opens every `gh issue …`, while `gh iss` re-opens nothing. An entry longer than the command (`git push --dry-run`) re-opens that form in the guard only, since a deny rule cannot express it. Each denied call gets an exact deny rule and one with arguments (`Bash(git merge)`, `Bash(git merge :*)`), so `git merge-base` stays open.
 

@@ -6,10 +6,12 @@ use std::io::{self, Write};
 use ferrule_core::card::board;
 use ferrule_core::refusal::Refusal;
 use ferrule_core::remote::{self, CodeHost, IssueTracker, Item, ItemRef};
+use ferrule_core::run::live::{self, LiveRefused};
 use ferrule_core::run::rebase::{self as core_rebase, Rebased};
 use ferrule_core::run::{self as core_run, Error, diverged, gate, rebuild};
 
 use crate::commands::board::{create_store, run_on, store};
+use crate::commands::run::LiveAction;
 use crate::commands::{exit, internal, layout, refuse};
 
 pub(super) fn init(slug: &str, spec: gate::Init<'_>, out: &mut impl Write) -> io::Result<u8> {
@@ -93,6 +95,34 @@ pub(super) fn rebase(slug: &str, onto: Option<&str>, out: &mut impl Write) -> io
         Ok(Err(r)) => refuse(out, &r.refusal(slug)),
         Err(Error::Card) => refuse(out, &Refusal::card("rebase")),
         Err(Error::Sql(e)) => Err(internal(e)),
+    }
+}
+
+pub(super) fn live_check(slug: &str, action: LiveAction, out: &mut impl Write) -> io::Result<u8> {
+    let Some(mut s) = store()? else {
+        return refuse(out, &Refusal::card("live-check"));
+    };
+    let now = board::now();
+    let done = match action {
+        LiveAction::Start => live::start(&mut s, slug, &now)
+            .map(|r| r.map(|repo| format!("live-check=open repo={repo}"))),
+        LiveAction::End => {
+            live::end(&mut s, slug, &now).map(|r| r.map(|()| "live-check=closed".to_owned()))
+        }
+    };
+    match done {
+        Ok(Ok(line)) => {
+            writeln!(out, "{line}")?;
+            Ok(exit::OK)
+        }
+        Ok(Err(LiveRefused::Card)) => refuse(out, &Refusal::card("live-check")),
+        Ok(Err(LiveRefused::NoRepo)) => refuse(
+            out,
+            &Refusal::new("live-check", "no-repo").hint(
+                "name the repository at gate 2: ferrule gate approve <slug> gate2 --live-repo <owner/name>",
+            ),
+        ),
+        Err(e) => Err(internal(e)),
     }
 }
 

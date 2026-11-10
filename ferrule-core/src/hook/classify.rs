@@ -138,8 +138,9 @@ pub(super) fn readonly_git(sub: &str, args: &[String]) -> bool {
 }
 
 /// A sed script's commands that write or run: `w`, `W`, `e`, and the `w`
-/// and `e` flags of `s`.
-fn sed_writes(script: &str) -> bool {
+/// and `e` flags of `s`. With `run_only`, `w` and `W` do not count but
+/// take the rest of the line as their file name, and `e` does.
+fn sed_scan(script: &str, run_only: bool) -> bool {
     let c: Vec<char> = script.chars().collect();
     let mut i = 0;
     // Past the delimited field starting after `i`.
@@ -167,6 +168,7 @@ fn sed_writes(script: &str) -> bool {
                 i += 2;
                 field(&mut i, d);
             }
+            'w' | 'W' if run_only => to_eol(&mut i),
             'w' | 'W' | 'e' => return true,
             's' | 'y' => {
                 let Some(&d) = c.get(i + 1) else { return true };
@@ -175,6 +177,10 @@ fn sed_writes(script: &str) -> bool {
                 field(&mut i, d);
                 field(&mut i, d);
                 while sub && i < c.len() && !matches!(c[i], ';' | '\n' | '}' | ' ' | '#') {
+                    if c[i] == 'w' && run_only {
+                        to_eol(&mut i);
+                        break;
+                    }
                     if matches!(c[i], 'w' | 'e') {
                         return true;
                     }
@@ -228,7 +234,98 @@ pub(super) fn sed_edits(args: &[String]) -> bool {
         || short(args, 'f')
         || long(args, "--in-place", 4)
         || long(args, "--file", 3)
-        || sed_scripts(args).iter().any(|s| sed_writes(s))
+        || sed_scripts(args).iter().any(|s| sed_scan(s, false))
+}
+
+/// A sed call whose own script runs a command (`e`).
+pub(super) fn sed_runs(args: &[String]) -> bool {
+    sed_scripts(args).iter().any(|s| sed_scan(s, true))
+}
+
+/// An awk call whose own program runs a command: `system(`, a pipe to or
+/// from one.
+pub(super) fn awk_runs(args: &[String]) -> bool {
+    args.iter().any(|a| {
+        let squeezed: String = a.chars().filter(|c| !c.is_whitespace()).collect();
+        squeezed.contains("system(")
+            || squeezed.contains("|getline")
+            || squeezed.contains("|&")
+            || a.match_indices("print").any(|(at, _)| {
+                let rest = &a[at + 5..];
+                let rest = rest.split([';', '}', '\n']).next().unwrap_or(rest);
+                rest.contains('|')
+            })
+    })
+}
+
+/// The files a `sed` or `awk` call loads as code, before any `--`: the
+/// value of `-f` and `--file`; for `awk`, `gawk`, `mawk` and `nawk` also of `-E`,
+/// `-i`, `-l`, `--exec`, `--include`, `--load` and the name quoted after
+/// an `@include` or `@load`.
+pub(super) fn file_scripts<'a>(name: &str, args: &'a [String]) -> Vec<&'a str> {
+    let awk = matches!(name, "awk" | "gawk" | "mawk" | "nawk");
+    let (loaders, takers): (&[char], &[char]) = if awk {
+        (&['f', 'E', 'i', 'l'], &['v', 'F', 'W', 'e', 'o'])
+    } else {
+        (&['f'], &['e', 'l', 'L', 'i'])
+    };
+    let longs: &[&str] = if awk {
+        &["--file", "--exec", "--include", "--load"]
+    } else {
+        &["--file"]
+    };
+    let mut files = Vec::new();
+    let mut i = 0;
+    while let Some(a) = args.get(i) {
+        if a == "--" {
+            break;
+        }
+        if let Some(long) = a.strip_prefix("--") {
+            let (key, value) = long
+                .split_once('=')
+                .map_or((long, None), |(k, v)| (k, Some(v)));
+            if !key.is_empty() && longs.iter().any(|l| l[2..].starts_with(key)) {
+                if let Some(v) = value {
+                    files.push(v);
+                } else {
+                    files.extend(args.get(i + 1).map(String::as_str));
+                    i += 1;
+                }
+            }
+        } else if a.len() > 1 && a.starts_with('-') {
+            for (at, ch) in a.char_indices().skip(1) {
+                if loaders.contains(&ch) {
+                    let rest = &a[at + 1..];
+                    if rest.is_empty() {
+                        files.extend(args.get(i + 1).map(String::as_str));
+                        i += 1;
+                    } else {
+                        files.push(rest);
+                    }
+                    break;
+                }
+                if takers.contains(&ch) {
+                    break;
+                }
+            }
+        }
+        i += 1;
+    }
+    if awk {
+        for a in args {
+            for key in ["@include", "@load"] {
+                for (at, _) in a.match_indices(key) {
+                    let rest = a[at + key.len()..].trim_start();
+                    if let Some(q) = rest.strip_prefix('"')
+                        && let Some(end) = q.find('"')
+                    {
+                        files.push(&q[..end]);
+                    }
+                }
+            }
+        }
+    }
+    files
 }
 
 /// `sed -n` with a script that only prints.

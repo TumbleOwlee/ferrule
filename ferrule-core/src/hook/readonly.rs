@@ -8,16 +8,55 @@ use std::path::Path;
 use crate::hook::classify::{
     awk_reads, flags, has, has_prefix, long, readonly_git, sed_reads, short,
 };
-use crate::hook::guard::opaque_reason;
-use crate::hook::paths::{cd_target, is_artifact, tee_targets};
+use crate::hook::ghapi;
+use crate::hook::guard::{self, ReadLimits, cat_over, opaque_reason};
+use crate::hook::paths::{cd_target, components, is_artifact, tee_targets};
 use crate::hook::shell::{self, RedirectKind};
+
+/// The reviewer guard's project settings.
+#[derive(Debug, Clone, Copy)]
+pub struct ReadonlyPolicy<'a> {
+    /// `[hook.readonly] mutating`: word prefixes to refuse.
+    pub mutating: &'a [String],
+    /// `[hook.readonly] allow`: word prefixes to let through.
+    pub allow: &'a [String],
+    /// `[guard] cat_max_lines` and `cat_max_words`.
+    pub limits: ReadLimits,
+}
 
 /// Programs that read and never write, whatever their arguments; shell
 /// control words, whose commands the lexer lists on their own, included.
 const PLAIN: &[&str] = &[
-    "ls", "cat", "head", "tail", "wc", "grep", "diff", "cmp", "stat", "pwd", "echo", "printf",
-    "cut", "tr", "nl", "basename", "dirname", "realpath", "jq", "test", "[", "true", "false",
-    "for", "case", "select", "done", "fi", "esac",
+    "ls",
+    "cat",
+    "head",
+    "tail",
+    "wc",
+    "grep",
+    "diff",
+    "cmp",
+    "stat",
+    "pwd",
+    "echo",
+    "printf",
+    "cut",
+    "tr",
+    "nl",
+    "basename",
+    "dirname",
+    "realpath",
+    "jq",
+    "test",
+    "[",
+    "true",
+    "false",
+    "for",
+    "case",
+    "select",
+    "done",
+    "fi",
+    "esac",
+    "sha256sum",
 ];
 
 /// The ferrule commands that only read: `(group, subcommands)`.
@@ -30,10 +69,14 @@ const FERRULE_READS: &[(&str, &[&str])] = &[
         "spec",
         &["id", "related", "next", "refs", "collisions", "render"],
     ),
-    ("issue", &["view", "search", "request", "body"]),
+    (
+        "issue",
+        &["view", "search", "request", "body", "milestones"],
+    ),
     ("pr", &["view", "body"]),
     ("guide", &["show", "list", "check"]),
     ("prompt", &["lines"]),
+    ("ci", &["failed"]),
 ];
 
 /// A ferrule call that only reads: a subcommand of [`FERRULE_READS`]
@@ -122,12 +165,32 @@ fn cargo_reads(args: &[String]) -> bool {
     read && !has(args, &["--fix", "--config"])
 }
 
+/// A `date` call that sets the clock: `-s`, `--set`, or `s` in a cluster
+/// before a letter that takes the rest of the cluster as its value.
+fn date_sets(args: &[String]) -> bool {
+    let end = args.iter().position(|a| a == "--").unwrap_or(args.len());
+    let args = &args[..end];
+    if long(args, "--set", 3) {
+        return true;
+    }
+    args.iter().any(|a| {
+        !a.starts_with("--")
+            && a.starts_with('-')
+            && a.chars()
+                .skip(1)
+                .find(|c| matches!(c, 's' | 'd' | 'f' | 'r' | 'I'))
+                == Some('s')
+    })
+}
+
 /// Whether the program is one of the read-only programs, in a read-only
 /// form.
 fn allowed_program(name: &str, args: &[String]) -> bool {
     match name {
         n if PLAIN.contains(&n) => true,
         "rg" => !has(args, &["--pre", "--hostname-bin"]),
+        "date" => !date_sets(args),
+        "gh" => ghapi::graphql_read(args) || (ghapi::help(args) && !guard::gh_replaced(args)),
         "file" => !short(args, 'C') && !long(args, "--compile", 3),
         "tree" => !short(args, 'o'),
         "find" => !has(
@@ -150,6 +213,22 @@ fn allowed_program(name: &str, args: &[String]) -> bool {
     }
 }
 
+/// A target strictly inside the system temp directory, `..` resolved.
+fn temp_target(cwd: &Path, target: &str) -> bool {
+    let path = crate::hook::paths::resolve(cwd, target);
+    let (path, tmp) = (
+        path.to_string_lossy().into_owned(),
+        std::env::temp_dir().to_string_lossy().into_owned(),
+    );
+    let cwd_text = cwd.to_string_lossy().into_owned();
+    let (path, tmp) = (components(&path), components(&tmp));
+    let here = components(&cwd_text);
+    !tmp.is_empty()
+        && !here.starts_with(&tmp[..])
+        && path.len() > tmp.len()
+        && path[..tmp.len()] == tmp[..]
+}
+
 fn writable(cwd: &Path, target: &str, append: bool) -> bool {
     if target == "/dev/null" {
         return true;
@@ -164,12 +243,10 @@ fn writable(cwd: &Path, target: &str, append: bool) -> bool {
 /// `review.verdict.md`. `mutating` adds word prefixes to refuse
 /// (`cargo add`); `allow` adds word prefixes to let through (`make check`).
 #[must_use]
-pub fn readonly(
-    command: &str,
-    cwd: &Path,
-    mutating: &[String],
-    allow: &[String],
-) -> Option<String> {
+pub fn readonly(command: &str, cwd: &Path, policy: ReadonlyPolicy) -> Option<String> {
+    let ReadonlyPolicy {
+        mutating, allow, ..
+    } = policy;
     let mut cwd = cwd.to_path_buf();
     for c in shell::parse(command) {
         let refuse = |why: &str| {
@@ -199,7 +276,10 @@ pub fn readonly(
                     let (append, targets) = tee_targets(args);
                     targets.iter().all(|t| writable(&cwd, t, append))
                 }
-                "rtk" => false,
+                "rtk" => shell::rtk_bypass_rg(&c.words).is_some_and(|a| {
+                    (allowed_program("rg", a) || has_prefix("rg", a, allow))
+                        && !has_prefix("rg", a, mutating)
+                }),
                 _ => {
                     let rtk_grep =
                         name == "grep" && shell::program(&c.words).is_some_and(|(n, _)| n == "rtk");
@@ -211,13 +291,24 @@ pub fn readonly(
             };
             if !ok {
                 return refuse(
-                    "is not a read-only command on the reviewer's allowlist (ls cat head tail wc grep rg find sed -n awk diff cmp file stat tree sort uniq cut tr nl jq, git log|show|diff|status|blame|grep|rev-parse|ls-files|ls-tree|cat-file|merge-base|describe|shortlog, cargo test|check|clippy|tree|metadata|fmt --check, ferrule; `[hook.readonly] allow` in ferrule.toml adds more)",
+                    "is not a read-only command on the reviewer's allowlist (ls cat head tail wc grep rg find sed -n awk diff cmp file stat tree sort uniq cut tr nl jq date sha256sum, gh api graphql queries and gh <command> --help, git log|show|diff|status|blame|grep|rev-parse|ls-files|ls-tree|cat-file|merge-base|describe|shortlog, cargo test|check|clippy|tree|metadata|fmt --check, ferrule read commands and ci failed; `[hook.readonly] allow` in ferrule.toml adds more)",
                 );
             }
+            if name == "cat"
+                && !c.output_captured()
+                && let Some(why) = cat_over(args, &cwd, policy.limits)
+            {
+                return Some(why);
+            }
         }
+        let reads_ferrule = matches!(program, Some(("ferrule", a)) if ferrule_reads(a));
         let redirects_ok = c.redirects.iter().all(|r| match r.kind {
-            RedirectKind::Append => writable(&cwd, &r.target, true),
-            RedirectKind::Write => writable(&cwd, &r.target, false),
+            RedirectKind::Append => {
+                writable(&cwd, &r.target, true) || (reads_ferrule && temp_target(&cwd, &r.target))
+            }
+            RedirectKind::Write => {
+                writable(&cwd, &r.target, false) || (reads_ferrule && temp_target(&cwd, &r.target))
+            }
             _ => true,
         });
         if !redirects_ok {
@@ -231,8 +322,20 @@ pub fn readonly(
 mod tests {
     use super::*;
 
+    fn at(cmd: &str, mutating: &[String], allow: &[String]) -> Option<String> {
+        readonly(
+            cmd,
+            Path::new("/nonexistent-ferrule-guard"),
+            ReadonlyPolicy {
+                mutating,
+                allow,
+                limits: ReadLimits::DEFAULT,
+            },
+        )
+    }
+
     fn check(cmd: &str) -> Option<String> {
-        readonly(cmd, Path::new("/nonexistent-ferrule-guard"), &[], &[])
+        at(cmd, &[], &[])
     }
 
     /// SG-R-001, SG-R-002, SG-R-003 — `cargo fmt --check` passes, also after `--`
@@ -397,25 +500,18 @@ mod tests {
     #[test]
     fn ut_allow_extends_and_mutating_still_refuses() {
         let allow = vec!["make check".to_owned()];
-        let at = |c: &str, mutating: &[String]| {
-            readonly(c, Path::new("/nonexistent-ferrule-guard"), mutating, &allow)
-        };
-        assert_eq!(at("make check", &[]), None);
-        assert_eq!(at("make check ARGS=x", &[]), None);
-        assert!(at("make", &[]).is_some());
-        assert!(at("make install", &[]).is_some());
-        assert!(at("make check", &["make check".to_owned()]).is_some());
+        let with = |c: &str, mutating: &[String]| at(c, mutating, &allow);
+        assert_eq!(with("make check", &[]), None);
+        assert_eq!(with("make check ARGS=x", &[]), None);
+        assert!(with("make", &[]).is_some());
+        assert!(with("make install", &[]).is_some());
+        assert!(with("make check", &["make check".to_owned()]).is_some());
     }
 
     /// SG-R-014 — `[hook.readonly] allow` does not reopen an `rtk` subcommand.
     #[test]
     fn ut_allow_does_not_reopen_an_rtk_subcommand() {
-        let r = readonly(
-            "rtk run x",
-            Path::new("/nonexistent-ferrule-guard"),
-            &[],
-            &["rtk run".to_owned()],
-        );
+        let r = at("rtk run x", &[], &["rtk run".to_owned()]);
         assert!(r.is_some());
     }
 
@@ -423,14 +519,7 @@ mod tests {
     /// or `tail` by its line bound.
     #[test]
     fn ut_rtk_read_is_judged_by_its_line_bound() {
-        let at = |cmd: &str, prefix: &str| {
-            readonly(
-                cmd,
-                Path::new("/nonexistent-ferrule-guard"),
-                &[prefix.to_owned()],
-                &[],
-            )
-        };
+        let at = |cmd: &str, prefix: &str| at(cmd, &[prefix.to_owned()], &[]);
         for (cmd, p) in [
             ("rtk read f", "cat"),
             ("rtk read f --max-lines 5", "head"),
@@ -459,12 +548,7 @@ mod tests {
         assert!(check("grep --pre x .").is_none());
         let at = |cmd: &str, mutating: &[&str], allow: &[&str]| {
             let own = |l: &[&str]| l.iter().map(|x| (*x).to_owned()).collect::<Vec<_>>();
-            readonly(
-                cmd,
-                Path::new("/nonexistent-ferrule-guard"),
-                &own(mutating),
-                &own(allow),
-            )
+            at(cmd, &own(mutating), &own(allow))
         };
         assert!(at("rtk grep x . --pre ./p", &[], &["grep"]).is_some());
         assert!(at("rtk grep x", &["rg"], &[]).is_some());

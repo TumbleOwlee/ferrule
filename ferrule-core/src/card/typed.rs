@@ -32,10 +32,11 @@ pub enum Name {
     TestRed,
     Posted,
     Rebase,
+    LiveCheck,
 }
 
 impl Name {
-    pub const ALL: [Name; 24] = [
+    pub const ALL: [Name; 25] = [
         Name::Commit,
         Name::Gauntlet,
         Name::Pr,
@@ -60,6 +61,7 @@ impl Name {
         Name::TestRed,
         Name::Posted,
         Name::Rebase,
+        Name::LiveCheck,
     ];
 
     /// The name as stored, `=` included for a valued event.
@@ -90,6 +92,7 @@ impl Name {
             Name::TestRed => "test-red",
             Name::Posted => "posted=",
             Name::Rebase => "rebase=",
+            Name::LiveCheck => "live-check=",
         }
     }
 
@@ -226,6 +229,10 @@ pub enum Typed<'a> {
         base: Option<&'a str>,
         from: Option<&'a str>,
     },
+    /// The run's live check opened or closed, `live-check=open|closed`.
+    LiveCheck {
+        open: bool,
+    },
     Other,
 }
 
@@ -258,6 +265,7 @@ impl Typed<'_> {
             Typed::TestRed => Name::TestRed,
             Typed::Posted { .. } => Name::Posted,
             Typed::Rebase { .. } => Name::Rebase,
+            Typed::LiveCheck { .. } => Name::LiveCheck,
             Typed::Other => return None,
         })
     }
@@ -283,6 +291,13 @@ impl Event {
         let key = |k| self.key(name, k);
         Some(match name {
             Name::Commit => Typed::Commit { sha: value? },
+            Name::LiveCheck => Typed::LiveCheck {
+                open: match value? {
+                    "open" => true,
+                    "closed" => false,
+                    _ => return None,
+                },
+            },
             Name::Rebase => Typed::Rebase {
                 head: value?,
                 base: key("base"),
@@ -483,5 +498,20 @@ mod tests {
                 text: Some("why"),
             }
         );
+    }
+
+    /// `live-check=open|closed` reads as an open flag, any other value as none.
+    #[test]
+    fn ut_live_check_event_reads_open_and_closed() {
+        assert_eq!(
+            Event::parsed("live-check=open").typed(),
+            Typed::LiveCheck { open: true }
+        );
+        assert_eq!(
+            Event::parsed("live-check=closed").typed(),
+            Typed::LiveCheck { open: false }
+        );
+        assert_eq!(Event::parsed("live-check=maybe").typed(), Typed::Other);
+        assert_eq!(Name::parse("live-check="), Some(Name::LiveCheck));
     }
 }

@@ -11,6 +11,7 @@ use ferrule_core::hook::guard;
 use ferrule_core::hook::readonly;
 use ferrule_core::install;
 use ferrule_core::project;
+use ferrule_core::run::live;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -35,7 +36,7 @@ Refuses:
                        anywhere, git stash --all; setting core.hooksPath;
                        after cd - or popd the guard takes the directory as
                        .ferrule
-  a flood: whole-file cat of a .md or large file, unfiltered git diff/show,
+  a flood: a cat over [guard] cat_max_lines or cat_max_words (200, 1500), unfiltered git diff/show,
                        unfiltered find -type, a raw CI log
   a git or gh call a ferrule command replaces; the reason names it
                        (`[guard] allow` in ferrule.toml lets one through).
@@ -106,7 +107,9 @@ Refuses:
                        (no -exec/-delete/-fprint) sed -n (no w/e commands)
                        awk (no redirection, system, pipes) diff cmp file stat
                        tree pwd echo printf sort uniq cut tr nl basename
-                       dirname realpath jq; git log|show|diff (no --output,
+                       dirname realpath jq date (no -s/--set) sha256sum;
+                       rtk bypass rg; gh api graphql (queries only) and
+                       gh <command> --help; git log|show|diff (no --output,
                        --ext-diff)|status|blame|grep|rev-parse|ls-files|
                        ls-tree|cat-file|merge-base|describe|shortlog, branch
                        and tag only to list; cargo test|check|clippy|tree|
@@ -114,11 +117,12 @@ Refuses:
                        --config); ferrule's read-only commands (board
                        show|list|field|events|vocab, run status|diff|log|
                        plan-diff, stage verify, file, spec, issue view|
-                       search|request|body, pr view|body, guide, prompt
-                       lines). Wrappers (env, timeout, A=b cmd),
+                       search|request|body|milestones, pr view|body,
+                       guide, prompt lines, ci failed). Wrappers (env, timeout, A=b cmd),
                        sh -c, eval and $'...' are refused. Output goes to
-                       /dev/null, appends to review.md or rewrites
-                       review.verdict.md only
+                       /dev/null, appends to review.md, rewrites
+                       review.verdict.md, or, for a ferrule read command,
+                       goes into the system temp directory
   the `[hook.readonly] allow` prefixes of ferrule.toml extend the allowlist
                        (`make check`); `mutating` prefixes are refused even
                        then; record what you needed to probe as a finding for
@@ -284,11 +288,22 @@ fn reviewer(cmd: &str, cwd: &Path) -> Option<Verdict> {
         Ok(config) => readonly::readonly(
             cmd,
             cwd,
-            &config.hook.readonly.mutating,
-            &config.hook.readonly.allow,
+            readonly::ReadonlyPolicy {
+                mutating: &config.hook.readonly.mutating,
+                allow: &config.hook.readonly.allow,
+                limits: limits(&config),
+            },
         )
         .map(Verdict::Deny),
         Err(e) => Some(Verdict::Deny(format!("ferrule hook reviewer: {e}"))),
+    }
+}
+
+/// The `cat` limits of `[guard]`.
+fn limits(config: &Config) -> guard::ReadLimits {
+    guard::ReadLimits {
+        lines: config.guard.cat_max_lines,
+        words: config.guard.cat_max_words,
     }
 }
 
@@ -300,10 +315,20 @@ fn shell(cmd: &str, cwd: &Path) -> Option<Verdict> {
             let rebasing = ferrule_core::run::rebase::rebasing_worktrees(&project::Layout::new(
                 project::main_checkout(),
             ));
+            let live_repos: Vec<String> = super::board::store()
+                .ok()
+                .flatten()
+                .and_then(|s| {
+                    s.read(|r| Ok::<_, ferrule_core::store::Error>(live::open_repos(r)))
+                        .ok()
+                })
+                .unwrap_or_default();
             guard::shell(
                 cmd,
                 cwd,
                 guard::Policy {
+                    limits: limits(&config),
+                    live_repos: &live_repos,
                     allow: &config.guard.allow,
                     rebasing: &rebasing,
                 },

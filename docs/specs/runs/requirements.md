@@ -99,3 +99,9 @@
 **RU-R-031** — The epic guide states that a GitHub epic is a milestone and that slices are the issues in it.
 
 **RU-R-035** — The epic guide's closing notice of an epic filed as a milestone reads `Epic · <slug> · milestone #<m> · slices #a, #b, … filed · start with /fe-feature on #a`.
+
+## Live check
+
+**RU-R-043** — `ferrule run live-check <slug> start` opens the run's live check.
+
+**RU-R-044** — `ferrule run live-check <slug> end` closes the run's live check.

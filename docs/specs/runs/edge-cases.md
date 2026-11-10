@@ -45,3 +45,9 @@
 **RU-E-009** — A blocker whose state cannot be read counts as open for RU-R-032.
 
 **RU-E-013** — A run start that cannot read an issue's blockers at all is refused and starts no run.
+
+## Live check
+
+**RU-E-018** — `ferrule board set` refuses the field naming the live-check repository.
+
+**RU-E-019** — `ferrule run live-check <slug> start` refuses a run with no repository named at gate 2.

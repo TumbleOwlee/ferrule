@@ -653,6 +653,24 @@ pub fn parse_stops(v: &str) -> Result<String, String> {
     Ok(v.to_owned())
 }
 
+/// `--live-repo`: `<owner>/<name>`, each part plain characters.
+///
+/// # Errors
+/// GA-E-005: the value that is no `<owner>/<name>`.
+pub fn parse_live_repo(v: &str) -> Result<String, String> {
+    let plain = |p: &str| {
+        !p.is_empty()
+            && p != "."
+            && p != ".."
+            && p.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+    };
+    match v.split_once('/') {
+        Some((owner, name)) if plain(owner) && plain(name) => Ok(v.to_owned()),
+        _ => Err(format!("'{v}' is no repository; give it as <owner>/<name>")),
+    }
+}
+
 /// `stops=s1,s3`.
 #[must_use]
 pub fn stop_arg(v: Option<&str>) -> Vec<u32> {
@@ -747,6 +765,9 @@ fn approve_gate2(
     }
     if let Some(lane) = arg(args, "lane") {
         fields.push(("lane".to_owned(), lane.to_owned()));
+    }
+    if let Some(repo) = arg(args, "live-repo") {
+        fields.push(("live-repo".to_owned(), repo.to_owned()));
     }
     let summary =
         std::fs::read_to_string(layout.run_dir(slug).join("plan.summary.md")).unwrap_or_default();
@@ -1274,5 +1295,18 @@ mod tests {
             board::field(db.conn_mut(), "r", "kind").unwrap().as_deref(),
             Some("request")
         );
+    }
+
+    /// GA-E-005 — `--live-repo` takes exactly `<owner>/<name>` of plain characters.
+    #[test]
+    fn ut_live_repo_must_be_owner_slash_name() {
+        assert_eq!(parse_live_repo("o/r"), Ok("o/r".to_owned()));
+        assert_eq!(parse_live_repo("a-b_c.d/e.f"), Ok("a-b_c.d/e.f".to_owned()));
+        for bad in [
+            "o", "o/r/x", "/r", "o/", "o/..", "./r", "o/r;x", "o/r x", "",
+        ] {
+            let e = parse_live_repo(bad).unwrap_err();
+            assert!(e.contains("<owner>/<name>"), "{bad}: {e}");
+        }
     }
 }

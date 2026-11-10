@@ -3550,3 +3550,115 @@ fn it_push_and_commit_refuse_while_a_rebase_is_in_progress() {
         );
     }
 }
+
+/// What `ferrule hook shell` decides about `cmd` run from the project root.
+fn shell_hook(p: &Project, cmd: &str) -> &'static str {
+    use std::io::Write;
+    use std::process::Stdio;
+    let payload = serde_json::json!({
+        "tool_name": "Bash",
+        "tool_input": {"command": cmd, "description": "d"},
+        "cwd": p.root,
+    });
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ferrule"))
+        .args(["hook", "shell"])
+        .current_dir(&p.root)
+        .env("CLAUDE_PROJECT_DIR", &p.root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(payload.to_string().as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{cmd}");
+    if out.stdout.is_empty() {
+        return "allow";
+    }
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    if v["hookSpecificOutput"]["permissionDecision"] == "deny" {
+        "deny"
+    } else {
+        "allow"
+    }
+}
+
+/// GA-R-062 — gate 2 records `--live-repo` as the card's `live-repo`.
+#[test]
+fn it_gate2_records_the_live_repo() {
+    let p = Project::new();
+    through_gate2(&p);
+    p.ok(&["gate", "approve", "demo", "gate2", "--live-repo", "o/r"]);
+    assert_eq!(p.field("demo", "live-repo"), "o/r");
+}
+
+/// GA-E-005 — a `--live-repo` that is no `<owner>/<name>` is a usage error.
+#[test]
+fn it_gate2_refuses_a_malformed_live_repo() {
+    let p = Project::new();
+    through_gate2(&p);
+    let out = p
+        .ferrule(&["gate", "approve", "demo", "gate2", "--live-repo", "nope"])
+        .output();
+    assert_eq!(out.status.code(), Some(2));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("<owner>/<name>"), "{err}");
+    assert_eq!(p.field("demo", "live-repo"), "");
+}
+
+/// RU-E-018 — `live-repo` is set by gate 2 only; `board set` refuses it.
+#[test]
+fn it_board_set_refuses_the_live_repo() {
+    let p = Project::new();
+    through_gate2(&p);
+    let got = p.ferrule(&["board", "set", "demo", "live-repo=x"]).text();
+    assert!(
+        got.contains("ferrule gate approve <slug> gate2 --live-repo <owner/name>"),
+        "{got}"
+    );
+    assert_eq!(p.field("demo", "live-repo"), "");
+}
+
+/// S16, RU-R-043, RU-R-044 — `gh api` writes reach the named repository only
+/// while the live check is open: gate approve, live-check start and end, and
+/// the hook binary.
+#[test]
+fn it_live_check_contains_gh_api_writes() {
+    let p = Project::new();
+    through_gate2(&p);
+    p.ok(&["gate", "approve", "demo", "gate2", "--live-repo", "o/r"]);
+    let own = "gh api -X POST repos/o/r/issues -f title=x";
+    let other = "gh api -X POST repos/o/other/issues -f title=x";
+    assert_eq!(shell_hook(&p, own), "deny");
+
+    assert_eq!(
+        p.ok(&["run", "live-check", "demo", "start"]),
+        "live-check=open repo=o/r"
+    );
+    assert_eq!(shell_hook(&p, own), "allow");
+    assert_eq!(shell_hook(&p, other), "deny");
+
+    assert_eq!(
+        p.ok(&["run", "live-check", "demo", "end"]),
+        "live-check=closed"
+    );
+    assert_eq!(shell_hook(&p, own), "deny");
+}
+
+/// RU-E-019 — a run with no `live-repo` cannot start a live check.
+#[test]
+fn it_live_check_start_refuses_a_run_with_no_repository() {
+    let p = Project::new();
+    through_gate2(&p);
+    let got = p.ferrule(&["run", "live-check", "demo", "start"]).text();
+    assert!(
+        got.starts_with("live-check=refused reason=no-repo hint="),
+        "{got}"
+    );
+    assert_eq!(shell_hook(&p, "gh api -X POST repos/o/r/issues"), "deny");
+}

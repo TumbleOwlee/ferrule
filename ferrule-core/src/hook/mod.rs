@@ -3,6 +3,7 @@
 
 pub mod attribution;
 mod classify;
+mod ghapi;
 pub mod guard;
 mod paths;
 pub mod readonly;

@@ -48,8 +48,13 @@ fn hook(kind: &str, cwd: &Path, cmd: &str) -> Got {
 
 fn project() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
-    let lines: String = (1..=100).map(|n| n.to_string() + "\n").collect();
-    std::fs::write(dir.path().join("big.txt"), lines).unwrap();
+    let numbered = |n: usize| -> String { (1..=n).map(|i| i.to_string() + "\n").collect() };
+    let words = |n: usize| -> String { "w ".repeat(n).trim_end().to_owned() + "\n" };
+    std::fs::write(dir.path().join("big.txt"), numbered(201)).unwrap();
+    std::fs::write(dir.path().join("big.md"), numbered(201)).unwrap();
+    std::fs::write(dir.path().join("at-limit.txt"), numbered(200)).unwrap();
+    std::fs::write(dir.path().join("wordy.txt"), words(1501)).unwrap();
+    std::fs::write(dir.path().join("wordy-ok.txt"), words(1500)).unwrap();
     std::fs::write(dir.path().join("notes.md"), "# x\n").unwrap();
     dir
 }
@@ -73,7 +78,7 @@ fn it_shell_guard_refuses_floods_and_writes_to_ferrules_files() {
         "shell",
         p.path(),
         &[
-            ("cat notes.md", "deny"),
+            ("cat notes.md", "allow"),
             ("cat notes.md | head -5", "allow"),
             ("cat big.txt", "deny"),
             ("cat big.txt > copy.txt", "allow"),
@@ -276,13 +281,13 @@ fn it_shell_guard_honours_the_projects_allow_list() {
 fn it_shell_guard_resolves_cat_after_cd() {
     let p = project();
     std::fs::create_dir(p.path().join("sub")).unwrap();
-    std::fs::write(p.path().join("sub/inner.md"), "# y\n").unwrap();
+    std::fs::write(p.path().join("sub/inner.md"), "y\n".repeat(201)).unwrap();
     check(
         "shell",
         p.path(),
         &[
             ("cd sub && cat inner.md", "deny"),
-            ("cd nosuch; cat notes.md", "deny"),
+            ("cd nosuch; cat big.md", "deny"),
             ("cat inner.md", "allow"),
         ],
     );
@@ -846,7 +851,7 @@ fn it_shell_guard_sees_gh_writes_however_spelled() {
     );
 }
 
-/// SG-R-009, SG-R-011, SG-R-013, SG-E-004 — the read-only guard judges an
+/// SG-R-009, SG-R-011, SG-R-013, SG-R-018, SG-E-004 — the read-only guard judges an
 /// `rtk`-wrapped command as the bare program.
 #[test]
 fn it_read_only_guard_judges_rtk_commands_as_the_bare_program() {
@@ -864,8 +869,8 @@ fn it_read_only_guard_judges_rtk_commands_as_the_bare_program() {
         "rtk tree",
         "rtk wc notes.md",
         "rtk diff notes.md big.txt",
-        "rtk read big.txt",
-        "rtk read -l minimal big.txt",
+        "rtk read notes.md",
+        "rtk read -l minimal notes.md",
         "rtk read big.txt --max-lines 50",
         "rtk git log -1 | wc -l",
     ];
@@ -882,6 +887,8 @@ fn it_read_only_guard_judges_rtk_commands_as_the_bare_program() {
         "rtk tree -o x",
         "ls; rtk git commit -m x",
         "rtk read big.txt > out.txt",
+        "rtk read big.txt",
+        "rtk read -l minimal big.txt",
     ];
     let cases: Vec<(&str, &str)> = allow
         .iter()
@@ -917,12 +924,15 @@ fn it_read_only_guard_refuses_other_rtk_forms() {
     check("reviewer", p.path(), &cases);
 }
 
-/// SG-R-010, SG-R-012, SG-R-013, SG-R-015, SG-R-016, SG-E-004, SG-E-006 —
+/// SG-R-010, SG-R-012, SG-R-013, SG-R-015, SG-R-016, SG-R-018, SG-E-004, SG-E-006 —
 /// the shell guard judges an `rtk`-wrapped command as the bare program.
 #[test]
 fn it_shell_guard_judges_rtk_commands_as_the_bare_program() {
     let p = project();
     let allow = [
+        "rtk read notes.md",
+        "rtk -v read notes.md",
+        "rtk read -l notes.md nosuch.txt",
         "rtk read .claude/settings.json",
         "rtk read big.txt --max-lines 50",
         "rtk read -m 5 notes.md",
@@ -934,10 +944,9 @@ fn it_shell_guard_judges_rtk_commands_as_the_bare_program() {
         "rtk git log -1",
     ];
     let deny = [
-        "rtk read notes.md",
         "rtk read big.txt",
-        "rtk -v read notes.md",
-        "rtk read -l notes.md nosuch.txt",
+        "rtk -v read big.md",
+        "rtk read -l notes.md big.md",
         "rtk git diff",
         "rtk find . -type f",
         "rtk git commit -m x",
@@ -951,4 +960,388 @@ fn it_shell_guard_judges_rtk_commands_as_the_bare_program() {
         .chain(deny.iter().map(|c| (*c, "deny")))
         .collect();
     check("shell", p.path(), &cases);
+}
+
+/// Runs `cases` on both guards.
+fn both(p: &Path, cases: &[(&str, &str)]) {
+    check("shell", p, cases);
+    check("reviewer", p, cases);
+}
+
+/// The reason a guard gives for denying `cmd`.
+fn deny_reason(kind: &str, cwd: &Path, cmd: &str) -> String {
+    let payload = json!({
+        "tool_name": "Bash",
+        "tool_input": {"command": cmd, "description": "d"},
+        "cwd": cwd,
+    });
+    let out = run_hook(kind, cwd, payload.to_string().as_bytes());
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    v["hookSpecificOutput"]["permissionDecisionReason"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
+/// SG-R-018 — a `cat` within both limits, or an `rtk read` of one, passes
+/// each guard.
+#[test]
+fn it_cat_within_the_limits_passes_each_guard() {
+    let p = project();
+    both(
+        p.path(),
+        &[
+            ("cat notes.md", "allow"),
+            ("cat at-limit.txt", "allow"),
+            ("cat wordy-ok.txt", "allow"),
+            ("rtk read at-limit.txt", "allow"),
+        ],
+    );
+}
+
+/// SG-E-007 — a `cat` over either limit is refused on each guard, with a
+/// hint naming the section read commands.
+#[test]
+fn it_cat_over_a_limit_is_refused_with_the_section_hint() {
+    let p = project();
+    for cmd in ["cat big.txt", "cat wordy.txt", "rtk read big.txt"] {
+        for kind in ["shell", "reviewer"] {
+            assert_eq!(hook(kind, p.path(), cmd), Got::Deny, "{kind} {cmd}");
+            let reason = deny_reason(kind, p.path(), cmd);
+            assert!(
+                reason.contains("ferrule file section"),
+                "{kind} {cmd}: {reason}"
+            );
+        }
+    }
+}
+
+/// SG-E-007 — a `cat` whose output a pipe, substitution or redirect
+/// captures is not limited.
+#[test]
+fn it_captured_cat_is_not_limited() {
+    let p = project();
+    check(
+        "shell",
+        p.path(),
+        &[
+            ("cat big.txt | head -5", "allow"),
+            ("cat big.txt > copy.txt", "allow"),
+            ("echo $(cat big.txt)", "allow"),
+        ],
+    );
+    check("reviewer", p.path(), &[("cat big.txt | head -5", "allow")]);
+}
+
+/// SG-R-019 — `[guard] cat_max_lines` sets the line limit.
+#[test]
+fn it_cat_limits_come_from_the_guard_table() {
+    let p = project();
+    std::fs::create_dir(p.path().join(".ferrule")).unwrap();
+    std::fs::write(
+        p.path().join(".ferrule/ferrule.toml"),
+        "[guard]\ncat_max_lines = 1\n",
+    )
+    .unwrap();
+    both(
+        p.path(),
+        &[("cat at-limit.txt", "deny"), ("cat notes.md", "allow")],
+    );
+}
+
+/// SG-E-024 — the limits apply to the sum over every file a `cat` names.
+#[test]
+fn it_cat_counts_several_files_together() {
+    let p = project();
+    both(p.path(), &[("cat at-limit.txt notes.md", "deny")]);
+}
+
+/// SG-E-025 — what `cat` reads from stdin does not count.
+#[test]
+fn it_cat_of_stdin_is_not_counted() {
+    let p = project();
+    both(p.path(), &[("cat < big.txt", "allow"), ("cat -", "allow")]);
+}
+
+/// SG-E-026 — an operand that is no readable text file adds nothing, a glob
+/// included whether it matches or not.
+#[test]
+fn it_cat_of_an_unreadable_operand_adds_nothing() {
+    let p = project();
+    std::fs::create_dir(p.path().join("adir")).unwrap();
+    std::fs::write(p.path().join("bin.dat"), [0xff_u8, 0xfe, b'\n'].repeat(300)).unwrap();
+    both(
+        p.path(),
+        &[
+            ("cat adir", "allow"),
+            ("cat nosuch.txt", "allow"),
+            ("cat bin.dat", "allow"),
+            ("cat *.nomatch", "allow"),
+            ("cat *.txt", "allow"),
+        ],
+    );
+}
+
+/// S15, SG-R-020, SG-R-021, SG-R-022, SG-R-023 — a reviewer's short `cat`, `date`, `sha256sum`,
+/// `rtk bypass rg`, ferrule read commands and an append to `review.md` pass
+/// the reviewer's guard, and a real write is still refused.
+#[test]
+fn it_reviewer_reads_pass_the_guard() {
+    let p = project();
+    check(
+        "reviewer",
+        p.path(),
+        &[
+            ("cat notes.md", "allow"),
+            ("date", "allow"),
+            ("date -u +%F", "allow"),
+            ("sha256sum notes.md", "allow"),
+            ("rtk bypass rg x", "allow"),
+            ("ferrule board show demo", "allow"),
+            ("ferrule issue milestones", "allow"),
+            ("ferrule ci failed", "allow"),
+            ("echo x >> .ferrule/runs/demo/review.md", "allow"),
+            ("echo x > src/lib.rs", "deny"),
+            ("rm -rf target", "deny"),
+            ("git stash", "deny"),
+        ],
+    );
+}
+
+/// SG-E-014 — `date` that sets the clock is refused, a format or a date
+/// operand is not.
+#[test]
+fn it_reviewer_refuses_setting_the_clock() {
+    let p = project();
+    check(
+        "reviewer",
+        p.path(),
+        &[
+            ("date -s 2020-01-01", "deny"),
+            ("date --set=x", "deny"),
+            ("date --se x", "deny"),
+            ("date -us x", "deny"),
+            ("date -Iseconds", "allow"),
+            ("date -dyesterday", "allow"),
+            ("date -u", "allow"),
+        ],
+    );
+}
+
+/// SG-R-014, SG-R-021 — `rtk bypass rg` gets the verdict of `rg`.
+#[test]
+fn it_rtk_bypass_rg_gets_the_verdict_of_rg() {
+    let p = project();
+    check(
+        "reviewer",
+        p.path(),
+        &[
+            ("rtk bypass rg x", "allow"),
+            ("rtk -v bypass rg x", "allow"),
+            ("rtk bypass rg --pre sh x", "deny"),
+        ],
+    );
+}
+
+/// SG-R-014, SG-E-010 — `rtk bypass` of another program stays refused.
+#[test]
+fn it_rtk_bypass_of_another_program_is_refused() {
+    let p = project();
+    check(
+        "reviewer",
+        p.path(),
+        &[
+            ("rtk bypass cat f", "deny"),
+            ("rtk bypass", "deny"),
+            ("rtk run x", "deny"),
+        ],
+    );
+}
+
+/// Whether the reviewer guard denies `cmd` run from `cwd` with `TMPDIR` set
+/// to `tmpdir`.
+fn reviewer_denies_with_tmp(cwd: &Path, tmpdir: &Path, cmd: &str) -> bool {
+    let payload = json!({
+        "tool_name": "Bash",
+        "tool_input": {"command": cmd, "description": "d"},
+        "cwd": cwd,
+    });
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ferrule"))
+        .args(["hook", "reviewer"])
+        .current_dir(cwd)
+        .env("CLAUDE_PROJECT_DIR", cwd)
+        .env("TMPDIR", tmpdir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(payload.to_string().as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    !out.stdout.is_empty()
+}
+
+/// SG-E-021 — a ferrule read command may redirect into the system temp
+/// directory, and nothing else may.
+#[test]
+fn it_reviewer_redirects_ferrule_reads_into_the_temp_dir() {
+    let p = project();
+    let t = tempfile::tempdir().unwrap();
+    let tmp = t.path().to_string_lossy().into_owned();
+    let cases = [
+        (format!("ferrule board list > {tmp}/x"), false),
+        (format!("ferrule board list >> {tmp}/x"), false),
+        (format!("ferrule board log d x > {tmp}/y"), true),
+        (format!("cat notes.md > {tmp}/y"), true),
+        (format!("ferrule board list > {tmp}/../y"), true),
+        (format!("ferrule board list > {tmp}x/y"), true),
+    ];
+    for (cmd, deny) in cases {
+        assert_eq!(
+            reviewer_denies_with_tmp(p.path(), t.path(), &cmd),
+            deny,
+            "{cmd}"
+        );
+    }
+}
+
+/// SG-R-023, SG-E-008 — the reviewer appends to `review.md` and never
+/// overwrites it.
+#[test]
+fn it_review_md_takes_appends_only() {
+    let p = project();
+    check(
+        "reviewer",
+        p.path(),
+        &[
+            ("echo x >> .ferrule/runs/demo/review.md", "allow"),
+            ("echo x > .ferrule/runs/demo/review.md", "deny"),
+            ("tee .ferrule/runs/demo/review.md", "deny"),
+        ],
+    );
+}
+
+/// SG-R-024, SG-E-020 — a file written in a call is refused only when the
+/// call runs it, `sed`, `awk` and `nawk` only when they load it as code or their
+/// own script runs commands.
+#[test]
+fn it_written_file_is_refused_only_when_run() {
+    let p = project();
+    check(
+        "shell",
+        p.path(),
+        &[
+            ("echo x > f; cat f", "allow"),
+            ("echo x >> f; sed -n 1p f", "allow"),
+            ("echo x > f; awk '{print}' f", "allow"),
+            ("echo x > f; nawk '{print}' f", "allow"),
+            ("echo x > s; nawk -f s t", "deny"),
+            ("echo x > f; nawk 'BEGIN{system(\"ls\")}' f", "deny"),
+            ("echo x > f; sed -n 'w me' f", "allow"),
+            ("echo x > f; sh f", "deny"),
+            ("echo x > s; sed -f s t", "deny"),
+            ("echo x > f; sed '1e ls' f", "deny"),
+            ("echo x > f; awk 'BEGIN{system(\"ls\")}' f", "deny"),
+            ("echo x > f; sed -n 'w s\n1e ls' f", "deny"),
+            ("echo x > s; gawk -E s t", "deny"),
+            ("echo x > s; gawk -i s '{print}' f", "deny"),
+            ("echo x > s; gawk --inc s '{print}' f", "deny"),
+            ("echo x > s; gawk --lo s '{print}' f", "deny"),
+            ("echo x > s; gawk --exe s", "deny"),
+            ("echo x > s; gawk --i s '{print}' f", "deny"),
+            ("echo x > s; gawk --e s", "deny"),
+            ("echo x > s; gawk --f s t", "deny"),
+            ("echo x > s; gawk --l s '{print}' f", "deny"),
+            ("echo x > s; gawk --includ s '{print}' f", "deny"),
+            ("echo x > s; gawk --l=s '{print}' f", "deny"),
+            ("echo x > s; gawk --inc=s '{print}' f", "deny"),
+            ("echo x > f; sed -n -if 1p g", "allow"),
+            ("echo x > f; gawk -ef f", "allow"),
+            ("echo x > f; gawk -of '{print}' g", "allow"),
+            ("echo x > f; gawk '@include \"f\"' g", "deny"),
+        ],
+    );
+}
+
+/// SG-R-027 — reading a settings file with `jq` is no write.
+#[test]
+fn it_settings_file_readers_are_no_writes() {
+    let p = project();
+    both(p.path(), &[("jq . .claude/settings.json", "allow")]);
+}
+
+/// SG-E-023 — a Python read of a settings file is refused with a hint
+/// naming `jq` and `cat`.
+#[test]
+fn it_python_read_of_a_settings_file_names_jq() {
+    let p = project();
+    let cmd = "python3 x.py .claude/settings.json";
+    assert_eq!(hook("shell", p.path(), cmd), Got::Deny);
+    let reason = deny_reason("shell", p.path(), cmd);
+    assert!(reason.contains("jq") && reason.contains("cat"), "{reason}");
+}
+
+/// A system temp directory that is the root, the working directory or one
+/// above it opens no redirect.
+#[test]
+fn it_reviewer_refuses_a_temp_dir_that_opens_every_path() {
+    let p = project();
+    let parent = p.path().parent().unwrap();
+    for tmpdir in [Path::new("/"), p.path(), parent] {
+        for cmd in ["ferrule board list > out.txt", "ferrule board list > /x"] {
+            assert!(
+                reviewer_denies_with_tmp(p.path(), tmpdir, cmd),
+                "TMPDIR={} {cmd}",
+                tmpdir.display()
+            );
+        }
+    }
+}
+
+/// SG-R-025, SG-E-009 — a graphql query passes each guard and a mutation
+/// stays refused.
+#[test]
+fn it_graphql_reads_pass_and_mutations_stay_refused() {
+    let p = project();
+    both(
+        p.path(),
+        &[
+            (
+                "gh api graphql -f query='query { viewer { login } }'",
+                "allow",
+            ),
+            ("gh api graphql -f query='{ viewer { login } }'", "allow"),
+            ("gh api graphql -f query='mutation { a }'", "deny"),
+            (
+                "gh api graphql -f query='query { a } mutation { b }'",
+                "deny",
+            ),
+            ("gh api graphql --input q.json", "deny"),
+            ("gh api graphql -f query=@q.graphql", "deny"),
+            ("gh api graphql -f query=\"$Q\"", "deny"),
+            ("gh api -X POST repos/o/r/issues", "deny"),
+        ],
+    );
+}
+
+/// SG-R-026, SG-E-022 — `--help` opens a `gh` command ferrule does not
+/// replace and no other.
+#[test]
+fn it_gh_help_opens_only_unreplaced_commands() {
+    let p = project();
+    both(
+        p.path(),
+        &[
+            ("gh run list --help", "allow"),
+            ("gh alias import --help", "allow"),
+            ("gh issue create --help", "deny"),
+            ("gh issue create --title --help", "deny"),
+            ("gh pr view --help", "deny"),
+        ],
+    );
 }
