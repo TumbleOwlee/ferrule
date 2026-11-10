@@ -92,6 +92,9 @@ pub trait CodeHost {
     /// Marks a draft pull request ready for review.
     fn ready(&self, pr: &ItemRef) -> Result<(), Error>;
 
+    /// Posts `comment` on an open pull request, then closes it unmerged.
+    fn close(&self, pr: &ItemRef, comment: &str) -> Result<(), Error>;
+
     fn status(&self, pr: &ItemRef) -> Result<PrStatus, Error>;
 
     /// Waits for a pull request's checks and what they came to.

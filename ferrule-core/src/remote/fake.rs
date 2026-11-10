@@ -104,6 +104,12 @@ impl CodeHost for FakeHost {
         Ok(())
     }
 
+    fn close(&self, pr: &ItemRef, comment: &str) -> Result<(), Error> {
+        self.call(format!("close {pr} {comment}"));
+        "closed".clone_into(&mut self.0.borrow_mut().state);
+        Ok(())
+    }
+
     fn status(&self, pr: &ItemRef) -> Result<PrStatus, Error> {
         self.call(format!("status {pr}"));
         let s = self.0.borrow();
@@ -459,6 +465,16 @@ impl Milestones for FakeTracker {
 mod tests {
     use super::super::milestones::Milestones;
     use super::*;
+
+    /// Fixture for the abandon command: closing records the comment and closes.
+    #[test]
+    fn ut_fake_close_records_the_comment_and_closes() {
+        let host = FakeHost::default();
+        CodeHost::close(&host, &ItemRef::from(34), "c").unwrap();
+        assert_eq!(host.calls().last().unwrap(), "close 34 c");
+        let st = host.status(&ItemRef::from(34)).unwrap();
+        assert_eq!(st.state, crate::remote::host::PrState::Closed);
+    }
 
     /// A tracker that does not override `milestones` has none.
     #[test]
