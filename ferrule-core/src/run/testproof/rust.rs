@@ -10,7 +10,7 @@ use super::{TestChanges, TestScanner};
 pub struct RustScanner;
 
 /// Test name to the whitespace-free lines of its body, over a whole diff side.
-type Side = BTreeMap<String, Vec<String>>;
+type Side = BTreeMap<String, Vec<Vec<String>>>;
 
 /// Whether `line` is the attribute that marks a test: `#[test]` or a path
 /// ending in `::test`, such as `#[tokio::test]`.
@@ -117,13 +117,24 @@ fn scan(lines: &[&str], side: &mut Side) {
                 }
                 at += 1;
             }
-            side.entry(name.to_owned()).or_default().extend(body);
+            side.entry(name.to_owned()).or_default().push(body);
             armed = false;
         } else {
             armed = false;
         }
         at += 1;
     }
+}
+
+/// Whether `old` holds a line more often than `new` does.
+fn loses_a_line(old: &[String], new: &[String]) -> bool {
+    let count = |body: &[String], l: &String| body.iter().filter(|x| *x == l).count();
+    old.iter().any(|l| count(old, l) > count(new, l))
+}
+
+/// Whether a body of `old` is kept whole by no body of `new`.
+fn rewritten(old: &[Vec<String>], new: &[Vec<String>]) -> bool {
+    old.iter().any(|o| new.iter().all(|n| loses_a_line(o, n)))
 }
 
 impl TestScanner for RustScanner {
@@ -163,7 +174,7 @@ impl TestScanner for RustScanner {
         for (name, body) in &old {
             match new.get(name) {
                 None => out.removed.push(name.clone()),
-                Some(now) if body.iter().any(|l| !now.contains(l)) => {
+                Some(now) if rewritten(body, now) => {
                     out.rewritten.push(name.clone());
                 }
                 Some(_) => {}
@@ -276,6 +287,28 @@ mod tests {
                 "     fn t() {",
                 "         assert!(a);",
                 "-        assert!(b);",
+                "     }",
+            ],
+        );
+        assert_eq!(
+            changes(&d),
+            TestChanges {
+                rewritten: names(&["t"]),
+                ..TestChanges::default()
+            }
+        );
+    }
+
+    /// GW-E-023 — losing one of two identical lines is a rewrite.
+    #[test]
+    fn ut_a_test_that_loses_one_of_two_equal_lines_is_rewritten() {
+        let d = diff(
+            "src/lib.rs",
+            &[
+                "     #[test]",
+                "     fn t() {",
+                "         assert!(a);",
+                "-        assert!(a);",
                 "     }",
             ],
         );

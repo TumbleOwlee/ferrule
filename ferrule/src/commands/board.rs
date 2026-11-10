@@ -10,6 +10,7 @@ use ferrule_core::config::Config;
 use ferrule_core::pr::publish;
 use ferrule_core::project;
 use ferrule_core::refusal::{Exit, Refusal};
+use ferrule_core::run::testproof::TestCheck;
 use ferrule_core::store::{Board, Error as StoreError};
 use ferrule_core::term::{self, Style};
 
@@ -880,6 +881,7 @@ pub(crate) fn sync_draft(s: &mut Board, card: &str, out: &mut impl Write) -> io:
 pub(super) fn commit(
     card: Option<&str>,
     message: &[String],
+    replaced: &[(String, String)],
     out: &mut impl Write,
 ) -> io::Result<u8> {
     use ferrule_core::run::commit;
@@ -892,6 +894,10 @@ pub(super) fn commit(
         &config.main_branch,
         card,
         &message.join("\n\n"),
+        TestCheck {
+            stack: config.stack.as_deref(),
+            replaced,
+        },
         &board::now(),
     )
     .map_err(internal)?;
@@ -903,7 +909,12 @@ pub(super) fn commit(
 }
 
 /// The checks of `--adopt`, then `commit=` of HEAD on the card; no commit is made.
-pub(super) fn adopt(card: &str, sha: &str, out: &mut impl Write) -> io::Result<u8> {
+pub(super) fn adopt(
+    card: &str,
+    sha: &str,
+    replaced: &[(String, String)],
+    out: &mut impl Write,
+) -> io::Result<u8> {
     use ferrule_core::run::commit;
     let here = std::env::current_dir()?;
     let config = super::config()?;
@@ -914,6 +925,10 @@ pub(super) fn adopt(card: &str, sha: &str, out: &mut impl Write) -> io::Result<u
         &config.main_branch,
         card,
         sha,
+        TestCheck {
+            stack: config.stack.as_deref(),
+            replaced,
+        },
         &board::now(),
     )
     .map_err(internal)?;

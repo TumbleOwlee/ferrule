@@ -7,9 +7,11 @@ use std::path::Path;
 use std::time::Duration;
 
 use crate::card::board::{LogError, State};
+use crate::card::typed::{Name, Typed};
 use crate::config::Step;
+use crate::run::commit::CommitRefused;
 use crate::run::gauntlet;
-use crate::store::Board;
+use crate::store::{Board, Reader};
 
 /// The tests a diff adds, removes or rewrites, by name.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -32,10 +34,64 @@ pub trait TestScanner {
     fn paths(&self) -> &'static [&'static str];
 }
 
+/// What the commit checks need: the project's stack and the replacements named.
+#[derive(Debug, Clone, Copy)]
+pub struct TestCheck<'a> {
+    pub stack: Option<&'a str>,
+    /// `--replaced <old>=<new>`.
+    pub replaced: &'a [(String, String)],
+}
+
 /// The Rust scanner for `stack = rust`; `None` on any other stack or none.
 #[must_use]
 pub fn scanner(stack: Option<&str>) -> Option<Box<dyn TestScanner>> {
     (stack == Some("rust")).then(|| Box::new(rust::RustScanner) as Box<dyn TestScanner>)
+}
+
+/// Refuses unproven new tests and unreplaced removals or rewrites; proofs
+/// are read from `card` only.
+///
+/// # Errors
+///
+/// The state database failed.
+pub fn check(
+    r: &Reader<'_>,
+    card: &str,
+    changes: &TestChanges,
+    replaced: &[(String, String)],
+) -> rusqlite::Result<Result<(), CommitRefused>> {
+    let events = r.events(card, &[Name::TestRed, Name::TestPins])?;
+    let proven: Vec<&str> = events
+        .iter()
+        .filter_map(|e| match e.typed() {
+            Typed::TestRed { test: Some(t), .. } | Typed::TestPins { test: Some(t) } => {
+                Some(t.rsplit("::").next().unwrap_or(t))
+            }
+            _ => None,
+        })
+        .collect();
+    let own = |t: &String| replaced.iter().any(|(old, new)| old == t && new == t);
+    let unproven: Vec<String> = changes
+        .added
+        .iter()
+        .chain(changes.rewritten.iter().filter(|t| own(t)))
+        .filter(|t| !proven.contains(&t.as_str()))
+        .cloned()
+        .collect();
+    if !unproven.is_empty() {
+        return Ok(Err(CommitRefused::TestUnproven { tests: unproven }));
+    }
+    let unreplaced: Vec<String> = changes
+        .removed
+        .iter()
+        .chain(&changes.rewritten)
+        .filter(|t| !replaced.iter().any(|(old, _)| old == *t))
+        .cloned()
+        .collect();
+    if !unreplaced.is_empty() {
+        return Ok(Err(CommitRefused::TestUnreplaced { tests: unreplaced }));
+    }
+    Ok(Ok(()))
 }
 
 /// Why `red` or `pins` records nothing.
@@ -114,7 +170,12 @@ fn run_tests(wt: &Path, scanner: &dyn TestScanner, test: &str) -> Option<String>
         // A failing test run is the point; only an unstartable or timed-out one is not.
         Ok(gauntlet::StepResult::Ok | gauntlet::StepResult::Failed) => {
             let out = output?;
-            (!out.contains("ferrule: could not start ")).then_some(out)
+            // The step runner writes this line right after its header line.
+            let spawn_failed = out
+                .lines()
+                .nth(1)
+                .is_some_and(|l| l.starts_with("ferrule: could not start "));
+            (!spawn_failed).then_some(out)
         }
         _ => None,
     }
@@ -191,7 +252,8 @@ mod tests {
 
     const NOW: &str = "2026-11-10T12:00";
 
-    /// Reports `a::t_red` failed through a shell, whatever the test asked.
+    /// Runs the shell script it holds whatever the test asked, and reads
+    /// `test <name> ... FAILED` lines as failures.
     struct Fake(&'static str);
 
     impl TestScanner for Fake {
@@ -312,5 +374,72 @@ mod tests {
         assert!(scanner(Some("rust")).is_some());
         assert!(scanner(Some("node")).is_none());
         assert!(scanner(None).is_none());
+    }
+
+    fn log(db: &mut Board, card: &str, event: &str, args: &[&str]) {
+        let args: Vec<String> = args.iter().map(|a| (*a).to_owned()).collect();
+        db.write(|w| w.log(card, event, &args, NOW)).unwrap();
+    }
+
+    fn checked(
+        db: &Board,
+        card: &str,
+        changes: &TestChanges,
+        replaced: &[(String, String)],
+    ) -> Result<(), CommitRefused> {
+        db.read(|r| check(r, card, changes, replaced)).unwrap()
+    }
+
+    fn added(names: &[&str]) -> TestChanges {
+        TestChanges {
+            added: names.iter().map(|n| (*n).to_owned()).collect(),
+            ..TestChanges::default()
+        }
+    }
+
+    /// GW-R-075 — a `test-red` on another card leaves this card's test unproven.
+    #[test]
+    fn ut_check_reads_proofs_of_its_own_card_only() {
+        let mut db = board(State::InReview);
+        db.write(|w| w.create("demo.s2", State::InProgress, &[], NOW))
+            .unwrap();
+        log(&mut db, "demo.s2", "test-red", &["test=tests::t_new"]);
+        let got = checked(&db, "demo.s1", &added(&["t_new"]), &[]);
+        assert_eq!(
+            got,
+            Err(CommitRefused::TestUnproven {
+                tests: vec!["t_new".to_owned()]
+            })
+        );
+        assert_eq!(checked(&db, "demo.s2", &added(&["t_new"]), &[]), Ok(()));
+    }
+
+    /// A proof names the test by its last `::` segment, a `test-pins` the same.
+    #[test]
+    fn ut_check_matches_a_failure_by_its_last_segment() {
+        let mut db = board(State::InReview);
+        log(&mut db, "demo.s1", "test-red", &["test=a::b::t_one"]);
+        log(
+            &mut db,
+            "demo.s1",
+            "test-pins",
+            &["test=t_two", "--", "why"],
+        );
+        let got = checked(&db, "demo.s1", &added(&["t_one", "t_two", "t_three"]), &[]);
+        assert_eq!(
+            got,
+            Err(CommitRefused::TestUnproven {
+                tests: vec!["t_three".to_owned()]
+            })
+        );
+    }
+
+    /// A `test-red` line without `test=` proves nothing.
+    #[test]
+    fn ut_check_ignores_a_test_red_without_test() {
+        let mut db = board(State::InReview);
+        log(&mut db, "demo.s1", "test-red", &["--", "t_new"]);
+        let got = checked(&db, "demo.s1", &added(&["t_new"]), &[]);
+        assert!(matches!(got, Err(CommitRefused::TestUnproven { .. })));
     }
 }

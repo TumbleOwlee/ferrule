@@ -45,6 +45,12 @@ Refusals (checked in this order; each line ends in `hint=<fix>`):
                                  Nothing is staged: on a dirty worktree stage
                                  the changes with `git add`; on a clean one
                                  they may already be committed, <sha> is HEAD
+  commit=refused reason=test-unproven tests=<a,b>
+                                 Rust: new tests with no `ferrule stage red`
+                                 failure or `ferrule stage pins` mark on the card
+  commit=refused reason=test-unreplaced tests=<a,b>
+                                 Rust: removed or rewritten tests no
+                                 `--replaced <old>=<new>` names
   commit=refused reason=git      `git commit` failed with changes staged (a
                                  hook refused); git's message is on stderr
 With --adopt <sha>, instead of -m, HEAD (committed outside ferrule) is logged
@@ -52,7 +58,8 @@ as the stage's commit; no commit is created and history is unchanged:
   commit=done sha=<sha> card=<id>
                                  Logged `commit=<sha>` on the card, as above.
   Checked in order: main, rebasing, card, state and branch as above (the run needs a
-  `branch` field), then each line ends in `hint=<fix>`:
+  `branch` field), then each line ends in `hint=<fix>`; the two test refusals
+  above apply after no-merge-base, before trailers:
   commit=refused reason=dirty    The worktree holds changes
   commit=refused reason=not-head head=<sha>
                                  <sha> is not the branch's HEAD
@@ -65,15 +72,17 @@ as the stage's commit; no commit is created and history is unchanged:
   commit=refused reason=no-merge-base
                                  The branch point with the main branch
                                  cannot be found
-  commit=refused reason=files path=<path>
-                                 HEAD touches <path>, outside the card's files
-                                 list (either side of a rename); re-plan
   commit=refused reason=trailers
                                  The message carries attribution trailers;
                                  amend it if it is not pushed
 --adopt conflicts with -m and --no-run.
-With --no-run only the main-branch and nothing-staged checks apply and no
-card is touched.
+--replaced <old>=<new> names a removed or rewritten test's replacement
+(repeatable, also with --adopt; conflicts with --no-run).
+Notes logged on the card after `commit=`: `files-outside=<path>` per path
+outside the card's files list, `test-replaced old=<o> new=<n>` per
+--replaced, `test-checks=skipped stack=<s>` when the stack has no test checks.
+With --no-run the nothing-staged check applies, the new-test and removed-test
+checks do not, and no card is touched; the main-branch check applies too.
 Attribution trailers are stripped from the message first.
 Exit codes: 0 ok, 1 refused, 4 internal error.
 See: ferrule guide show stages";
@@ -211,6 +220,9 @@ pub enum StageCommand {
         /// Log HEAD, committed outside ferrule, as the stage's `commit=`.
         #[arg(long, value_name = "SHA", conflicts_with_all = ["message", "no_run"])]
         adopt: Option<String>,
+        /// Name the replacement of a removed or rewritten test, `<old>=<new>`; repeatable.
+        #[arg(long, value_name = "OLD=NEW", value_parser = parse_replaced, conflicts_with = "no_run")]
+        replaced: Vec<(String, String)>,
     },
     /// Run a test and record each failure it reports.
     ///
@@ -280,16 +292,30 @@ pub enum StageCommand {
     },
 }
 
+/// `<old>=<new>`, split at the first `=`.
+fn parse_replaced(s: &str) -> Result<(String, String), String> {
+    match s.split_once('=') {
+        Some((old, new)) if !old.is_empty() && !new.is_empty() => {
+            Ok((old.to_owned(), new.to_owned()))
+        }
+        _ => Err("expected <old>=<new>".to_owned()),
+    }
+}
+
 pub fn run(command: &StageCommand, out: &mut impl Write) -> io::Result<u8> {
     match command {
         StageCommand::Commit {
             card: Some(card),
             adopt: Some(sha),
+            replaced,
             ..
-        } => super::board::adopt(card, sha, out),
-        StageCommand::Commit { card, message, .. } => {
-            super::board::commit(card.as_deref(), message, out)
-        }
+        } => super::board::adopt(card, sha, replaced, out),
+        StageCommand::Commit {
+            card,
+            message,
+            replaced,
+            ..
+        } => super::board::commit(card.as_deref(), message, replaced, out),
         StageCommand::Red {
             card,
             test,

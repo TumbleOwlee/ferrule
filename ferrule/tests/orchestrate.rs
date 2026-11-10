@@ -1674,8 +1674,10 @@ fn it_stage_pins_records_the_mark() {
     );
     assert_eq!(got, "pins=recorded test=t_old\nexit=0");
     let logged = p.ok(&["board", "show", "demo.s1"]);
-    assert!(logged.contains("test=t_old"), "{logged}");
-    assert!(logged.contains("keeps CRLF"), "{logged}");
+    assert!(
+        logged.contains("test-pins test=t_old keeps CRLF"),
+        "{logged}"
+    );
 }
 
 /// `stage red` and `stage pins` refuse a project whose stack is not Rust.
@@ -1694,6 +1696,244 @@ fn it_stage_red_and_pins_refuse_off_rust() {
         "{pins}"
     );
     assert!(!p.ok(&["board", "show", "demo.s1"]).contains("test-red"));
+}
+
+/// A test module's body: each `(name, body)` written as the fixture's tests are.
+fn module_of(tests: &[(&str, &str)]) -> String {
+    tests
+        .iter()
+        .map(|(name, body)| format!("    #[test]\n    fn {name}() {{\n        {body}\n    }}\n"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The fixture's test body.
+const SAME: &str = "assert!(true);\n        assert!(true);\n        assert!(true);";
+/// The fixture's test body with its last line changed.
+const ONE_LINE: &str = "assert!(true);\n        assert!(true);\n        assert!(1 < 2);";
+
+/// Stages the worktree's `src/lib.rs` as a module of `tests`.
+fn stage_module(p: &Project, tests: &[(&str, &str)]) {
+    write_tests(p, &module_of(tests));
+    git(&p.worktree(), &["add", "src/lib.rs"]);
+}
+
+/// `stage commit demo.s1` with `extra` arguments, in the worktree.
+fn commit_in(p: &Project, extra: &[&str]) -> String {
+    let mut args = vec!["stage", "commit", "demo.s1", "-m", "x"];
+    args.extend(extra);
+    in_dir(p, &p.worktree(), &args)
+}
+
+fn seed_proof(p: &Project, line: &[&str]) {
+    seed_log(&p.root, "2026-10-05T09:00", "demo.s1", line);
+}
+
+fn head_of(p: &Project) -> String {
+    git(&p.worktree(), &["rev-parse", "HEAD"])
+}
+
+/// GW-R-069, S6 — a new test with no proof on the card is refused and nothing is committed.
+#[test]
+fn it_stage_commit_refuses_an_unproven_new_test() {
+    let p = rust_project();
+    let head = head_of(&p);
+    stage_module(
+        &p,
+        &[("t_gone", SAME), ("t_changed", SAME), ("t_new", SAME)],
+    );
+    let got = commit_in(&p, &[]);
+    assert!(
+        got.starts_with("commit=refused reason=test-unproven tests=t_new hint="),
+        "{got}"
+    );
+    assert!(got.ends_with("exit=1"), "{got}");
+    assert_eq!(head_of(&p), head);
+}
+
+/// GW-R-069 — a `test-red` failure or a `test-pins` mark on the card lets the new test through.
+#[test]
+fn it_stage_commit_takes_a_red_or_pins_proof() {
+    let p = rust_project();
+    stage_module(
+        &p,
+        &[("t_gone", SAME), ("t_changed", SAME), ("t_new", SAME)],
+    );
+    let got = commit_in(&p, &[]);
+    assert!(
+        got.starts_with("commit=refused reason=test-unproven tests=t_new hint="),
+        "{got}"
+    );
+    seed_proof(&p, &["test-red", "test=tests::t_new"]);
+    let got = commit_in(&p, &[]);
+    assert!(got.starts_with("commit=done sha="), "{got}");
+
+    stage_module(
+        &p,
+        &[
+            ("t_gone", SAME),
+            ("t_changed", SAME),
+            ("t_new", SAME),
+            ("t_other", SAME),
+        ],
+    );
+    let got = commit_in(&p, &[]);
+    assert!(
+        got.starts_with("commit=refused reason=test-unproven tests=t_other hint="),
+        "{got}"
+    );
+    seed_proof(&p, &["test-pins", "test=t_other", "--", "pins it"]);
+    let got = commit_in(&p, &[]);
+    assert!(got.starts_with("commit=done sha="), "{got}");
+}
+
+/// GW-R-070 — removed and rewritten tests are listed, and `--replaced` lets them through, logged one by one.
+#[test]
+fn it_stage_commit_lists_removed_and_rewritten_tests() {
+    let p = rust_project();
+    stage_module(&p, &[("t_changed", ONE_LINE)]);
+    let got = commit_in(&p, &[]);
+    assert!(
+        got.starts_with("commit=refused reason=test-unreplaced tests=t_gone,t_changed hint="),
+        "{got}"
+    );
+    let got = commit_in(
+        &p,
+        &[
+            "--replaced",
+            "t_gone=t_other",
+            "--replaced",
+            "t_changed=t_changed_v2",
+        ],
+    );
+    assert!(got.starts_with("commit=done sha="), "{got}");
+    let card = p.ok(&["board", "show", "demo.s1"]);
+    assert!(
+        card.contains("test-replaced old=t_gone new=t_other"),
+        "{card}"
+    );
+    assert!(
+        card.contains("test-replaced old=t_changed new=t_changed_v2"),
+        "{card}"
+    );
+}
+
+/// GW-R-071, S7 — a removed test no `--replaced` names is refused and nothing is committed.
+#[test]
+fn it_stage_commit_refuses_an_unreplaced_removal() {
+    let p = rust_project();
+    let head = head_of(&p);
+    stage_module(&p, &[("t_changed", SAME)]);
+    let got = commit_in(&p, &["--replaced", "t_other=t_x"]);
+    assert!(
+        got.starts_with("commit=refused reason=test-unreplaced tests=t_gone hint="),
+        "{got}"
+    );
+    assert!(got.ends_with("exit=1"), "{got}");
+    assert_eq!(head_of(&p), head);
+}
+
+/// GW-R-072 — a rewritten test named as its own replacement still needs a proof.
+#[test]
+fn it_stage_commit_takes_a_rewritten_test_as_its_own_replacement() {
+    let p = rust_project();
+    stage_module(&p, &[("t_gone", SAME), ("t_changed", ONE_LINE)]);
+    let got = commit_in(&p, &["--replaced", "t_changed=t_changed"]);
+    assert!(
+        got.starts_with("commit=refused reason=test-unproven tests=t_changed hint="),
+        "{got}"
+    );
+    seed_proof(&p, &["test-red", "test=tests::t_changed"]);
+    let got = commit_in(&p, &["--replaced", "t_changed=t_changed"]);
+    assert!(got.starts_with("commit=done sha="), "{got}");
+}
+
+/// GW-R-076 — the replacement may be any name; it is logged as given.
+#[test]
+fn it_stage_commit_logs_any_replacement_name() {
+    let p = rust_project();
+    stage_module(&p, &[("t_changed", SAME)]);
+    let got = commit_in(&p, &["--replaced", "t_gone=no_such_test"]);
+    assert!(got.starts_with("commit=done sha="), "{got}");
+    let card = p.ok(&["board", "show", "demo.s1"]);
+    assert!(
+        card.contains("test-replaced old=t_gone new=no_such_test"),
+        "{card}"
+    );
+}
+
+/// GW-R-077, S8 — a path outside the card's files list is committed and noted, on commit and on adopt.
+#[test]
+fn it_stage_commit_notes_files_outside_the_list() {
+    let p = rust_project();
+    std::fs::write(p.worktree().join("notes.txt"), "n\n").unwrap();
+    git(&p.worktree(), &["add", "notes.txt"]);
+    let got = commit_in(&p, &[]);
+    assert!(got.starts_with("commit=done sha="), "{got}");
+    let card = p.ok(&["board", "show", "demo.s1"]);
+    assert!(card.contains("files-outside=notes.txt"), "{card}");
+    assert!(!card.contains("files-outside=src"), "{card}");
+
+    let p = rust_project();
+    let crate_sha = git(&p.worktree(), &["rev-parse", "--short", "HEAD"]);
+    log_commit_of(&p, &crate_sha);
+    let head = outside_commit(&p, &["c.txt"], "outside");
+    let got = adopt_in(&p, &head);
+    assert!(got.starts_with("commit=done sha="), "{got}");
+    let card = p.ok(&["board", "show", "demo.s1"]);
+    assert!(card.contains("files-outside=c.txt"), "{card}");
+}
+
+/// GW-E-015 — adopting a commit that adds an unproven test is refused and logs no `commit=`.
+#[test]
+fn it_adopt_checks_new_and_removed_tests() {
+    let p = rust_project();
+    let crate_sha = git(&p.worktree(), &["rev-parse", "--short", "HEAD"]);
+    log_commit_of(&p, &crate_sha);
+    write_tests(
+        &p,
+        &module_of(&[("t_gone", SAME), ("t_changed", SAME), ("t_new", SAME)]),
+    );
+    git(&p.worktree(), &["add", "src/lib.rs"]);
+    git(&p.worktree(), &["commit", "-q", "-m", "new test"]);
+    let head = git(&p.worktree(), &["rev-parse", "--short", "HEAD"]);
+    let got = adopt_refused(&p, &head, "reason=test-unproven tests=t_new ");
+    assert!(
+        !p.ok(&["board", "show", "demo.s1"])
+            .contains(&format!("commit={head}"))
+    );
+    assert!(got.contains("hint="), "{got}");
+
+    git(&p.worktree(), &["reset", "-q", "--hard", "HEAD^"]);
+    stage_module(&p, &[("t_changed", SAME)]);
+    git(&p.worktree(), &["commit", "-q", "-m", "removal"]);
+    let head = git(&p.worktree(), &["rev-parse", "--short", "HEAD"]);
+    adopt_refused(&p, &head, "reason=test-unreplaced tests=t_gone ");
+}
+
+/// GW-E-016 — a commit without a run does not check tests.
+#[test]
+fn it_no_run_commit_skips_the_test_checks() {
+    let p = rust_project();
+    stage_module(&p, &[("t_changed", SAME), ("t_new", SAME)]);
+    let got = in_dir(
+        &p,
+        &p.worktree(),
+        &["stage", "commit", "--no-run", "-m", "x"],
+    );
+    assert!(got.starts_with("commit=done sha="), "{got}");
+}
+
+/// GW-E-017 — off Rust the test checks are skipped and the card says so.
+#[test]
+fn it_commit_off_rust_skips_the_test_checks_with_a_note() {
+    let p = stage_project();
+    std::fs::write(p.worktree().join("a.txt"), "a\n").unwrap();
+    git(&p.worktree(), &["add", "a.txt"]);
+    let got = commit_in(&p, &[]);
+    assert!(got.starts_with("commit=done sha="), "{got}");
+    let card = p.ok(&["board", "show", "demo.s1"]);
+    assert!(card.contains("test-checks=skipped stack=none"), "{card}");
 }
 
 /// GW-R-001, GW-R-002, S1 — nothing staged on a dirty tree is refused as such, with the `git add` hint.
@@ -2000,30 +2240,6 @@ fn it_adopt_refuses_an_unlogged_earlier_commit() {
     adopt_refused(&p, &head, &line);
 }
 
-/// GW-R-034, S3 — a file outside the `files` list, either side of a rename, is refused.
-#[test]
-fn it_adopt_refuses_a_file_outside_the_files_list() {
-    let p = adopt_project();
-    let head = outside_commit(&p, &["a.txt", "c.txt"], "both");
-    adopt_refused(&p, &head, "reason=files path=c.txt ");
-
-    let p = adopt_project();
-    let first = outside_commit(&p, &["a.txt"], "a");
-    log_commit_of(&p, &first);
-    git(&p.worktree(), &["mv", "a.txt", "c.txt"]);
-    git(&p.worktree(), &["commit", "-q", "-m", "rename"]);
-    let head = git(&p.worktree(), &["rev-parse", "--short", "HEAD"]);
-    adopt_refused(&p, &head, "reason=files path=c.txt ");
-
-    let p = adopt_project();
-    let first = outside_commit(&p, &["c.txt"], "c");
-    log_commit_of(&p, &first);
-    git(&p.worktree(), &["mv", "c.txt", "a.txt"]);
-    git(&p.worktree(), &["commit", "-q", "-m", "rename"]);
-    let head = git(&p.worktree(), &["rev-parse", "--short", "HEAD"]);
-    adopt_refused(&p, &head, "reason=files path=c.txt ");
-}
-
 /// GW-R-035, S4 — attribution trailers in the message are refused with an amend hint.
 #[test]
 fn it_adopt_refuses_attribution_trailers() {
@@ -2032,19 +2248,6 @@ fn it_adopt_refuses_attribution_trailers() {
     let head = outside_commit(&p, &["a.txt"], &format!("outside\n\n{trailer}"));
     let got = adopt_refused(&p, &head, "reason=trailers ");
     assert!(got.contains("amend"), "{got}");
-}
-
-/// GW-E-012 — a commit that touches no file is adopted.
-#[test]
-fn it_adopt_accepts_a_commit_touching_no_file() {
-    let p = adopt_project();
-    git(
-        &p.worktree(),
-        &["commit", "-q", "--allow-empty", "-m", "empty"],
-    );
-    let head = git(&p.worktree(), &["rev-parse", "--short", "HEAD"]);
-    let got = adopt_in(&p, &head);
-    assert!(got.starts_with("commit=done"), "{got}");
 }
 
 /// GW-R-037 — `--adopt` conflicts with `-m` and `--no-run`; `-m` is required without it.
