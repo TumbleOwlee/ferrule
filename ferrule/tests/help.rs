@@ -105,6 +105,10 @@ const SOURCES: &[(&str, &[&str])] = &[
     ("ferrule-core/src/run/ci.rs", &["ci wait"]),
     ("ferrule-core/src/run/commit.rs", &["stage commit"]),
     ("ferrule-core/src/run/ids.rs", &["spec next"]),
+    (
+        "ferrule-core/src/run/testproof/mod.rs",
+        &["stage red", "stage pins"],
+    ),
     ("ferrule-core/src/run/gauntlet.rs", &["ci gauntlet"]),
     (
         "ferrule-core/src/run/inspect.rs",
@@ -213,7 +217,14 @@ const SOURCES: &[(&str, &[&str])] = &[
     ),
     (
         "ferrule/src/commands/stage.rs",
-        &["stage commit", "stage verify", "stage stop", "stage replan"],
+        &[
+            "stage commit",
+            "stage red",
+            "stage pins",
+            "stage verify",
+            "stage stop",
+            "stage replan",
+        ],
     ),
     (
         "ferrule/src/commands/hook/mod.rs",
@@ -899,7 +910,8 @@ fn it_stage_commit_help_lists_adopt() {
         "reason=adopted card=<id>",
         "reason=unlogged sha=<sha>",
         "commit=refused reason=no-merge-base",
-        "reason=files path=<path>",
+        "reason=test-unproven tests=<a,b>",
+        "reason=test-unreplaced tests=<a,b>",
         "reason=trailers",
     ] {
         assert!(help.contains(want), "{want}: {help}");
@@ -915,6 +927,20 @@ fn it_stage_commit_help_names_the_check_for_no_run() {
         .find(|l| l.starts_with("With --no-run"))
         .expect("the --no-run note");
     assert!(note.contains("nothing-staged"), "{note}");
+}
+
+/// The `--no-run` note of the `stage commit` help names the test checks it skips.
+#[test]
+fn it_stage_commit_help_names_the_test_checks_for_no_run() {
+    let help = help_of("stage commit");
+    let note = help
+        .lines()
+        .find(|l| l.starts_with("With --no-run"))
+        .expect("the --no-run note");
+    assert!(
+        note.contains("new-test") && note.contains("removed-test"),
+        "{note}"
+    );
 }
 
 /// GW-R-007 — the `pr push` help lists the diverged refusal.

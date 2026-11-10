@@ -233,7 +233,7 @@ pub fn record(w: &Writer<'_>, slug: &str, now: &str, check: CiCheck) -> Result<S
         .to_owned();
     let first_red = stage_events
         .iter()
-        .filter(|e| board::valid_stamp(&e.at) && e.typed() == Typed::TestRed)
+        .filter(|e| board::valid_stamp(&e.at) && matches!(e.typed(), Typed::TestRed { .. }))
         .map(|e| e.at.as_str())
         .min()
         .unwrap_or("-");

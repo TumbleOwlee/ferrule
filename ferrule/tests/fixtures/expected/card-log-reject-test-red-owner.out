@@ -1,0 +1,2 @@
+card-log=reject reason=owner event=test-red hint=only ferrule logs it, with `ferrule stage red <card> <test>`
+exit=2

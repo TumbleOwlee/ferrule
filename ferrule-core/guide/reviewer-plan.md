@@ -22,9 +22,8 @@ Check `plan.md` against `spec-diff.md`, spec-fidelity axis only:
 - `s0` lands every ID (no `s0` when `spec-diff.md` has no entries to land, or there is no `spec-diff.md`)
 - no local `R<n>`/`E<n>` left; every fixed ID new to the run is unused on `{main}` (`ferrule spec refs <ID>… --ref {main} --path docs/specs` answers `refs=none`) and sequential within its prefix
 - every scenario `S<n>` is pinned by a test or a stage's Verification
-- the plan reaches `architecture.md`: every new or changed component has a stage, no stage builds one it doesn't name, and every signature in `## Interfaces` appears as written in the step that builds it
+- the plan reaches `architecture.md`: every new or changed component has a stage, no stage builds one it doesn't name, and every signature of what `## Public surface` lists appears as written in the step that builds it
 - spec edits the planner made since the architecture stop are recorded (`Revisions:`, a `decisions.md` line each)
-- every stage's `files` list covers what its steps touch and matches `## Shared`
 - every stage title is imperative, verb first; ≤ 3 words, ≤ 20 characters; letters, digits, hyphens, spaces only; unique within the plan; no stage id; `s0`, when present, is always `Land spec`; and it matches its heading and stage-table row
 
 ## Re-plan checks

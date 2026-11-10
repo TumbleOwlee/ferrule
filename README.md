@@ -153,7 +153,10 @@ Commands are grouped by what they act on. Most are run by the orchestrating agen
 | `ferrule stage stop <slug> s<n> [--threads n]` | Stop or auto-continue a clean stage, logged on its card |
 | `ferrule stage commit <card> -m <msg>` | Commit for a stage in review: never on the main branch, trailers stripped, `commit=` logged |
 | `ferrule stage commit <card> --adopt <sha>` | Log HEAD, committed outside ferrule, as the stage's `commit=` after strict checks; no new commit |
+| `ferrule stage commit <card> -m <msg> --replaced <old>=<new>` | Name a removed or rewritten test's replacement (repeatable, also with `--adopt`); logged on the card |
 | `ferrule stage commit --no-run -m <msg>` | The same outside a run |
+| `ferrule stage red <card> <test> [--mutation <text>]` | Run a test and log each failure it reports as the stage's proof |
+| `ferrule stage pins <card> <test> -- <text>` | Mark a test as pinning existing behaviour |
 | `ferrule stage replan <slug> start\|approve [--stops s1,…]` | Snapshot the plan and log `from=`; swap the uncommitted stage cards for the new plan's |
 
 ### CI

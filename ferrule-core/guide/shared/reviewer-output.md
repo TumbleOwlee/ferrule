@@ -8,7 +8,7 @@ Then rewrite `{run_dir}/review.verdict.md` whole (`>` or `tee`, never append) �
 # {slug} — review verdict (<scope>, pass N)
 
 Verdict: <clean — ready for approval | findings — <n> must fix, <n> needs you>
-- <stage> — <spec | standards | tdd | docs> — <package> <file> `<fn | test | arm>`: <problem, ≤ 12 words>
+- <stage> — <spec | standards | docs> — <package> <file> `<fn | test | arm>`: <problem, ≤ 12 words>
   - fix: <≤ 12 words>
 
 Spec — <n> of <m> pinned<, <IDs> below | >

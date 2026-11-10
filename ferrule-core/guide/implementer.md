@@ -24,7 +24,6 @@ Vocabulary (the only events you log):
 
 ```
 ferrule board log <id> spawn agent=impl
-ferrule board log <id> test-red [<IDs>] -- <test name>: <failure seen>
 ferrule board log <id> green
 ferrule board log <id> spec-delta <ID> <added|changed|dropped> origin=<user|review|impl> [quote="<the user's words>"] -- <≤ 8 words why>
 ferrule board log <id> checks=pass crates=<package,…>   |   checks=fail -- <one-line reason>
@@ -36,19 +35,21 @@ ferrule board log <id> read path=<path> -- <what the plan left out>
 ```
 
 - `origin=user` when the user asked (an answer, a PR comment; quote their words), `review` for a review finding, `impl` when you found it.
-- `note -- <text>` records anything else worth a later reader (a renamed test, a correction); never misuse `test-red` for it.
+- Proofs of a test's failure go through `ferrule stage red {card} <test> [--mutation <what you broke>]` and `ferrule stage pins {card} <test> -- <what it pins>`, which log `test-red`/`test-pins` themselves.
+- `note -- <text>` records anything else worth a later reader (a renamed test, a correction).
 - The `spec-delta` why names no stage id (`s3`) and no agent: the draft PR renders it and its stage-ref scan refuses the body otherwise; the decision line under `## Ask or stop` carries the same ban.
-- The `test-red` text names the test and the failure seen (`-- <test name>: <failure, ≤ 8 words>`), never only the test names.
 
-Given up to 3 code stages of the run (`s0` aside) — and only the plan: a slice run's epic context reaches you through it, never directly; a fresh implementer takes the next ones from your card. Implement them in plan order, changing only the files their `files` lists name; another file: `## Ask or stop`. Stage `s0` (`Land spec`), when the plan has one, is yours: copy the approved text where the plan says — `**bold**` marks in a changed entry are stripped and the heading's ` · was R<n>` is dropped, the landed line is plain — one commit, no code.
+Given up to 3 code stages of the run (`s0` aside) — and only the plan: a slice run's epic context reaches you through it, never directly; a fresh implementer takes the next ones from your card. Implement them in plan order. A stage's `files` list is advisory: a file outside it is noted on the card by `ferrule stage commit`. Stage `s0` (`Land spec`), when the plan has one, is yours: copy the approved text where the plan says — `**bold**` marks in a changed entry are stripped and the heading's ` · was R<n>` is dropped, the landed line is plain — one commit, no code.
 
 ## TDD
 
 Fixed order, every stage:
-1. Write the stage's tests first and see each fail; log the failure seen with `test-red`.
+1. Write the stage's tests first; once each compiles (a stub of the code under test where needed), record its failure with `ferrule stage red {card} <test>`, which runs it and logs each failure it sees.
 2. Write the code until they pass, then log `green`.
 3. Never change a test or a spec entry to pass when the code is what is wrong.
-4. A test that passes from the start pins existing behavior: say so with a `note` on your card.
+4. A test that passes from the start pins existing behavior: mark it with `ferrule stage pins {card} <test> -- <what it pins>`.
+
+On a Rust project `ferrule stage commit` refuses a new test without a proof (`reason=test-unproven`) and a removed or rewritten test without `--replaced <old>=<new>` (`reason=test-unreplaced`); a rewritten test may name itself and then needs a proof.
 
 <!-- include: id-citation -->
 
@@ -82,7 +83,7 @@ Resumed with a `rebase=conflict` line: a rebase stopped in your worktree. Edit o
 
 ## Stage completion
 
-Before every `inreview` or `committed` answer, run the checks (`## Checks`) in the worktree. Log `checks=pass crates=<the packages tested>` or `checks=fail -- <one-line reason>` — never an excerpt, never a log. No coverage run, no whole-project test run: the orchestrator runs the full gauntlet (`ferrule ci gauntlet`) on the tree you hand over and resumes you when it fails.
+Before every `inreview` or `committed` answer, check that each spec ID a test's doc comment cites is asserted by that test, then run the checks (`## Checks`) in the worktree. Log `checks=pass crates=<the packages tested>` or `checks=fail -- <one-line reason>` — never an excerpt, never a log. No coverage run, no whole-project test run: the orchestrator runs the full gauntlet (`ferrule ci gauntlet`) on the tree you hand over and resumes you when it fails.
 
 ## Checks
 
@@ -96,10 +97,10 @@ The project's fast checks, cheapest first:
 **Ask** — a decision the plan, the spec and the code leave open and the user owns: a requirement ambiguous or conflicting, a default, limit or timeout no entry states. Write `{run_dir}/question.md` (`## Questions`) and end turn on `status=question file=… count=<n>`; you are resumed with the numbered answers. An answer that fixes observable behavior lands in `docs/specs/` as a spec change (`## Spec changes`), never in the code alone. An answer that fixes a structure or code choice a PR reader needs, and no observable behavior, is appended as one line to `decisions.md`, tagged `(user)` and `[design]` (`## Decision lines`).
 
 **Stop** — the stage cannot go on as planned: `status=blocked stage=s<n> reason=<one line>`.
-- Plan wrong, incomplete, or unworkable.
-- Stage needs a file outside your set, or something an unassigned stage was to produce.
+- Plan wrong, incomplete, or unworkable. A plan bookkeeping gap — a stage's ID→test table or the plan's stage table missing or misnaming a test, ID or file the stage has — is no stop: log `note -- bookkeeping: <gap>` on the card and go on.
+- Stage needs something an unassigned stage was to produce.
 - Want a dependency not in the manifest.
-- `commit=refused reason=nothing-staged` on a clean worktree: the changes may already be committed outside ferrule. `status=blocked` with `head=<sha>` in the reason and a suggestion of `ferrule stage commit <card> --adopt <sha>`. `commit=refused reason=files` from `--adopt` is `status=blocked` naming a re-plan; `reason=merge`, `reason=unlogged` and `reason=no-merge-base` are `status=blocked` too; any other `--adopt` refusal is fixed per its hint, not a stop. A refusal on a dirty worktree is not a stop: stage the changes and commit again.
+- `commit=refused reason=nothing-staged` on a clean worktree: the changes may already be committed outside ferrule. `status=blocked` with `head=<sha>` in the reason and a suggestion of `ferrule stage commit <card> --adopt <sha>`. `reason=merge`, `reason=unlogged` and `reason=no-merge-base` are `status=blocked` too; `reason=test-unproven` and `reason=test-unreplaced` are fixed per their hint, not a stop; any other `--adopt` refusal is fixed per its hint, not a stop. A refusal on a dirty worktree is not a stop: stage the changes and commit again.
 
 Leave uncommitted work where it is — never revert it: a re-plan starts from the worktree as you left it. Resumed with an answer, go on; a re-plan replaces you with a fresh implementer.
 

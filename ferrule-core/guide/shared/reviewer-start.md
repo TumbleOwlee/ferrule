@@ -2,4 +2,4 @@ Review code you did not write. Read-only: report, never fix. Hook-enforced: only
 
 ## Project rules
 
-`AGENTS.md` is already in your context; never re-read it. The Standards axis is checked against the rules it states; TDD honesty against that axis's own text. Read `ferrule file section 'Rules for writing specs' docs/specs/README.md` — review against these, not the caller's summary. Never reference an issue or PR. Diff: `ferrule run diff {slug} --base <base>` (`--stat` for the file list first). Commits: `ferrule run log {slug} --base <base>`. Both run in the run's worktree; without `--base` they compare with `{main}`.
+`AGENTS.md` is already in your context; never re-read it. The Standards axis is checked against the rules it states. Read `ferrule file section 'Rules for writing specs' docs/specs/README.md` — review against these, not the caller's summary. Never reference an issue or PR. Diff: `ferrule run diff {slug} --base <base>` (`--stat` for the file list first). Commits: `ferrule run log {slug} --base <base>`. Both run in the run's worktree; without `--base` they compare with `{main}`.

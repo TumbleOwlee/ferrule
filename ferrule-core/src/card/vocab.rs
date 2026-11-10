@@ -105,7 +105,33 @@ pub const VOCABULARY: &[Event] = &[
         &["agent", "stage"],
         Text::No,
     ),
-    ev(Stage, "test-red", V::None, P::OptionalIds, &[], Text::Yes),
+    ev(
+        Stage,
+        "test-red",
+        V::None,
+        P::OptionalIds,
+        &["test", "mutation"],
+        Text::Yes,
+    )
+    .by("ferrule stage red <card> <test>"),
+    ev(
+        Stage,
+        "test-pins",
+        V::None,
+        P::None,
+        &["test"],
+        Text::Required,
+    )
+    .by("ferrule stage pins <card> <test> -- <text>"),
+    ev(
+        Stage,
+        "test-replaced",
+        V::None,
+        P::None,
+        &["old", "new"],
+        Text::No,
+    )
+    .by("ferrule stage commit <card> --replaced <old>=<new>"),
     ev(Stage, "green", V::None, P::None, &[], Text::No),
     ev(
         Both,
@@ -124,6 +150,17 @@ pub const VOCABULARY: &[Event] = &[
         Text::Yes,
     ),
     ev(Stage, "commit=", V::Any, P::None, &[], Text::No).by("ferrule stage commit <card> -m <msg>"),
+    ev(Stage, "files-outside=", V::Any, P::None, &[], Text::No)
+        .by("ferrule stage commit <card> -m <msg>"),
+    ev(
+        Stage,
+        "test-checks=",
+        V::OneOf(&["skipped"]),
+        P::None,
+        &["stack"],
+        Text::No,
+    )
+    .by("ferrule stage commit <card> -m <msg>"),
     ev(Both, "feedback=", V::Any, P::None, &[], Text::No),
     ev(Stage, "stopped", V::None, P::None, &[], Text::Required),
     ev(Stage, "follow-up", V::None, P::None, &[], Text::Required),
@@ -865,7 +902,7 @@ mod tests {
         };
         assert_eq!(
             hint("test-red", "R1"),
-            "test-red takes [ids] (fixed IDs like MB-R-001, comma-separated), optional -- text"
+            "test-red takes [ids] (fixed IDs like MB-R-001, comma-separated), optional keys test,mutation, optional -- text"
         );
         assert_eq!(
             hint("checks=maybe", ""),
@@ -1093,7 +1130,6 @@ mod tests {
             agent,
             [
                 "spawn",
-                "test-red",
                 "green",
                 "spec-delta",
                 "checks=",

@@ -1,5 +1,17 @@
 # Git writes — edge cases
 
+## Test proof
+
+**GW-E-015** — An adopted commit gets the new-test and removed-test checks of a normal stage commit.
+
+**GW-E-016** — `ferrule stage commit --no-run` applies neither the new-test check nor the removed-test check.
+
+**GW-E-017** — On a project whose stack is not Rust, `ferrule stage commit` applies neither the new-test check nor the removed-test check and logs a note on the card.
+
+**GW-E-018** — On a Rust project, a test moved to another module or file with its body unchanged counts as neither new nor removed.
+
+**GW-E-023** — On a Rust project, an existing test counts as rewritten only when its body loses or changes a line, whitespace ignored; a test that only gains lines is not rewritten.
+
 ## Known gaps
 
 **GW-E-001** — A remote that moves after the divergence check passes fails at the push with the existing `reason=push` refusal.
@@ -24,8 +36,14 @@
 
 **GW-E-011** — `--adopt` refuses a HEAD already logged as `commit=` on any of the run's cards.
 
-**GW-E-012** — `--adopt` accepts a commit that touches no file, since no file of it lies outside the card's `files` list.
-
 **GW-E-013** — A rebase whose conflict resolution changed a stage's content is accepted when the commit messages match, and no review sees the resolution; only the gauntlet checks it.
 
 **GW-E-014** — A rebase that rewords a stage commit's message is refused, even when the content is unchanged.
+
+**GW-E-019** — On a Rust project, a test that does not compile gets no recorded failure from `ferrule stage red`.
+
+**GW-E-020** — On a Rust project, macro-generated tests and doc tests are seen by neither the new-test check nor the removed-test check.
+
+**GW-E-021** — On a Rust project, a change to a function outside a test's body counts as rewriting no test.
+
+**GW-E-022** — On a Rust project, tests are told apart by function name, so two tests of one name in different modules count as one test.

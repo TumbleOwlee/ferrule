@@ -9,6 +9,7 @@ use crate::git;
 use crate::hook::attribution;
 use crate::refusal::Refusal;
 use crate::run::gauntlet;
+use crate::run::testproof::{self, TestCheck};
 use crate::store::Board;
 
 /// Why nothing was committed.
@@ -40,8 +41,10 @@ pub enum CommitRefused {
     Unlogged { sha: String },
     /// `--adopt`: the branch point of HEAD with the base branch cannot be found.
     NoMergeBase,
-    /// `--adopt`: the commit touches this path outside the card's `files` list.
-    Files { path: String },
+    /// New tests with neither a `test-red` failure nor a `test-pins` mark on the card.
+    TestUnproven { tests: Vec<String> },
+    /// Removed or rewritten tests no `--replaced <old>=<new>` names.
+    TestUnreplaced { tests: Vec<String> },
     /// `--adopt`: the message carries attribution trailers.
     Trailers,
 }
@@ -109,11 +112,17 @@ impl CommitRefused {
             CommitRefused::NoMergeBase => Refusal::new("commit", "no-merge-base").hint(
                 "the branch point of HEAD with the main branch cannot be found: report the stage blocked",
             ),
-            CommitRefused::Files { path } => Refusal::new("commit", "files")
-                .field("path", path)
+            CommitRefused::TestUnproven { tests } => Refusal::new("commit", "test-unproven")
+                .field("tests", tests.join(","))
                 .hint(format!(
-                    "{path} is outside the card's files list: stop for a re-plan"
+                    "record each test's failure with `ferrule stage red {card} <test>` (a mutation proof: add `--mutation <text>`) or mark it with `ferrule stage pins {card} <test> -- <what it pins>`",
+                    card = card.unwrap_or("<card>")
                 )),
+            CommitRefused::TestUnreplaced { tests } => Refusal::new("commit", "test-unreplaced")
+                .field("tests", tests.join(","))
+                .hint(
+                    "name each replacement with `--replaced <old>=<new>`; a rewritten test may name itself and then needs a proof",
+                ),
             CommitRefused::Trailers => Refusal::new("commit", "trailers").hint(
                 "the message carries attribution trailers: amend it with `git commit --amend` if it is not pushed, then adopt again",
             ),
@@ -142,6 +151,7 @@ pub fn commit(
     main: &str,
     card: Option<&str>,
     message: &str,
+    tests: TestCheck<'_>,
     now: &str,
 ) -> rusqlite::Result<Result<Committed, CommitRefused>> {
     let branch = git::out(here, &["symbolic-ref", "--short", "-q", "HEAD"]);
@@ -165,6 +175,20 @@ pub fn commit(
             .is_none_or(|top| gauntlet::dirty(Path::new(&top)));
         return Ok(Err(CommitRefused::NothingStaged { head, dirty }));
     }
+    let mut notes = Notes::default();
+    if let Some((db, id)) = on.as_mut() {
+        let diff = ["diff", "--cached", "--no-renames", "-U1000000"];
+        match check_tests(db, here, id, tests, &diff)? {
+            Ok(skipped) => notes.skipped = skipped,
+            Err(r) => return Ok(Err(r)),
+        }
+        let staged = git::out(
+            here,
+            &["diff", "--cached", "--name-only", "--no-renames", "-z"],
+        )
+        .unwrap_or_default();
+        notes.outside = outside_of(db, id, &staged)?;
+    }
     let text = attribution::strip(message).unwrap_or_else(|| message.to_owned());
     let dir = here.to_string_lossy();
     let args = ["-C", &dir, "commit", "-q", "-F", "-"];
@@ -172,8 +196,53 @@ pub fn commit(
         return Ok(Err(CommitRefused::Git));
     }
     let sha = git::out(here, &["rev-parse", "--short", "HEAD"]).unwrap_or_default();
-    let logged = on.map(|(db, id)| log_commit(db, id, &sha, now));
+    let logged = on.map(|(db, id)| log_commit(db, id, &sha, tests.replaced, &notes, now));
     Ok(Ok(Committed { sha, logged }))
+}
+
+/// What a commit notes on the card besides `commit=`.
+#[derive(Default)]
+struct Notes {
+    /// Touched paths outside the card's `files` list.
+    outside: Vec<String>,
+    /// The stack label when the test checks were skipped.
+    skipped: Option<String>,
+}
+
+/// The test check over the diff `diff` selects, limited to the scanner's paths.
+/// `Ok(Some(stack))` when the stack has no scanner and the check was skipped.
+fn check_tests(
+    db: &Board,
+    here: &Path,
+    card: &str,
+    tests: TestCheck<'_>,
+    diff: &[&str],
+) -> rusqlite::Result<Result<Option<String>, CommitRefused>> {
+    let Some(scanner) = testproof::scanner(tests.stack) else {
+        return Ok(Ok(Some(tests.stack.unwrap_or("none").to_owned())));
+    };
+    let mut args = diff.to_vec();
+    args.push("--");
+    args.extend(scanner.paths());
+    let text = git::out(here, &args).unwrap_or_default();
+    let changes = scanner.changes(&text);
+    Ok(db
+        .read(|r| testproof::check(r, card, &changes, tests.replaced))?
+        .map(|()| None))
+}
+
+/// The paths of the NUL-separated `touched` outside the card's `files` list;
+/// none when the card has no `files` field.
+fn outside_of(db: &Board, card: &str, touched: &str) -> rusqlite::Result<Vec<String>> {
+    let Some(files) = db.read(|r| r.field(card, "files"))? else {
+        return Ok(Vec::new());
+    };
+    let allowed = board::file_list(&files);
+    Ok(touched
+        .split('\0')
+        .filter(|p| !p.is_empty() && !allowed.contains(p))
+        .map(str::to_owned)
+        .collect())
 }
 
 /// Whether a rebase is stopped in the checkout `here` belongs to.
@@ -182,10 +251,47 @@ fn rebasing(here: &Path) -> bool {
     git::rebase_in_progress(top.as_deref().map_or(here, Path::new))
 }
 
-fn log_commit(db: &mut Board, id: &str, sha: &str, now: &str) -> Result<String, String> {
+fn log_commit(
+    db: &mut Board,
+    id: &str,
+    sha: &str,
+    replaced: &[(String, String)],
+    notes: &Notes,
+    now: &str,
+) -> Result<String, String> {
     db.write(|w| w.log(id, &format!("commit={sha}"), &[], now))
+        .map_err(|e: board::LogError| e.to_string())?;
+    log_notes(db, id, replaced, notes, now)
         .map(|()| id.to_owned())
         .map_err(|e: board::LogError| e.to_string())
+}
+
+/// Logs one `test-replaced` per pair, one `files-outside=` per outside path
+/// and `test-checks=skipped` when the test checks were skipped.
+fn log_notes(
+    db: &mut Board,
+    id: &str,
+    replaced: &[(String, String)],
+    notes: &Notes,
+    now: &str,
+) -> Result<(), board::LogError> {
+    db.write(|w| {
+        for (old, new) in replaced {
+            w.log(
+                id,
+                "test-replaced",
+                &[format!("old={old}"), format!("new={new}")],
+                now,
+            )?;
+        }
+        for path in &notes.outside {
+            w.log(id, &format!("files-outside={path}"), &[], now)?;
+        }
+        if let Some(stack) = &notes.skipped {
+            w.log(id, "test-checks=skipped", &[format!("stack={stack}")], now)?;
+        }
+        Ok(())
+    })
 }
 
 /// The card and its state and, when asked or when the run names one, its branch.
@@ -227,6 +333,7 @@ pub fn adopt(
     main: &str,
     card: &str,
     sha: &str,
+    tests: TestCheck<'_>,
     now: &str,
 ) -> rusqlite::Result<Result<Committed, CommitRefused>> {
     let branch = git::out(here, &["symbolic-ref", "--short", "-q", "HEAD"]);
@@ -280,8 +387,17 @@ pub fn adopt(
         let sha = git::out(here, &["rev-parse", "--short", first]).unwrap_or_default();
         return Ok(Err(CommitRefused::Unlogged { sha }));
     }
-    let files = db.read(|r| r.field(id, "files"))?.unwrap_or_default();
-    let allowed = board::file_list(&files);
+    let mut notes = Notes::default();
+    match check_tests(
+        db,
+        here,
+        id,
+        tests,
+        &["diff", "HEAD^", "HEAD", "--no-renames", "-U1000000"],
+    )? {
+        Ok(skipped) => notes.skipped = skipped,
+        Err(r) => return Ok(Err(r)),
+    }
     let touched = git::out(
         here,
         &[
@@ -295,18 +411,11 @@ pub fn adopt(
         ],
     )
     .unwrap_or_default();
-    if let Some(path) = touched
-        .split('\0')
-        .find(|p| !p.is_empty() && !allowed.contains(p))
-    {
-        return Ok(Err(CommitRefused::Files {
-            path: path.to_owned(),
-        }));
-    }
+    notes.outside = outside_of(db, id, &touched)?;
     let message = git::out(here, &["log", "-1", "--format=%B", "HEAD"]).unwrap_or_default();
     if attribution::strip(&message).is_some() {
         return Ok(Err(CommitRefused::Trailers));
     }
-    let logged = Some(log_commit(db, id, &short, now));
+    let logged = Some(log_commit(db, id, &short, tests.replaced, &notes, now));
     Ok(Ok(Committed { sha: short, logged }))
 }

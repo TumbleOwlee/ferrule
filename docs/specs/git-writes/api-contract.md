@@ -6,12 +6,28 @@
 - `commit=refused reason=git hint=<fix>` — the underlying commit failed with changes staged, a refusing hook for example; nothing staged is no longer among its causes.
 - `commit=refused reason=rebasing hint=<fix>` — a rebase is in progress in the run's worktree, with and without `--adopt` (GW-R-048).
 - The `ferrule stage commit` help lists the `--adopt` refusals of `## ferrule stage commit --adopt`.
+- `commit=refused reason=test-unproven tests=<a,b> hint=<fix>` — on a Rust project, new tests with no recorded failure, mutation proof or pins-existing mark on the card, with and without `--adopt` (GW-R-069).
+- `commit=refused reason=test-unreplaced tests=<a,b> hint=<fix>` — removed or rewritten tests no `--replaced` pair names (GW-R-070, GW-R-071).
+- `--replaced <old>=<new>` — repeatable, with `-m` or `--adopt`, conflicts with `--no-run`; any test name; `<t>=<t>` on a rewritten test needs a proof as a new test does (GW-R-071, GW-R-072, GW-R-076).
+- The `--no-run` note of the `ferrule stage commit` help names the new-test and removed-test checks as not applying (GW-E-016).
 
 ## ferrule stage commit --adopt
 
 - `ferrule stage commit <card> --adopt <sha>` — conflicts with `-m` and `--no-run` (GW-R-037).
 - `commit=done sha=<sha> card=<id>` — as a normal stage commit (GW-R-030).
-- Refusals after the shared `reason=main|card|state|branch`, each ending in `hint=<fix>`: `commit=refused reason=dirty` (GW-R-031), `reason=not-head head=<sha>` and `reason=merge parents=<n>` (GW-R-032), `reason=adopted card=<id>` (GW-E-011), `reason=unlogged sha=<sha>` (GW-R-033), `reason=no-merge-base` when the branch point with the base branch cannot be found (GW-R-033), `reason=files path=<path>` (GW-R-034), `reason=trailers` (GW-R-035).
+- Refusals after the shared `reason=main|card|state|branch`, each ending in `hint=<fix>`: `commit=refused reason=dirty` (GW-R-031), `reason=not-head head=<sha>` and `reason=merge parents=<n>` (GW-R-032), `reason=adopted card=<id>` (GW-E-011), `reason=unlogged sha=<sha>` (GW-R-033), `reason=no-merge-base` when the branch point with the base branch cannot be found (GW-R-033), `reason=test-unproven` and `reason=test-unreplaced` as a normal stage commit (GW-E-015), `reason=trailers` (GW-R-035).
+
+## ferrule stage red
+
+- `ferrule stage red <card> <test> [--mutation <text>]` — runs the tests matching `<test>` in the current worktree with the stack's test command (GW-R-068).
+- `red=recorded tests=<a,b>` — one `test-red` logged per test the run reports failed (GW-R-068, GW-R-073).
+- Refusals, each ending in `hint=<fix>`: `red=refused reason=card|state|stack`, `reason=no-failure` when the run reports no failed test (GW-E-019), `reason=run` when the test command cannot start or times out.
+
+## ferrule stage pins
+
+- `ferrule stage pins <card> <test> -- <text>` (GW-R-074).
+- `pins=recorded test=<t>`.
+- Refusals, each ending in `hint=<fix>`: `pins=refused reason=card|state|stack`.
 
 ## ferrule pr push refusals
 
@@ -43,3 +59,8 @@
 ## Card events
 
 - `rebase=<head> base=<base> from=<old head>` on the run card, logged only by `ferrule run rebase` (GW-R-042, GW-R-045, GW-R-050).
+- `test-red test=<test> [mutation=<text>]` on a stage card, logged only by `ferrule stage red` (GW-R-068, GW-R-073).
+- `test-pins test=<test> -- <text>` on a stage card, logged only by `ferrule stage pins` (GW-R-074).
+- `test-replaced old=<old> new=<new>`, one per `--replaced` pair, logged only by `ferrule stage commit` after `commit=` (GW-R-076).
+- `files-outside=<path>`, one per path outside the card's `files` list, logged only by `ferrule stage commit` after `commit=` (GW-R-077).
+- `test-checks=skipped stack=<stack|none>` on a stage card of a project whose stack is not Rust, logged only by `ferrule stage commit` (GW-E-017).

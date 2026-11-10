@@ -15,6 +15,7 @@ pub mod next;
 pub mod push;
 pub mod rebase;
 pub mod rebuild;
+pub mod testproof;
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};

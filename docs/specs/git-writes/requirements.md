@@ -12,7 +12,7 @@
 
 **GW-R-005** — The `ferrule stage commit` help lists the nothing-staged refusal.
 
-**GW-R-006** — The implementer guide directs a clean-worktree nothing-staged refusal to `status=blocked` with `head=` and a suggestion of `ferrule stage commit <card> --adopt <head>` in the reason, and an `--adopt` refusal for a file outside the `files` list to a re-plan.
+**GW-R-006** — The implementer guide directs a clean-worktree nothing-staged refusal to `status=blocked` with `head=` and a suggestion of `ferrule stage commit <card> --adopt <head>` in the reason.
 
 **GW-R-026** — The `--no-run` note of the `ferrule stage commit` help names the nothing-staged check as applying.
 
@@ -25,8 +25,6 @@
 **GW-R-032** — `--adopt` refuses unless `<sha>` is the branch's HEAD with exactly one parent.
 
 **GW-R-033** — `--adopt` refuses unless every commit from the branch point with the base branch up to HEAD^ is logged as `commit=` on one of the run's cards.
-
-**GW-R-034** — `--adopt` refuses when the commit touches a file outside the card's `files` list, counting both sides of a rename.
 
 **GW-R-035** — `--adopt` refuses a commit whose message carries attribution trailers, with a hint to amend the commit if it has not been pushed.
 
@@ -141,3 +139,27 @@
 ## PR decisions list
 
 **GW-R-067** — The PR body's decisions list omits a `(chosen)` decision tagged with a local spec ID the run's brief no longer holds.
+
+## Test proof
+
+**GW-R-068** — A ferrule command records each new test's real failure on the run.
+
+**GW-R-069** — On a Rust project, `ferrule stage commit` refuses a new test that has no recorded failure, no mutation proof and no mark that it pins existing behaviour.
+
+**GW-R-070** — On a Rust project, `ferrule stage commit` lists every existing test or assertion the commit removes or rewrites.
+
+**GW-R-071** — On a Rust project, `ferrule stage commit` refuses a removed or rewritten test or assertion that has no named replacement.
+
+**GW-R-072** — On a Rust project, a rewritten test may name itself as its replacement and then needs a recorded failure, mutation proof or pins-existing mark, as a new test does.
+
+**GW-R-073** — `ferrule stage red <card> <test> --mutation <text>` records each failure its run reports as a mutation proof naming `<text>`.
+
+**GW-R-074** — `ferrule stage pins <card> <test> -- <text>` records the mark that the test pins existing behaviour, with `<text>` naming what it pins.
+
+**GW-R-075** — A recorded failure, mutation proof or pins-existing mark counts only for the stage card it was recorded on.
+
+**GW-R-076** — On a Rust project, `ferrule stage commit --replaced <old>=<new>` accepts any test name as the replacement and logs each pair on the card as a replaced-test note.
+
+## Files list
+
+**GW-R-077** — A stage changing a file outside its `files` list is noted on the card and blocks neither the commit nor the review.
