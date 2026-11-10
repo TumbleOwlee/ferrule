@@ -407,7 +407,7 @@ fn it_reviewer_guide_reads_only_sections_the_shipped_readme_has() {
     assert!(read.contains("**Requirements are testable.**"), "{read}");
 }
 
-/// GA-R-015, GA-R-016, GA-R-017, GA-R-018, GA-R-019 — each guide states the rules its agent works or reviews by.
+/// GA-R-015, GA-R-017, GA-R-018, GA-R-019, GA-R-064 — each guide states the rules its agent works or reviews by.
 #[test]
 fn it_guides_state_the_tdd_and_standards_rules() {
     let tmp = tempfile::tempdir().unwrap();
@@ -417,7 +417,7 @@ fn it_guides_state_the_tdd_and_standards_rules() {
         root,
         &["guide", "implementer", "--slug", "demo", "--section", "TDD"],
     );
-    assert!(tdd.contains("1. Write the stage's tests first and see each fail; log the failure seen with `test-red`."), "{tdd}");
+    assert!(tdd.contains("1. Write the stage's tests first; once each compiles (a stub of the code under test where needed), record its failure with `ferrule stage red demo <test>`, which runs it and logs each failure it sees."), "{tdd}");
     assert!(
         tdd.contains("2. Write the code until they pass, then log `green`."),
         "{tdd}"
@@ -428,7 +428,8 @@ fn it_guides_state_the_tdd_and_standards_rules() {
         ),
         "{tdd}"
     );
-    assert!(tdd.contains("4. A test that passes from the start pins existing behavior: say so with a `note` on your card."), "{tdd}");
+    assert!(tdd.contains("4. A test that passes from the start pins existing behavior: mark it with `ferrule stage pins demo <test> -- <what it pins>`."), "{tdd}");
+    assert!(tdd.contains("On a Rust project `ferrule stage commit` refuses a new test without a proof (`reason=test-unproven`) and a removed or rewritten test without `--replaced <old>=<new>` (`reason=test-unreplaced`); a rewritten test may name itself and then needs a proof."), "{tdd}");
     let axes = ok(
         root,
         &[
@@ -440,24 +441,12 @@ fn it_guides_state_the_tdd_and_standards_rules() {
             "Axes, reported separately",
         ],
     );
-    assert!(
-        axes.contains("a `test-red` line naming the test and the failure, before `green`"),
-        "{axes}"
-    );
-    assert!(
-        axes.contains("the code came after, until the tests passed"),
-        "{axes}"
-    );
-    assert!(
-        axes.contains("no test or spec entry changed to pass when the code was what was wrong"),
-        "{axes}"
-    );
-    assert!(
-        axes.contains("a test passing from the start pins existing behavior, and a `note` says so"),
-        "{axes}"
-    );
-    assert!(!axes.contains("## TDD"), "{axes}");
-    assert!(!axes.contains("ferrule guide show implementer"), "{axes}");
+    assert!(!axes.contains("TDD honesty"), "{axes}");
+    assert!(!axes.contains("test-red"), "{axes}");
+    for topic in ["reviewer", "reviewer-plan"] {
+        let whole = ok(root, &["guide", topic, "--slug", "demo"]);
+        assert!(!whole.contains("TDD honesty"), "{topic}: {whole}");
+    }
     assert!(
         axes.contains("every rule `AGENTS.md` states, under any heading"),
         "{axes}"
@@ -498,13 +487,13 @@ fn it_agent_guides_take_the_rules_agents_md_states() {
     }
     let text = rules("reviewer");
     assert!(
-        text.contains("The Standards axis is checked against the rules it states;"),
+        text.contains("The Standards axis is checked against the rules it states."),
         "{text}"
     );
     assert!(!text.contains("rules on the spec"), "{text}");
 }
 
-/// GA-R-023, GA-R-024, GA-R-025, GA-R-026, GA-R-027, GA-R-028 — each guide states what its own reader needs.
+/// GA-R-023, GA-R-024, GA-R-025, GA-R-027, GA-R-028 — each guide states what its own reader needs.
 #[test]
 fn it_guides_state_what_their_reader_needs() {
     let tmp = tempfile::tempdir().unwrap();
@@ -522,15 +511,8 @@ fn it_guides_state_what_their_reader_needs() {
     }
     let implementer = guide("implementer");
     assert!(
-        implementer.contains("changing only the files their `files` lists name"),
+        implementer.contains("A stage's `files` list is advisory: a file outside it is noted on the card by `ferrule stage commit`."),
         "{implementer}"
-    );
-    let reviewer = guide("reviewer");
-    assert!(
-        reviewer.contains(
-            "**Any file in the diff outside the in-scope stages' `files` lists is a blocker**."
-        ),
-        "{reviewer}"
     );
     let author = guide("author");
     assert!(
@@ -754,14 +736,10 @@ fn it_implementer_guide_blocks_a_clean_nothing_staged() {
     );
     assert!(text.contains("`head=<sha>` in the reason"), "{text}");
     assert!(text.contains("--adopt <sha>"), "{text}");
-    let files = text
-        .lines()
-        .find(|l| l.contains("reason=files"))
-        .unwrap_or_else(|| panic!("{text}"));
-    assert!(files.contains("re-plan"), "{files}");
-    assert!(files.contains("`reason=merge`"), "{files}");
-    assert!(files.contains("`reason=unlogged`"), "{files}");
-    assert!(files.contains("`reason=no-merge-base`"), "{files}");
+    assert!(!text.contains("reason=files"), "{text}");
+    assert!(text.contains("`reason=merge`"), "{text}");
+    assert!(text.contains("`reason=unlogged`"), "{text}");
+    assert!(text.contains("`reason=no-merge-base`"), "{text}");
 }
 
 /// GW-R-038, S2 — a blocked reason that suggests `--adopt` takes the blocked stop, and `1: a` adopts.
@@ -1031,4 +1009,106 @@ fn it_epic_guide_closing_notice_names_the_milestone() {
         ),
         "{text}"
     );
+}
+
+fn rendered(root: &Path, topic: &str) -> String {
+    ok(root, &["guide", topic, "--slug", "demo"])
+}
+
+/// GA-R-063 — the implementer checks that each cited spec ID is asserted before answering.
+#[test]
+fn it_implementer_guide_checks_cited_ids_before_review() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let text = rendered(root, "implementer");
+    assert!(
+        text.contains(
+            "check that each spec ID a test's doc comment cites is asserted by that test"
+        ),
+        "{text}"
+    );
+}
+
+/// GA-R-065 — the reviewer is pointed at the card's notes, which never block.
+#[test]
+fn it_reviewer_guide_hands_over_the_card_notes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let text = rendered(root, "reviewer");
+    assert!(text.contains("The stage card's notes (`ferrule board show demo.s<n>`) — `files-outside=`, `test-pins` and `test-replaced` lines — point at changes worth a look"), "{text}");
+    assert!(
+        text.contains("the note itself never blocks and never reaches a user stop"),
+        "{text}"
+    );
+    assert!(!text.contains("is a blocker**."), "{text}");
+}
+
+/// GA-R-066 — a plan bookkeeping gap is noted on the card, never a stop.
+#[test]
+fn it_implementer_guide_logs_bookkeeping_gaps() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let text = rendered(root, "implementer");
+    assert!(
+        text.contains("is no stop: log `note -- bookkeeping: <gap>` on the card and go on"),
+        "{text}"
+    );
+    assert!(!text.contains("a file outside your set"), "{text}");
+    assert!(
+        text.contains("`reason=test-unproven` and `reason=test-unreplaced` are fixed per their hint, not a stop"),
+        "{text}"
+    );
+}
+
+/// GA-R-067 — a plan bookkeeping gap is no review finding.
+#[test]
+fn it_reviewer_guide_rates_no_finding_for_bookkeeping() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let text = rendered(root, "reviewer");
+    assert!(
+        text.contains("is a finding when it is scope creep"),
+        "{text}"
+    );
+    assert!(text.contains("is no finding"), "{text}");
+    let plan = rendered(root, "reviewer-plan");
+    assert!(!plan.contains("covers what its steps touch"), "{plan}");
+}
+
+/// GA-R-068 — only what `## Public surface` lists binds the plan and the code.
+#[test]
+fn it_guides_bind_only_the_public_surface_of_sketches() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let reviewer = rendered(root, "reviewer");
+    assert!(
+        reviewer.contains("A sketch in `## Interfaces` binds only what `## Public surface` lists"),
+        "{reviewer}"
+    );
+    assert!(
+        !reviewer.contains("a method added, dropped or re-typed"),
+        "{reviewer}"
+    );
+    assert!(
+        !reviewer.contains("A signature that differs from `## Interfaces`"),
+        "{reviewer}"
+    );
+    let plan = rendered(root, "reviewer-plan");
+    assert!(plan.contains("every signature of what `## Public surface` lists appears as written in the step that builds it"), "{plan}");
+    let planner = rendered(root, "planner");
+    assert!(
+        planner.contains("only what its `## Public surface` lists binds"),
+        "{planner}"
+    );
+    assert!(
+        !planner.contains("a signature in `## Interfaces` changed,"),
+        "{planner}"
+    );
+    let architect = rendered(root, "architect");
+    assert!(architect.contains("Only what `## Public surface` lists binds the plan and the code; the rest of a sketch guides them"), "{architect}");
 }

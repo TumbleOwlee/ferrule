@@ -1884,7 +1884,7 @@ fn it_stage_commit_notes_files_outside_the_list() {
     assert!(card.contains("files-outside=c.txt"), "{card}");
 }
 
-/// GW-E-015 — adopting a commit that adds an unproven test is refused and logs no `commit=`.
+/// GW-E-015 — adopting a commit that adds an unproven test, or removes a test with no replacement, is refused and logs no `commit=`.
 #[test]
 fn it_adopt_checks_new_and_removed_tests() {
     let p = rust_project();
