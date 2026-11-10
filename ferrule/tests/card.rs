@@ -92,11 +92,6 @@ fn it_log_appends_validated_lines() {
             ],
         ),
         (
-            "card-log-test-red-noid",
-            "demo.s1",
-            &["test-red", "--", "ut_status_line"],
-        ),
-        (
             "card-log-minor-moved",
             "demo.s1",
             &["minor-moved=wording -> s3", "--", "the", "template"],
@@ -216,6 +211,8 @@ fn it_log_read_budget_and_commit_state() {
     new(p, &["demo.s3", "--state", "inprogress"]);
     ferrule(p, &["board", "log", "demo.s3", "commit=abc1234"])
         .golden("card-log-reject-commit-owner");
+    ferrule(p, &["board", "log", "demo.s1", "test-red", "test=t"])
+        .golden("card-log-reject-test-red-owner");
     let shown = ferrule(p, &["board", "show", "demo.s3"]).text();
     assert!(!shown.contains("commit="));
 }

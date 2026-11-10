@@ -291,8 +291,7 @@ Exit codes: 0 ok, 1 refused (no such card), 2 rejected line, 4 internal error.
 See: ferrule guide show board
 
 Examples:
-  ferrule board log <slug>.s1 test-red MB-R-001 -- parses_empty: panicked
-  ferrule board log <slug>.s1 test-red MB-R-001,MB-R-002 -- two tests: red
+  ferrule board log <slug>.s1 note -- parses_empty passed from the start
   ferrule board log <slug>.s1 read path=src/lib.rs -- what the plan left out
   ferrule board vocab               every event and its arguments";
 

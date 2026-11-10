@@ -30,13 +30,15 @@ pub enum Name {
     Read,
     Overturned,
     TestRed,
+    TestPins,
+    TestReplaced,
     Posted,
     Rebase,
     LiveCheck,
 }
 
 impl Name {
-    pub const ALL: [Name; 25] = [
+    pub const ALL: [Name; 27] = [
         Name::Commit,
         Name::Gauntlet,
         Name::Pr,
@@ -59,6 +61,8 @@ impl Name {
         Name::Read,
         Name::Overturned,
         Name::TestRed,
+        Name::TestPins,
+        Name::TestReplaced,
         Name::Posted,
         Name::Rebase,
         Name::LiveCheck,
@@ -90,6 +94,8 @@ impl Name {
             Name::Read => "read",
             Name::Overturned => "overturned",
             Name::TestRed => "test-red",
+            Name::TestPins => "test-pins",
+            Name::TestReplaced => "test-replaced",
             Name::Posted => "posted=",
             Name::Rebase => "rebase=",
             Name::LiveCheck => "live-check=",
@@ -108,6 +114,9 @@ impl Name {
             Name::Overturned => &["count"],
             Name::Posted => &["issue", "sum", "k"],
             Name::Rebase => &["base", "from"],
+            Name::TestRed => &["test", "mutation"],
+            Name::TestPins => &["test"],
+            Name::TestReplaced => &["old", "new"],
             _ => &[],
         }
     }
@@ -213,7 +222,17 @@ pub enum Typed<'a> {
     Overturned {
         count: Option<u64>,
     },
-    TestRed,
+    TestRed {
+        test: Option<&'a str>,
+        mutation: Option<&'a str>,
+    },
+    TestPins {
+        test: Option<&'a str>,
+    },
+    TestReplaced {
+        old: Option<&'a str>,
+        new: Option<&'a str>,
+    },
     /// A host write done: `comment` (issue-comment.md, its `sum`, on
     /// `issue`) or `follow-up` (follow-up-`k`.md, filed as `issue`).
     Posted {
@@ -262,7 +281,9 @@ impl Typed<'_> {
             Typed::PlanReview(_) => Name::PlanReview,
             Typed::Read { .. } => Name::Read,
             Typed::Overturned { .. } => Name::Overturned,
-            Typed::TestRed => Name::TestRed,
+            Typed::TestRed { .. } => Name::TestRed,
+            Typed::TestPins { .. } => Name::TestPins,
+            Typed::TestReplaced { .. } => Name::TestReplaced,
             Typed::Posted { .. } => Name::Posted,
             Typed::Rebase { .. } => Name::Rebase,
             Typed::LiveCheck { .. } => Name::LiveCheck,
@@ -360,7 +381,15 @@ impl Event {
             Name::Overturned => Typed::Overturned {
                 count: key("count").and_then(|c| c.parse().ok()),
             },
-            Name::TestRed => Typed::TestRed,
+            Name::TestRed => Typed::TestRed {
+                test: key("test"),
+                mutation: key("mutation"),
+            },
+            Name::TestPins => Typed::TestPins { test: key("test") },
+            Name::TestReplaced => Typed::TestReplaced {
+                old: key("old"),
+                new: key("new"),
+            },
             Name::Posted => Typed::Posted {
                 what: value?,
                 issue: key("issue"),
@@ -391,6 +420,8 @@ mod tests {
         "files+=",
         "rebuild",
         "follow-ups=",
+        "files-outside=",
+        "test-checks=",
     ];
 
     /// A line of `spec` with every key and positional it takes, as
@@ -496,6 +527,39 @@ mod tests {
                 origin: Some("user"),
                 quote: None,
                 text: Some("why"),
+            }
+        );
+    }
+
+    #[test]
+    fn ut_test_red_reads_its_test_and_mutation() {
+        assert_eq!(
+            Event::parsed("test-red test=a::t mutation=flip").typed(),
+            Typed::TestRed {
+                test: Some("a::t"),
+                mutation: Some("flip"),
+            }
+        );
+        assert_eq!(
+            Event::parsed("test-red MB-R-001 -- t").typed(),
+            Typed::TestRed {
+                test: None,
+                mutation: None,
+            }
+        );
+    }
+
+    #[test]
+    fn ut_test_pins_and_replaced_read_their_keys() {
+        assert_eq!(
+            Event::parsed("test-pins test=a::t -- why").typed(),
+            Typed::TestPins { test: Some("a::t") }
+        );
+        assert_eq!(
+            Event::parsed("test-replaced old=a new=b").typed(),
+            Typed::TestReplaced {
+                old: Some("a"),
+                new: Some("b"),
             }
         );
     }
