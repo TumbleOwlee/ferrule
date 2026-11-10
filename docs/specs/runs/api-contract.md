@@ -26,6 +26,21 @@
 
 - `ferrule run live-check <slug> start|end` — both take the run's slug; `start` refuses with `reason=no-repo` (RU-R-043, RU-R-044, RU-E-019)
 
+## ferrule run abandon
+
+- `ferrule run abandon <slug> [--confirm]` (RU-R-045–RU-R-054)
+
+## ferrule run abandon output
+
+- `abandon=plan` followed by one line per effect: `uncommitted <path>`, `unpushed <sha> <subject>`, `close-pr <n>`, `delete-remote-branch <branch>`, `delete-branch <branch>`, `remove-worktree <path>`, then `hint=on the user's word only: ferrule run abandon <slug> --confirm` (RU-R-045, RU-R-046, RU-E-020)
+- `abandon=done archive=<id>`, with ` issue=<n>` when the run references an issue and ` resumed` when an earlier abandon archived the run (RU-R-047, RU-R-056, RU-E-021)
+- `abandon=already archive=<id>` — the run is fully abandoned, exit 0 (RU-E-026)
+
+## ferrule run abandon refusals
+
+- `abandon=refused reason=card` (RU-E-029), `reason=merged pr=<n> hint=…ferrule run cleanup…` (RU-E-023), `reason=epic` (RU-E-024), `reason=pr-unreadable detail="<host error>"` (RU-E-027), `reason=remote-unreadable branch=<branch>` (RU-E-028)
+- `abandon=refused reason=close-pr-failed`, `reason=remote-delete-failed`, `reason=worktree-remove-failed`, `reason=branch-delete-failed`, each with ` detail="<error>"`; a rerun performs only the steps still missing (RU-E-021)
+
 ## Card fields
 
 - `named-issue` — the issue `ferrule run init --issue` named; set only by ferrule, `ferrule board set` refuses it (RU-R-006)
@@ -39,6 +54,7 @@
 - `issue-waived` — parent-card event with a required reason (RU-R-005)
 - `blocked-start` — parent-card event naming the open blockers the user approved starting with (RU-R-034)
 - `live-check=open` and `live-check=closed` — parent-card events only ferrule logs (RU-R-043, RU-R-044)
+- `abandoned` — parent-card event only ferrule logs (RU-R-047)
 
 ## ferrule issue post output
 

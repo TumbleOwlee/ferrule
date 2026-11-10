@@ -51,3 +51,25 @@
 **RU-E-018** — `ferrule board set` refuses the field naming the live-check repository.
 
 **RU-E-019** — `ferrule run live-check <slug> start` refuses a run with no repository named at gate 2.
+
+## Abandon
+
+**RU-E-020** — The abandon command skips the PR or remote branch step when the run has none, and lists nothing for it.
+
+**RU-E-021** — A rerun after a failed abandon step performs only the steps still missing.
+
+**RU-E-022** — An open referenced issue does not refuse the abandon command, unlike RU-R-003 for cleanup.
+
+**RU-E-023** — The abandon command refuses a run whose PR is merged, changing nothing, with a hint naming `ferrule run cleanup`.
+
+**RU-E-024** — The abandon command refuses an epic's parent run, changing nothing.
+
+**RU-E-025** — The abandon command abandons an epic's slice run as it does any other run.
+
+**RU-E-026** — The abandon command on a run already fully abandoned reports so, changes nothing and succeeds.
+
+**RU-E-027** — The abandon command refuses a run whose PR state cannot be read, changing nothing.
+
+**RU-E-028** — The abandon command refuses a run whose remote branch cannot be looked up, changing nothing.
+
+**RU-E-029** — The abandon command refuses a run that has no card and no abandoned archive, changing nothing.
