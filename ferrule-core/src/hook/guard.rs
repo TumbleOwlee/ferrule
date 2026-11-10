@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use crate::hook::classify::{
     awk_runs, file_scripts, has, has_prefix, reads, sed_runs, word_prefix,
 };
+use crate::hook::ghapi::{self, ApiCall};
 use crate::hook::paths::{
     OWNED, brace_group, braces, cd_target, cd_word, glob, globbed, names_owned, resolve,
     tee_targets,
@@ -182,6 +183,8 @@ pub const REPLACED: &[Replaced] = &[
 pub struct Policy<'a> {
     /// `[guard] cat_max_lines` and `cat_max_words`.
     pub limits: ReadLimits,
+    /// `owner/name` of every run with an open live check.
+    pub live_repos: &'a [String],
     /// `[guard] allow`: raw commands re-opened.
     pub allow: &'a [String],
     /// Run worktrees with a rebase in progress.
@@ -1276,9 +1279,25 @@ fn rebase_depth(
     (rebasing && !matches!(g.sub, "add" | "rm") && !reads).then(|| REBASING_REASON.to_owned())
 }
 
+/// The [`REPLACED`] entry whose words start `words`.
+fn replaced_entry(words: &[&str]) -> Option<&'static Replaced> {
+    REPLACED.iter().find(|r| {
+        let raw: Vec<&str> = r.raw.split(' ').collect();
+        words.starts_with(&raw)
+    })
+}
+
+/// Whether ferrule replaces the `gh` command `args` name.
+pub(super) fn gh_replaced(args: &[String]) -> bool {
+    verb_words("gh", args).is_some_and(|w| replaced_entry(&w).is_some())
+}
+
 fn replaced(name: &str, args: &[String], policy: Policy) -> Option<String> {
     let words = verb_words(name, args)?;
     if has_prefix(name, args, policy.allow) || word_prefix(&words, policy.allow) {
+        return None;
+    }
+    if name == "gh" && ghapi::help(args) && replaced_entry(&words).is_none() {
         return None;
     }
     if let Some(reason) = alias(name, args, policy) {
@@ -1293,26 +1312,17 @@ fn replaced(name: &str, args: &[String], policy: Policy) -> Option<String> {
         return update_ref(args);
     }
     if words.starts_with(&["gh", "api"]) {
-        // Attached values count: `-XPOST`, `-X=POST`, `-fbody=x`.
-        let method = |m: &str| !m.trim_start_matches('=').eq_ignore_ascii_case("GET");
-        let writes = has(args, &["-f", "-F", "--field", "--raw-field", "--input"])
-            || args
-                .windows(2)
-                .any(|w| matches!(w[0].as_str(), "-X" | "--method") && method(&w[1]))
-            || args.iter().any(|a| {
-                a.strip_prefix("--method=").is_some_and(method)
-                    || a.strip_prefix("-X")
-                        .is_some_and(|m| !m.is_empty() && method(m))
-                    || ((a.starts_with("-f") || a.starts_with("-F"))
-                        && a.len() > 2
-                        && !a.starts_with("--"))
-                    || ["--field=", "--raw-field=", "--input="]
-                        .iter()
-                        .any(|p| a.starts_with(p))
-            });
-        return writes.then(|| {
-            "A writing 'gh api' call is ferrule's to run here. Use: ferrule pr feedback reply <pr> <file> [<stage> <sha>] for review threads, ferrule issue post / ferrule pr publish for the rest. Re-open it with [guard] allow = [\"gh api\"] in .ferrule/ferrule.toml if the project needs it.".to_owned()
-        });
+        return match ghapi::classify(args) {
+            ApiCall::Read => None,
+            ApiCall::Write { repo: Some(r) }
+                if policy.live_repos.iter().any(|l| l.eq_ignore_ascii_case(r)) =>
+            {
+                None
+            }
+            ApiCall::Write { .. } => Some(
+                "A writing 'gh api' call is ferrule's to run here. Use: ferrule pr feedback reply <pr> <file> [<stage> <sha>] for review threads, ferrule issue post / ferrule pr publish for the rest. Re-open it with [guard] allow = [\"gh api\"] in .ferrule/ferrule.toml if the project needs it.".to_owned(),
+            ),
+        };
     }
     // A run's summary and its `--json` fields are short; its logs flood.
     // Hook-only: a `permissions.deny` prefix rule cannot tell them apart.
@@ -1324,10 +1334,7 @@ fn replaced(name: &str, args: &[String], policy: Policy) -> Option<String> {
             "A raw CI log floods the context. Use: ferrule ci failed [<branch>] [--run <id>] [--job <name>] [--context <n>]: the failed job's error lines, each with the n lines after it. A run's summary or --json fields (gh run view <id>) stay allowed.".to_owned()
         });
     }
-    let r = REPLACED.iter().find(|r| {
-        let raw: Vec<&str> = r.raw.split(' ').collect();
-        words.starts_with(&raw)
-    })?;
+    let r = replaced_entry(&words)?;
     Some(format!(
         "'{}' is ferrule's to run in this project: {}. Use: {}",
         r.raw, r.why, r.instead
@@ -1449,6 +1456,7 @@ mod tests {
             Path::new("/nonexistent-ferrule-guard"),
             Policy {
                 limits: ReadLimits::DEFAULT,
+                live_repos: &[],
                 allow: &[],
                 rebasing: &[],
             },
@@ -1650,6 +1658,7 @@ mod tests {
                 root.path(),
                 Policy {
                     limits: ReadLimits::DEFAULT,
+                    live_repos: &[],
                     allow: &[],
                     rebasing: &[],
                 },
@@ -1717,6 +1726,7 @@ mod tests {
         let allow = ["git rebase".to_owned()];
         let policy = Policy {
             limits: ReadLimits::DEFAULT,
+            live_repos: &[],
             allow: &allow,
             rebasing: &[],
         };
@@ -1745,6 +1755,7 @@ mod tests {
         let rebasing = [wt.clone()];
         let policy = Policy {
             limits: ReadLimits::DEFAULT,
+            live_repos: &[],
             allow: &[],
             rebasing: &rebasing,
         };
@@ -1780,6 +1791,7 @@ mod tests {
         let allow = ["git rebase".to_owned()];
         let opened = Policy {
             limits: ReadLimits::DEFAULT,
+            live_repos: &[],
             allow: &allow,
             rebasing: &rebasing,
         };
@@ -1804,6 +1816,7 @@ mod tests {
         let rebasing = [wt.clone()];
         let policy = Policy {
             limits: ReadLimits::DEFAULT,
+            live_repos: &[],
             allow: &[],
             rebasing: &rebasing,
         };
@@ -1854,6 +1867,7 @@ mod tests {
         let rebasing = [wt.clone()];
         let policy = Policy {
             limits: ReadLimits::DEFAULT,
+            live_repos: &[],
             allow: &[],
             rebasing: &rebasing,
         };
@@ -1874,6 +1888,7 @@ mod tests {
         let rebasing = [wt.clone()];
         let policy = Policy {
             limits: ReadLimits::DEFAULT,
+            live_repos: &[],
             allow: &[],
             rebasing: &rebasing,
         };
@@ -1887,5 +1902,46 @@ mod tests {
         }
         let r = shell("rtk git commit -m x", &wt, policy).unwrap();
         assert!(r.contains("rebase is in progress"), "{r}");
+    }
+
+    fn live(cmd: &str, repos: &[&str]) -> Option<String> {
+        let repos: Vec<String> = repos.iter().map(|r| (*r).to_owned()).collect();
+        shell(
+            cmd,
+            Path::new("/nonexistent-ferrule-guard"),
+            Policy {
+                limits: ReadLimits::DEFAULT,
+                live_repos: &repos,
+                allow: &[],
+                rebasing: &[],
+            },
+        )
+    }
+
+    /// SG-R-028 — a `gh api` write against the live-check repository runs,
+    /// whatever the case of the name.
+    #[test]
+    fn ut_live_repo_opens_gh_api_writes() {
+        assert_eq!(live("gh api -X POST repos/o/r/issues", &["o/r"]), None);
+        assert_eq!(live("gh api -X POST repos/O/R/issues", &["o/r"]), None);
+        assert_eq!(live("gh api -X POST repos/o/r/issues", &["O/R"]), None);
+    }
+
+    /// SG-E-009, SG-E-011, SG-E-015, SG-E-016 — every other target of a
+    /// `gh api` write stays refused during a live check.
+    #[test]
+    fn ut_live_check_refuses_every_other_target() {
+        for cmd in [
+            "gh api -X POST repos/o/other/issues",
+            "gh api -X POST repos/o/r-evil/x",
+            "gh api -X POST repos/o/x/../r",
+            "gh api -X POST --hostname h repos/o/r",
+            "gh --hostname h api -X POST repos/o/r/issues",
+            "gh api -iXPOST repos/o/other/x",
+            "gh api graphql -f query=mutation{a}",
+        ] {
+            assert!(live(cmd, &["o/r"]).is_some(), "{cmd}");
+        }
+        assert!(live("gh api -X POST repos/o/r/issues", &[]).is_some());
     }
 }

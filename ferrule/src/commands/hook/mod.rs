@@ -107,7 +107,8 @@ Refuses:
                        awk (no redirection, system, pipes) diff cmp file stat
                        tree pwd echo printf sort uniq cut tr nl basename
                        dirname realpath jq date (no -s/--set) sha256sum;
-                       rtk bypass rg; git log|show|diff (no --output,
+                       rtk bypass rg; gh api graphql (queries only) and
+                       gh <command> --help; git log|show|diff (no --output,
                        --ext-diff)|status|blame|grep|rev-parse|ls-files|
                        ls-tree|cat-file|merge-base|describe|shortlog, branch
                        and tag only to list; cargo test|check|clippy|tree|
@@ -318,6 +319,7 @@ fn shell(cmd: &str, cwd: &Path) -> Option<Verdict> {
                 cwd,
                 guard::Policy {
                     limits: limits(&config),
+                    live_repos: &[],
                     allow: &config.guard.allow,
                     rebasing: &rebasing,
                 },

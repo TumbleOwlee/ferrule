@@ -226,6 +226,7 @@ fn it_shell_commands_in_the_guides_pass_the_guard() {
     let dir = tempfile::tempdir().unwrap();
     let policy = Policy {
         limits: ReadLimits::DEFAULT,
+        live_repos: &[],
         allow: &[],
         rebasing: &[],
     };
@@ -233,6 +234,7 @@ fn it_shell_commands_in_the_guides_pass_the_guard() {
     let stopped = [dir.path().to_path_buf()];
     let in_rebase = Policy {
         limits: ReadLimits::DEFAULT,
+        live_repos: &[],
         allow: &[],
         rebasing: &stopped,
     };

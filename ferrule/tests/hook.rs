@@ -1158,24 +1158,56 @@ fn it_rtk_bypass_of_another_program_is_refused() {
     );
 }
 
+/// Whether the reviewer guard denies `cmd` run from `cwd` with `TMPDIR` set
+/// to `tmpdir`.
+fn reviewer_denies_with_tmp(cwd: &Path, tmpdir: &Path, cmd: &str) -> bool {
+    let payload = json!({
+        "tool_name": "Bash",
+        "tool_input": {"command": cmd, "description": "d"},
+        "cwd": cwd,
+    });
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ferrule"))
+        .args(["hook", "reviewer"])
+        .current_dir(cwd)
+        .env("CLAUDE_PROJECT_DIR", cwd)
+        .env("TMPDIR", tmpdir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(payload.to_string().as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    !out.stdout.is_empty()
+}
+
 /// SG-E-021 — a ferrule read command may redirect into the system temp
 /// directory, and nothing else may.
 #[test]
 fn it_reviewer_redirects_ferrule_reads_into_the_temp_dir() {
     let p = project();
-    let tmp = std::env::temp_dir();
-    let tmp = tmp.to_string_lossy();
-    let tmp = tmp.trim_end_matches('/');
+    let t = tempfile::tempdir().unwrap();
+    let tmp = t.path().to_string_lossy().into_owned();
     let cases = [
-        (format!("ferrule board list > {tmp}/x"), "allow"),
-        (format!("ferrule board list >> {tmp}/x"), "allow"),
-        (format!("ferrule board log d x > {tmp}/y"), "deny"),
-        (format!("cat notes.md > {tmp}/y"), "deny"),
-        (format!("ferrule board list > {tmp}/../y"), "deny"),
-        (format!("ferrule board list > {tmp}x/y"), "deny"),
+        (format!("ferrule board list > {tmp}/x"), false),
+        (format!("ferrule board list >> {tmp}/x"), false),
+        (format!("ferrule board log d x > {tmp}/y"), true),
+        (format!("cat notes.md > {tmp}/y"), true),
+        (format!("ferrule board list > {tmp}/../y"), true),
+        (format!("ferrule board list > {tmp}x/y"), true),
     ];
-    let cases: Vec<(&str, &str)> = cases.iter().map(|(c, w)| (c.as_str(), *w)).collect();
-    check("reviewer", p.path(), &cases);
+    for (cmd, deny) in cases {
+        assert_eq!(
+            reviewer_denies_with_tmp(p.path(), t.path(), &cmd),
+            deny,
+            "{cmd}"
+        );
+    }
 }
 
 /// SG-R-023, SG-E-008 — the reviewer appends to `review.md` and never
@@ -1251,38 +1283,62 @@ fn it_python_read_of_a_settings_file_names_jq() {
     assert!(reason.contains("jq") && reason.contains("cat"), "{reason}");
 }
 
-/// SG-E-021 — a temp directory that is the root or the working directory
-/// opens no redirect.
+/// A system temp directory that is the root, the working directory or one
+/// above it opens no redirect.
 #[test]
 fn it_reviewer_refuses_a_temp_dir_that_opens_every_path() {
     let p = project();
-    for tmpdir in ["/", p.path().to_str().unwrap()] {
-        let payload = json!({
-            "tool_name": "Bash",
-            "tool_input": {"command": "ferrule board list > out.txt", "description": "d"},
-            "cwd": p.path(),
-        });
-        let mut child = Command::new(env!("CARGO_BIN_EXE_ferrule"))
-            .args(["hook", "reviewer"])
-            .current_dir(p.path())
-            .env("CLAUDE_PROJECT_DIR", p.path())
-            .env("TMPDIR", tmpdir)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-        child
-            .stdin
-            .take()
-            .unwrap()
-            .write_all(payload.to_string().as_bytes())
-            .unwrap();
-        let out = child.wait_with_output().unwrap();
-        let v: Value = serde_json::from_slice(&out.stdout).unwrap();
-        assert_eq!(
-            v["hookSpecificOutput"]["permissionDecision"], "deny",
-            "TMPDIR={tmpdir}"
-        );
+    let parent = p.path().parent().unwrap();
+    for tmpdir in [Path::new("/"), p.path(), parent] {
+        for cmd in ["ferrule board list > out.txt", "ferrule board list > /x"] {
+            assert!(
+                reviewer_denies_with_tmp(p.path(), tmpdir, cmd),
+                "TMPDIR={} {cmd}",
+                tmpdir.display()
+            );
+        }
     }
+}
+
+/// SG-R-025, SG-E-009 — a graphql query passes each guard and a mutation
+/// stays refused.
+#[test]
+fn it_graphql_reads_pass_and_mutations_stay_refused() {
+    let p = project();
+    both(
+        p.path(),
+        &[
+            (
+                "gh api graphql -f query='query { viewer { login } }'",
+                "allow",
+            ),
+            ("gh api graphql -f query='{ viewer { login } }'", "allow"),
+            ("gh api graphql -f query='mutation { a }'", "deny"),
+            (
+                "gh api graphql -f query='query { a } mutation { b }'",
+                "deny",
+            ),
+            ("gh api graphql --input q.json", "deny"),
+            ("gh api graphql -f query=@q.graphql", "deny"),
+            ("gh api graphql -f query=\"$Q\"", "deny"),
+            ("gh api -X POST repos/o/r/issues", "deny"),
+        ],
+    );
+}
+
+/// SG-R-026, SG-E-022 — `--help` opens a `gh` command ferrule does not
+/// replace and no other.
+#[test]
+fn it_gh_help_opens_only_unreplaced_commands() {
+    let p = project();
+    both(
+        p.path(),
+        &[
+            ("gh run list --help", "allow"),
+            ("gh alias import --help", "allow"),
+            ("gh issue create --help", "deny"),
+            ("gh issue create --title --help", "deny"),
+            ("gh pr view --help", "deny"),
+        ],
+    );
 }

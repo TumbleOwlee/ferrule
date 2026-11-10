@@ -8,7 +8,8 @@ use std::path::Path;
 use crate::hook::classify::{
     awk_reads, flags, has, has_prefix, long, readonly_git, sed_reads, short,
 };
-use crate::hook::guard::{ReadLimits, cat_over, opaque_reason};
+use crate::hook::ghapi;
+use crate::hook::guard::{self, ReadLimits, cat_over, opaque_reason};
 use crate::hook::paths::{cd_target, components, is_artifact, tee_targets};
 use crate::hook::shell::{self, RedirectKind};
 
@@ -189,6 +190,7 @@ fn allowed_program(name: &str, args: &[String]) -> bool {
         n if PLAIN.contains(&n) => true,
         "rg" => !has(args, &["--pre", "--hostname-bin"]),
         "date" => !date_sets(args),
+        "gh" => ghapi::graphql_read(args) || (ghapi::help(args) && !guard::gh_replaced(args)),
         "file" => !short(args, 'C') && !long(args, "--compile", 3),
         "tree" => !short(args, 'o'),
         "find" => !has(
@@ -221,7 +223,10 @@ fn temp_target(cwd: &Path, target: &str) -> bool {
     let cwd_text = cwd.to_string_lossy().into_owned();
     let (path, tmp) = (components(&path), components(&tmp));
     let here = components(&cwd_text);
-    !tmp.is_empty() && tmp != here && path.len() > tmp.len() && path[..tmp.len()] == tmp[..]
+    !tmp.is_empty()
+        && !here.starts_with(&tmp[..])
+        && path.len() > tmp.len()
+        && path[..tmp.len()] == tmp[..]
 }
 
 fn writable(cwd: &Path, target: &str, append: bool) -> bool {
@@ -286,7 +291,7 @@ pub fn readonly(command: &str, cwd: &Path, policy: ReadonlyPolicy) -> Option<Str
             };
             if !ok {
                 return refuse(
-                    "is not a read-only command on the reviewer's allowlist (ls cat head tail wc grep rg find sed -n awk diff cmp file stat tree sort uniq cut tr nl jq date sha256sum, git log|show|diff|status|blame|grep|rev-parse|ls-files|ls-tree|cat-file|merge-base|describe|shortlog, cargo test|check|clippy|tree|metadata|fmt --check, ferrule read commands and ci failed; `[hook.readonly] allow` in ferrule.toml adds more)",
+                    "is not a read-only command on the reviewer's allowlist (ls cat head tail wc grep rg find sed -n awk diff cmp file stat tree sort uniq cut tr nl jq date sha256sum, gh api graphql queries and gh <command> --help, git log|show|diff|status|blame|grep|rev-parse|ls-files|ls-tree|cat-file|merge-base|describe|shortlog, cargo test|check|clippy|tree|metadata|fmt --check, ferrule read commands and ci failed; `[hook.readonly] allow` in ferrule.toml adds more)",
                 );
             }
             if name == "cat"
