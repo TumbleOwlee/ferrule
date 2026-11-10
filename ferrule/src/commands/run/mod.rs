@@ -228,6 +228,61 @@ The two git failures carry ` detail=\"<git's error>\"`. Refusals end in
 Exit codes: 0 done, 1 refused, 4 internal error.
 See: ferrule guide show cleanup";
 
+/// Shown after `ferrule run abandon --help`.
+const ABANDON_AFTER_LONG_HELP: &str = "\
+Output:
+  abandon=plan                     Without --confirm, nothing changed; one line
+                                   per effect follows, in this order:
+                                     uncommitted <path>
+                                     unpushed <sha> <subject>
+                                     close-pr <n>
+                                     delete-remote-branch <branch>
+                                     delete-branch <branch>
+                                     remove-worktree <path>
+                                   then `hint=on the user's word only:
+                                   ferrule run abandon <slug> --confirm`. A run
+                                   with no PR or no remote branch lists neither
+  abandon=done archive=<id>        With --confirm: the PR got a comment and was
+                                   closed, the remote branch was deleted, the
+                                   cards and run files were archived as <id> as
+                                   abandoned, and the worktree and local branch
+                                   were removed
+  abandon=done archive=<id> issue=<n>
+                                   The run references issue <n>, left open and
+                                   unchanged
+  abandon=done archive=<id> resumed
+                                   An earlier abandon archived the run but failed
+                                   removing the worktree or branch; this one
+                                   finished those
+  abandon=already archive=<id>     The run is fully abandoned; nothing changed
+The user's word: give --confirm only when the user said to abandon the run;
+without it nothing changes.
+Refusals (nothing is changed):
+  abandon=refused reason=card                No such run, or one already
+                                             cleaned up
+  abandon=refused reason=epic                An epic's parent run; abandon its
+                                             slice runs one by one
+  abandon=refused reason=merged pr=<n>       The PR is merged; end the run with
+                                             `ferrule run cleanup`
+  abandon=refused reason=pr-unreadable       The PR's state could not be read
+                                             (` detail=\"<host error>\"`); check
+                                             the host login, then rerun
+  abandon=refused reason=remote-unreadable branch=<branch>
+                                             Origin could not be asked; check it
+                                             is reachable, then rerun
+Refusals after a step was done (rerun; only the steps still missing are done):
+  abandon=refused reason=close-pr-failed         The PR could not be closed;
+                                                 close it by hand
+  abandon=refused reason=remote-delete-failed    The remote branch could not be
+                                                 deleted; ask the user
+  abandon=refused reason=worktree-remove-failed  The worktree could not be
+                                                 removed; ask the user
+  abandon=refused reason=branch-delete-failed    The local branch could not be
+                                                 deleted; ask the user
+The last four carry ` detail=\"<error>\"`. Refusals end in ` hint=<fix>`.
+Exit codes: 0 done or planned, 1 refused, 4 internal error.
+See: ferrule guide show cleanup";
+
 /// Shown after `ferrule run metrics --help`.
 const METRICS_AFTER_LONG_HELP: &str = "\
 Output, one line (recorded; a rerun replaces the run's line):
@@ -386,6 +441,21 @@ pub enum RunCommand {
         /// The run's draft PR: a number or URL.
         pr: ItemRef,
     },
+    /// Abandon a run the user gives up.
+    ///
+    /// Without --confirm, lists what it would do and changes nothing. With
+    /// it, comments on and closes the PR, deletes the remote and local
+    /// branches, removes the worktree and archives the cards as abandoned;
+    /// the issue stays open. Give --confirm only on the user's word.
+    #[command(after_long_help = ABANDON_AFTER_LONG_HELP)]
+    Abandon {
+        /// The run's slug.
+        slug: Slug,
+        /// Act: close the PR, delete the branches, archive. Only on the
+        /// user's word.
+        #[arg(long)]
+        confirm: bool,
+    },
     /// Clean up a finished run.
     ///
     /// Removes the worktree and the local branch and archives the cards and
@@ -490,6 +560,7 @@ pub fn run(command: &RunCommand, out: &mut impl Write) -> io::Result<u8> {
         RunCommand::LiveCheck { slug, action } => start::live_check(slug, *action, out),
         RunCommand::Rebase { slug, onto } => start::rebase(slug, onto.as_deref(), out),
         RunCommand::Rebuild { issue, pr } => start::rebuild(issue, pr, out),
+        RunCommand::Abandon { slug, confirm } => finish::abandon(slug, *confirm, out),
         RunCommand::Cleanup { slug } => finish::cleanup(slug, out),
         RunCommand::Export { slug, archive, to } => {
             finish::export(slug, *archive, to.as_deref(), out)

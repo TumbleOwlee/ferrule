@@ -18,6 +18,7 @@ const SOURCES: &[(&str, &[&str])] = &[
         "ferrule-core/src/guide/mod.rs",
         &["guide show", "guide check"],
     ),
+    ("ferrule-core/src/run/abandon.rs", &["run abandon"]),
     ("ferrule-core/src/run/diverged.rs", &["run reconcile"]),
     ("ferrule-core/src/run/live.rs", &["run live-check"]),
     ("ferrule-core/src/run/rebase.rs", &["run rebase"]),
@@ -183,6 +184,7 @@ const SOURCES: &[(&str, &[&str])] = &[
     (
         "ferrule/src/commands/run/mod.rs",
         &[
+            "run abandon",
             "run cleanup",
             "run diff",
             "run export",
@@ -199,7 +201,7 @@ const SOURCES: &[(&str, &[&str])] = &[
     ),
     (
         "ferrule/src/commands/run/finish.rs",
-        &["run cleanup", "run export", "run metrics"],
+        &["run abandon", "run cleanup", "run export", "run metrics"],
     ),
     (
         "ferrule/src/commands/run/inspect.rs",
@@ -243,6 +245,10 @@ const SOURCES: &[(&str, &[&str])] = &[
 
 /// Tokens that are not CLI output: a file, or `file:token`, and why.
 const IGNORED: &[(&str, &str)] = &[
+    (
+        "ferrule-core/src/run/abandon.rs:remotes=",
+        "a git log argument, not a status line",
+    ),
     (
         "ferrule-core/src/issue/changelog.rs",
         "a hidden marker inside milestone text, not a status line",
@@ -643,7 +649,11 @@ const REFUSAL_SOURCES: &[(&str, &[&str])] = &[
 
 /// `(command, verb, reason)` entries that are documented but built from
 /// runtime values the scanner cannot see, and why.
-const DYNAMIC: &[(&str, &str, &str)] = &[];
+const DYNAMIC: &[(&str, &str, &str)] = &[
+    // The reason word comes from the clean-up refusal the archive step returns.
+    ("run abandon", "abandon", "worktree-remove-failed"),
+    ("run abandon", "abandon", "branch-delete-failed"),
+];
 
 /// Documented refusal lines that carry no `hint=` of their own, and why.
 const NO_HINT: &[(&str, &str)] = &[];
@@ -974,4 +984,12 @@ fn it_cleanup_help_states_exemptions_and_issue_refusals() {
 fn it_init_help_breaks_before_the_errors_heading() {
     let help = help_of("run init");
     assert!(help.lines().any(|l| l == "Errors (stderr):"), "{help}");
+}
+
+/// RU-R-054 — the abandon help says `--confirm` is given only on the user's word.
+#[test]
+fn it_abandon_help_says_confirm_only_on_the_users_word() {
+    let help = help_of("run abandon");
+    assert!(help.contains("--confirm"), "{help}");
+    assert!(help.contains("user's word"), "{help}");
 }

@@ -7,6 +7,7 @@ use ferrule_core::card::board;
 use ferrule_core::project::DIR;
 use ferrule_core::refusal::Refusal;
 use ferrule_core::remote;
+use ferrule_core::run::abandon;
 use ferrule_core::run::archive::{self, Error as ArchiveError};
 
 use crate::commands::board::store;
@@ -76,6 +77,75 @@ pub(super) fn cleanup(slug: &str, out: &mut impl Write) -> io::Result<u8> {
         Err(ArchiveError::Sql(e)) => return Err(internal(e)),
     };
     refuse(out, &refusal)
+}
+
+pub(super) fn abandon(slug: &str, confirm: bool, out: &mut impl Write) -> io::Result<u8> {
+    let layout = layout();
+    let Some(mut s) = store()? else {
+        return refuse(out, &Refusal::card("abandon"));
+    };
+    let config = crate::commands::config()?;
+    let host = remote::code_host(&config, &layout.root);
+    if !confirm {
+        return match s.read(|r| abandon::plan(r, &layout, slug, &*host)) {
+            Ok(Ok(plan)) => {
+                if let Some(id) = plan.archived
+                    && plan.worktree.is_none()
+                    && plan.local_branch.is_none()
+                {
+                    writeln!(out, "abandon=already archive={id}")?;
+                    return Ok(exit::OK);
+                }
+                writeln!(out, "abandon=plan")?;
+                for path in &plan.uncommitted {
+                    writeln!(out, "uncommitted {path}")?;
+                }
+                for commit in &plan.unpushed {
+                    writeln!(out, "unpushed {commit}")?;
+                }
+                if let Some(pr) = &plan.pr {
+                    writeln!(out, "close-pr {pr}")?;
+                }
+                if let Some(b) = &plan.remote_branch {
+                    writeln!(out, "delete-remote-branch {b}")?;
+                }
+                if let Some(b) = &plan.local_branch {
+                    writeln!(out, "delete-branch {b}")?;
+                }
+                if let Some(wt) = &plan.worktree {
+                    writeln!(out, "remove-worktree {}", wt.display())?;
+                }
+                writeln!(
+                    out,
+                    "hint=on the user's word only: ferrule run abandon {slug} --confirm"
+                )?;
+                Ok(exit::OK)
+            }
+            Ok(Err(r)) => refuse(out, &r.refusal(slug)),
+            Err(ArchiveError::Io(e)) => Err(e),
+            Err(e) => Err(internal(e)),
+        };
+    }
+    match abandon::abandon(&mut s, &layout, slug, &board::now(), &*host) {
+        Ok(Ok(done)) => {
+            let id = done
+                .archive
+                .map_or_else(|| "none".to_owned(), |i| i.to_string());
+            if done.already {
+                writeln!(out, "abandon=already archive={id}")?;
+                return Ok(exit::OK);
+            }
+            let issue = done
+                .issue
+                .map_or_else(String::new, |i| format!(" issue={i}"));
+            let resumed = if done.resumed { " resumed" } else { "" };
+            writeln!(out, "abandon=done archive={id}{issue}{resumed}")?;
+            Ok(exit::OK)
+        }
+        Ok(Err(r)) => refuse(out, &r.refusal(slug)),
+        Err(ArchiveError::Io(e)) => Err(e),
+        Err(e) => Err(internal(e)),
+    }
 }
 
 pub(super) fn export(

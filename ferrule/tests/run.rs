@@ -1089,3 +1089,361 @@ fn it_archived_run_opens_no_live_check() {
     );
     assert!(hook().contains("deny"), "an archived run allows nothing");
 }
+
+const CLOSE: &str = ferrule_core::run::abandon::CLOSE_COMMENT;
+
+/// Serves PR 34 as `state` (`OPEN`, `MERGED` or `CLOSED`).
+fn serve_pr(gh: &FakeGh, state: &str) {
+    gh.serve(
+        &["pr", "view", "34", "--json", "state,isDraft,body"],
+        &format!("{{\"state\":\"{state}\",\"isDraft\":false,\"body\":\"\"}}"),
+    );
+}
+
+const CLOSE_ARGS: fn() -> [&'static str; 5] = || ["pr", "close", "34", "--comment", CLOSE];
+
+/// Serves the close of PR 34.
+fn serve_close(gh: &FakeGh) {
+    gh.serve(&CLOSE_ARGS(), "");
+}
+
+fn remote_has(s: &Scratch, branch: &str) -> bool {
+    !git(
+        &s.root,
+        &["ls-remote", "origin", &format!("refs/heads/{branch}")],
+    )
+    .is_empty()
+}
+
+fn state_of(s: &Scratch, id: &str) -> String {
+    s.say(&["board", "field", id, "state"])
+}
+
+/// Nothing of run `demo` changed: card, worktree, local and remote branch.
+fn assert_demo_intact(s: &Scratch) {
+    assert_eq!(state_of(s, "demo"), "inprogress");
+    assert!(s.wt.is_dir());
+    assert!(has_ref(&s.root, "refs/heads/feat/demo"));
+    assert!(remote_has(s, "feat/demo"));
+}
+
+/// S13, RU-R-045, RU-R-046 — without `--confirm` the command lists the unsaved
+/// work and every effect, in order, and changes nothing.
+#[test]
+fn it_abandon_without_confirm_lists_and_changes_nothing() {
+    let s = pushed_run();
+    let gh = FakeGh::new();
+    serve_pr(&gh, "OPEN");
+    let sha = s.commit_in_worktree("more.txt", "m\n", "more");
+    std::fs::write(s.wt.join("y.txt"), "y\n").unwrap();
+    let got = say_on(&s, &gh, &["run", "abandon", "demo"]);
+    let want = format!(
+        "abandon=plan\nuncommitted y.txt\nunpushed {sha} more\nclose-pr 34\ndelete-remote-branch feat/demo\ndelete-branch feat/demo\nremove-worktree {}\nhint=on the user's word only: ferrule run abandon demo --confirm",
+        s.wt.display()
+    );
+    assert_eq!(got, want);
+    assert_demo_intact(&s);
+    assert!(s.wt.join("y.txt").is_file());
+    assert!(!gh.log().contains("pr close"), "{}", gh.log());
+    assert_eq!(s.say(&["board", "field", "demo", "pr"]), "34");
+}
+
+/// S14, RU-R-047, RU-R-049, RU-R-050, RU-R-051, RU-R-052, RU-R-053, RU-R-055,
+/// RU-E-022 — a confirmed abandon of a run whose worktree is gone archives it
+/// as abandoned, deletes both branches, comments on and closes the PR, and
+/// leaves the open issue alone.
+#[test]
+fn it_abandon_confirm_clears_a_run_whose_worktree_is_gone() {
+    let s = pushed_run();
+    let gh = FakeGh::new();
+    serve_issue(&gh, "OPEN");
+    serve_pr(&gh, "OPEN");
+    serve_close(&gh);
+    git(
+        &s.root,
+        &["worktree", "remove", "--force", s.wt.to_str().unwrap()],
+    );
+    assert_eq!(
+        say_on(&s, &gh, &["run", "abandon", "demo", "--confirm"]),
+        "abandon=done archive=1 issue=12"
+    );
+    assert!(!has_ref(&s.root, "refs/heads/feat/demo"));
+    assert!(!remote_has(&s, "feat/demo"));
+    let log = gh.log();
+    assert!(log.contains("pr close 34 --comment"), "{log}");
+    assert!(!log.lines().any(|l| l.starts_with("issue")), "{log}");
+    assert_eq!(state_of(&s, "demo"), "");
+    let metrics = s.say(&["run", "metrics"]);
+    assert!(metrics.ends_with(" ci=-"), "{metrics}");
+    let to = s.root.join("out");
+    s.say(&["run", "export", "demo", "--to", to.to_str().unwrap()]);
+    let card = std::fs::read_to_string(to.join("cards/demo.md")).unwrap();
+    assert!(card.lines().any(|l| l.ends_with(" abandoned")), "{card}");
+}
+
+/// RU-R-048 — a confirmed abandon removes a worktree holding uncommitted and
+/// unpushed work.
+#[test]
+fn it_abandon_confirm_removes_a_dirty_worktree() {
+    let s = pushed_run();
+    let gh = FakeGh::new();
+    serve_pr(&gh, "OPEN");
+    serve_close(&gh);
+    s.commit_in_worktree("more.txt", "m\n", "more");
+    std::fs::write(s.wt.join("y.txt"), "y\n").unwrap();
+    let got = say_on(&s, &gh, &["run", "abandon", "demo", "--confirm"]);
+    assert!(got.starts_with("abandon=done archive=1"), "{got}");
+    assert!(!s.wt.exists());
+}
+
+/// RU-E-020 — a run without a PR or a remote branch skips both steps and
+/// lists nothing for them.
+#[test]
+fn it_abandon_skips_a_missing_pr_and_remote_branch() {
+    let s = pushed_run();
+    let gh = FakeGh::new();
+    seed_set(&s.root, "demo", &["pr="]);
+    git(&s.root, &["push", "-q", "origin", "--delete", "feat/demo"]);
+    let plan = say_on(&s, &gh, &["run", "abandon", "demo"]);
+    assert!(!plan.contains("close-pr"), "{plan}");
+    assert!(!plan.contains("delete-remote-branch"), "{plan}");
+    assert!(plan.contains("delete-branch feat/demo"), "{plan}");
+    let got = say_on(&s, &gh, &["run", "abandon", "demo", "--confirm"]);
+    assert!(got.starts_with("abandon=done archive=1"), "{got}");
+    assert_eq!(gh.log(), "");
+}
+
+/// RU-E-023 — a merged PR refuses the abandon in both modes, changing nothing.
+#[test]
+fn it_abandon_refuses_a_merged_pr() {
+    let s = pushed_run();
+    let gh = FakeGh::new();
+    serve_pr(&gh, "MERGED");
+    for args in [
+        &["run", "abandon", "demo"][..],
+        &["run", "abandon", "demo", "--confirm"],
+    ] {
+        let got = say_on(&s, &gh, args);
+        assert!(
+            got.starts_with("abandon=refused reason=merged pr=34 hint="),
+            "{got}"
+        );
+        assert!(got.contains("ferrule run cleanup demo"), "{got}");
+        assert_demo_intact(&s);
+    }
+}
+
+/// RU-E-024, RU-E-025 — an epic's parent is refused in both modes; a slice
+/// run is abandoned as any other.
+#[test]
+fn it_abandon_refuses_an_epic_parent_and_takes_a_slice_run() {
+    let s = pushed_run();
+    let gh = FakeGh::new();
+    for args in [
+        &["run", "abandon", "lb"][..],
+        &["run", "abandon", "lb", "--confirm"],
+    ] {
+        let got = say_on(&s, &gh, args);
+        assert!(
+            got.starts_with("abandon=refused reason=epic hint="),
+            "{got}"
+        );
+    }
+    assert_ne!(state_of(&s, "lb"), "");
+    assert_demo_intact(&s);
+    assert_eq!(gh.log(), "");
+    serve_pr(&gh, "OPEN");
+    serve_close(&gh);
+    seed_set(&s.root, "demo", &["kind=slice"]);
+    let got = say_on(&s, &gh, &["run", "abandon", "demo", "--confirm"]);
+    assert!(got.starts_with("abandon=done archive="), "{got}");
+}
+
+/// RU-E-027 — a PR whose state cannot be read refuses the abandon.
+#[test]
+fn it_abandon_refuses_an_unreadable_pr() {
+    let s = pushed_run();
+    let gh = FakeGh::new();
+    gh.serve_err(
+        &["pr", "view", "34", "--json", "state,isDraft,body"],
+        "boom",
+        1,
+    );
+    for args in [
+        &["run", "abandon", "demo"][..],
+        &["run", "abandon", "demo", "--confirm"],
+    ] {
+        let got = say_on(&s, &gh, args);
+        assert!(
+            got.starts_with("abandon=refused reason=pr-unreadable detail="),
+            "{got}"
+        );
+        assert_demo_intact(&s);
+    }
+}
+
+/// RU-E-028 — a remote branch that cannot be looked up refuses the abandon.
+#[test]
+fn it_abandon_refuses_an_unreachable_remote() {
+    let s = pushed_run();
+    let gh = FakeGh::new();
+    seed_set(&s.root, "demo", &["pr="]);
+    let missing = s.root.join("no-such-remote.git");
+    git(
+        &s.root,
+        &["remote", "set-url", "origin", missing.to_str().unwrap()],
+    );
+    for args in [
+        &["run", "abandon", "demo"][..],
+        &["run", "abandon", "demo", "--confirm"],
+    ] {
+        let got = say_on(&s, &gh, args);
+        assert!(
+            got.starts_with("abandon=refused reason=remote-unreadable branch=feat/demo hint="),
+            "{got}"
+        );
+        assert_eq!(state_of(&s, "demo"), "inprogress");
+        assert!(s.wt.is_dir());
+        assert!(has_ref(&s.root, "refs/heads/feat/demo"));
+    }
+}
+
+/// RU-E-021 — a rerun after a failed step performs only the steps still
+/// missing.
+#[test]
+fn it_abandon_rerun_finishes_only_the_missing_steps() {
+    let s = pushed_run();
+    let gh = FakeGh::new();
+    serve_issue(&gh, "OPEN");
+    serve_pr(&gh, "OPEN");
+    gh.serve_err(&CLOSE_ARGS(), "boom", 1);
+    let first = say_on(&s, &gh, &["run", "abandon", "demo", "--confirm"]);
+    assert!(
+        first.starts_with("abandon=refused reason=close-pr-failed detail="),
+        "{first}"
+    );
+    assert_demo_intact(&s);
+
+    serve_pr(&gh, "CLOSED");
+    git(&s.root, &["worktree", "lock", s.wt.to_str().unwrap()]);
+    let second = say_on(&s, &gh, &["run", "abandon", "demo", "--confirm"]);
+    assert!(
+        second.starts_with("abandon=refused reason=worktree-remove-failed detail="),
+        "{second}"
+    );
+    assert_eq!(state_of(&s, "demo"), "");
+    assert!(!remote_has(&s, "feat/demo"));
+    assert!(s.wt.is_dir());
+
+    git(&s.root, &["worktree", "unlock", s.wt.to_str().unwrap()]);
+    assert_eq!(
+        say_on(&s, &gh, &["run", "abandon", "demo", "--confirm"]),
+        "abandon=done archive=1 issue=12 resumed"
+    );
+    assert!(!s.wt.exists());
+    assert!(!has_ref(&s.root, "refs/heads/feat/demo"));
+    let closes = gh
+        .log()
+        .lines()
+        .filter(|l| l.starts_with("pr close"))
+        .count();
+    assert_eq!(closes, 1, "{}", gh.log());
+    assert_eq!(latest_archive(&s), 1);
+}
+
+/// RU-E-026 — a run already fully abandoned is reported so, in both modes,
+/// with exit 0.
+#[test]
+fn it_abandon_of_an_abandoned_run_reports_already() {
+    let s = pushed_run();
+    let gh = FakeGh::new();
+    serve_pr(&gh, "OPEN");
+    serve_close(&gh);
+    let done = say_on(&s, &gh, &["run", "abandon", "demo", "--confirm"]);
+    assert!(done.starts_with("abandon=done archive=1"), "{done}");
+    for args in [
+        &["run", "abandon", "demo"][..],
+        &["run", "abandon", "demo", "--confirm"],
+    ] {
+        let got = gh.on(s.run(args)).text();
+        assert_eq!(got, "abandon=already archive=1\nexit=0");
+    }
+    assert_eq!(latest_archive(&s), 1);
+}
+
+/// RU-E-029 — a run with no card and no abandoned archive is refused.
+#[test]
+fn it_abandon_refuses_an_unknown_or_cleaned_up_run() {
+    let s = pushed_run();
+    let gh = FakeGh::new();
+    let got = say_on(&s, &gh, &["run", "abandon", "nosuch"]);
+    assert!(
+        got.starts_with("abandon=refused reason=card hint="),
+        "{got}"
+    );
+    seed_log(&s.root, NOW, "demo", &["ci=0"]);
+    assert_eq!(
+        s.say(&["run", "cleanup", "demo"]),
+        "cleanup=done archive=1 issue=12"
+    );
+    for args in [
+        &["run", "abandon", "demo"][..],
+        &["run", "abandon", "demo", "--confirm"],
+    ] {
+        let got = say_on(&s, &gh, args);
+        assert!(
+            got.starts_with("abandon=refused reason=card hint="),
+            "{got}"
+        );
+    }
+}
+
+/// RU-R-050 — on Bitbucket the PR gets its comment before it is declined.
+#[test]
+fn it_abandon_on_bitbucket_comments_then_declines() {
+    let s = pushed_run();
+    std::fs::write(
+        s.root.join(".ferrule/ferrule.toml"),
+        "[backend]\nhost = \"bitbucket\"\n",
+    )
+    .unwrap();
+    let curl_dir = tempfile::tempdir().unwrap();
+    let curl = curl_dir.path().join("curl");
+    std::fs::write(
+        &curl,
+        r#"#!/bin/sh
+printf '%s\n' "$*" >> "$CURL_DIR/log"
+cat > /dev/null
+case " $* " in
+  *" -d "*|*" -X "*) echo '{}' ;;
+  *) echo '{"state":"OPEN","draft":false,"description":""}' ;;
+esac
+"#,
+    )
+    .unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&curl, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let path = format!(
+        "{}:{}",
+        curl_dir.path().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let got = s
+        .run(&["run", "abandon", "demo", "--confirm"])
+        .env("PATH", path)
+        .env("CURL_DIR", curl_dir.path())
+        .env(
+            "FERRULE_BITBUCKET_CREDENTIALS",
+            r#"{"workspace":"w","repoSlug":"r","username":"u","appPassword":"p"}"#,
+        )
+        .output();
+    let got = String::from_utf8_lossy(&got.stdout).trim_end().to_owned();
+    assert!(got.starts_with("abandon=done archive=1"), "{got}");
+    let log = std::fs::read_to_string(curl_dir.path().join("log")).unwrap();
+    let at = |needle: &str| log.lines().position(|l| l.contains(needle));
+    let comment = at("pullrequests/34/comments").expect(&log);
+    let decline = at("pullrequests/34/decline").expect(&log);
+    assert!(comment < decline, "{log}");
+}

@@ -410,7 +410,7 @@ pub(crate) struct Pending {
     pub(crate) abandoned: bool,
 }
 
-fn pending(conn: &Connection, slug: &str) -> rusqlite::Result<Option<Pending>> {
+pub(crate) fn pending(conn: &Connection, slug: &str) -> rusqlite::Result<Option<Pending>> {
     conn.query_row(
         "SELECT id, pending_worktree, pending_branch, pending_run_dir, abandoned FROM archives
          WHERE run = ?1 AND (pending_worktree IS NOT NULL OR pending_branch IS NOT NULL
@@ -549,7 +549,6 @@ pub(crate) fn resume(
 }
 
 /// The latest archive of `slug` when it is abandoned.
-#[cfg_attr(not(test), expect(dead_code, reason = "the abandon command reads it"))]
 pub(crate) fn last_abandoned(conn: &Connection, slug: &str) -> rusqlite::Result<Option<i64>> {
     let row: Option<(i64, i64)> = conn
         .query_row(
@@ -562,7 +561,6 @@ pub(crate) fn last_abandoned(conn: &Connection, slug: &str) -> rusqlite::Result<
 }
 
 /// The issue the run referenced, read off archive `id`'s card file.
-#[cfg_attr(not(test), expect(dead_code, reason = "the abandon command reads it"))]
 pub(crate) fn archived_issue(
     conn: &Connection,
     id: i64,

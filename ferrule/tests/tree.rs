@@ -21,6 +21,7 @@ run reconcile
 run live-check
 run rebase
 run rebuild
+run abandon
 run cleanup
 run metrics
 run status
