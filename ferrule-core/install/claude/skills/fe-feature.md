@@ -33,7 +33,7 @@ Start with `ferrule guide show gate1` (a non-behavior change: `ferrule guide sho
 | Spec changes, split | `spec-changes`, `split` |
 | Gate 3 — branch review | `gate3` |
 | Gate 4 — pull request, CI | `gate4` |
-| Clean up | `cleanup` |
+| Clean up, or abandon a run the user gives up | `cleanup` |
 | Re-plan | `replan` |
 | Resume a dead run | `resume` |
 

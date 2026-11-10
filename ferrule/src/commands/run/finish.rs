@@ -92,6 +92,7 @@ pub(super) fn abandon(slug: &str, confirm: bool, out: &mut impl Write) -> io::Re
                 if let Some(id) = plan.archived
                     && plan.worktree.is_none()
                     && plan.local_branch.is_none()
+                    && !plan.run_dir
                 {
                     writeln!(out, "abandon=already archive={id}")?;
                     return Ok(exit::OK);

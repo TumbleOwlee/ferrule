@@ -34,6 +34,8 @@ pub struct AbandonPlan {
     pub worktree: Option<PathBuf>,
     /// The abandoned archive when the cards are already archived (rerun).
     pub archived: Option<i64>,
+    /// The run directory is still to remove (rerun).
+    pub run_dir: bool,
 }
 
 impl AbandonPlan {
@@ -46,6 +48,7 @@ impl AbandonPlan {
             local_branch: None,
             worktree: None,
             archived: None,
+            run_dir: false,
         }
     }
 }
@@ -169,6 +172,7 @@ pub fn plan(
         if let Some(todo) = archive::pending(conn, slug)? {
             plan.worktree = todo.worktree.map(PathBuf::from).filter(|p| p.is_dir());
             plan.local_branch = todo.branch.filter(|b| branch_exists(&layout.root, b));
+            plan.run_dir = todo.run_dir;
         }
         return Ok(Ok(plan));
     }
