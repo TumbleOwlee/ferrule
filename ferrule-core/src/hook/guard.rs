@@ -247,6 +247,9 @@ fn guard_list(
             return Some(opaque_reason(o).to_owned());
         }
         let Some((name, args)) = shell::judged_program(&c.words) else {
+            if !policy.live_repos.is_empty() && c.words.iter().any(|w| w.starts_with("GH_HOST=")) {
+                return Some(GH_HOST_REASON.to_owned());
+            }
             if let Some(reason) = owned_redirect(c, cwd) {
                 return Some(reason);
             }
@@ -772,6 +775,8 @@ const RUNS_ENV: &[&str] = &[
 
 const CONFIG_ENV_REASON: &str = "Git settings from the environment (GIT_CONFIG_PARAMETERS, GIT_CONFIG_COUNT/KEY/VALUE, GIT_CONFIG_GLOBAL) can define aliases and commands the guard cannot see. Run the git command without them.";
 
+const GH_HOST_REASON: &str = "Setting GH_HOST moves the host a live check's 'gh api' write reaches, in a call the guard cannot follow. Run the call without it.";
+
 const AUTOCORRECT_REASON: &str = "help.autocorrect runs the git command a typo resembles, which the guard cannot tell. Spell the command out.";
 
 const PULL_REASON: &str = "git pull without --ff-only can make a merge commit or rebase, which is ferrule's to land. Use git pull --ff-only, or git fetch and ferrule's commands.";
@@ -807,6 +812,9 @@ fn git_settings(
         name,
         "export" | "declare" | "typeset" | "readonly" | "local"
     );
+    if exported && !policy.live_repos.is_empty() && args.iter().any(|a| a == "GH_HOST") {
+        return Some(GH_HOST_REASON.to_owned());
+    }
     let before = c.words.len().saturating_sub(args.len() + 1);
     let assigned = c.words[..before]
         .iter()
@@ -815,6 +823,9 @@ fn git_settings(
     for (k, v) in assigned {
         if k.starts_with("GIT_CONFIG") {
             return Some(CONFIG_ENV_REASON.to_owned());
+        }
+        if k == "GH_HOST" && !policy.live_repos.is_empty() {
+            return Some(GH_HOST_REASON.to_owned());
         }
         if RUNS_ENV.contains(&k)
             && let Some(r) = guard_code(v, cwd, policy, depth)
@@ -1927,8 +1938,10 @@ mod tests {
         assert_eq!(live("gh api -X POST repos/o/r/issues", &["O/R"]), None);
     }
 
-    /// SG-E-009, SG-E-011, SG-E-015, SG-E-016 — every other target of a
-    /// `gh api` write stays refused during a live check.
+    /// SG-E-009, SG-E-011, SG-E-015, SG-E-016, SG-E-027 — every other target
+    /// of a `gh api` write stays refused during a live check, and so does
+    /// any call that sets `GH_HOST`, whatever it runs; with no live check
+    /// the prefix on a read is no concern.
     #[test]
     fn ut_live_check_refuses_every_other_target() {
         for cmd in [
@@ -1939,9 +1952,25 @@ mod tests {
             "gh --hostname h api -X POST repos/o/r/issues",
             "gh api -iXPOST repos/o/other/x",
             "gh api graphql -f query=mutation{a}",
+            "GH_HOST=h gh api -X POST repos/o/r/issues",
+            "A=b GH_HOST=h gh api -X POST repos/o/r/issues",
+            "export GH_HOST=h; gh api -X POST repos/o/r/issues",
+            "export GH_HOST=h && gh api -X POST repos/o/r/issues",
+            "declare -x GH_HOST=h; gh api -X POST repos/o/r/issues",
+            "GH_HOST=h; export GH_HOST; gh api -X POST repos/o/r/issues",
+            "env GH_HOST=h gh api -X POST repos/o/r/issues",
+            "GH_HOST=h bash -c 'gh api -X POST repos/o/r/issues'",
+            "GH_HOST=h sh -c 'gh api -X POST repos/o/r/issues'",
+            "GH_HOST=h xargs gh api -X POST repos/o/r/issues",
+            "GH_HOST=h ls",
+            "GH_HOST=h; gh api -X POST repos/o/r/issues",
+            "set -a; GH_HOST=h; gh api -X POST repos/o/r/issues",
+            "GH_HOST=h",
         ] {
             assert!(live(cmd, &["o/r"]).is_some(), "{cmd}");
         }
         assert!(live("gh api -X POST repos/o/r/issues", &[]).is_some());
+        assert!(live("GH_HOST=h gh api repos/o/r/issues", &["o/r"]).is_some());
+        assert!(live("GH_HOST=h gh api repos/o/r/issues", &[]).is_none());
     }
 }

@@ -10,6 +10,7 @@ pub mod gate;
 pub mod gauntlet;
 pub mod ids;
 pub mod inspect;
+pub mod live;
 pub mod next;
 pub mod push;
 pub mod rebase;

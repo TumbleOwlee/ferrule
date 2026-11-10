@@ -8,7 +8,7 @@ use ferrule_core::card::board::Slug;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-use clap::Subcommand;
+use clap::{Subcommand, ValueEnum};
 use ferrule_core::remote::ItemRef;
 
 /// Shown after `ferrule run init --help`.
@@ -75,6 +75,30 @@ Refusals:
                                    No card for the slug
 Exit codes: 0 clean, 1 differ or refused, 2 usage, 4 internal error.
 See: ferrule guide show resume";
+
+/// Shown after `ferrule run live-check --help`.
+const LIVE_CHECK_AFTER_LONG_HELP: &str = "\
+Opens or closes the run's live check. While it is open, a `gh api` write to the
+`live-repo` named at gate 2 is allowed; every other write stays refused.
+Output:
+  live-check=open repo=<owner/name>
+      The check is open for that repository
+  live-check=closed
+      The check is closed
+  live-check=refused reason=no-repo hint=name the repository at gate 2: ferrule
+  gate approve <slug> gate2 --live-repo <owner/name>
+      The run names no live-repo
+  live-check=refused reason=card hint=check the slug with `ferrule board list`
+      No such card
+Exit codes: 0 done, 1 refused, 2 usage, 4 internal error.
+See: ferrule guide show gate2";
+
+/// What `run live-check` does.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum LiveAction {
+    Start,
+    End,
+}
 
 /// Shown after `ferrule run rebase --help`.
 const REBASE_AFTER_LONG_HELP: &str = "\
@@ -334,6 +358,15 @@ pub enum RunCommand {
         #[arg(long)]
         local: bool,
     },
+    /// Open or close the run's live check.
+    #[command(after_long_help = LIVE_CHECK_AFTER_LONG_HELP)]
+    LiveCheck {
+        /// The run's slug.
+        slug: Slug,
+        /// Open (`start`) or close (`end`) the check.
+        #[arg(value_enum)]
+        action: LiveAction,
+    },
     /// Rebase a run's branch onto its base and map the stage commits.
     #[command(after_long_help = REBASE_AFTER_LONG_HELP)]
     Rebase {
@@ -454,6 +487,7 @@ pub fn run(command: &RunCommand, out: &mut impl Write) -> io::Result<u8> {
             out,
         ),
         RunCommand::Reconcile { slug, local } => start::reconcile(slug, *local, out),
+        RunCommand::LiveCheck { slug, action } => start::live_check(slug, *action, out),
         RunCommand::Rebase { slug, onto } => start::rebase(slug, onto.as_deref(), out),
         RunCommand::Rebuild { issue, pr } => start::rebuild(issue, pr, out),
         RunCommand::Cleanup { slug } => finish::cleanup(slug, out),

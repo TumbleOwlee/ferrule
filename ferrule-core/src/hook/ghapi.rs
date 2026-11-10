@@ -380,7 +380,7 @@ mod tests {
         matches!(call(line), ApiCall::Write { .. })
     }
 
-    /// SG-R-025 — the write forms stay writes and a plain GET reads.
+    /// The write forms stay writes and a plain GET reads.
     #[test]
     fn ut_classify_reads_and_writes() {
         for w in [

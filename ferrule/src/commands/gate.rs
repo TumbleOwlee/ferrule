@@ -225,6 +225,9 @@ pub struct ApproveArgs {
     /// gate2: stages that stop for approval beyond the plan's, e.g. `s1,s3`.
     #[arg(long, value_parser = ferrule_core::run::gate::parse_stops)]
     pub stops: Option<String>,
+    /// gate2: the `owner/name` a live check may write to.
+    #[arg(long, value_parser = ferrule_core::run::gate::parse_live_repo)]
+    pub live_repo: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -293,6 +296,7 @@ fn approve(args: &ApproveArgs, out: &mut impl Write) -> io::Result<u8> {
     pair("issue", args.issue.as_ref());
     pair("branch", args.branch.as_ref());
     pair("stops", args.stops.as_ref());
+    pair("live-repo", args.live_repo.as_ref());
     if args.epic {
         pairs.push(("kind".to_owned(), "epic".to_owned()));
     }

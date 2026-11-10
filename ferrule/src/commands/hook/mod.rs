@@ -11,6 +11,7 @@ use ferrule_core::hook::guard;
 use ferrule_core::hook::readonly;
 use ferrule_core::install;
 use ferrule_core::project;
+use ferrule_core::run::live;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -314,12 +315,20 @@ fn shell(cmd: &str, cwd: &Path) -> Option<Verdict> {
             let rebasing = ferrule_core::run::rebase::rebasing_worktrees(&project::Layout::new(
                 project::main_checkout(),
             ));
+            let live_repos: Vec<String> = super::board::store()
+                .ok()
+                .flatten()
+                .and_then(|s| {
+                    s.read(|r| Ok::<_, ferrule_core::store::Error>(live::open_repos(r)))
+                        .ok()
+                })
+                .unwrap_or_default();
             guard::shell(
                 cmd,
                 cwd,
                 guard::Policy {
                     limits: limits(&config),
-                    live_repos: &[],
+                    live_repos: &live_repos,
                     allow: &config.guard.allow,
                     rebasing: &rebasing,
                 },

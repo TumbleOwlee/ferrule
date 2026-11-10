@@ -67,3 +67,4 @@
 **SG-E-015** — During a live check, a `gh api` write whose endpoint does not start with the literal `repos/<owner>/<name>` of the named repository, compared without regard to ASCII case, is refused.
 
 **SG-E-016** — During a live check, a `gh api` write carrying `--hostname`, or with `..`, `%` or a shell expansion in its endpoint, is refused.
+**SG-E-027** — During a live check, a call that sets `GH_HOST` — as a prefix on any command, as a bare assignment, through `export`, `declare` or `typeset`, or through `env` — is refused.

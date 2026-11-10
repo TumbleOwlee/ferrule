@@ -186,6 +186,15 @@ pub const VOCABULARY: &[Event] = &[
         Text::No,
     )
     .by("ferrule run rebase <slug>"),
+    ev(
+        Parent,
+        "live-check=",
+        V::OneOf(&["open", "closed"]),
+        P::None,
+        &[],
+        Text::No,
+    )
+    .by("ferrule run live-check <slug> start|end"),
     ev(Parent, "replan", V::None, P::None, &["from"], Text::No)
         .by("ferrule stage replan <slug> start"),
     ev(

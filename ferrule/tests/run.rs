@@ -1045,3 +1045,47 @@ fn it_cleanup_archives_no_symlink() {
     assert!(secret.is_file());
     assert!(s.root.join(".git").is_dir());
 }
+
+/// SG-E-013 — a cleaned-up run's open live check allows nothing.
+#[test]
+fn it_archived_run_opens_no_live_check() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let s = pushed_run();
+    seed_set(&s.root, "demo", &["live-repo=o/r"]);
+    seed_log(&s.root, NOW, "demo", &["ci=0"]);
+    assert_eq!(
+        s.say(&["run", "live-check", "demo", "start"]),
+        "live-check=open repo=o/r"
+    );
+    let hook = || {
+        let payload = serde_json::json!({
+            "tool_name": "Bash",
+            "tool_input": {"command": "gh api -X POST repos/o/r/issues", "description": "d"},
+            "cwd": s.root,
+        });
+        let mut child = Command::new(env!("CARGO_BIN_EXE_ferrule"))
+            .args(["hook", "shell"])
+            .current_dir(&s.root)
+            .env("CLAUDE_PROJECT_DIR", &s.root)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(payload.to_string().as_bytes())
+            .unwrap();
+        let out = child.wait_with_output().unwrap();
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+    assert!(hook().is_empty(), "an open check allows the write");
+    assert!(
+        s.say(&["run", "cleanup", "demo"])
+            .starts_with("cleanup=done archive=1")
+    );
+    assert!(hook().contains("deny"), "an archived run allows nothing");
+}
