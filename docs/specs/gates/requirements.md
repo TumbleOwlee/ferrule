@@ -38,13 +38,17 @@
 
 **GA-R-015** — The implementer guide's `## TDD` section states the fixed test-first order.
 
-**GA-R-016** — The reviewer guide's TDD honesty axis states the TDD rules itself, without sending the review to another guide.
-
 **GA-R-017** — The reviewer guide's Standards axis checks every rule `AGENTS.md` states, under any heading.
 
 **GA-R-018** — The reviewer guide takes a comment violation's severity from the project's comment rule.
 
 **GA-R-019** — The reviewer guide rates a comment violation a minor when the project states no comment rule.
+
+**GA-R-064** — The reviewer guide does not ask the review to judge test-first order.
+
+**GA-R-065** — The reviewer guide gives the review the card's files-outside, pins-existing and replaced-test notes; a finding may concern the change they point at, and the notes never block or reach a user stop.
+
+**GA-R-067** — The reviewer guide rates a plan bookkeeping gap as no finding, so it blocks nothing and never reaches the verdict.
 
 ## Guide rules
 
@@ -58,9 +62,7 @@
 
 **GA-R-024** — The author, architect and planner guides each state the local ID forms and their numbering.
 
-**GA-R-025** — The implementer guide states that a stage changes only the files its `files` list names.
-
-**GA-R-026** — The reviewer guide rates a file in the diff outside the in-scope stages' `files` lists a blocker.
+**GA-R-025** — The implementer guide states that a stage's `files` list is advisory and a file outside it is noted on the card.
 
 **GA-R-027** — The author guide states how to read an issue's body and comments.
 
@@ -132,6 +134,12 @@
 
 **GA-R-061** — The `planner-replan` guide reads `Rules for writing specs` before a spec edit.
 
+**GA-R-063** — The implementer guide directs the implementer to check, before review, that each cited spec ID is asserted by its test.
+
+**GA-R-068** — An interface sketch in the architecture binds only what the architecture's `## Public surface` lists.
+
 ## Plan gate
 
 **GA-R-062** — The repository for a live check is named at gate 2.
+
+**GA-R-066** — The implementer guide has a plan bookkeeping gap — a stage's ID→test table or the plan's stage table missing or misnaming a test, ID or file the stage has — logged as a `note` on the stage card, never as a reason to stop.
