@@ -1537,15 +1537,163 @@ fn stage_project() -> Project {
 
 /// `ferrule` run in `cwd` with a git identity.
 fn in_dir(p: &Project, cwd: &Path, args: &[&str]) -> String {
-    p.gh.on(Run::new(args))
-        .env("CLAUDE_PROJECT_DIR", &p.root)
-        .env("FERRULE_NOW", "2026-10-05T09:00")
-        .env("GIT_AUTHOR_NAME", "t")
-        .env("GIT_AUTHOR_EMAIL", "t@t")
-        .env("GIT_COMMITTER_NAME", "t")
-        .env("GIT_COMMITTER_EMAIL", "t@t")
-        .cwd(cwd)
-        .text()
+    in_dir_env(p, cwd, &[], args)
+}
+
+/// [`in_dir`] with more environment variables.
+fn in_dir_env(p: &Project, cwd: &Path, env: &[(&str, &Path)], args: &[&str]) -> String {
+    let mut run =
+        p.gh.on(Run::new(args))
+            .env("CLAUDE_PROJECT_DIR", &p.root)
+            .env("FERRULE_NOW", "2026-10-05T09:00")
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t")
+            .cwd(cwd);
+    for (k, v) in env {
+        run = run.env(k, v);
+    }
+    run.text()
+}
+
+/// `stage_project` with `stack = "rust"` and a one-crate Cargo workspace in the worktree.
+fn rust_project() -> Project {
+    let p = stage_project();
+    let toml = p.root.join(".ferrule").join("ferrule.toml");
+    let body = std::fs::read_to_string(&toml).unwrap();
+    std::fs::write(&toml, format!("stack = \"rust\"\n{body}")).unwrap();
+    seed_set(&p.root, "demo.s1", &["files=[src/lib.rs]"]);
+    let wt = p.worktree();
+    std::fs::create_dir_all(wt.join("src")).unwrap();
+    std::fs::write(
+        wt.join("Cargo.toml"),
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\n",
+    )
+    .unwrap();
+    std::fs::write(wt.join(".gitignore"), "Cargo.lock\n").unwrap();
+    let test = |name: &str| {
+        format!(
+            "    #[test]\n    fn {name}() {{\n        assert!(true);\n        assert!(true);\n        assert!(true);\n    }}\n"
+        )
+    };
+    std::fs::write(
+        wt.join("src/lib.rs"),
+        format!(
+            "#[cfg(test)]\nmod tests {{\n{}\n{}}}\n",
+            test("t_gone"),
+            test("t_changed")
+        ),
+    )
+    .unwrap();
+    git(&wt, &["add", "."]);
+    git(&wt, &["commit", "-q", "-m", "crate"]);
+    p
+}
+
+/// `ferrule` run in the worktree with cargo building under the project's temp dir.
+fn cargo_in(p: &Project, args: &[&str]) -> String {
+    let target = p.root.parent().unwrap().join("target");
+    in_dir_env(p, &p.worktree(), &[("CARGO_TARGET_DIR", &target)], args)
+}
+
+/// Overwrites the worktree's `src/lib.rs` with a test module of `tests`.
+fn write_tests(p: &Project, tests: &str) {
+    std::fs::write(
+        p.worktree().join("src/lib.rs"),
+        format!("#[cfg(test)]\nmod tests {{\n{tests}}}\n"),
+    )
+    .unwrap();
+}
+
+/// GW-R-068 — `stage red` runs the matching tests and logs a `test-red` for each one the run reports failed, none for a passing test.
+#[test]
+fn it_stage_red_records_each_failed_test() {
+    let p = rust_project();
+    write_tests(
+        &p,
+        "    #[test]\n    fn t_fails() {\n        assert_eq!(1, 2);\n    }\n    #[test]\n    fn t_passes() {\n        assert!(true);\n    }\n",
+    );
+    let got = cargo_in(&p, &["stage", "red", "demo.s1", "t_"]);
+    assert_eq!(got, "red=recorded tests=tests::t_fails\nexit=0");
+    let logged = p.ok(&["board", "show", "demo.s1"]);
+    assert!(logged.contains("test=tests::t_fails"), "{logged}");
+    assert!(!logged.contains("t_passes"), "{logged}");
+}
+
+/// GW-R-073 — `--mutation` records the failure as a mutation proof carrying the whole text.
+#[test]
+fn it_stage_red_records_a_mutation_proof() {
+    let p = rust_project();
+    write_tests(
+        &p,
+        "    #[test]\n    fn t_fails() {\n        assert_eq!(1, 2);\n    }\n",
+    );
+    let got = cargo_in(
+        &p,
+        &[
+            "stage",
+            "red",
+            "demo.s1",
+            "t_fails",
+            "--mutation",
+            "flip the sign",
+        ],
+    );
+    assert_eq!(got, "red=recorded tests=tests::t_fails\nexit=0");
+    let logged = p.ok(&["board", "show", "demo.s1"]);
+    assert!(logged.contains("test=tests::t_fails"), "{logged}");
+    assert!(logged.contains("mutation=\"flip the sign\""), "{logged}");
+}
+
+/// GW-E-019 — a test that does not compile gets no recorded failure.
+#[test]
+fn it_stage_red_records_nothing_for_a_test_that_does_not_compile() {
+    let p = rust_project();
+    write_tests(
+        &p,
+        "    #[test]\n    fn t_broken() {\n        undefined_fn();\n    }\n",
+    );
+    let got = cargo_in(&p, &["stage", "red", "demo.s1", "t_broken"]);
+    assert!(
+        got.starts_with("red=refused reason=no-failure hint="),
+        "{got}"
+    );
+    assert!(got.ends_with("exit=1"), "{got}");
+    assert!(!p.ok(&["board", "show", "demo.s1"]).contains("test-red"));
+}
+
+/// GW-R-074 — `stage pins` marks a test as pinning existing behaviour, with the text.
+#[test]
+fn it_stage_pins_records_the_mark() {
+    let p = rust_project();
+    let got = in_dir(
+        &p,
+        &p.worktree(),
+        &["stage", "pins", "demo.s1", "t_old", "--", "keeps", "CRLF"],
+    );
+    assert_eq!(got, "pins=recorded test=t_old\nexit=0");
+    let logged = p.ok(&["board", "show", "demo.s1"]);
+    assert!(logged.contains("test=t_old"), "{logged}");
+    assert!(logged.contains("keeps CRLF"), "{logged}");
+}
+
+/// `stage red` and `stage pins` refuse a project whose stack is not Rust.
+#[test]
+fn it_stage_red_and_pins_refuse_off_rust() {
+    let p = stage_project();
+    let red = in_dir(&p, &p.worktree(), &["stage", "red", "demo.s1", "t"]);
+    assert!(red.starts_with("red=refused reason=stack hint="), "{red}");
+    let pins = in_dir(
+        &p,
+        &p.worktree(),
+        &["stage", "pins", "demo.s1", "t", "--", "why"],
+    );
+    assert!(
+        pins.starts_with("pins=refused reason=stack hint="),
+        "{pins}"
+    );
+    assert!(!p.ok(&["board", "show", "demo.s1"]).contains("test-red"));
 }
 
 /// GW-R-001, GW-R-002, S1 — nothing staged on a dirty tree is refused as such, with the `git add` hint.

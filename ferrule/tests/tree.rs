@@ -33,6 +33,8 @@ gate approve
 gate next
 stage
 stage commit
+stage red
+stage pins
 stage verify
 stage stop
 stage replan

@@ -105,6 +105,10 @@ const SOURCES: &[(&str, &[&str])] = &[
     ("ferrule-core/src/run/ci.rs", &["ci wait"]),
     ("ferrule-core/src/run/commit.rs", &["stage commit"]),
     ("ferrule-core/src/run/ids.rs", &["spec next"]),
+    (
+        "ferrule-core/src/run/testproof/mod.rs",
+        &["stage red", "stage pins"],
+    ),
     ("ferrule-core/src/run/gauntlet.rs", &["ci gauntlet"]),
     (
         "ferrule-core/src/run/inspect.rs",
@@ -213,7 +217,14 @@ const SOURCES: &[(&str, &[&str])] = &[
     ),
     (
         "ferrule/src/commands/stage.rs",
-        &["stage commit", "stage verify", "stage stop", "stage replan"],
+        &[
+            "stage commit",
+            "stage red",
+            "stage pins",
+            "stage verify",
+            "stage stop",
+            "stage replan",
+        ],
     ),
     (
         "ferrule/src/commands/hook/mod.rs",

@@ -6,6 +6,7 @@ use std::io::{self, Write};
 use clap::{Subcommand, ValueEnum};
 use ferrule_core::card::board;
 use ferrule_core::refusal::{CARD_HINT, Refusal};
+use ferrule_core::run::testproof::{self, ProofRefused};
 use ferrule_core::run::{self as core_run, Error, gate};
 
 use super::board::store;
@@ -74,6 +75,45 @@ as the stage's commit; no commit is created and history is unchanged:
 With --no-run only the main-branch and nothing-staged checks apply and no
 card is touched.
 Attribution trailers are stripped from the message first.
+Exit codes: 0 ok, 1 refused, 4 internal error.
+See: ferrule guide show stages";
+
+/// Shown after `ferrule stage red --help`.
+const RED_AFTER_LONG_HELP: &str = "\
+Runs the tests matching <test> in the current directory with the stack's test
+command (a Rust project: `cargo test --workspace -- <test>`) and logs one
+`test-red test=<name>` per test the run reports failed; with --mutation <text>
+each line also carries `mutation=<text>`, the proof that the test fails when
+the code under it is broken.
+Output:
+  red=recorded tests=<a,b>         One `test-red` logged per failed test
+Refusals (each line ends in `hint=<fix>`):
+  red=refused reason=card          No such card; check it with
+                                   `ferrule board list`
+  red=refused reason=state state=<s>
+                                   The card is in <s>, not inprogress or
+                                   inreview
+  red=refused reason=stack         Not a Rust project: only it records proofs
+  red=refused reason=no-failure    The run reported no failed test (a test
+                                   that does not compile is none): make it
+                                   compile and fail, then run again
+  red=refused reason=run           The test command could not start or timed out
+Exit codes: 0 ok, 1 refused, 4 internal error.
+See: ferrule guide show stages";
+
+/// Shown after `ferrule stage pins --help`.
+const PINS_AFTER_LONG_HELP: &str = "\
+Marks <test> as passing from the start because it pins behaviour the code
+already has; <text> names what it pins.
+Output:
+  pins=recorded test=<t>           Logged `test-pins test=<t> -- <text>`
+Refusals (each line ends in `hint=<fix>`):
+  pins=refused reason=card         No such card; check it with
+                                   `ferrule board list`
+  pins=refused reason=state state=<s>
+                                   The card is in <s>, not inprogress or
+                                   inreview
+  pins=refused reason=stack        Not a Rust project: only it records proofs
 Exit codes: 0 ok, 1 refused, 4 internal error.
 See: ferrule guide show stages";
 
@@ -172,6 +212,32 @@ pub enum StageCommand {
         #[arg(long, value_name = "SHA", conflicts_with_all = ["message", "no_run"])]
         adopt: Option<String>,
     },
+    /// Run a test and record each failure it reports.
+    ///
+    /// The failure is the proof a new test needs before `ferrule stage commit`.
+    #[command(after_long_help = RED_AFTER_LONG_HELP)]
+    Red {
+        /// The stage card, `<slug>.s<n>`.
+        card: String,
+        /// The test name, or a part of it, the test command filters by.
+        test: String,
+        /// Record the failure as a mutation proof naming this change.
+        #[arg(long)]
+        mutation: Option<String>,
+    },
+    /// Mark a test as pinning existing behaviour.
+    ///
+    /// Such a test passes from the start; the mark takes the place of a failure.
+    #[command(after_long_help = PINS_AFTER_LONG_HELP)]
+    Pins {
+        /// The stage card, `<slug>.s<n>`.
+        card: String,
+        /// The test name.
+        test: String,
+        /// What the test pins.
+        #[arg(last = true, required = true)]
+        why: Vec<String>,
+    },
     /// Verify a stage's reported commit before anything is pushed.
     ///
     /// The commit exists in the worktree, the run's branch holds it, and
@@ -224,6 +290,12 @@ pub fn run(command: &StageCommand, out: &mut impl Write) -> io::Result<u8> {
         StageCommand::Commit { card, message, .. } => {
             super::board::commit(card.as_deref(), message, out)
         }
+        StageCommand::Red {
+            card,
+            test,
+            mutation,
+        } => red(card, test, mutation.as_deref(), out),
+        StageCommand::Pins { card, test, why } => pins(card, test, &why.join(" "), out),
         StageCommand::Verify { slug, stage, sha } => sha_check(slug, *stage, sha, out),
         StageCommand::Stop {
             slug,
@@ -257,6 +329,72 @@ fn sha_hint(m: core_run::Mismatch, slug: &str, stage: u32) -> String {
                 "commit through `ferrule stage commit {slug}.s{stage}` so the card logs commit="
             )
         }
+    }
+}
+
+/// The refusal of `verb` (`red` or `pins`) for `refused`.
+fn proof_refusal(verb: &'static str, refused: &ProofRefused) -> Refusal {
+    match refused {
+        ProofRefused::Card => Refusal::card(verb),
+        ProofRefused::State(st) => Refusal::new(verb, "state")
+            .field("state", st)
+            .hint("move the card to inprogress first: `ferrule board move <card> inprogress`"),
+        ProofRefused::Stack => Refusal::new(verb, "stack").hint(
+            "only a Rust project records test proofs; set `stack = \"rust\"` in ferrule.toml",
+        ),
+        ProofRefused::NoFailure => Refusal::new(verb, "no-failure").hint(
+            "the run reported no failed test: make the test compile and fail, then run again",
+        ),
+        ProofRefused::Run => Refusal::new(verb, "run")
+            .hint("the test command could not start or timed out: run it by hand"),
+    }
+}
+
+fn red(card: &str, test: &str, mutation: Option<&str>, out: &mut impl Write) -> io::Result<u8> {
+    let here = std::env::current_dir()?;
+    let config = super::config()?;
+    let Some(mut s) = store()? else {
+        return refuse(out, &Refusal::card("red"));
+    };
+    let got = testproof::red(
+        &mut s,
+        &here,
+        card,
+        config.stack.as_deref(),
+        test,
+        mutation,
+        &board::now(),
+    )
+    .map_err(internal)?;
+    match got {
+        Ok(tests) => {
+            writeln!(out, "red=recorded tests={}", tests.join(","))?;
+            Ok(exit::OK)
+        }
+        Err(r) => refuse(out, &proof_refusal("red", &r)),
+    }
+}
+
+fn pins(card: &str, test: &str, why: &str, out: &mut impl Write) -> io::Result<u8> {
+    let config = super::config()?;
+    let Some(mut s) = store()? else {
+        return refuse(out, &Refusal::card("pins"));
+    };
+    let got = testproof::pins(
+        &mut s,
+        card,
+        config.stack.as_deref(),
+        test,
+        why,
+        &board::now(),
+    )
+    .map_err(internal)?;
+    match got {
+        Ok(()) => {
+            writeln!(out, "pins=recorded test={test}")?;
+            Ok(exit::OK)
+        }
+        Err(r) => refuse(out, &proof_refusal("pins", &r)),
     }
 }
 

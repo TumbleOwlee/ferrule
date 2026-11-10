@@ -166,7 +166,7 @@ pub fn coverage(output: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
-enum StepResult {
+pub(crate) enum StepResult {
     Ok,
     Failed,
     TimedOut,
@@ -199,7 +199,7 @@ pub(crate) fn kill_group(_: &std::process::Child) {}
 
 /// Runs one step with its output appended to `log`, killed after its
 /// timeout.
-fn run_step(wt: &Path, step: &Step, log: &Path) -> std::io::Result<StepResult> {
+pub(crate) fn run_step(wt: &Path, step: &Step, log: &Path) -> std::io::Result<StepResult> {
     let mut file = File::options().append(true).create(true).open(log)?;
     writeln!(file, "### {}: {}", step.name, step.cmd.join(" "))?;
     let Some((program, args)) = step.cmd.split_first() else {
