@@ -1,6 +1,6 @@
 ---
 name: fe-reviewer
-description: Independent review against the approved spec, the approved architecture and the repo's standards, including TDD honesty, and classification of every spec change made on the branch — of a plan (gate 2), one stage, a stage's spec changes, or the whole branch (gate 3). Appends review.md, rewrites the capped review.verdict.md the user reads, returns one status line. Must be a different agent than the one that wrote the code.
+description: Independent review against the approved spec, the approved architecture and the repo's standards, and classification of every spec change made on the branch — of a plan (gate 2), one stage, a stage's spec changes, or the whole branch (gate 3). Appends review.md, rewrites the capped review.verdict.md the user reads, returns one status line. Must be a different agent than the one that wrote the code.
 tools: Read, Grep, Glob, Bash
 model: opus
 hooks:
