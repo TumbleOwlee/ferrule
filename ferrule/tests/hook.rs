@@ -1227,7 +1227,7 @@ fn it_review_md_takes_appends_only() {
 }
 
 /// SG-R-024, SG-E-020 — a file written in a call is refused only when the
-/// call runs it, `sed` and `awk` only when they load it as code or their
+/// call runs it, `sed`, `awk` and `nawk` only when they load it as code or their
 /// own script runs commands.
 #[test]
 fn it_written_file_is_refused_only_when_run() {
@@ -1239,6 +1239,9 @@ fn it_written_file_is_refused_only_when_run() {
             ("echo x > f; cat f", "allow"),
             ("echo x >> f; sed -n 1p f", "allow"),
             ("echo x > f; awk '{print}' f", "allow"),
+            ("echo x > f; nawk '{print}' f", "allow"),
+            ("echo x > s; nawk -f s t", "deny"),
+            ("echo x > f; nawk 'BEGIN{system(\"ls\")}' f", "deny"),
             ("echo x > f; sed -n 'w me' f", "allow"),
             ("echo x > f; sh f", "deny"),
             ("echo x > s; sed -f s t", "deny"),

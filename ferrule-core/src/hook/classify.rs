@@ -259,11 +259,11 @@ pub(super) fn awk_runs(args: &[String]) -> bool {
 }
 
 /// The files a `sed` or `awk` call loads as code, before any `--`: the
-/// value of `-f` and `--file`; for `awk`, `gawk` and `mawk` also of `-E`,
+/// value of `-f` and `--file`; for `awk`, `gawk`, `mawk` and `nawk` also of `-E`,
 /// `-i`, `-l`, `--exec`, `--include`, `--load` and the name quoted after
 /// an `@include` or `@load`.
 pub(super) fn file_scripts<'a>(name: &str, args: &'a [String]) -> Vec<&'a str> {
-    let awk = matches!(name, "awk" | "gawk" | "mawk");
+    let awk = matches!(name, "awk" | "gawk" | "mawk" | "nawk");
     let (loaders, takers): (&[char], &[char]) = if awk {
         (&['f', 'E', 'i', 'l'], &['v', 'F', 'W', 'e', 'o'])
     } else {

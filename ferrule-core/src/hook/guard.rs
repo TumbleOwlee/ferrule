@@ -456,7 +456,7 @@ fn written_then_run(commands: &[Command], cwd: &Path) -> Option<String> {
                 s if shell::SHELLS.contains(&s) => {
                     matches!(shell::shell_script(args), Script::File(f) if same(f))
                 }
-                n @ ("sed" | "awk" | "gawk" | "mawk") => {
+                n @ ("sed" | "awk" | "gawk" | "mawk" | "nawk") => {
                     file_scripts(n, args).iter().any(|f| same(f))
                         || (operand()
                             && if n == "sed" {

@@ -38,7 +38,7 @@
 
 ## Files written in a call
 
-**SG-E-020** — `sed` or `awk` counts as running a file written in the same call only when it loads the file as code, through `-f` or, for `awk`, `-E`, `-i`, `-l`, `@include` or `@load`, or when its own script runs commands.
+**SG-E-020** — `sed`, `awk` or `nawk` counts as running a file written in the same call only when it loads the file as code, through `-f` or, for `awk` or `nawk`, `-E`, `-i`, `-l`, `@include` or `@load`, or when its own script runs commands.
 
 ## gh commands
 
@@ -67,4 +67,5 @@
 **SG-E-015** — During a live check, a `gh api` write whose endpoint does not start with the literal `repos/<owner>/<name>` of the named repository, compared without regard to ASCII case, is refused.
 
 **SG-E-016** — During a live check, a `gh api` write carrying `--hostname`, or with `..`, `%` or a shell expansion in its endpoint, is refused.
+
 **SG-E-027** — During a live check, a call that sets `GH_HOST` — as a prefix on any command, as a bare assignment, through `export`, `declare` or `typeset`, or through `env` — is refused.
