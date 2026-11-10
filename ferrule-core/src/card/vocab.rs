@@ -232,6 +232,8 @@ pub const VOCABULARY: &[Event] = &[
         Text::No,
     )
     .by("ferrule run live-check <slug> start|end"),
+    ev(Parent, "abandoned", V::None, P::None, &[], Text::No)
+        .by("ferrule run abandon <slug> --confirm"),
     ev(Parent, "replan", V::None, P::None, &["from"], Text::No)
         .by("ferrule stage replan <slug> start"),
     ev(
@@ -1117,6 +1119,17 @@ mod tests {
         assert!(check("gauntlet=pass", &args("sha=x"), PARENT).is_ok());
         assert!(check("ci-waived", &args("-- why"), agent).is_ok());
         assert!(check("spec-keep=MB-R-001", &[], agent).is_ok());
+    }
+
+    #[test]
+    fn ut_an_agent_may_not_log_abandoned() {
+        let agent = Context {
+            agent: true,
+            ..PARENT
+        };
+        let got = check("abandoned", &[], agent).unwrap_err();
+        assert!(got.to_string().contains("reason=owner event=abandoned"));
+        assert!(check("abandoned", &[], PARENT).is_ok());
     }
 
     #[test]

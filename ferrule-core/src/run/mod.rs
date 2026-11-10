@@ -2,6 +2,7 @@
 //! reported commit, reconciling cards with git, and the stage-stop
 //! decision.
 
+pub mod abandon;
 pub mod archive;
 pub mod ci;
 pub mod commit;

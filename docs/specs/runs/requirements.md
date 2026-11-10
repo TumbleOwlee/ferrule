@@ -100,8 +100,38 @@
 
 **RU-R-035** — The epic guide's closing notice of an epic filed as a milestone reads `Epic · <slug> · milestone #<m> · slices #a, #b, … filed · start with /fe-feature on #a`.
 
+**RU-R-058** — The feature guide names the abandon command for a run the user gives up: without its confirm option first, with it only on the user's word.
+
 ## Live check
 
 **RU-R-043** — `ferrule run live-check <slug> start` opens the run's live check.
 
 **RU-R-044** — `ferrule run live-check <slug> end` closes the run's live check.
+
+## Abandon
+
+**RU-R-045** — A ferrule abandon command, run without its confirm option, changes nothing.
+
+**RU-R-046** — The abandon command, run without its confirm option, lists the run's uncommitted changes, its unpushed commits, the PR it would close, the remote branch it would delete, the local branch it would delete and the worktree it would remove.
+
+**RU-R-047** — With its confirm option, the abandon command archives the run's cards as abandoned.
+
+**RU-R-048** — With its confirm option, the abandon command removes the run's worktree when one exists.
+
+**RU-R-049** — With its confirm option, the abandon command deletes the run's local branch.
+
+**RU-R-050** — With its confirm option, the abandon command comments on the run's PR that the run was abandoned, then closes it.
+
+**RU-R-051** — With its confirm option, the abandon command deletes the run's remote branch.
+
+**RU-R-052** — The abandon command leaves the run's issue open and unchanged.
+
+**RU-R-053** — The abandon command works on a run whose worktree is gone.
+
+**RU-R-054** — The abandon command's help states that its confirm option is given only on the user's word.
+
+**RU-R-055** — The metrics line of an abandoned run records `ci=-`, as RU-R-012 does for a cleanup without a CI check.
+
+**RU-R-056** — The closing notice of a confirmed abandon of a run that references an issue reads `Abandoned · <slug> · issue #<n> open · archived`.
+
+**RU-R-057** — The closing notice of a confirmed abandon of a run that references no issue reads `Abandoned · <slug> · archived`.

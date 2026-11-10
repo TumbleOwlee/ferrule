@@ -356,7 +356,7 @@ pub struct Cleaned {
 
 /// The issue a run references: the one it filed, else the one it was
 /// started with.
-fn issue_ref(conn: &Connection, slug: &str) -> rusqlite::Result<Option<ItemRef>> {
+pub(crate) fn issue_ref(conn: &Connection, slug: &str) -> rusqlite::Result<Option<ItemRef>> {
     for key in ["issue", "named-issue"] {
         let field = board::field(conn, slug, key)?;
         if let Some(i) = refs(field.as_deref()).into_iter().next() {
@@ -402,16 +402,17 @@ fn ci_check(
 }
 
 /// An archive whose worktree, branch or run directory is still to remove.
-struct Pending {
-    id: i64,
-    worktree: Option<String>,
-    branch: Option<String>,
-    run_dir: bool,
+pub(crate) struct Pending {
+    pub(crate) id: i64,
+    pub(crate) worktree: Option<String>,
+    pub(crate) branch: Option<String>,
+    pub(crate) run_dir: bool,
+    pub(crate) abandoned: bool,
 }
 
-fn pending(conn: &Connection, slug: &str) -> rusqlite::Result<Option<Pending>> {
+pub(crate) fn pending(conn: &Connection, slug: &str) -> rusqlite::Result<Option<Pending>> {
     conn.query_row(
-        "SELECT id, pending_worktree, pending_branch, pending_run_dir FROM archives
+        "SELECT id, pending_worktree, pending_branch, pending_run_dir, abandoned FROM archives
          WHERE run = ?1 AND (pending_worktree IS NOT NULL OR pending_branch IS NOT NULL
                              OR pending_run_dir <> 0)
          ORDER BY id DESC LIMIT 1",
@@ -422,6 +423,7 @@ fn pending(conn: &Connection, slug: &str) -> rusqlite::Result<Option<Pending>> {
                 worktree: r.get(1)?,
                 branch: r.get(2)?,
                 run_dir: r.get::<_, i64>(3)? != 0,
+                abandoned: r.get::<_, i64>(4)? != 0,
             })
         },
     )
@@ -435,7 +437,11 @@ fn finish(conn: &Connection, layout: &Layout, slug: &str, todo: &Pending) -> Res
     if let Some(wt) = &todo.worktree {
         let wt = Path::new(wt);
         if wt.is_dir() {
-            let remove = [OsStr::new("worktree"), OsStr::new("remove"), wt.as_os_str()];
+            let mut remove = vec![OsStr::new("worktree"), OsStr::new("remove")];
+            if todo.abandoned {
+                remove.push(OsStr::new("--force"));
+            }
+            remove.push(wt.as_os_str());
             git::run(&layout.root, &remove)
                 .map_err(|e| Error::Refused(CleanupRefusal::WorktreeRemoveFailed(e)))?;
         }
@@ -494,10 +500,9 @@ pub fn cleanup(
     tracker: &dyn IssueTracker,
 ) -> Result<Cleaned, Error> {
     let conn = db.conn_mut();
-    if let Some(todo) = pending(conn, slug)? {
-        finish(conn, layout, slug, &todo)?;
+    if let Some(id) = resume(conn, layout, slug)? {
         return Ok(Cleaned {
-            archive: Some(todo.id),
+            archive: Some(id),
             resumed: true,
             issue: None,
         });
@@ -510,6 +515,100 @@ pub fn cleanup(
     };
     let issue = issue_ref(conn, slug)?;
     let check = ci_check(conn, slug, issue.as_ref(), tracker)?;
+    let worktree = branch.as_ref().map(|_| wt.to_string_lossy().into_owned());
+    let archive = seal(
+        conn,
+        layout,
+        slug,
+        now,
+        Seal {
+            worktree,
+            branch,
+            check,
+            abandoned: false,
+        },
+    )?;
+    Ok(Cleaned {
+        archive,
+        resumed: false,
+        issue,
+    })
+}
+
+/// Finishes the latest archive's pending steps; its id when one was pending.
+pub(crate) fn resume(
+    conn: &mut Connection,
+    layout: &Layout,
+    slug: &str,
+) -> Result<Option<i64>, Error> {
+    let Some(todo) = pending(conn, slug)? else {
+        return Ok(None);
+    };
+    finish(conn, layout, slug, &todo)?;
+    Ok(Some(todo.id))
+}
+
+/// The latest archive of `slug` when it is abandoned.
+pub(crate) fn last_abandoned(conn: &Connection, slug: &str) -> rusqlite::Result<Option<i64>> {
+    let row: Option<(i64, i64)> = conn
+        .query_row(
+            "SELECT id, abandoned FROM archives WHERE run = ?1 ORDER BY id DESC LIMIT 1",
+            [slug],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    Ok(row.and_then(|(id, abandoned)| (abandoned != 0).then_some(id)))
+}
+
+/// The issue the run referenced, read off archive `id`'s card file.
+pub(crate) fn archived_issue(
+    conn: &Connection,
+    id: i64,
+    slug: &str,
+) -> Result<Option<ItemRef>, Error> {
+    let data: Option<Vec<u8>> = conn
+        .query_row(
+            "SELECT data FROM archive_files WHERE archive = ?1 AND path = ?2",
+            params![id, format!("cards/{slug}.md")],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let Some(data) = data else {
+        return Ok(None);
+    };
+    let text = String::from_utf8_lossy(&decompress(&data)?).into_owned();
+    let card = board::parse_card(&text);
+    for key in ["issue", "named-issue"] {
+        let field = card
+            .fields
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.as_str());
+        if let Some(i) = refs(field).into_iter().next() {
+            return Ok(Some(i));
+        }
+    }
+    Ok(None)
+}
+
+/// What `seal` archives besides the cards and run files.
+pub(crate) struct Seal {
+    pub worktree: Option<String>,
+    pub branch: Option<String>,
+    pub check: CiCheck,
+    /// Logs `abandoned` in the transaction and sets `archives.abandoned`.
+    pub abandoned: bool,
+}
+
+/// One transaction: [abandoned line], metrics, archive row with pending
+/// marks, cards deleted; then `finish`. `None` when nothing was archived.
+pub(crate) fn seal(
+    conn: &mut Connection,
+    layout: &Layout,
+    slug: &str,
+    now: &str,
+    s: Seal,
+) -> Result<Option<i64>, Error> {
     let run_dir = layout.run_dir(slug);
     let artifacts = if run_dir.is_dir() {
         files_below(&run_dir)?
@@ -519,7 +618,14 @@ pub fn cleanup(
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let has_parent = board::state(&tx, slug)?.is_some();
     if has_parent {
-        record(&Writer::new(&tx), slug, now, check)?;
+        if s.abandoned {
+            board::log_in(&tx, slug, "abandoned", now).map_err(|e| match e {
+                board::LogError::Card => Error::Card,
+                board::LogError::Sql(e) => Error::Sql(e),
+                board::LogError::Reject(r) => Error::Io(std::io::Error::other(r.to_string())),
+            })?;
+        }
+        record(&Writer::new(&tx), slug, now, s.check)?;
     }
     let mut cards: Vec<String> = Vec::new();
     if has_parent {
@@ -528,23 +634,20 @@ pub fn cleanup(
     cards.extend(board::stages(&tx, slug)?.into_iter().map(|(_, id, _)| id));
     let todo = Pending {
         id: 0,
-        worktree: branch.as_ref().map(|_| wt.to_string_lossy().into_owned()),
-        branch,
+        worktree: s.worktree,
+        branch: s.branch,
         run_dir: run_dir.is_dir(),
+        abandoned: s.abandoned,
     };
     if cards.is_empty() && !run_dir.is_dir() {
         tx.commit()?;
         finish(conn, layout, slug, &todo)?;
-        return Ok(Cleaned {
-            archive: None,
-            resumed: false,
-            issue,
-        });
+        return Ok(None);
     }
     tx.execute(
-        "INSERT INTO archives (run, archived_at, pending_worktree, pending_branch, pending_run_dir)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![slug, now, todo.worktree, todo.branch, todo.run_dir],
+        "INSERT INTO archives (run, archived_at, pending_worktree, pending_branch, pending_run_dir, abandoned)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![slug, now, todo.worktree, todo.branch, todo.run_dir, s.abandoned],
     )?;
     let id = tx.last_insert_rowid();
     let put = |path: String, data: &[u8]| -> Result<(), Error> {
@@ -566,11 +669,7 @@ pub fn cleanup(
     }
     tx.commit()?;
     finish(conn, layout, slug, &Pending { id, ..todo })?;
-    Ok(Cleaned {
-        archive: Some(id),
-        resumed: false,
-        issue,
-    })
+    Ok(Some(id))
 }
 
 /// A run's archives as `(id, archived_at)`, oldest first.
@@ -763,5 +862,75 @@ mod tests {
             CiCheck::Required,
         );
         assert!(matches!(got, Err(Error::Ci(CiRefusal::NoCi))), "{got:?}");
+    }
+
+    fn sealed(abandoned: bool, fields: &[(&str, &str)]) -> (crate::store::Store, Option<i64>) {
+        let mut s = card(fields, &[]);
+        let dir = tempfile::tempdir().unwrap();
+        let layout = Layout::new(dir.path().to_path_buf());
+        let spec = Seal {
+            worktree: None,
+            branch: None,
+            check: CiCheck::Exempt,
+            abandoned,
+        };
+        let id = super::seal(&mut s.conn, &layout, "r", "2026-10-04T12:00", spec).unwrap();
+        (s, id)
+    }
+
+    fn archived_card(s: &crate::store::Store, id: i64) -> String {
+        let data: Vec<u8> = s
+            .conn
+            .query_row(
+                "SELECT data FROM archive_files WHERE archive = ?1 AND path = 'cards/r.md'",
+                [id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        String::from_utf8(decompress(&data).unwrap()).unwrap()
+    }
+
+    /// Fixture for the abandon command: an abandoned seal logs the event,
+    /// marks the archive and records `ci=-`.
+    #[test]
+    fn ut_seal_abandoned_logs_and_marks_the_archive() {
+        let (s, id) = sealed(true, &[]);
+        let id = id.unwrap();
+        let flag: i64 = s
+            .conn
+            .query_row("SELECT abandoned FROM archives WHERE id = ?1", [id], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(flag, 1);
+        assert!(archived_card(&s, id).contains("abandoned"));
+        let lines = metrics_log(&Reader::new(&s.conn)).unwrap();
+        assert!(lines[0].ends_with(" ci=-"), "{lines:?}");
+        assert!(board::state(&s.conn, "r").unwrap().is_none());
+        assert_eq!(last_abandoned(&s.conn, "r").unwrap(), Some(id));
+    }
+
+    /// Fixture for cleanup: a plain seal is not abandoned.
+    #[test]
+    fn ut_seal_for_cleanup_is_not_abandoned() {
+        let (s, id) = sealed(false, &[]);
+        let id = id.unwrap();
+        let flag: i64 = s
+            .conn
+            .query_row("SELECT abandoned FROM archives WHERE id = ?1", [id], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(flag, 0);
+        assert!(!archived_card(&s, id).contains("abandoned"));
+        assert_eq!(last_abandoned(&s.conn, "r").unwrap(), None);
+    }
+
+    /// Fixture for the abandon rerun: the issue is read off the archived card.
+    #[test]
+    fn ut_archived_issue_reads_the_archived_card() {
+        let (s, id) = sealed(true, &[("issue", "12")]);
+        let got = archived_issue(&s.conn, id.unwrap(), "r").unwrap();
+        assert_eq!(got, Some(ItemRef::from(12)));
     }
 }

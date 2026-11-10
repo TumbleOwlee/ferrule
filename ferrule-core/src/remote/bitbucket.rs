@@ -280,6 +280,20 @@ impl CodeHost for Bitbucket {
         .map(drop)
     }
 
+    fn close(&self, pr: &ItemRef, comment: &str) -> Result<(), Error> {
+        let api = self.pr_api(pr)?;
+        let body = serde_json::json!({"content": {"raw": comment}});
+        self.call(&[
+            "-H",
+            "Content-Type: application/json",
+            "-d",
+            &body.to_string(),
+            &format!("{api}/comments"),
+        ])?;
+        self.call(&["-X", "POST", &format!("{api}/decline")])
+            .map(drop)
+    }
+
     fn resolve(&self, pr: &ItemRef, _thread: &str, comment: &str) -> Result<(), Error> {
         let c = comment_id(comment)?;
         let api = format!("{}/comments/{c}/resolve", self.pr_api(pr)?);

@@ -787,6 +787,25 @@ fn it_cleanup_guide_states_exemptions_and_notices() {
     }
 }
 
+/// RU-R-056, RU-R-057, RU-R-058 — the cleanup guide names abandon, its
+/// confirmation on the user's word and its two notices.
+#[test]
+fn it_cleanup_guide_names_abandon_and_its_notices() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let text = ok(root, &["guide", "cleanup", "--slug", "demo"]);
+    for want in [
+        "ferrule run abandon demo",
+        "ferrule run abandon demo --confirm",
+        "only on the user's word",
+        "Abandoned · demo · issue #<n> open · archived",
+        "Abandoned · demo · archived",
+    ] {
+        assert!(text.contains(want), "{want}: {text}");
+    }
+}
+
 /// The principles guide names both endings of a run: a ready PR
 /// with green CI, or cleanup of a run without a PR under its CI exemption.
 #[test]

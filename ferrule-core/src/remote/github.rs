@@ -148,6 +148,15 @@ impl CodeHost for Gh {
         self.gh(&["pr", "ready", &n], None).map(drop)
     }
 
+    fn close(&self, pr: &ItemRef, comment: &str) -> Result<(), Error> {
+        pr.pr_number()?;
+        self.gh(
+            &["pr", "close", &pr.to_string(), "--comment", comment],
+            None,
+        )
+        .map(drop)
+    }
+
     fn status(&self, pr: &ItemRef) -> Result<PrStatus, Error> {
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
