@@ -972,6 +972,11 @@ impl From<rusqlite::Error> for LogError {
     }
 }
 
+/// Appends one event inside the caller's transaction; [`log`] opens its own.
+pub(crate) fn log_in(conn: &Connection, id: &str, event: &str, now: &str) -> Result<(), LogError> {
+    append(conn, id, event, &[], now, vocab::READ_BUDGET, false)
+}
+
 /// Validates one event against the vocabulary and the card, and appends it.
 pub fn log(
     conn: &mut Connection,

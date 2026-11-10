@@ -115,6 +115,7 @@ ALTER TABLE archives ADD COLUMN pending_branch TEXT;
 ALTER TABLE archives ADD COLUMN pending_run_dir INTEGER NOT NULL DEFAULT 0;
 ",
     ),
+    Step::Sql("ALTER TABLE archives ADD COLUMN abandoned INTEGER NOT NULL DEFAULT 0;"),
 ];
 
 #[derive(Debug)]

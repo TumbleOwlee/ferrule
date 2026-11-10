@@ -35,10 +35,11 @@ pub enum Name {
     Posted,
     Rebase,
     LiveCheck,
+    Abandoned,
 }
 
 impl Name {
-    pub const ALL: [Name; 27] = [
+    pub const ALL: [Name; 28] = [
         Name::Commit,
         Name::Gauntlet,
         Name::Pr,
@@ -66,6 +67,7 @@ impl Name {
         Name::Posted,
         Name::Rebase,
         Name::LiveCheck,
+        Name::Abandoned,
     ];
 
     /// The name as stored, `=` included for a valued event.
@@ -99,6 +101,7 @@ impl Name {
             Name::Posted => "posted=",
             Name::Rebase => "rebase=",
             Name::LiveCheck => "live-check=",
+            Name::Abandoned => "abandoned",
         }
     }
 
@@ -252,6 +255,8 @@ pub enum Typed<'a> {
     LiveCheck {
         open: bool,
     },
+    /// The run was abandoned, `abandoned`.
+    Abandoned,
     Other,
 }
 
@@ -287,6 +292,7 @@ impl Typed<'_> {
             Typed::Posted { .. } => Name::Posted,
             Typed::Rebase { .. } => Name::Rebase,
             Typed::LiveCheck { .. } => Name::LiveCheck,
+            Typed::Abandoned => Name::Abandoned,
             Typed::Other => return None,
         })
     }
@@ -343,6 +349,7 @@ impl Event {
             Name::Ci => Typed::Ci(value?),
             Name::CiWaived => Typed::CiWaived,
             Name::IssueWaived => Typed::IssueWaived,
+            Name::Abandoned => Typed::Abandoned,
             Name::BlockedStart => Typed::BlockedStart {
                 blockers: self.text.as_deref().unwrap_or(""),
             },
@@ -577,5 +584,7 @@ mod tests {
         );
         assert_eq!(Event::parsed("live-check=maybe").typed(), Typed::Other);
         assert_eq!(Name::parse("live-check="), Some(Name::LiveCheck));
+        assert_eq!(Name::parse("abandoned"), Some(Name::Abandoned));
+        assert_eq!(Event::parsed("abandoned").typed(), Typed::Abandoned);
     }
 }
