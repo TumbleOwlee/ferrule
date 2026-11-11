@@ -467,7 +467,8 @@ fn schema(path: &Path) -> Result<Option<u32>, OpenError> {
 
 /// Snapshots `shared` into `copy`: written beside it, then renamed, so a
 /// reader never sees a half-written copy. Two takers at once leave equal
-/// snapshots, the last rename winning.
+/// snapshots, the last rename winning. A failed take removes its temporary
+/// file.
 fn take_copy(shared: &Path, copy: &Path) -> Result<(), OpenError> {
     if let Some(dir) = copy.parent() {
         std::fs::create_dir_all(dir).map_err(OpenError::Io)?;
@@ -479,9 +480,16 @@ fn take_copy(shared: &Path, copy: &Path) -> Result<(), OpenError> {
     let tmp_str = tmp
         .to_str()
         .ok_or_else(|| OpenError::Io(std::io::Error::other("non-UTF-8 path for the board copy")))?;
-    open_plain(shared)?.execute("VACUUM INTO ?1", [tmp_str])?;
-    std::fs::rename(&tmp, copy).map_err(OpenError::Io)?;
-    Ok(())
+    let snapshot = || -> Result<(), OpenError> {
+        open_plain(shared)?.execute("VACUUM INTO ?1", [tmp_str])?;
+        std::fs::rename(&tmp, copy).map_err(OpenError::Io)?;
+        Ok(())
+    };
+    let taken = snapshot();
+    if taken.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    taken
 }
 
 fn migrate(conn: &mut Connection) -> Result<(), OpenError> {
@@ -514,6 +522,43 @@ fn migrate_to(conn: &mut Connection, upto: usize) -> Result<(), OpenError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn leftovers(dir: &Path) -> Vec<String> {
+        std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|n| Path::new(n).extension().is_some_and(|x| x == "tmp"))
+            .collect()
+    }
+
+    /// BO-E-005 — a rename that fails leaves no temporary copy behind.
+    #[test]
+    fn ut_failed_rename_leaves_no_temporary_copy() {
+        let dir = tempfile::tempdir().unwrap();
+        let main = dir.path().join("main");
+        let wt = dir.path().join("wt");
+        let shared = main.join(DIR).join(FILE);
+        drop(Store::open(&shared, true).unwrap());
+        let copy = wt.join(DIR).join(DEV_FILE);
+        std::fs::create_dir_all(&copy).unwrap();
+        std::fs::write(copy.join("keep"), b"x").unwrap();
+        assert!(matches!(take_copy(&shared, &copy), Err(OpenError::Io(_))));
+        assert!(leftovers(&wt.join(DIR)).is_empty());
+    }
+
+    /// BO-E-005 — a snapshot that fails leaves no temporary copy and no copy.
+    #[test]
+    fn ut_failed_snapshot_leaves_no_temporary_copy() {
+        let dir = tempfile::tempdir().unwrap();
+        let shared = dir.path().join("main").join(DIR).join(FILE);
+        std::fs::create_dir_all(shared.parent().unwrap()).unwrap();
+        std::fs::write(&shared, b"not a database").unwrap();
+        let wt = dir.path().join("wt");
+        let copy = wt.join(DIR).join(DEV_FILE);
+        assert!(take_copy(&shared, &copy).is_err());
+        assert!(leftovers(&wt.join(DIR)).is_empty());
+        assert!(!copy.exists());
+    }
 
     #[test]
     fn ut_open_creates_and_migrates_once() {
