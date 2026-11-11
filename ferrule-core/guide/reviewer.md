@@ -34,6 +34,7 @@ Every change to `docs/specs/` after `s0` — `ferrule run diff {slug} --base <ba
 
 - **meaningful** — contradicts a scenario or a `(user)` line of `decisions.md`; or widens or narrows what a user sees beyond a `## Deferred` item; or reaches outside the goal. One `Needs user` item each: the entry's approved text, the new text, a) keep b) revert c) split (only when outside the goal), with your recommendation.
 - **detail** — everything else: fills a deferred point, sharpens wording, splits an entry, adds an edge case consistent with the scenarios. Listed on the verdict's `Spec changes` line; no decision.
+- A change logged `origin=user` counts as kept: listed, never a `Needs user` item.
 
 ## Follow-up pass
 
@@ -41,5 +42,7 @@ Every change to `docs/specs/` after `s0` — `ferrule run diff {slug} --base <ba
 - `plan` scope: `ferrule run plan-diff {slug}` (and `spec-diff.md`'s sections the revision touched). Every changed section gets every check of `ferrule guide show reviewer-plan`, not only the lines your findings named — a revision breaks things elsewhere as often as it fixes the finding.
 - `stage s<n>` / `batch s<a>,s<b>` / `delta s<n>` scope: the stage's current diff (the same commands as the first pass) whole — a stage diff is small; your earlier findings don't narrow it.
 <!-- include: reviewer-follow-up-end -->
+
+Never re-raise an item a `(user)` line of `decisions.md` settles. Resumed with `recheck <sha>`: read only `ferrule run diff {slug} --base <sha>` and review that change alone. Resumed with `settle` and the user's answers: re-read nothing, review nothing; rewrite `review.verdict.md` with each answered item moved off `Needs user` (`Needs user` → `- none` when all are answered), the status line `user=` counting only unanswered items.
 
 <!-- include: reviewer-output -->

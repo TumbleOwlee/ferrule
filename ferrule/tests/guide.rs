@@ -200,9 +200,7 @@ fn it_planner_guide_proposes_a_tier_per_stage() {
 fn it_stages_guide_commits_a_batched_stage_without_a_stop() {
     says(
         "stages",
-        &[
-            "`review=batch stages=s<a>,s<b>` → resume the implementer to commit, `ferrule pr push demo`, the card stays `inreview`",
-        ],
+        &["resume the implementer to commit, `ferrule pr push demo`, the card stays `inreview`"],
     );
 }
 
@@ -212,8 +210,91 @@ fn it_stages_guide_runs_a_skipped_stage_through() {
     says(
         "stages",
         &[
-            "`review=none` → no review, no stop: resume the implementer to commit, `ferrule pr push demo`, card → `done`, the next stage",
+            "`review=none` → no review, no stop:",
+            "resume the implementer to commit, `ferrule pr push demo`, card → `done`, the next stage",
         ],
+    );
+}
+
+/// GA-R-094, GA-R-095 — the implementer batches open questions before `inreview`.
+#[test]
+fn it_implementer_guide_batches_questions_before_review() {
+    says(
+        "implementer",
+        &[
+            "Collect your open questions as you work and ask them in one batch before `status=inreview`; ask at once only when you are blocked: the stage cannot go on until the answer comes.",
+        ],
+    );
+}
+
+/// GA-R-075, GA-R-088 — open implementer questions stop once before a batched or skipped commit.
+#[test]
+fn it_stages_guide_asks_before_a_batched_or_skipped_commit() {
+    says(
+        "stages",
+        &["open implementer questions → one question stop before the commit"],
+    );
+}
+
+/// GA-R-096, GA-R-100 — first-pass `Needs user` items reach the user before any fix round.
+#[test]
+fn it_stage_review_guide_relays_needs_user_after_the_first_pass() {
+    says(
+        "stage-review",
+        &[
+            "First-pass `Needs user` items → relayed to the user at once, as a question batch, before any fix round; each answer is appended to `decisions.md` as a `(user)` line.",
+        ],
+    );
+}
+
+/// GA-R-097, GA-R-098 — a code-changing answer is committed first and rechecked on its diff only.
+#[test]
+fn it_stage_review_guide_rechecks_only_a_code_changing_answer() {
+    says(
+        "stage-review",
+        &[
+            "An answer that changes code → the implementer commits the reviewed stage first, then applies the answer; the same reviewer's follow-up pass reads only the diff from that commit (`recheck <sha>`).",
+            "An answer that changes no code → no review rerun",
+        ],
+    );
+}
+
+/// GA-R-099 — a spec change logged `origin=user` counts as kept.
+#[test]
+fn it_reviewer_guide_keeps_user_spec_changes() {
+    says(
+        "reviewer",
+        &["A change logged `origin=user` counts as kept: listed, never a `Needs user` item."],
+    );
+    says(
+        "spec-changes",
+        &["- **origin=user** → kept: the user asked for it; no `Needs user` item."],
+    );
+}
+
+/// GA-R-100, GA-R-097 — a settled item is never raised again; a recheck reads only its diff.
+#[test]
+fn it_reviewer_guide_never_reraises_a_settled_item() {
+    says(
+        "reviewer",
+        &[
+            "Never re-raise an item a `(user)` line of `decisions.md` settles. Resumed with `recheck <sha>`: read only `ferrule run diff demo --base <sha>` and review that change alone.",
+        ],
+    );
+}
+
+/// GA-R-098, GA-R-100 — answers that change no code settle the verdict without a review.
+#[test]
+fn it_reviewer_guide_settles_answered_items_without_review() {
+    says(
+        "reviewer",
+        &[
+            "Resumed with `settle` and the user's answers: re-read nothing, review nothing; rewrite `review.verdict.md` with each answered item moved off `Needs user`",
+        ],
+    );
+    says(
+        "stage-review",
+        &["resume the same reviewer with the answers to settle the verdict"],
     );
 }
 

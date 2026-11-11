@@ -140,6 +140,25 @@ impl Scratch {
     }
 }
 
+/// GA-R-100, GA-R-102 — a verdict listing a `Needs user` item stops; the settled verdict does not.
+#[test]
+fn it_stage_stop_ignores_a_settled_verdict() {
+    let s = Scratch::new(2);
+    s.artifact(
+        "review.verdict.md",
+        "Verdict: findings — 0 must fix, 1 needs you\n\nNeeds user\n- keep it?\n  - a) yes\n",
+    );
+    assert_eq!(
+        s.say(&["stage", "stop", "ss", "s1"]),
+        "stop=1 reason=needs-user"
+    );
+    s.artifact(
+        "review.verdict.md",
+        "Verdict: clean — ready for approval\n\nNeeds user\n- none\n",
+    );
+    assert_eq!(s.say(&["stage", "stop", "ss", "s1"]), "auto");
+}
+
 /// GA-R-102, GA-R-103, GA-E-016 — the rules fire in order, a plan-marked
 /// stage stops on a clean verdict, and a large diff does not stop.
 #[test]
