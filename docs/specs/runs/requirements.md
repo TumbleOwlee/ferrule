@@ -135,3 +135,7 @@
 **RU-R-056** — The closing notice of a confirmed abandon of a run that references an issue reads `Abandoned · <slug> · issue #<n> open · archived`.
 
 **RU-R-057** — The closing notice of a confirmed abandon of a run that references no issue reads `Abandoned · <slug> · archived`.
+
+**RU-R-059** — Each `uncommitted` line of the abandon command's plan names its file by the plain path, without git's quotes or escapes.
+
+**RU-R-060** — The abandon command's plan lists a staged rename as one `uncommitted` line naming the new path.
