@@ -502,6 +502,60 @@ fn it_cleanup_refuses_while_the_issue_is_open() {
     assert_eq!(s.say(&["board", "field", "demo", "state"]), state);
 }
 
+/// S1, S2, RU-R-061, RU-R-063, RU-R-065, RU-R-067 — a PR run with no `ci=`
+/// line is refused with the waiver hint, then archives on a `ci-waived` line
+/// and records `ci=-`.
+#[test]
+fn it_cleanup_without_ci_names_the_waiver_then_archives_on_it() {
+    let s = pushed_run();
+    let got = s.say(&["run", "cleanup", "demo"]);
+    assert!(
+        got.starts_with("cleanup=refused reason=no-ci hint="),
+        "{got}"
+    );
+    assert!(
+        got.contains(
+            "hint=record CI first: ferrule ci wait demo; on the user's word only: \
+             ferrule board log demo ci-waived -- <why>"
+        ),
+        "{got}"
+    );
+    assert!(s.wt.is_dir());
+    s.ok(&["board", "log", "demo", "ci-waived", "--", "no checks"]);
+    assert_eq!(
+        s.say(&["run", "cleanup", "demo"]),
+        "cleanup=done archive=1 issue=12"
+    );
+    let metrics = s.say(&["run", "metrics"]);
+    assert!(metrics.ends_with(" ci=-"), "{metrics}");
+}
+
+/// S3, RU-R-062, RU-R-064, RU-E-033 — a `ci=` line after a waiver decides
+/// again; a new `ci-waived` line after a non-zero one lets cleanup through.
+#[test]
+fn it_cleanup_ci_after_a_waiver_decides_again() {
+    let s = pushed_run();
+    s.ok(&["board", "log", "demo", "ci-waived", "--", "no checks"]);
+    seed_log(&s.root, NOW, "demo", &["ci=1"]);
+    let got = s.say(&["run", "cleanup", "demo"]);
+    assert!(
+        got.starts_with("cleanup=refused reason=ci-red hint="),
+        "{got}"
+    );
+    seed_log(
+        &s.root,
+        NOW,
+        "demo",
+        &["ci-waived", "--", "red on main too"],
+    );
+    assert_eq!(
+        s.say(&["run", "cleanup", "demo"]),
+        "cleanup=done archive=1 issue=12"
+    );
+    let metrics = s.say(&["run", "metrics"]);
+    assert!(metrics.ends_with(" ci=waived"), "{metrics}");
+}
+
 /// RU-R-004, RU-R-005 — an unreadable issue refuses until the user's
 /// `issue-waived` line, then the run archives without a second host call.
 #[test]
