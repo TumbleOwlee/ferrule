@@ -1457,6 +1457,9 @@ fn it_archived_run_opens_no_live_check() {
     let s = pushed_run();
     seed_set(&s.root, "demo", &["live-repo=o/r"]);
     seed_log(&s.root, NOW, "demo", &["ci=0"]);
+    for n in 1..=2 {
+        seed_log(&s.root, NOW, &format!("demo.s{n}"), &["commit=abc1234"]);
+    }
     assert_eq!(
         s.say(&["run", "live-check", "demo", "start"]),
         "live-check=open repo=o/r"

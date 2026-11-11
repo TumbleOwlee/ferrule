@@ -4218,6 +4218,14 @@ fn it_live_check_contains_gh_api_writes() {
     let p = Project::new();
     through_gate2(&p);
     p.ok(&["gate", "approve", "demo", "gate2", "--live-repo", "o/r"]);
+    for n in 1..=2 {
+        seed_log(
+            &p.root,
+            "2026-10-05T09:00",
+            &format!("demo.s{n}"),
+            &["commit=abc1234"],
+        );
+    }
     let own = "gh api -X POST repos/o/r/issues -f title=x";
     let other = "gh api -X POST repos/o/other/issues -f title=x";
     assert_eq!(shell_hook(&p, own), "deny");
@@ -4241,9 +4249,32 @@ fn it_live_check_contains_gh_api_writes() {
 fn it_live_check_start_refuses_a_run_with_no_repository() {
     let p = Project::new();
     through_gate2(&p);
+    for n in 1..=2 {
+        seed_log(
+            &p.root,
+            "2026-10-05T09:00",
+            &format!("demo.s{n}"),
+            &["commit=abc1234"],
+        );
+    }
     let got = p.ferrule(&["run", "live-check", "demo", "start"]).text();
     assert!(
         got.starts_with("live-check=refused reason=no-repo hint="),
+        "{got}"
+    );
+    assert_eq!(shell_hook(&p, "gh api -X POST repos/o/r/issues"), "deny");
+}
+
+/// RU-E-038 — a live check does not start while a code stage has no logged commit.
+#[test]
+fn it_live_check_start_refuses_an_open_stage() {
+    let p = Project::new();
+    through_gate2(&p);
+    p.ok(&["gate", "approve", "demo", "gate2", "--live-repo", "o/r"]);
+    seed_log(&p.root, "2026-10-05T09:00", "demo.s1", &["commit=abc1234"]);
+    let got = p.ferrule(&["run", "live-check", "demo", "start"]).text();
+    assert!(
+        got.starts_with("live-check=refused reason=open-stage stage=s2 hint="),
         "{got}"
     );
     assert_eq!(shell_hook(&p, "gh api -X POST repos/o/r/issues"), "deny");

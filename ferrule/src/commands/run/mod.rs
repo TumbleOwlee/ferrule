@@ -92,6 +92,8 @@ Output:
   live-check=refused reason=no-repo hint=name the repository at gate 2: ferrule
   gate approve <slug> gate2 --live-repo <owner/name>
       The run names no live-repo
+  live-check=refused reason=open-stage stage=s<n>
+      A code stage has no logged commit; commit and push it first
   live-check=refused reason=card hint=check the slug with `ferrule board list`
       No such card
 Exit codes: 0 done, 1 refused, 2 usage, 4 internal error.

@@ -122,6 +122,12 @@ pub(super) fn live_check(slug: &str, action: LiveAction, out: &mut impl Write) -
                 "name the repository at gate 2: ferrule gate approve <slug> gate2 --live-repo <owner/name>",
             ),
         ),
+        Ok(Err(LiveRefused::OpenStage { stage })) => refuse(
+            out,
+            &Refusal::new("live-check", "open-stage")
+                .field("stage", format!("s{stage}"))
+                .hint(format!("commit and push s{stage} first, then start again")),
+        ),
         Err(e) => Err(internal(e)),
     }
 }
