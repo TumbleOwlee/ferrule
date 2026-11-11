@@ -16,6 +16,7 @@ guide show
 guide list
 guide check
 run
+run preflight
 run init
 run reconcile
 run live-check

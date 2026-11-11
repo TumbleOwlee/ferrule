@@ -4,15 +4,41 @@
 use std::io::{self, Write};
 
 use ferrule_core::card::board;
+use ferrule_core::project;
 use ferrule_core::refusal::Refusal;
 use ferrule_core::remote::{self, CodeHost, IssueTracker, Item, ItemRef};
 use ferrule_core::run::live::{self, LiveRefused};
+use ferrule_core::run::preflight::{self, Preflight};
 use ferrule_core::run::rebase::{self as core_rebase, Rebased};
 use ferrule_core::run::{self as core_run, Error, diverged, gate, rebuild};
 
 use crate::commands::board::{create_store, run_on, store};
 use crate::commands::run::LiveAction;
 use crate::commands::{exit, internal, layout, refuse};
+
+pub(super) fn preflight(out: &mut impl Write) -> io::Result<u8> {
+    let config = crate::commands::config()?;
+    match preflight::check(&config, &project::main_checkout()) {
+        Preflight::Ok { login } => {
+            writeln!(out, "preflight=ok gh={login}")?;
+            Ok(exit::OK)
+        }
+        Preflight::Skipped { host } => {
+            writeln!(out, "preflight=ok gh=skipped host={host}")?;
+            Ok(exit::OK)
+        }
+        Preflight::LoggedOut => refuse(
+            out,
+            &Refusal::new("preflight", "gh-login").hint("run gh auth login, then start again"),
+        ),
+        Preflight::Unknown(d) => refuse(
+            out,
+            &Refusal::new("preflight", "gh-unknown")
+                .detail(&d)
+                .hint("check that gh is installed and on PATH, then start again"),
+        ),
+    }
+}
 
 pub(super) fn init(slug: &str, spec: gate::Init<'_>, out: &mut impl Write) -> io::Result<u8> {
     let layout = layout();

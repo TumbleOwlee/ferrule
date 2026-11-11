@@ -13,6 +13,7 @@ pub mod ids;
 pub mod inspect;
 pub mod live;
 pub mod next;
+pub mod preflight;
 pub mod push;
 pub mod rebase;
 pub mod rebuild;

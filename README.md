@@ -125,6 +125,7 @@ Commands are grouped by what they act on. Most are run by the orchestrating agen
 
 | Command | Does |
 |---|---|
+| `ferrule run preflight` | Check the code host's CLI before a run starts: `gh` logged in, its login printed; skipped off GitHub |
 | `ferrule run init <slug> [--issue <n>] [--request] [--start-blocked]` | Start a run: parent card, run directory, the named issue's request and brief; a slice's milestone description (or epic); an open blocker refuses a slice until `--start-blocked`; `--request` marks a `/fe-request` run |
 | `ferrule run status <slug>` | Where a run stands: parent and stage cards, worktree, gauntlet, CI, last event |
 | `ferrule run diff <slug> [--specs] [--stat] [--base <ref>]` | The run branch's diff against main, in its worktree; `--uncommitted` for the work not yet committed |
