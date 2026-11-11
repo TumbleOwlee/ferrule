@@ -296,6 +296,32 @@ fn it_render_auto_shows_no_pass_from_before_a_rebase() {
     assert!(notice().contains("gauntlet pass 90.0% · pushed ccc3333"));
 }
 
+/// GA-R-098, GA-R-102, GA-E-017 — a stop and the auto-continue notice state the minors the
+/// newest review left, until a stop is logged after it.
+#[test]
+fn it_render_states_the_minors_fixed() {
+    let p = project();
+    let p = p.path();
+    let at = "2026-10-05T09:00";
+    seed_log(p, at, "demo", &["review=clean", "scope=stage", "minors=2"]);
+    let auto = render(p, &["demo", "auto", "--stage", "s1"]).text();
+    assert!(auto.contains("· minors fixed 2 · next:"), "{auto}");
+    let stage = render(
+        p,
+        &["demo", "stage", "--stage", "s1", "--reason", "plan-marked"],
+    )
+    .text();
+    assert!(stage.contains("Minors fixed after the review, not re-reviewed: 2"));
+    let gate4 = render(p, &["demo", "gate4"]).text();
+    assert!(!gate4.contains("Minors fixed"), "{gate4}");
+    seed_log(p, at, "demo", &["review=clean", "minors=3"]);
+    let gate3 = render(p, &["demo", "gate3"]).text();
+    assert!(gate3.contains("Minors fixed after the review, not re-reviewed: 3"));
+    seed_log(p, at, "demo", &["review=clean", "scope=stage"]);
+    let none = render(p, &["demo", "auto", "--stage", "s1"]).text();
+    assert!(!none.contains("minors fixed"), "{none}");
+}
+
 /// GW-R-028 — one head alone is a usage error; both or neither render.
 #[test]
 fn it_render_blocked_takes_both_heads_or_neither() {
