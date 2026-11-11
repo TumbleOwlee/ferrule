@@ -1007,7 +1007,7 @@ fn it_principles_guide_names_the_run_without_a_pr_ending() {
     );
 }
 
-/// GA-R-044 — each guide that records decisions states the line shape and its rules.
+/// GA-R-044, GA-R-101 — each guide that records decisions states the line shape and its rules.
 #[test]
 fn it_guides_state_the_decision_line_shape() {
     let tmp = tempfile::tempdir().unwrap();
@@ -1025,7 +1025,11 @@ fn it_guides_state_the_decision_line_shape() {
                 "Decision lines",
             ],
         );
-        for needle in ["- <choice> (<user | chosen>) [", "Append only"] {
+        for needle in [
+            "- <choice> (<user | chosen>) [",
+            "Append only",
+            "A reversal line's why starts `supersedes \"<earlier choice>\"`",
+        ] {
             assert!(text.contains(needle), "{topic}: {text}");
         }
         assert!(!text.contains("{run_dir}"), "{topic}: {text}");

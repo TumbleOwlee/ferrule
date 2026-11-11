@@ -253,6 +253,29 @@ pub fn decisions(text: &str, from: usize) -> Vec<Decision<'_>> {
         .collect()
 }
 
+/// The decisions from line `from` on that no later one supersedes: a later
+/// decision with the same `[spec <ID>]` tag, or whose why starts
+/// `supersedes "<choice>"`.
+#[must_use]
+pub fn current(text: &str, from: usize) -> Vec<Decision<'_>> {
+    let all = decisions(text, from);
+    let mut keep = Vec::new();
+    for (i, d) in all.iter().enumerate() {
+        let spec = match d.tag {
+            Some(("spec", Some(id))) => Some(id),
+            _ => None,
+        };
+        let marker = format!("supersedes \"{}\"", d.choice);
+        let gone = all[i + 1..].iter().any(|j| {
+            j.why.starts_with(&marker) || spec.is_some_and(|id| j.tag == Some(("spec", Some(id))))
+        });
+        if !gone {
+            keep.push(d.clone());
+        }
+    }
+    keep
+}
+
 /// One slice of slices.md: `## Slice <n>: <title>` and its `key: value`
 /// lines.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -334,6 +357,37 @@ pub fn rev(text: &str) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// GA-R-101 — a later same-spec-tag line or a `supersedes` line drops the earlier one.
+    #[test]
+    fn ut_current_drops_superseded_lines() {
+        let c = |t: &str| {
+            current(t, 0)
+                .iter()
+                .map(|d| d.choice.to_string())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            c("- a (chosen) [spec MB-R-1] — w · author\n- b (user) [spec MB-R-1]\n"),
+            ["b"]
+        );
+        assert_eq!(
+            c(
+                "- a (chosen) [design] — w · planner\n- b (chosen) [design] — supersedes \"a\" · planner\n"
+            ),
+            ["b"]
+        );
+        assert_eq!(
+            c("- a (chosen) [design] — w\n- z (chosen) [design] — w\n"),
+            ["a", "z"]
+        );
+        assert_eq!(
+            c(
+                "- a (chosen) [spec] — w\n- b (chosen) [spec] — w\n- c (chosen) [spec MB-R-1] — w\n- d (chosen) [spec MB-R-2] — w\n"
+            ),
+            ["a", "b", "c", "d"]
+        );
+    }
 
     #[test]
     fn ut_needs_user() {
