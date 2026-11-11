@@ -198,6 +198,8 @@
 
 **GA-R-091** — A gauntlet step's `{crates}` argument runs at a review point as the crates the diff since the review point's base touches.
 
+**GA-R-105** — A batched, skipped or fast-lane stage's checks also run the review-level steps, `{crates}` as the crates its own diff touches.
+
 ## Stage questions
 
 **GA-R-094** — The implementer asks its open questions in one batch before review.

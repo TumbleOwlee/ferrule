@@ -36,7 +36,11 @@
 
 **GA-E-010** — On a project whose stack is not Rust, a stage's checks run only the push-level steps, not its new tests.
 
-**GA-E-011** — A `{crates}` argument runs as the whole workspace at a push, at gate 3 and when the diff touches no crate, and is dropped on a project whose stack is not Rust.
+**GA-E-011** — A `{crates}` argument runs as the whole workspace at a push without a stage, at gate 3 and when the diff touches no crate, and is dropped on a project whose stack is not Rust.
+
+**GA-E-017** — A stage whose diff touches no crate runs no review-level steps at its checks.
+
+**GA-E-018** — A stage change that breaks only a dependent crate's tests is caught at the review point or gate 3, not at the stage's checks.
 
 ## Stage stops
 

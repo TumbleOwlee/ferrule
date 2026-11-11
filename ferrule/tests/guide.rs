@@ -423,6 +423,26 @@ fn it_guides_call_each_check_level() {
     says("gate3", &["`ferrule ci gauntlet demo` (the full level"]);
 }
 
+/// GA-R-105 — the guides say a stage that commits before any review also gets
+/// the review-level steps at its checks.
+#[test]
+fn it_guides_widen_checks_before_an_unreviewed_commit() {
+    says(
+        "stages",
+        &[
+            "a batched, skipped or fast-lane stage also the review-level steps over the crates its diff touches",
+        ],
+    );
+    says(
+        "implementer",
+        &["also clippy and your changed packages' tests when the stage commits before any review"],
+    );
+    says(
+        "verify",
+        &["with the review-level steps for a stage that commits before any review"],
+    );
+}
+
 /// GW-R-036 — an adopted commit takes the stage checks, its tier and its review point.
 #[test]
 fn it_stages_guide_routes_an_adopted_commit_through_its_tier() {

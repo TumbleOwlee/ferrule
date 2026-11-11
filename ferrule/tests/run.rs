@@ -1032,6 +1032,74 @@ fn it_gauntlet_stage_checks_run_push_steps_and_new_tests() {
     );
 }
 
+const STAGE_CHECKS: [&str; 6] = ["ci", "gauntlet", "ss", "--level", "push", "--stage"];
+
+fn stage_checks(s: &Scratch) -> (String, String) {
+    let mut args = STAGE_CHECKS.to_vec();
+    args.push("s1");
+    let out = s.run(&args).text();
+    (out, gauntlet_log(s))
+}
+
+/// GA-R-105 — a batched stage's checks also run the review-level steps, a step
+/// naming both levels once, and not the unlabeled steps.
+#[test]
+fn it_gauntlet_batched_stage_checks_run_review_steps() {
+    let s = crate_scratch("stack = \"rust\"\n");
+    seed_set(&s.root, "ss.s1", &["tier=batched"]);
+    let (out, log) = stage_checks(&s);
+    assert!(out.starts_with("gauntlet=pass cov=? sha="), "{out}");
+    for name in ["pushed", "reviewed", "everywhere"] {
+        assert!(log.contains(&format!("### {name}:")), "{name}: {log}");
+    }
+    assert_eq!(log.matches("### everywhere:").count(), 1, "{log}");
+    assert!(log.contains("### test:t_added:"), "{log}");
+    assert!(!log.contains("### plain:"), "{log}");
+}
+
+/// GA-R-105 — a fast-lane stage's checks also run the review-level steps.
+#[test]
+fn it_gauntlet_fast_lane_stage_checks_run_review_steps() {
+    let s = crate_scratch("stack = \"rust\"\n");
+    seed_set(&s.root, "ss", &["lane=fast"]);
+    let (out, log) = stage_checks(&s);
+    assert!(out.starts_with("gauntlet=pass cov=? sha="), "{out}");
+    assert!(log.contains("### reviewed:"), "{log}");
+}
+
+/// GA-R-082, GA-R-105 — an own-tier stage's checks stay the push steps.
+#[test]
+fn it_gauntlet_own_stage_checks_skip_review_steps() {
+    let s = crate_scratch("stack = \"rust\"\n");
+    seed_set(&s.root, "ss.s1", &["tier=own"]);
+    let (out, log) = stage_checks(&s);
+    assert!(out.starts_with("gauntlet=pass cov=? sha="), "{out}");
+    assert!(log.contains("### pushed:"), "{log}");
+    assert!(log.contains("### test:t_added:"), "{log}");
+    assert!(!log.contains("### reviewed:"), "{log}");
+}
+
+/// GA-R-105, GA-E-011 — a widened stage's `{crates}` names the crates its diff
+/// touches.
+#[test]
+fn it_gauntlet_stage_checks_scope_crates_to_the_stage() {
+    let s = Scratch::new(1);
+    s.config(
+        "stack = \"rust\"\n[[gauntlet.step]]\nname = \"crates\"\ncmd = [\"echo\", \"{crates}\"]\nat = [\"review\"]\n",
+    );
+    std::fs::write(
+        s.wt.join("Cargo.toml"),
+        "[package]\nname = \"probe\"\nversion = \"0.0.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir(s.wt.join("src")).unwrap();
+    std::fs::write(s.wt.join("src/lib.rs"), "\n").unwrap();
+    seed_set(&s.root, "ss.s1", &["tier=skipped"]);
+    let (out, log) = stage_checks(&s);
+    assert!(out.starts_with("gauntlet=pass cov=? sha="), "{out}");
+    assert!(log.contains("### crates: echo -p probe"), "{log}");
+}
+
 /// GA-R-083 — `--level review` runs the steps labeled review and no stage test.
 #[test]
 fn it_gauntlet_review_level_runs_only_review_steps() {

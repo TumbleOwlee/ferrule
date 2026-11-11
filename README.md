@@ -166,7 +166,7 @@ Commands are grouped by what they act on. Most are run by the orchestrating agen
 
 | Command | Does |
 |---|---|
-| `ferrule ci gauntlet <slug> [--level push\|review\|full] [--stage s<n>] [--force]` | Run the `ferrule.toml` gauntlet steps of one level (default full) in the run's worktree, cached by tree; `--stage` adds the tests the stage's diff adds or rewrites; at full on a clean worktree the result is logged on the run card |
+| `ferrule ci gauntlet <slug> [--level push\|review\|full] [--stage s<n>] [--force]` | Run the `ferrule.toml` gauntlet steps of one level (default full) in the run's worktree, cached by tree; `--stage` adds the tests the stage's diff adds or rewrites, and the review-level steps over the stage's crates for a batched, skipped or fast-lane stage; at full on a clean worktree the result is logged on the run card |
 | `ferrule ci wait <slug>` | Wait for the PR's checks, log `ci=`, print the next step and the failed run's errors |
 | `ferrule ci failed [<branch>] [--run <id>] [--job <name>] [--context <n>]` | The error lines of a failed CI run, the branch's latest unless `--run` names one, each with `n` lines after it |
 
@@ -327,7 +327,7 @@ host = "github"              # github (gh) | bitbucket (.ferrule/bitbucket.local
 
 [[gauntlet.step]]
 name = "test"
-cmd = ["cargo", "test", "{crates}"]   # {crates}: --workspace, at review -p <crate> per crate the diff touches
+cmd = ["cargo", "test", "{crates}"]   # {crates}: --workspace, at review -p <crate> per crate the diff touches, at the stage checks per crate the stage's diff touches
 at = ["review"]              # levels it runs at besides full: push | review
 timeout = "30m"
 

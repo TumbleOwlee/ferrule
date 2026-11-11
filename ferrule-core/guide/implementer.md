@@ -87,7 +87,7 @@ Before every `inreview` or `committed` answer, check that each spec ID a test's 
 
 ## Checks
 
-The workflow runs the formatter and your new tests at every stage, clippy and the changed packages' tests at a review point, everything at gate 3. Run a suite only to see a failure it reported go green, never again before your answer. Your checks, cheapest first:
+The workflow runs the formatter and your new tests at every stage, also clippy and your changed packages' tests when the stage commits before any review, clippy and the changed packages' tests at a review point, everything at gate 3. Run a suite only to see a failure it reported go green, never again before your answer. Your checks, cheapest first:
 - the formatter, in check mode
 - the linter over the whole project, warnings as errors — so a dependant your change broke fails here
 - the tests of every package whose files you changed

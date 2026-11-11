@@ -17,8 +17,8 @@
 
 ## ferrule ci gauntlet
 
-- `--level <push|review|full>`, default full; `--stage s<n>` also runs the tests the stage's diff adds or rewrites (GA-R-082, GA-R-083, GA-R-084)
-- `[[gauntlet.step]] at = [<level>, …]` names the levels a step runs at besides full; `{crates}` in `cmd` expands per level (GA-R-091, GA-E-009, GA-E-011)
+- `--level <push|review|full>`, default full; `--stage s<n>` also runs the tests the stage's diff adds or rewrites, and for a stage that commits before its review the review-level steps, `{crates}` as the stage's crates (GA-R-082, GA-R-083, GA-R-084, GA-R-105, GA-E-017)
+- `[[gauntlet.step]] at = [<level>, …]` names the levels a step runs at besides full; `{crates}` in `cmd` expands per level (GA-R-091, GA-R-105, GA-E-009, GA-E-011)
 
 ## ferrule prompt show
 
