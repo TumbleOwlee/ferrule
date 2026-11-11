@@ -25,6 +25,7 @@ use crate::project::Layout;
 use crate::prompt;
 use crate::refusal::Refusal;
 use crate::remote::{self, IssueTracker, Item, ItemRef, Milestones};
+use crate::run::tier::{self, Risk, Tier, TierRefused};
 use crate::store::Board;
 
 /// Why `run init`, `gate approve` or `stage replan` refused.
@@ -61,6 +62,10 @@ pub enum GateRefusal {
     Branch(String),
     /// The new plan redefines a stage already committed.
     Committed(u32),
+    /// A skipped tier on a stage that carries a risk.
+    Tier { stage: u32, risk: Risk },
+    /// A plan risk word that names no risk.
+    RiskWord { stage: u32, word: String },
     /// A slice run on an issue with open blockers, before the user approved.
     Blocked {
         issue: String,
@@ -89,6 +94,7 @@ impl GateRefusal {
             GateRefusal::Epic => "epic",
             GateRefusal::Branch(_) => "branch",
             GateRefusal::Committed(_) => "committed",
+            GateRefusal::Tier { .. } | GateRefusal::RiskWord { .. } => "tier",
             GateRefusal::Blocked { .. } => "blocked",
         }
     }
@@ -135,6 +141,18 @@ impl GateRefusal {
             GateRefusal::Committed(n) => r.field("stage", format!("s{n}")).hint(format!(
                 "s{n} is committed and stays; number the new plan's stages around it"
             )),
+            GateRefusal::RiskWord { stage, word } => r
+                .field("stage", format!("s{stage}"))
+                .field("risk", word)
+                .hint(format!(
+                    "fix s{stage}'s Risk cell: `{word}` is none of host-writes, persisted-state, public-surface"
+                )),
+            GateRefusal::Tier { stage, risk } => r
+                .field("stage", format!("s{stage}"))
+                .field("risk", risk.as_str())
+                .hint(format!(
+                    "give s{stage} another tier with --tiers s{stage}=own or batched"
+                )),
             GateRefusal::Blocked {
                 issue,
                 blockers,
@@ -555,6 +573,12 @@ pub struct PlanStage {
     pub title: String,
     pub files: Vec<String>,
     pub blocked_by: Vec<String>,
+    /// The tier the plan proposes; `None` reads as own.
+    pub tier: Option<Tier>,
+    /// What forbids the skipped tier.
+    pub risk: Vec<Risk>,
+    /// Risk words that name no risk.
+    pub unknown_risk: Vec<String>,
 }
 
 fn cells_list(cell: &str) -> Vec<String> {
@@ -589,11 +613,28 @@ pub fn plan_stages(plan: &str) -> Vec<PlanStage> {
         let Some(n) = cells[1].strip_prefix('s').and_then(|n| n.parse().ok()) else {
             continue;
         };
+        let (tier, risk, unknown_risk) = if cells.len() >= 8 {
+            let words = cells_list(cells[6]);
+            (
+                Tier::parse(cells[5]),
+                words.iter().filter_map(|w| Risk::parse(w)).collect(),
+                words
+                    .iter()
+                    .filter(|w| Risk::parse(w).is_none())
+                    .cloned()
+                    .collect(),
+            )
+        } else {
+            (None, Vec::new(), Vec::new())
+        };
         out.push(PlanStage {
             n,
             title: cells[2].to_owned(),
             files: cells_list(cells[3]),
             blocked_by: cells_list(cells[4]),
+            tier,
+            risk,
+            unknown_risk,
         });
     }
     out
@@ -609,9 +650,16 @@ pub fn summary_stops(summary: &str) -> Vec<u32> {
         .collect()
 }
 
-/// The new stage cards of `stages`, open, with the settled stops.
+/// The new stage cards of `stages`, open, with the settled stops and tiers
+/// (`own` for a stage `tiers` does not name).
 #[must_use]
-pub fn stage_cards(slug: &str, stages: &[PlanStage], stops: &[u32], branch: &str) -> Vec<NewCard> {
+pub fn stage_cards(
+    slug: &str,
+    stages: &[PlanStage],
+    stops: &[u32],
+    tiers: &[(u32, Tier)],
+    branch: &str,
+) -> Vec<NewCard> {
     stages
         .iter()
         .map(|s| {
@@ -627,6 +675,15 @@ pub fn stage_cards(slug: &str, stages: &[PlanStage], stops: &[u32], branch: &str
                     (
                         "stop".to_owned(),
                         if stops.contains(&s.n) { "yes" } else { "no" }.to_owned(),
+                    ),
+                    (
+                        "tier".to_owned(),
+                        tiers
+                            .iter()
+                            .find(|(n, _)| *n == s.n)
+                            .map_or(Tier::Own, |(_, t)| *t)
+                            .as_str()
+                            .to_owned(),
                     ),
                 ],
                 log: Vec::new(),
@@ -669,6 +726,20 @@ pub fn parse_live_repo(v: &str) -> Result<String, String> {
         Some((owner, name)) if plain(owner) && plain(name) => Ok(v.to_owned()),
         _ => Err(format!("'{v}' is no repository; give it as <owner>/<name>")),
     }
+}
+
+/// [`tier::settle`], its refusal as a gate refusal.
+fn settle_tiers(stages: &[PlanStage], over: &[(u32, Tier)]) -> Result<Vec<(u32, Tier)>, Error> {
+    tier::settle(stages, over).map_err(|e| match e {
+        TierRefused::Risky { stage, risk } => Error::Refused(GateRefusal::Tier { stage, risk }),
+        TierRefused::UnknownRisk { stage, word } => {
+            Error::Refused(GateRefusal::RiskWord { stage, word })
+        }
+        // `parse_overrides` refuses these; `settle` never returns them.
+        TierRefused::UnknownStage(_) | TierRefused::UnknownTier(_) => {
+            Error::Refused(GateRefusal::Usage)
+        }
+    })
 }
 
 /// `stops=s1,s3`.
@@ -722,6 +793,15 @@ fn approve_gate2(
     if stages.is_empty() {
         return Err(Error::Refused(GateRefusal::NoStages));
     }
+    let summary =
+        std::fs::read_to_string(layout.run_dir(slug).join("plan.summary.md")).unwrap_or_default();
+    let mut stops = summary_stops(&summary);
+    stops.extend(stop_arg(arg(args, "stops")));
+    // A stage marked to stop takes its own review; a malformed `--tiers` was
+    // refused at the command line.
+    let mut over = tier::parse_overrides(arg(args, "tiers").unwrap_or("")).unwrap_or_default();
+    over.extend(stops.iter().map(|&n| (n, Tier::Own)));
+    let tiers = settle_tiers(&stages, &over)?;
     let reuse = match arg(args, "issue") {
         None | Some("" | "new") => None,
         Some(n) => Some(n.parse().map_err(|_| Error::Refused(GateRefusal::Usage))?),
@@ -769,16 +849,12 @@ fn approve_gate2(
     if let Some(repo) = arg(args, "live-repo") {
         fields.push(("live-repo".to_owned(), repo.to_owned()));
     }
-    let summary =
-        std::fs::read_to_string(layout.run_dir(slug).join("plan.summary.md")).unwrap_or_default();
-    let mut stops = summary_stops(&summary);
-    stops.extend(stop_arg(arg(args, "stops")));
     let existing = board::stages(conn, slug)?;
     let fresh: Vec<PlanStage> = stages
         .into_iter()
         .filter(|s| !existing.iter().any(|(n, _, _)| *n == s.n))
         .collect();
-    let cards = stage_cards(slug, &fresh, &stops, &branch);
+    let cards = stage_cards(slug, &fresh, &stops, &tiers, &branch);
     match board::set_move_create(conn, slug, &fields, State::InProgress, &cards, now) {
         Ok(()) => {}
         Err(board::BatchError::Move(_, board::MoveError::Sql(e))) => return Err(Error::Sql(e)),
@@ -981,6 +1057,11 @@ pub fn replan_approve(
     if fresh.is_empty() {
         return Err(Error::Refused(GateRefusal::NoStages));
     }
+    let summary = std::fs::read_to_string(dir.join("plan.summary.md")).unwrap_or_default();
+    let mut all_stops = summary_stops(&summary);
+    all_stops.extend_from_slice(stops);
+    let over: Vec<(u32, Tier)> = all_stops.iter().map(|&n| (n, Tier::Own)).collect();
+    let tiers = settle_tiers(&fresh, &over)?;
     let mut delete = Vec::new();
     let mut relog = Vec::new();
     for (n, id, _) in board::stages(conn, slug)? {
@@ -1020,10 +1101,7 @@ pub fn replan_approve(
     }
     relog.push(("replan=approved".to_owned(), Vec::new()));
     let branch = board::field(conn, slug, "branch")?.unwrap_or_default();
-    let summary = std::fs::read_to_string(dir.join("plan.summary.md")).unwrap_or_default();
-    let mut all_stops = summary_stops(&summary);
-    all_stops.extend_from_slice(stops);
-    let cards = stage_cards(slug, &fresh, &all_stops, &branch);
+    let cards = stage_cards(slug, &fresh, &all_stops, &tiers, &branch);
     board::replace_cards(conn, slug, &delete, &relog, &cards, now).map_err(Error::Board)?;
     Ok((from, cards.len()))
 }
@@ -1040,6 +1118,15 @@ mod tests {
         assert_eq!(s[1].files, ["a.rs", "b.rs"]);
         assert_eq!(s[1].blocked_by, ["s0"]);
         assert!(s[0].blocked_by.is_empty());
+    }
+
+    /// A risk word that names no risk is kept apart, not dropped.
+    #[test]
+    fn ut_plan_stage_keeps_unknown_risk_words() {
+        let plan = "## Shared\n| Stage | Title | Files | Blocked by | Tier | Risk |\n|---|---|---|---|---|---|\n| s1 | t | a.rs | — | skipped | host-write, public-surface |\n";
+        let s = plan_stages(plan);
+        assert_eq!(s[0].risk, [Risk::PublicSurface]);
+        assert_eq!(s[0].unknown_risk, ["host-write"]);
     }
 
     #[test]

@@ -17,7 +17,7 @@ Architecture — <n> findings above                      ← an axis line only f
 Docs — <what is stale>
 Not checked — <what you could not verify, and why> | nothing
 
-Minors (<folded into s<n+1> | fixed before commit>)
+Minors (fixed before commit)
 - <axis> — <package> <file> `<name>`: <problem, ≤ 12 words>; <fix, ≤ 8 words>
 
 Needs user
@@ -27,14 +27,16 @@ Needs user
 - none
 ```
 
-Minors are information, never asked: `folded into s<n+1>` when a stage follows, `fixed before commit` when none does. Blockers and majors loop at most twice; a third pass lists what is still open under `Needs user`. Every `Needs user` item carries your recommendation. A clean axis has no line: `Spec — 11 of 11 pinned` and `Not checked` are the evidence, a clean pass is those two lines under its `Verdict:`. `Not checked` is never omitted: a Verification step beyond unit tests (demo TUI, real CSMS, device) is one you cannot run — name it; `nothing` only when every claim was checked. A `delta` scope verdict carries only `Verdict:`, `Spec changes`, `Needs user`.
+Minors are information, never asked: always `fixed before commit`, by that stage's implementer. Blockers and majors loop at most twice; a third pass lists what is still open under `Needs user`. Every `Needs user` item carries your recommendation. A clean axis has no line: `Spec — 11 of 11 pinned` and `Not checked` are the evidence, a clean pass is those two lines under its `Verdict:`. `Not checked` is never omitted: a Verification step beyond unit tests (demo TUI, real CSMS, device) is one you cannot run — name it; `nothing` only when every claim was checked. A `delta` scope verdict carries only `Verdict:`, `Spec changes`, `Needs user`.
 
 Final message one line:
 
 ```
 status=clean file={run_dir}/review.md summary={run_dir}/review.verdict.md
-status=findings file={run_dir}/review.md summary={run_dir}/review.verdict.md count=<blockers+majors> user=<Needs user items> stage=[s2,s4]
+status=findings file={run_dir}/review.md summary={run_dir}/review.verdict.md count=<blockers+majors> blockers=<n> user=<Needs user items> stage=[s2,s4]
 status=blocked reason=<empty diff | unresolvable base ref | …>
 ```
+
+`blockers=<n>` (the blockers alone) goes on the status line of `stage` and `batch` scopes.
 
 Findings needing a user decision (scope question, spec ambiguity, semver call, a meaningful spec change, an architecture deviation) are flagged as `Needs user` with `user=<n>` on the status line, not resolved; with only those, `status=findings count=0 user=<n>`.

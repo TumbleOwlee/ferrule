@@ -206,7 +206,15 @@ pub const PARENT_FIELDS: &[&str] = &[
     "live-repo",
 ];
 /// Frontmatter keys a stage card may carry; `id` and `parent` are derived.
-pub const STAGE_FIELDS: &[&str] = &["title", "blocked-by", "files", "branch", "worktree", "stop"];
+pub const STAGE_FIELDS: &[&str] = &[
+    "title",
+    "blocked-by",
+    "files",
+    "branch",
+    "worktree",
+    "stop",
+    "tier",
+];
 
 /// Frontmatter keys only ferrule commands give a value, each with the
 /// command that does: a hand-set one would approve a gate or point
@@ -214,6 +222,7 @@ pub const STAGE_FIELDS: &[&str] = &["title", "blocked-by", "files", "branch", "w
 /// one stays open.
 pub const FERRULE_FIELDS: &[(&str, &str)] = &[
     ("gate2", "ferrule gate approve <slug> gate2"),
+    ("tier", "ferrule gate approve <slug> gate2"),
     (
         "live-repo",
         "ferrule gate approve <slug> gate2 --live-repo <owner/name>",
@@ -553,24 +562,52 @@ pub fn pass_shas(conn: &Connection, id: &str) -> rusqlite::Result<Vec<String>> {
     Ok(shas)
 }
 
-/// The `sha=` of the run card's newest `gauntlet=pass`, a later
-/// `gauntlet=fail` or `rebase=` not hiding it.
+/// The `sha=` of every `gauntlet=pass` and the value of every `pushed=` on a
+/// card logged after its last `rebase=`, oldest first.
+pub fn verified_shas(conn: &Connection, id: &str) -> rusqlite::Result<Vec<String>> {
+    let mut shas = Vec::new();
+    for e in events(conn, id, &[Name::Gauntlet, Name::Pushed, Name::Rebase])? {
+        match e.typed() {
+            Typed::Rebase { .. } => shas.clear(),
+            Typed::Pushed { sha }
+            | Typed::Gauntlet {
+                result: Verdict::Pass,
+                sha: Some(sha),
+                ..
+            } => shas.push(sha.to_owned()),
+            _ => {}
+        }
+    }
+    Ok(shas)
+}
+
+/// The value of the run card's newest `pushed=`; a card with none but a
+/// `pr` (a run pushed before `pushed=`) takes the `sha=` of its newest
+/// `gauntlet=pass`, a later `gauntlet=fail` or `rebase=` not hiding it.
 pub fn last_pushed(conn: &Connection, run: &str) -> rusqlite::Result<Option<String>> {
-    Ok(events(conn, run, &[Name::Gauntlet])?
-        .iter()
-        .rev()
-        .find_map(|e| match e.typed() {
+    let log = events(conn, run, &[Name::Gauntlet, Name::Pushed])?;
+    let pushed = log.iter().rev().find_map(|e| match e.typed() {
+        Typed::Pushed { sha } => Some(sha.to_owned()),
+        _ => None,
+    });
+    if pushed.is_none() && field(conn, run, "pr")?.is_none() {
+        return Ok(None);
+    }
+    Ok(pushed.or_else(|| {
+        log.iter().rev().find_map(|e| match e.typed() {
             Typed::Gauntlet {
                 result: Verdict::Pass,
                 sha: Some(sha),
                 ..
             } => Some(sha.to_owned()),
             _ => None,
-        }))
+        })
+    }))
 }
 
 /// Whether the run card's newest `rebase=` is newer than its newest
-/// `gauntlet=pass`.
+/// `pushed=`, or than its newest `gauntlet=pass` when it has no `pushed=` but
+/// a `pr`; a run never pushed has nothing to force.
 pub fn rebased_since_push(conn: &Connection, run: &str) -> rusqlite::Result<bool> {
     let newest = |name: &str, extra: &str| -> rusqlite::Result<Option<i64>> {
         conn.query_row(
@@ -582,8 +619,12 @@ pub fn rebased_since_push(conn: &Connection, run: &str) -> rusqlite::Result<bool
     let Some(rebase) = newest(Name::Rebase.stored(), "")? else {
         return Ok(false);
     };
-    let pass = newest(Name::Gauntlet.stored(), " AND value = 'pass'")?.unwrap_or(0);
-    Ok(rebase > pass)
+    let pushed = match newest(Name::Pushed.stored(), "")? {
+        Some(id) => id,
+        None if field(conn, run, "pr")?.is_none() => return Ok(false),
+        None => newest(Name::Gauntlet.stored(), " AND value = 'pass'")?.unwrap_or(0),
+    };
+    Ok(rebase > pushed)
 }
 
 /// IDs of run `run`'s requirements reworded after filing, from the
@@ -1156,7 +1197,7 @@ impl Refusal {
                 "commit the stage with `ferrule stage commit <card> -m <msg>` first".to_owned()
             }
             Refusal::Unverified => {
-                "run `ferrule ci gauntlet <slug>`, then `ferrule pr push <slug>`, which logs the gauntlet=pass that covers the commit sha"
+                "run `ferrule pr push <slug>`, which logs the pushed= that covers the commit sha"
                     .to_owned()
             }
             Refusal::Gate2 => {
@@ -1294,7 +1335,7 @@ fn refusal(
             (InReview, Done) => match last_value(conn, card.id, Name::Commit)? {
                 None => Some(Refusal::Commit),
                 Some(sha) => {
-                    let verified = pass_shas(conn, card.run)?
+                    let verified = verified_shas(conn, card.run)?
                         .iter()
                         .any(|p| same_commit(p, &sha));
                     (!verified).then_some(Refusal::Unverified)
@@ -1489,6 +1530,10 @@ impl Reader<'_> {
 
     pub fn pass_shas(&self, id: &str) -> rusqlite::Result<Vec<String>> {
         pass_shas(self.conn(), id)
+    }
+
+    pub fn verified_shas(&self, id: &str) -> rusqlite::Result<Vec<String>> {
+        verified_shas(self.conn(), id)
     }
 
     pub fn last_pushed(&self, run: &str) -> rusqlite::Result<Option<String>> {
@@ -1924,10 +1969,17 @@ mod tests {
         assert!(pass_shas(&s.conn, "r").unwrap().is_empty());
     }
 
+    fn pr_run_card() -> Store {
+        let mut s = store();
+        let pr = [("pr".to_owned(), "34".to_owned())];
+        create(&mut s.conn, "r", State::Open, &pr, "t").unwrap();
+        s
+    }
+
     /// The last pushed head survives a later fail and a rebase.
     #[test]
     fn ut_last_pushed_reads_the_last_pass_across_rebases() {
-        let s = run_card();
+        let s = pr_run_card();
         assert_eq!(last_pushed(&s.conn, "r").unwrap(), None);
         raw(&s, "r", "t1", "gauntlet=pass cov=? sha=aaa1111");
         raw(&s, "r", "t2", "rebase=xxx2222");
@@ -1938,10 +1990,61 @@ mod tests {
         );
     }
 
+    /// A push and a pass logged after the last `rebase=` both verify a
+    /// commit; those before it do not.
+    #[test]
+    fn ut_verified_shas_take_pushes_and_passes_after_the_last_rebase() {
+        let s = run_card();
+        raw(&s, "r", "t1", "pushed=aaa1111");
+        raw(&s, "r", "t2", "gauntlet=pass cov=? sha=bbb2222");
+        assert_eq!(verified_shas(&s.conn, "r").unwrap(), ["aaa1111", "bbb2222"]);
+        raw(&s, "r", "t3", "rebase=xxx3333");
+        assert!(verified_shas(&s.conn, "r").unwrap().is_empty());
+        raw(&s, "r", "t4", "pushed=ccc4444");
+        raw(&s, "r", "t5", "gauntlet=fail sha=ddd5555");
+        assert_eq!(verified_shas(&s.conn, "r").unwrap(), ["ccc4444"]);
+    }
+
+    /// The newest `pushed=` wins over a newer `gauntlet=pass`.
+    #[test]
+    fn ut_last_pushed_prefers_pushed() {
+        let s = run_card();
+        raw(&s, "r", "t1", "pushed=aaa1111");
+        raw(&s, "r", "t2", "gauntlet=pass cov=? sha=bbb2222");
+        assert_eq!(
+            last_pushed(&s.conn, "r").unwrap().as_deref(),
+            Some("aaa1111")
+        );
+    }
+
+    /// GW-R-050 — with a `pushed=` on the card a later `gauntlet=pass` does
+    /// not end a rebase's need to force.
+    #[test]
+    fn ut_rebased_since_push_ignores_a_later_pass_when_pushed_exists() {
+        let s = run_card();
+        raw(&s, "r", "t1", "pushed=aaa1111");
+        raw(&s, "r", "t2", "rebase=xxx2222");
+        raw(&s, "r", "t3", "gauntlet=pass cov=? sha=bbb2222");
+        assert!(rebased_since_push(&s.conn, "r").unwrap());
+        raw(&s, "r", "t4", "pushed=ccc3333");
+        assert!(!rebased_since_push(&s.conn, "r").unwrap());
+    }
+
+    /// A run never pushed, with a pass but no `pr`, takes no lease: nothing
+    /// to force and no head pushed.
+    #[test]
+    fn ut_a_gauntlet_pass_alone_is_no_push() {
+        let s = run_card();
+        raw(&s, "r", "t1", "gauntlet=pass cov=? sha=aaa1111");
+        raw(&s, "r", "t2", "rebase=xxx2222");
+        assert!(!rebased_since_push(&s.conn, "r").unwrap());
+        assert_eq!(last_pushed(&s.conn, "r").unwrap(), None);
+    }
+
     /// A rebase counts as unpushed until a later pass.
     #[test]
     fn ut_rebased_since_push_compares_the_last_rebase_and_pass() {
-        let s = run_card();
+        let s = pr_run_card();
         assert!(!rebased_since_push(&s.conn, "r").unwrap());
         raw(&s, "r", "t1", "gauntlet=pass cov=? sha=aaa1111");
         assert!(!rebased_since_push(&s.conn, "r").unwrap());

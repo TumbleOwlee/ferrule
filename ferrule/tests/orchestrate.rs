@@ -90,7 +90,7 @@ impl Project {
         std::fs::create_dir_all(root.join(".ferrule")).unwrap();
         std::fs::write(
             root.join(".ferrule/ferrule.toml"),
-            "[[gauntlet.step]]\nname = \"check\"\ncmd = [\"true\"]\n",
+            "[[gauntlet.step]]\nname = \"check\"\ncmd = [\"true\"]\nat = [\"push\"]\n",
         )
         .unwrap();
         Project {
@@ -542,7 +542,7 @@ fn first_stage(p: &Project) {
     let pushed = p.ok(&["pr", "push", "demo"]);
     assert!(pushed.starts_with("push=done sha="), "{pushed}");
     assert!(
-        pushed.ends_with(" gauntlet=pass pr-body=opened pr=34"),
+        pushed.ends_with(" checks=fast pr-body=opened pr=34"),
         "{pushed}"
     );
     assert_eq!(p.field("demo", "pr"), "34");
@@ -550,7 +550,7 @@ fn first_stage(p: &Project) {
         git(&p.root, &["rev-parse", "--short", "origin/feat/demo"]),
         sha0
     );
-    assert!(p.field("demo", "pass-sha").starts_with(&sha0));
+    assert!(p.field("demo", "log:pushed").starts_with(&sha0));
 
     gh.serve(
         &["pr", "view", "34", "--json", "state,isDraft,body"],
@@ -2450,7 +2450,7 @@ fn it_push_refuses_a_branch_only_behind_the_remote() {
     assert!(got.starts_with(&line), "{got}");
 }
 
-/// GW-R-036, S1 — an adopted commit is reviewed, gauntleted and pushed as a fast-forward.
+/// GW-R-036, S1 — an adopted commit gets the push checks and is pushed as a fast-forward.
 #[test]
 fn it_adopted_commit_pushes_as_a_fast_forward() {
     let (p, _) = pushed_run();
@@ -2484,7 +2484,7 @@ fn it_adopted_commit_pushes_as_a_fast_forward() {
     assert!(!p.ok(&["board", "show", "demo"]).contains("replan"));
 }
 
-/// GW-R-009 — the divergence check runs before the gauntlet.
+/// GW-R-009 — the divergence check runs before the fast checks, so a diverged push runs no fast check.
 #[test]
 fn it_diverged_push_runs_no_gauntlet() {
     let (p, _, _) = diverged_run();
@@ -2601,10 +2601,10 @@ fn it_dirty_and_sha_refusals_precede_diverged() {
 
 /// GW-R-010, S6 — a branch missing from the remote is a normal first push.
 #[test]
-fn it_first_push_runs_the_gauntlet() {
+fn it_first_push_runs_the_fast_checks() {
     let (p, first) = pushed_run();
     assert!(first.starts_with("push=done sha="), "{first}");
-    assert!(first.contains(" gauntlet=pass pr-body=opened"), "{first}");
+    assert!(first.contains(" checks=fast pr-body=opened"), "{first}");
     assert!(!first.contains("cached"), "{first}");
     git(
         &p.root,
@@ -2612,7 +2612,7 @@ fn it_first_push_runs_the_gauntlet() {
     );
 }
 
-/// GW-R-011, S7 — a check that cannot complete lets the gauntlet and the push go on.
+/// GW-R-011, S7 — a divergence check that cannot complete lets the fast checks and the push go on.
 #[test]
 fn it_unreadable_remote_runs_the_gauntlet_and_the_push() {
     let (p, _) = pushed_run();
@@ -3591,6 +3591,11 @@ fn it_rebase_stops_on_a_conflict_and_maps_after_continue() {
         got.starts_with(&format!("rebase=done head={} mapped=2\n", wt_head(&p))),
         "{got}"
     );
+    let pushed = push_text(&p);
+    assert!(
+        pushed.starts_with(&format!("push=done sha={} checks=fast forced", wt_head(&p))),
+        "{pushed}"
+    );
 }
 
 /// Whether `ferrule hook shell` lets `cmd` run from the run's worktree.
@@ -3772,16 +3777,22 @@ fn rebased_after_push() -> (Project, String) {
     (p, pushed)
 }
 
-/// GW-R-007, GW-R-045, GW-R-050 — a push after a rebase reruns the gauntlet and forces with a lease.
+/// GW-R-007, GW-R-050, GW-R-079, S11 — a push after a rebase runs only the fast checks and forces with a lease.
 #[test]
-fn it_push_after_a_rebase_reruns_the_gauntlet_and_forces_with_lease() {
+fn it_push_after_a_rebase_runs_the_fast_checks_and_forces_with_lease() {
     let (p, _) = rebased_after_push();
+    std::fs::write(
+        p.root.join(".ferrule/ferrule.toml"),
+        "[[gauntlet.step]]\nname = \"check\"\ncmd = [\"true\"]\nat = [\"push\"]\n\n\
+         [[gauntlet.step]]\nname = \"slow\"\ncmd = [\"false\"]\n",
+    )
+    .unwrap();
     let head = wt_head(&p);
     let log = p.run_dir().join("gauntlet.log");
     let _ = std::fs::remove_file(&log);
     let got = push_text(&p);
     assert!(
-        got.starts_with(&format!("push=done sha={head} gauntlet=pass forced")),
+        got.starts_with(&format!("push=done sha={head} checks=fast forced")),
         "{got}"
     );
     assert!(!got.contains("cached"), "{got}");
@@ -3792,29 +3803,33 @@ fn it_push_after_a_rebase_reruns_the_gauntlet_and_forces_with_lease() {
     assert!(!again.contains("forced"), "{again}");
 }
 
-/// GW-R-045 — a push after a recorded rebase reruns the gauntlet even when the tree's pass is cached.
+/// GW-R-045 — after a recorded rebase no earlier `gauntlet=pass` counts, and
+/// `ferrule ci gauntlet` on the clean head logs a pass that does.
 #[test]
-fn it_push_after_a_rebase_reruns_a_cached_gauntlet() {
+fn it_gauntlet_after_a_rebase_logs_a_fresh_pass() {
     let p = pushed_s1();
     let head = wt_head(&p);
+    let pass = |p: &Project| {
+        p.ok(&["run", "status", "demo"])
+            .lines()
+            .any(|l| l.starts_with("gauntlet=pass"))
+    };
+    let first = p.ferrule(&["ci", "gauntlet", "demo"]).text();
+    assert!(first.starts_with("gauntlet=pass "), "{first}");
+    assert!(pass(&p));
     seed_log(
         &p.root,
         "2026-10-05T09:00",
         "demo",
         &[&format!("rebase={head} base=origin/main from={head}")],
     );
-    let log = p.run_dir().join("gauntlet.log");
-    let _ = std::fs::remove_file(&log);
-    let got = push_text(&p);
-    assert!(
-        got.starts_with(&format!("push=done sha={head} gauntlet=pass forced")),
-        "{got}"
-    );
-    assert!(!got.contains("cached"), "{got}");
-    assert!(log.is_file());
+    assert!(!pass(&p), "the earlier pass no longer counts");
+    let again = p.ferrule(&["ci", "gauntlet", "demo"]).text();
+    assert!(again.starts_with("gauntlet=pass "), "{again}");
+    assert!(pass(&p), "the new pass counts");
 }
 
-/// GW-R-064 — after a mapped rebase the status shows no gauntlet result until a later push logs one.
+/// GW-R-064 — after a mapped rebase the status shows no gauntlet result until a later gauntlet line is logged.
 #[test]
 fn it_run_status_shows_no_gauntlet_result_from_before_a_rebase() {
     let p = pushed_s1();
@@ -3823,6 +3838,8 @@ fn it_run_status_shows_no_gauntlet_result_from_before_a_rebase() {
             .lines()
             .any(|l| l.starts_with(line))
     };
+    let first = p.ferrule(&["ci", "gauntlet", "demo"]).text();
+    assert!(first.starts_with("gauntlet=pass "), "{first}");
     assert!(has(&p, "gauntlet=pass"));
     p.diverge_branch("main");
     let got = rebase(&p, &[]);
@@ -3831,7 +3848,49 @@ fn it_run_status_shows_no_gauntlet_result_from_before_a_rebase() {
     assert!(st.lines().any(|l| l == "gauntlet=-"), "{st}");
     let got = push_text(&p);
     assert!(got.starts_with("push=done"), "{got}");
+    assert!(!has(&p, "gauntlet=pass"), "a push logs no gauntlet line");
+    let later = p.ferrule(&["ci", "gauntlet", "demo"]).text();
+    assert!(later.starts_with("gauntlet=pass "), "{later}");
     assert!(has(&p, "gauntlet=pass"));
+}
+
+/// GW-R-078 — a push runs the push-level steps only: a step with no level
+/// that would fail does not run, and the push logs `pushed=` and no `gauntlet=`.
+#[test]
+fn it_push_runs_only_the_push_level_steps() {
+    let (p, _) = pushed_run();
+    std::fs::write(
+        p.root.join(".ferrule/ferrule.toml"),
+        "[[gauntlet.step]]\nname = \"quick\"\ncmd = [\"true\"]\nat = [\"push\"]\n\n\
+         [[gauntlet.step]]\nname = \"slow\"\ncmd = [\"false\"]\n",
+    )
+    .unwrap();
+    let sha = p.land("s1", "src/client.rs");
+    let got = push_text(&p);
+    assert!(
+        got.starts_with(&format!("push=done sha={sha} checks=fast ")),
+        "{got}"
+    );
+    let log = std::fs::read_to_string(p.run_dir().join("gauntlet.log")).unwrap();
+    assert!(
+        log.contains("### quick:") && !log.contains("### slow:"),
+        "{log}"
+    );
+    let card = p.ok(&["board", "show", "demo"]);
+    assert!(card.contains(&format!("pushed={sha}")), "{card}");
+    assert!(!card.contains("gauntlet="), "{card}");
+}
+
+/// A pushed commit verifies its stage with no `gauntlet=pass` on
+/// the card.
+#[test]
+fn it_pushed_commit_lets_the_stage_move_to_done() {
+    let (p, _) = pushed_run();
+    p.land("s1", "src/client.rs");
+    let got = push_text(&p);
+    assert!(got.starts_with("push=done "), "{got}");
+    p.ok(&["board", "move", "demo.s1", "done"]);
+    assert!(!p.ok(&["board", "show", "demo"]).contains("gauntlet=pass"));
 }
 
 /// GW-R-051 — a remote moved by someone else refuses the force-push before the gauntlet.
@@ -3876,7 +3935,7 @@ fn it_push_after_a_rebase_refuses_a_branch_deleted_on_origin() {
     assert!(heads.is_empty(), "{heads}");
 }
 
-/// GW-R-062 — a remote check that cannot complete lets the gauntlet and the push go on.
+/// GW-R-062 — a remote check that cannot complete lets the fast checks and the push go on.
 #[test]
 fn it_push_after_a_rebase_goes_on_when_the_remote_is_unreadable() {
     let (p, _) = rebased_after_push();
@@ -3982,6 +4041,160 @@ fn it_gate2_refuses_a_malformed_live_repo() {
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(err.contains("<owner>/<name>"), "{err}");
     assert_eq!(p.field("demo", "live-repo"), "");
+}
+
+/// A plan with tier and risk columns: s1 and s2 as given, s0 own.
+fn tier_plan(s1: &str, s2: &str) -> String {
+    format!(
+        "# demo — plan (rev 1)\n\n## Shared\n\
+         | Stage | Title | Files | Blocked by | Tier | Risk |\n|---|---|---|---|---|---|\n\
+         | s0 | Land spec | docs/specs/modbus/requirements.md | — | own | — |\n\
+         | s1 | Add backoff | src/client.rs | s0 | {s1} |\n\
+         | s2 | Show status | src/tab.rs | s1 | {s2} |\n\n## Stage s0: Land spec\n"
+    )
+}
+
+/// A run ready for gate 2 with `plan` and no stop in its summary.
+fn gate2_ready(p: &Project, plan: &str) {
+    p.ok(&["run", "init", "demo"]);
+    p.artifacts();
+    std::fs::remove_file(p.run_dir().join("plan.summary.md")).unwrap();
+    std::fs::write(p.run_dir().join("plan.md"), plan).unwrap();
+    p.ok(&["board", "set", "demo", "lane=fast", "arch=skipped"]);
+    serve(
+        &p.gh,
+        &find("Reconnect dropped Modbus clients"),
+        r#"[{"number":12,"title":"Reconnect dropped Modbus clients"}]"#,
+    );
+    serve(
+        &p.gh,
+        &edit_issue("12", "Reconnect dropped Modbus clients"),
+        "",
+    );
+    adopted_issue(&p.gh, "12");
+}
+
+fn tiers(p: &Project) -> Vec<String> {
+    ["s0", "s1", "s2"]
+        .iter()
+        .map(|s| p.field(&format!("demo.{s}"), "tier"))
+        .collect()
+}
+
+/// GA-R-070, S1 — the plan's tiers and `--tiers` overrides land as each
+/// stage card's `tier:` field.
+#[test]
+fn it_gate2_sets_each_stage_tier() {
+    let p = Project::new();
+    gate2_ready(&p, &tier_plan("batched | —", "batched | —"));
+    p.ok(&["gate", "approve", "demo", "gate2", "--tiers", "s2=skipped"]);
+    assert_eq!(tiers(&p), ["own", "batched", "skipped"]);
+}
+
+/// GA-R-071, S2 — a skipped stage with a risk is refused, by the plan or by
+/// an override, before anything is written.
+#[test]
+fn it_gate2_refuses_skipped_on_a_risky_stage() {
+    let by_plan = Project::new();
+    gate2_ready(&by_plan, &tier_plan("skipped | host-writes", "own | —"));
+    let got = by_plan
+        .ferrule(&["gate", "approve", "demo", "gate2"])
+        .text();
+    assert!(
+        got.starts_with("approve=refused reason=tier stage=s1 risk=host-writes hint="),
+        "{got}"
+    );
+    let by_override = Project::new();
+    gate2_ready(
+        &by_override,
+        &tier_plan("own | —", "batched | persisted-state"),
+    );
+    let got = by_override
+        .ferrule(&["gate", "approve", "demo", "gate2", "--tiers", "s2=skipped"])
+        .text();
+    assert!(
+        got.starts_with("approve=refused reason=tier stage=s2 risk=persisted-state hint="),
+        "{got}"
+    );
+    for p in [&by_plan, &by_override] {
+        let log = p.gh.log();
+        assert!(
+            !log.contains("issue edit") && !log.contains("issue create"),
+            "{log}"
+        );
+        assert!(!p.worktree().exists());
+        assert_eq!(p.field("demo", "gate2"), "");
+        assert!(!p.ok(&["board", "list"]).contains("demo.s1"));
+    }
+}
+
+/// GA-E-014 — a Risk word that names no risk is refused, naming the stage
+/// and the word, before anything is written.
+#[test]
+fn it_gate2_refuses_an_unknown_risk_word() {
+    let p = Project::new();
+    gate2_ready(&p, &tier_plan("skipped | host_writes", "own | —"));
+    let got = p.ferrule(&["gate", "approve", "demo", "gate2"]).text();
+    assert!(
+        got.starts_with(
+            "approve=refused reason=tier stage=s1 risk=host_writes hint=fix s1's Risk cell"
+        ),
+        "{got}"
+    );
+    assert!(!p.worktree().exists());
+    assert_eq!(p.field("demo", "gate2"), "");
+
+    let own = Project::new();
+    gate2_ready(&own, &tier_plan("own | host_writes", "own | —"));
+    let got = own.ferrule(&["gate", "approve", "demo", "gate2"]).text();
+    assert!(
+        got.starts_with(
+            "approve=refused reason=tier stage=s1 risk=host_writes hint=fix s1's Risk cell"
+        ),
+        "{got}"
+    );
+    assert!(!own.worktree().exists());
+    assert_eq!(own.field("demo", "gate2"), "");
+}
+
+/// GA-R-081 — a slice run takes its stages' tiers from its own plan.
+#[test]
+fn it_slice_run_takes_tiers_from_its_plan() {
+    let p = Project::new();
+    gate2_ready(&p, &tier_plan("skipped | —", "batched | —"));
+    seed_set(
+        &p.root,
+        "demo",
+        &["kind=slice", "epic=70", "milestone=4", "slice=2"],
+    );
+    p.ok(&["gate", "approve", "demo", "gate2"]);
+    assert_eq!(tiers(&p), ["own", "skipped", "batched"]);
+}
+
+/// GA-R-089 — a stage marked to stop, by the summary's Stop column or by
+/// `--stops`, takes the own tier over a batched plan row.
+#[test]
+fn it_gate2_stop_makes_a_stage_own() {
+    let p = Project::new();
+    gate2_ready(&p, &tier_plan("batched | —", "batched | —"));
+    std::fs::copy(
+        fixtures().join("board/artifacts/demo/plan.summary.md"),
+        p.run_dir().join("plan.summary.md"),
+    )
+    .unwrap();
+    p.ok(&["gate", "approve", "demo", "gate2", "--stops", "s2"]);
+    assert_eq!(p.field("demo.s1", "stop"), "yes");
+    assert_eq!(p.field("demo.s2", "stop"), "yes");
+    assert_eq!(tiers(&p), ["own", "own", "own"]);
+}
+
+/// GA-E-006 — a plan table without tier and risk columns reads as own.
+#[test]
+fn it_gate2_four_column_table_reads_as_own() {
+    let p = Project::new();
+    gate2_ready(&p, PLAN);
+    p.ok(&["gate", "approve", "demo", "gate2"]);
+    assert_eq!(tiers(&p), ["own", "own", "own"]);
 }
 
 /// RU-E-018 — `live-repo` is set by gate 2 only; `board set` refuses it.

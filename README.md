@@ -152,6 +152,7 @@ Commands are grouped by what they act on. Most are run by the orchestrating agen
 |---|---|
 | `ferrule stage verify <slug> s<n> <sha>` | Verify a reported commit before anything is pushed |
 | `ferrule stage stop <slug> s<n> [--threads n]` | Stop or auto-continue a clean stage, logged on its card |
+| `ferrule stage tier <slug> s<n> [--after-blocker]` | Decide a green stage's tier and review point, logged on its card |
 | `ferrule stage commit <card> -m <msg>` | Commit for a stage in review: never on the main branch, trailers stripped, `commit=` logged |
 | `ferrule stage commit <card> --adopt <sha>` | Log HEAD, committed outside ferrule, as the stage's `commit=` after strict checks; no new commit |
 | `ferrule stage commit <card> -m <msg> --replaced <old>=<new>` | Name a removed or rewritten test's replacement (repeatable, also with `--adopt`); logged on the card |
@@ -164,7 +165,7 @@ Commands are grouped by what they act on. Most are run by the orchestrating agen
 
 | Command | Does |
 |---|---|
-| `ferrule ci gauntlet <slug> [--force]` | Run the `ferrule.toml` gauntlet steps in the run's worktree, cached by tree |
+| `ferrule ci gauntlet <slug> [--level push\|review\|full] [--stage s<n>] [--force]` | Run the `ferrule.toml` gauntlet steps of one level (default full) in the run's worktree, cached by tree; `--stage` adds the tests the stage's diff adds or rewrites; at full on a clean worktree the result is logged on the run card |
 | `ferrule ci wait <slug>` | Wait for the PR's checks, log `ci=`, print the next step and the failed run's errors |
 | `ferrule ci failed [<branch>] [--run <id>] [--job <name>] [--context <n>]` | The error lines of a failed CI run, the branch's latest unless `--run` names one, each with `n` lines after it |
 
@@ -227,7 +228,7 @@ Commands are grouped by what they act on. Most are run by the orchestrating agen
 | `ferrule pr view <n>` | A PR's title, body and a one-line index of its comments; `--comment <n\|a-b>` or `--comments` prints them in full |
 | `ferrule pr body <slug> draft\|full` | The PR body from the run's artifacts and cards; exit 3 when it names a stage or an agent |
 | `ferrule pr open <slug>` | Open the draft PR from the rendered draft body |
-| `ferrule pr push <slug>` | Push a verified, gauntlet-green head; update the draft body (the first push opens the PR) |
+| `ferrule pr push <slug>` | Push a verified head after the fast checks (push-level steps); update the draft body (the first push opens the PR) |
 | `ferrule pr push --no-run` | Push the current branch outside a run, never the main one |
 | `ferrule pr publish <slug> [--follow-ups 1,3\|none]` | Gate 4: threads, ID collisions, full body, ready, follow-ups filed |
 | `ferrule pr feedback route <slug>` | Fetch the threads, log `feedback=`, move the stages owning the commented files back |
@@ -303,10 +304,12 @@ A project overrides a topic with `.ferrule/guide/<topic>.md`:
 `plan.md`'s `## Shared` section opens with the stage table that `ferrule gate approve <slug> gate2` creates the stage cards from:
 
 ```
-| Stage | Title       | Files                          | Blocked by |
-|-------|-------------|--------------------------------|------------|
-| s1    | Add backoff | src/client.rs, tests/client.rs | s0         |
+| Stage | Title       | Files                          | Blocked by | Tier    | Risk       |
+|-------|-------------|--------------------------------|------------|---------|------------|
+| s1    | Add backoff | src/client.rs, tests/client.rs | s0         | batched | —          |
 ```
+
+`Tier` is `own`, `batched` or `skipped` (how the stage is reviewed); `Risk` lists `host-writes`, `persisted-state` or `public-surface`, and a stage with a risk cannot be skipped. A table without the two columns reads as own, no risk.
 
 ## Configuration
 
@@ -323,7 +326,8 @@ host = "github"              # github (gh) | bitbucket (.ferrule/bitbucket.local
 
 [[gauntlet.step]]
 name = "test"
-cmd = ["cargo", "test", "--workspace"]
+cmd = ["cargo", "test", "{crates}"]   # {crates}: --workspace, at review -p <crate> per crate the diff touches
+at = ["review"]              # levels it runs at besides full: push | review
 timeout = "30m"
 
 [[gauntlet.step]]

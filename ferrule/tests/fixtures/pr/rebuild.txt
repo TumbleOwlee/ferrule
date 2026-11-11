@@ -12,8 +12,8 @@ The 1 scenario of #21: S1 Server restarts during polling
 
 ## Stages
 - [x] Land spec (SHA0) <!-- s0 -->
-- [x] Retry with backoff (SHA1) <!-- s1 blocked-by s0 -->
-- [ ] Render reconnecting — next <!-- s2 blocked-by s1 -->
+- [x] Retry with backoff (SHA1) <!-- s1 blocked-by s0 stop -->
+- [ ] Render reconnecting — next <!-- s2 blocked-by s1 tier batched -->
   - beyond unit tests: demo TUI
     - see "reconnecting" in the tab
 

@@ -256,7 +256,7 @@ impl Ctx<'_> {
 }
 
 /// The events that move a run through its reviews and CI.
-const CYCLE: [Name; 9] = [
+const CYCLE: [Name; 10] = [
     Name::PlanReview,
     Name::Review,
     Name::Ci,
@@ -264,6 +264,7 @@ const CYCLE: [Name; 9] = [
     Name::ReplanApproved,
     Name::Commit,
     Name::Gauntlet,
+    Name::Pushed,
     Name::Pr,
     Name::Stop,
 ];

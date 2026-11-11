@@ -130,23 +130,23 @@ See: ferrule guide show stages";
 
 const PR_PUSH_AFTER_LONG_HELP: &str = "\
 Output:
-  push=done sha=<sha> gauntlet=pass [cached] [forced] pr-body=pushed
+  push=done sha=<sha> checks=fast [cached] [forced] pr-body=pushed
       Pushed the branch. `cached` when the commit is the reviewed tree.
       `forced` when a rebase was recorded since the last push: the push was
       `--force-with-lease=refs/heads/<branch>:<sha>` on the head ferrule
-      last pushed. The
-      pass is logged as `gauntlet=pass` with cov= and sha= on the card.
+      last pushed. Only the push-level steps ran (`checks=fast`), and the
+      push logs `pushed=<sha>` on the card.
       The PR's draft body was updated. `pr-body=unchanged` when it already
       matched.
-  push=done sha=<sha> gauntlet=pass pr-body=refused reason=stage-ref stage-ref=<token> hint=reword the text naming it; the PR keeps its previous body
+  push=done sha=<sha> checks=fast pr-body=refused reason=stage-ref stage-ref=<token> hint=reword the text naming it; the PR keeps its previous body
       Pushed (exit 0), but the draft body names a stage or an agent: the
       token sits in a card's `spec-delta` why or a `decisions.md` line.
       Fix: have the agent that wrote it reword it, then push again.
-  push=done sha=<sha> gauntlet=pass [cached] pr-body=opened pr=<n>
+  push=done sha=<sha> checks=fast [cached] pr-body=opened pr=<n>
       The first push: it also opened draft PR <n> and recorded it (or
       adopted the branch's open PR, as `pr open` does).
   push=done branch=<branch>
-      `--no-run`: `git push -u origin <branch>`; no gauntlet, no PR.
+      `--no-run`: `git push -u origin <branch>`; no checks, no PR.
 Refusals (stdout, exit 1):
   push=refused reason=main hint=push from a branch other than main
       The branch is the main branch. Fix: push from another branch.
@@ -160,14 +160,14 @@ Refusals (stdout, exit 1):
   push=refused reason=diverged local=<sha> remote=<sha> hint=the remote branch holds commits the local one lacks: in a run, rebase it with ferrule run rebase <slug>, or resolve it outside ferrule; never force-push by hand
       The remote branch's head is not an ancestor of the local head: the
       local branch is behind it or both moved. Checked after `git fetch`,
-      before the gauntlet, with `--no-run` too. A check that cannot complete
+      before the fast checks, with `--no-run` too. A check that cannot complete
       (no network, a remote asking for credentials, 60 seconds) lets the push
       go on. Fix: `ferrule run rebase <slug>` in a run, or resolve it outside
       ferrule; never force-push by hand.
   push=refused reason=lease remote=<sha|none> pushed=<sha|none> hint=origin's branch moved since ferrule last pushed it: someone else pushed; ask the user, never force-push by hand
       Only after a rebase recorded since the last push: origin's branch is
       not the head ferrule last pushed (`none`: absent). Checked before the
-      gauntlet; a check that cannot complete lets the push go on. `--no-run`
+      fast checks; a check that cannot complete lets the push go on. `--no-run`
       never forces.
   push=refused reason=rebasing hint=a rebase is in progress in the worktree: resolve and GIT_EDITOR=true git rebase --continue, then ferrule run rebase <slug>; or git rebase --abort
       A rebase is in progress in the run's worktree.
@@ -175,10 +175,10 @@ Refusals (stdout, exit 1):
       The worktree holds changes beyond HEAD (modified or untracked
       files). Fix: commit them through `ferrule stage commit`, push again.
   push=refused reason=gauntlet step=<name> sha=<sha> [timeout=yes] log=<path> hint=fix the failing step, commit, push again
-      The gauntlet failed on the head, as `ci gauntlet` reports it. Fix:
+      A push-level step failed on the head, as `ci gauntlet --level push` reports it. Fix:
       fix the step, commit, push again.
-  push=refused reason=no-worktree|no-steps hint=<fix>
-      The gauntlet could not run, as `ci gauntlet` refuses it.
+  push=refused reason=no-worktree hint=<fix>
+      The checks could not run, as `ci gauntlet` refuses it.
   push=refused reason=push detail=\"<git's error>\" hint=git push to origin failed (network, auth or a rejected update); retry once, then ask the user
       `git push` failed; detail is what git said, and the shell guard
       refuses a raw `git push`. Fix: retry once, then ask the user.
@@ -274,7 +274,7 @@ pub enum PrCommand {
     /// Push the run's branch and update or open the draft PR.
     ///
     /// The branch head must be a stage's verified commit and pass the
-    /// gauntlet; the pass is logged.
+    /// fast checks; the push is logged.
     #[command(after_long_help = PR_PUSH_AFTER_LONG_HELP)]
     Push {
         /// The run's slug; omitted with `--no-run`.

@@ -181,6 +181,15 @@ pub const VOCABULARY: &[Event] = &[
     ev(Stage, "auto=", V::Any, P::None, &[], Text::No).by("ferrule stage stop <slug> <n>"),
     ev(Stage, "stop=", V::Any, P::None, &[], Text::No).by("ferrule stage stop <slug> <n>"),
     ev(
+        Stage,
+        "tier=",
+        V::OneOf(&["own", "batched", "skipped"]),
+        P::None,
+        &["promoted"],
+        Text::No,
+    )
+    .by("ferrule stage tier <slug> <n>"),
+    ev(
         Parent,
         "stop",
         V::None,
@@ -213,7 +222,8 @@ pub const VOCABULARY: &[Event] = &[
         &["cov", "sha", "step", "reason"],
         Text::No,
     )
-    .by("ferrule pr push <slug>"),
+    .by("ferrule ci gauntlet <slug>"),
+    ev(Parent, "pushed=", V::Any, P::None, &[], Text::No).by("ferrule pr push <slug>"),
     ev(
         Parent,
         "rebase=",
@@ -1114,7 +1124,7 @@ mod tests {
         let got = check("gauntlet=pass", &args("sha=x"), agent).unwrap_err();
         assert_eq!(
             got.to_string(),
-            "card-log=reject reason=owner event=gauntlet hint=only ferrule logs it, with `ferrule pr push <slug>`"
+            "card-log=reject reason=owner event=gauntlet hint=only ferrule logs it, with `ferrule ci gauntlet <slug>`"
         );
         assert!(check("gauntlet=pass", &args("sha=x"), PARENT).is_ok());
         assert!(check("ci-waived", &args("-- why"), agent).is_ok());

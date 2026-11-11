@@ -37,6 +37,7 @@
 
 ## ferrule pr push output
 
+- `push=done sha=<sha> checks=fast [cached] [forced] …` — only the push-level steps ran (GW-R-078)
 - `push=done … forced` — the push was the leased force-push after a rebase (GW-R-050).
 
 ## ferrule prompt render blocked
@@ -64,3 +65,4 @@
 - `test-replaced old=<old> new=<new>`, one per `--replaced` pair, logged only by `ferrule stage commit` after `commit=` (GW-R-076).
 - `files-outside=<path>`, one per path outside the card's `files` list, logged only by `ferrule stage commit` after `commit=` (GW-R-077).
 - `test-checks=skipped stack=<stack|none>` on a stage card of a project whose stack is not Rust, logged only by `ferrule stage commit` (GW-E-017).
+- `pushed=<sha>` on the run card, logged only by `ferrule pr push` (GA-R-075, GW-R-066)

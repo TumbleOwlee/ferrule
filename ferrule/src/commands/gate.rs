@@ -8,6 +8,7 @@ use ferrule_core::card::board;
 use ferrule_core::refusal::Refusal;
 use ferrule_core::run::gate::{self, Gate};
 use ferrule_core::run::next::{self, At, Status};
+use ferrule_core::run::tier::{self, TierRefused};
 
 use super::board::store;
 use super::{exit, internal, layout, refuse};
@@ -56,6 +57,13 @@ Refusals:
   approve=refused reason=no-plan   gate2: plan.md is missing from the run dir
   approve=refused reason=no-stages gate2: plan.md has no `## Shared` stage table
   approve=refused reason=usage     gate2: --issue is neither `new` nor a number
+  approve=refused reason=tier stage=s<n> risk=<host-writes|persisted-state|public-surface> hint=<fix>
+                                   gate2: a stage with a risk got the skipped
+                                   tier, by the plan or by --tiers; nothing is
+                                   written. Fix: --tiers s<n>=own (or batched)
+  approve=refused reason=tier stage=s<n> risk=<word> hint=<fix>
+                                   gate2: the plan's Risk cell names a word
+                                   that is no risk; nothing is written
   approve=refused reason=worktree detail=\"<git's error>\"
                                    gate2: `git worktree add` failed
   approve=refused reason=move      gate2: the parent card cannot move to
@@ -229,6 +237,10 @@ pub struct ApproveArgs {
     /// gate2: stages that stop for approval beyond the plan's, e.g. `s1,s3`.
     #[arg(long, value_parser = ferrule_core::run::gate::parse_stops)]
     pub stops: Option<String>,
+    /// gate2: tiers beyond the plan's, only the stages to change, e.g.
+    /// `s2=batched,s3=skipped` (own|batched|skipped).
+    #[arg(long, value_parser = parse_tiers)]
+    pub tiers: Option<String>,
     /// gate2: the `owner/name` a live check may write to.
     #[arg(long, value_parser = ferrule_core::run::gate::parse_live_repo)]
     pub live_repo: Option<String>,
@@ -300,6 +312,7 @@ fn approve(args: &ApproveArgs, out: &mut impl Write) -> io::Result<u8> {
     pair("issue", args.issue.as_ref());
     pair("branch", args.branch.as_ref());
     pair("stops", args.stops.as_ref());
+    pair("tiers", args.tiers.as_ref());
     pair("live-repo", args.live_repo.as_ref());
     if args.epic {
         pairs.push(("kind".to_owned(), "epic".to_owned()));
@@ -364,5 +377,22 @@ fn next_step(slug: &str, at: NextAt, status: &[String], out: &mut impl Write) ->
             Some(r) => refuse(out, &r),
             None => Err(internal(e)),
         },
+    }
+}
+
+/// `--tiers` as given, when every item is `s<n>=own|batched|skipped`: a typo
+/// would otherwise drop a tier the user asked for.
+fn parse_tiers(v: &str) -> Result<String, String> {
+    match tier::parse_overrides(v) {
+        Ok(_) => Ok(v.to_owned()),
+        Err(TierRefused::UnknownStage(item)) => Err(format!(
+            "'{item}' is no stage tier; give them as s2=batched,s3=skipped"
+        )),
+        Err(TierRefused::UnknownTier(word)) => Err(format!(
+            "'{word}' is no tier; give them as s2=batched,s3=skipped (own, batched or skipped)"
+        )),
+        Err(TierRefused::Risky { .. } | TierRefused::UnknownRisk { .. }) => {
+            Err("a risky stage cannot be skipped".to_owned())
+        }
     }
 }

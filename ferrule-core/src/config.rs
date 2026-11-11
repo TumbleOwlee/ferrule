@@ -110,6 +110,22 @@ pub struct Step {
     /// How the pass's `cov=` is read from this step's output.
     #[serde(default)]
     pub coverage: Option<Coverage>,
+    /// The levels this step runs at besides full; `[full]` when absent.
+    #[serde(default = "default_at")]
+    pub at: Vec<Level>,
+}
+
+/// How much of the gauntlet runs: a push, a review point or gate 3.
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Level {
+    Push,
+    Review,
+    Full,
+}
+
+fn default_at() -> Vec<Level> {
+    vec![Level::Full]
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
@@ -119,7 +135,7 @@ pub enum Coverage {
     LlvmCov,
 }
 
-fn default_timeout() -> Duration {
+pub(crate) fn default_timeout() -> Duration {
     Duration::from_mins(30)
 }
 
@@ -267,6 +283,23 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// GA-E-009 — a step's `at` parses, defaults to `[full]` and
+    /// refuses an unknown level.
+    #[test]
+    fn ut_step_at_parses_defaults_and_refuses_unknown() {
+        let c: Config = toml::from_str(
+            "[[gauntlet.step]]\nname = \"a\"\ncmd = [\"x\"]\nat = [\"push\", \"review\"]\n\
+             [[gauntlet.step]]\nname = \"b\"\ncmd = [\"y\"]\n",
+        )
+        .unwrap();
+        assert_eq!(c.gauntlet.step[0].at, vec![Level::Push, Level::Review]);
+        assert_eq!(c.gauntlet.step[1].at, vec![Level::Full]);
+        let bad = toml::from_str::<Config>(
+            "[[gauntlet.step]]\nname = \"a\"\ncmd = [\"x\"]\nat = [\"never\"]\n",
+        );
+        assert!(bad.is_err());
+    }
 
     #[test]
     fn ut_defaults_and_partial_files() {

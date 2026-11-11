@@ -116,6 +116,7 @@ const SOURCES: &[(&str, &[&str])] = &[
         &["run status", "run diff", "run log", "run plan-diff"],
     ),
     ("ferrule-core/src/run/mod.rs", &["stage stop"]),
+    ("ferrule-core/src/run/tier.rs", &["stage tier"]),
     ("ferrule-core/src/run/next.rs", &["gate next"]),
     ("ferrule-core/src/run/rebuild.rs", &["run rebuild"]),
     (
@@ -225,6 +226,7 @@ const SOURCES: &[(&str, &[&str])] = &[
             "stage pins",
             "stage verify",
             "stage stop",
+            "stage tier",
             "stage replan",
         ],
     ),

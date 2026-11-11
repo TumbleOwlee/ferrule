@@ -162,6 +162,7 @@ fn run_tests(wt: &Path, scanner: &dyn TestScanner, test: &str) -> Option<String>
         cmd: scanner.command(test),
         timeout: RED_TIMEOUT,
         coverage: None,
+        at: vec![crate::config::Level::Full],
     };
     let result = gauntlet::run_step(wt, &step, &log);
     let output = std::fs::read_to_string(&log).ok();

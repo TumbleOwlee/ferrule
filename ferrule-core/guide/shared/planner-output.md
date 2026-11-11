@@ -35,17 +35,18 @@ Open: <decision the user still owes, or none>
 
 Existing-code references at the step. Code the architecture's `## Code map` holds is cited by its entry's anchor, `(code map: \`fn parse_frame\`)` — the implementer pulls that entry itself, so the excerpt exists once. Code you read beyond the map (or every reference of a `no-arch` plan) is quoted inline: the exact signature/pattern to match, verbatim where that removes ambiguity, anchored on a name or a quoted unique string (`fn parse_frame`, the `case Timeout:` arm). Never a line number (stale before the reviewer reads it), never a separate refs section. **The plan and the code-map entries it cites are the implementer's only codebase knowledge** (the implementer is a fresh spawn): a step that sends it back into the codebase is incomplete — expand now, or have the architect add the entry (`arch-gap`). Steps point to `## Shared` for a reference it holds (`3. use retry helper — see Shared`).
 
-Stage table — the first table of `## Shared`, one row per stage in plan order, exactly these four columns:
+Stage table — the first table of `## Shared`, one row per stage in plan order, these six columns:
 
 ```
-| Stage | Title | Files | Blocked by |
-|---|---|---|---|
-| s0 | Land spec | docs/specs/<area>/requirements.md | — |
-| s1 | Add backoff | src/client.rs, tests/client.rs | s0 |
-| s2 | Show status | src/tab.rs | s1 |
+| Stage | Title | Files | Blocked by | Tier | Risk |
+|---|---|---|---|---|---|
+| s0 | Land spec | docs/specs/<area>/requirements.md | — | own | — |
+| s1 | Add backoff | src/client.rs, tests/client.rs | s0 | batched | — |
+| s2 | Show status | src/tab.rs | s1 | own | public-surface |
 ```
 
 - `Stage` is the stage id; `Title` the heading's text after `## Stage s<n>: ` (`## Stage title`), character for character.
+- `Tier` is `own`, `batched` or `skipped`; `Risk` is `host-writes`, `persisted-state`, `public-surface` (comma-separated) or `—`. A stage with a risk is never `skipped`; a stage marked `Stop` is `own`. The summary table is unchanged.
 - `Files` and `Blocked by` are comma-separated; `—` for none. No backticks, no links: a cell is copied onto the card as it stands.
 - A row whose first cell is not `s<n>` is ignored, so a table that is not the stage table may follow it.
 

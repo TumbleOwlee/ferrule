@@ -3,6 +3,7 @@
 //! [`Event`] and never from the rendered body.
 
 use crate::card::board::Event;
+use crate::run::tier::Tier;
 
 /// An event code reads, without its words: the stored name a reader
 /// filters on in SQL.
@@ -10,6 +11,7 @@ use crate::card::board::Event;
 pub enum Name {
     Commit,
     Gauntlet,
+    Pushed,
     Pr,
     Ci,
     CiWaived,
@@ -36,12 +38,14 @@ pub enum Name {
     Rebase,
     LiveCheck,
     Abandoned,
+    Tier,
 }
 
 impl Name {
-    pub const ALL: [Name; 28] = [
+    pub const ALL: [Name; 30] = [
         Name::Commit,
         Name::Gauntlet,
+        Name::Pushed,
         Name::Pr,
         Name::Ci,
         Name::CiWaived,
@@ -68,6 +72,7 @@ impl Name {
         Name::Rebase,
         Name::LiveCheck,
         Name::Abandoned,
+        Name::Tier,
     ];
 
     /// The name as stored, `=` included for a valued event.
@@ -76,6 +81,7 @@ impl Name {
         match self {
             Name::Commit => "commit=",
             Name::Gauntlet => "gauntlet=",
+            Name::Pushed => "pushed=",
             Name::Pr => "pr=",
             Name::Ci => "ci=",
             Name::CiWaived => "ci-waived",
@@ -102,6 +108,7 @@ impl Name {
             Name::Rebase => "rebase=",
             Name::LiveCheck => "live-check=",
             Name::Abandoned => "abandoned",
+            Name::Tier => "tier=",
         }
     }
 
@@ -120,6 +127,7 @@ impl Name {
             Name::TestRed => &["test", "mutation"],
             Name::TestPins => &["test"],
             Name::TestReplaced => &["old", "new"],
+            Name::Tier => &["promoted"],
             _ => &[],
         }
     }
@@ -184,6 +192,10 @@ pub enum Typed<'a> {
         cov: Option<&'a str>,
         step: Option<&'a str>,
         reason: Option<&'a str>,
+    },
+    /// `ferrule pr push` pushed the commit `sha` after its fast checks.
+    Pushed {
+        sha: &'a str,
     },
     Pr(PrState),
     Ci(&'a str),
@@ -257,6 +269,11 @@ pub enum Typed<'a> {
     },
     /// The run was abandoned, `abandoned`.
     Abandoned,
+    /// A stage's tier decision, `tier=<tier>` with the `promoted` reason.
+    Tier {
+        tier: Tier,
+        promoted: Option<&'a str>,
+    },
     Other,
 }
 
@@ -267,6 +284,7 @@ impl Typed<'_> {
         Some(match self {
             Typed::Commit { .. } => Name::Commit,
             Typed::Gauntlet { .. } => Name::Gauntlet,
+            Typed::Pushed { .. } => Name::Pushed,
             Typed::Pr(_) => Name::Pr,
             Typed::Ci(_) => Name::Ci,
             Typed::CiWaived => Name::CiWaived,
@@ -293,6 +311,7 @@ impl Typed<'_> {
             Typed::Rebase { .. } => Name::Rebase,
             Typed::LiveCheck { .. } => Name::LiveCheck,
             Typed::Abandoned => Name::Abandoned,
+            Typed::Tier { .. } => Name::Tier,
             Typed::Other => return None,
         })
     }
@@ -341,6 +360,7 @@ impl Event {
                 step: key("step"),
                 reason: key("reason"),
             },
+            Name::Pushed => Typed::Pushed { sha: value? },
             Name::Pr => Typed::Pr(match value? {
                 "draft" => PrState::Draft,
                 "ready" => PrState::Ready,
@@ -350,6 +370,10 @@ impl Event {
             Name::CiWaived => Typed::CiWaived,
             Name::IssueWaived => Typed::IssueWaived,
             Name::Abandoned => Typed::Abandoned,
+            Name::Tier => Typed::Tier {
+                tier: Tier::parse(value?)?,
+                promoted: key("promoted"),
+            },
             Name::BlockedStart => Typed::BlockedStart {
                 blockers: self.text.as_deref().unwrap_or(""),
             },

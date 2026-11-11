@@ -243,7 +243,7 @@ fn it_move_follows_the_board_rules() {
             "blocked-by" => "move the cards in its blocked-by to done first",
             "commit" => "commit the stage with `ferrule stage commit <card> -m <msg>` first",
             "unverified" => {
-                "run `ferrule ci gauntlet <slug>`, then `ferrule pr push <slug>`, which logs the gauntlet=pass that covers the commit sha"
+                "run `ferrule pr push <slug>`, which logs the pushed= that covers the commit sha"
             }
             _ => "approve gate 2 first: `ferrule gate approve <slug> gate2`",
         };
@@ -318,7 +318,7 @@ fn it_new_and_set_validate_fields() {
     );
     assert_eq!(
         run(&["board", "new", "r.s1", "lane=fast"]),
-        "card-new=reject reason=key key=lane hint=a stage card takes only title, blocked-by, files, branch, worktree, stop\nexit=2"
+        "card-new=reject reason=key key=lane hint=a stage card takes only title, blocked-by, files, branch, worktree, stop, tier\nexit=2"
     );
     assert_eq!(
         run(&["board", "set", "r", "lane=full", "gate2=2026-10-03"]),
@@ -680,7 +680,7 @@ fn it_log_refuses_events_only_ferrule_writes() {
     let p = project();
     assert_eq!(
         log_tail(p.path(), "demo", &["gauntlet=pass", "sha=x"]),
-        "card-log=reject reason=owner event=gauntlet hint=only ferrule logs it, with `ferrule pr push <slug>`\nexit=2"
+        "card-log=reject reason=owner event=gauntlet hint=only ferrule logs it, with `ferrule ci gauntlet <slug>`\nexit=2"
     );
     for (card, args) in [("demo", vec!["ci=0"]), ("demo.s1", vec!["commit=abc1234"])] {
         let refused = log_tail(p.path(), card, &args);

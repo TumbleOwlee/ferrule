@@ -251,8 +251,8 @@ Reasons:
   commit                         A stage moved to done with no `commit=` in its
                                  log; commit it with `ferrule stage commit`
   unverified                     A stage moved to done whose `commit=` sha no
-                                 run `gauntlet=pass` covers; `ferrule ci gauntlet`
-                                 then `ferrule pr push` logs one
+                                 run `pushed=` or `gauntlet=pass` covers;
+                                 `ferrule pr push` logs the `pushed=` that does
   gate2                          The parent moved to inprogress before its
                                  `gate2` field is set; `ferrule gate approve`
 Exit codes: 0 ok, 1 refused (no such card), 2 refused (reason) or rejected

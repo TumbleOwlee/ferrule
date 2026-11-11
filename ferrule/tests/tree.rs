@@ -38,6 +38,7 @@ stage red
 stage pins
 stage verify
 stage stop
+stage tier
 stage replan
 ci
 ci gauntlet
