@@ -21,6 +21,8 @@ title: Land spec
 blocked-by: []
 files: []
 branch: docs/rb
+stop: no
+tier: own
 ---
 2026-10-05T09:00 commit=SHA0
 ==> card rb.s1 <==
@@ -32,6 +34,8 @@ title: Retry with backoff
 blocked-by: [rb.s0]
 files: []
 branch: docs/rb
+stop: yes
+tier: own
 ---
 2026-10-05T09:00 commit=SHA1
 ==> card rb.s2 <==
@@ -43,6 +47,8 @@ title: Render reconnecting
 blocked-by: [rb.s1]
 files: []
 branch: docs/rb
+stop: no
+tier: batched
 ---
 ==> issue.md <==
 # Reconnect dropped Modbus clients
@@ -75,7 +81,7 @@ The client polls.
 | Stage | What | Pins | Files | Stop |
 |---|---|---|---|---|
 | s0 | Land spec | — | — | — |
-| s1 | Retry with backoff | — | — | — |
+| s1 | Retry with backoff | — | — | yes |
 | s2 | Render reconnecting | — | — | — |
 
 Verification beyond unit tests:

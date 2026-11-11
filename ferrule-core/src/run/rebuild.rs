@@ -2,8 +2,11 @@
 //! run resumes through the usual reconcile. plan.md is never rebuilt.
 //!
 //! The draft PR's `## Stages` lines carry the stage ids in HTML comments
-//! (`<!-- s1 blocked-by s0 -->`); a ticked line is a landed stage with its
-//! commit in parentheses.
+//! (`<!-- s<n> [blocked-by <list>] [tier <t>] [stop] -->`, e.g.
+//! `<!-- s2 blocked-by s1 tier batched -->`, `<!-- s1 blocked-by s0 stop -->`);
+//! `tier` and `stop` appear only for a non-own tier and a stop, and a stage
+//! naming neither is own with no stop. A ticked line is a landed stage with
+//! its commit in parentheses.
 
 use std::collections::HashSet;
 use std::fmt::Write as _;
@@ -14,6 +17,7 @@ use crate::git;
 use crate::project::Layout;
 use crate::refusal::Refusal;
 use crate::remote::Item;
+use crate::run::tier::Tier;
 use crate::store::Board;
 
 /// Why nothing was written.
@@ -72,7 +76,7 @@ impl Refused {
                 "name the branch `<prefix>/<slug>`, the slug letters, digits, -, _ and single dots, e.g. feat/<slug>"
             }
             Refused::BadStage(_) => {
-                "mark each `## Stages` line once with `<!-- s<n> -->`, blocking only on `s<n>` stages"
+                "mark each `## Stages` line once with `<!-- s<n> -->`, blocking only on `s<n>` stages, with a tier of own, batched or skipped"
             }
             Refused::Worktree(_) => "git could not add the worktree; check `git worktree list`",
             Refused::Host(_) => "the host did not answer; check your login and network, then retry",
@@ -170,6 +174,10 @@ struct Stage {
     blocked_by: Vec<String>,
     sha: Option<String>,
     title: String,
+    tier: Tier,
+    /// A `tier` word `Tier::parse` refused.
+    bad_tier: Option<String>,
+    stop: bool,
     /// `beyond unit tests:` text and its sub-lines.
     verification: Option<(String, Vec<String>)>,
 }
@@ -221,10 +229,29 @@ fn stages(pr: &str) -> Vec<Stage> {
         };
         let mut words = line[start + 5..start + end].split(' ');
         let sid = words.next().unwrap_or("").to_owned();
-        let blocked_by = match (words.next(), words.next()) {
-            (Some("blocked-by"), Some(list)) => list.split(',').map(str::to_owned).collect(),
-            _ => Vec::new(),
-        };
+        let mut blocked_by = Vec::new();
+        let mut tier = Tier::Own;
+        let mut bad_tier = None;
+        let mut stop = false;
+        while let Some(word) = words.next() {
+            match word {
+                "blocked-by" => {
+                    if let Some(list) = words.next() {
+                        blocked_by = list.split(',').map(str::to_owned).collect();
+                    }
+                }
+                "tier" => {
+                    if let Some(t) = words.next() {
+                        match Tier::parse(t) {
+                            Some(t) => tier = t,
+                            None => bad_tier = Some(t.to_owned()),
+                        }
+                    }
+                }
+                "stop" => stop = true,
+                _ => {}
+            }
+        }
         let mut title = line[6..start].trim_end();
         if let Some(i) = title.find(" — ") {
             title = &title[..i];
@@ -246,6 +273,9 @@ fn stages(pr: &str) -> Vec<Stage> {
             blocked_by,
             sha,
             title: title.to_owned(),
+            tier,
+            bad_tier,
+            stop,
             verification: None,
         });
     }
@@ -353,6 +383,9 @@ fn check_stages(st: &[Stage]) -> Result<(), Refused> {
     let mut seen = HashSet::new();
     for s in st {
         if !sid(&s.sid) || !seen.insert(s.sid.as_str()) {
+            return Err(Refused::BadStage(s.sid.clone()));
+        }
+        if s.bad_tier.is_some() {
             return Err(Refused::BadStage(s.sid.clone()));
         }
         if let Some(d) = s.blocked_by.iter().find(|d| !sid(d)) {
@@ -481,6 +514,11 @@ fn stage_cards(slug: &str, branch: &str, st: &[Stage]) -> (Vec<NewCard>, Option<
                 ("blocked-by".to_owned(), format!("[{}]", deps.join(", "))),
                 ("files".to_owned(), "[]".to_owned()),
                 ("branch".to_owned(), branch.to_owned()),
+                (
+                    "stop".to_owned(),
+                    if s.stop { "yes" } else { "no" }.to_owned(),
+                ),
+                ("tier".to_owned(), s.tier.as_str().to_owned()),
             ],
             log: if s.done {
                 vec![(
@@ -566,7 +604,8 @@ fn artifacts(
         "# {slug} — plan summary (rebuilt)\n\n| Stage | What | Pins | Files | Stop |\n|---|---|---|---|---|\n"
     );
     for s in st {
-        let _ = writeln!(text, "| {} | {} | — | — | — |", s.sid, s.title);
+        let stop = if s.stop { "yes" } else { "—" };
+        let _ = writeln!(text, "| {} | {} | — | — | {stop} |", s.sid, s.title);
     }
     if st.iter().any(|s| s.verification.is_some()) {
         text.push_str("\nVerification beyond unit tests:\n");
@@ -596,10 +635,25 @@ mod tests {
             (true, Some("abc1234"), "Land spec")
         );
         assert_eq!(s[1].blocked_by, ["s0"]);
+        assert_eq!((s[1].tier, s[1].stop), (Tier::Own, false));
         assert_eq!(
             s[1].verification,
             Some(("demo".into(), vec!["see it".into()]))
         );
+    }
+
+    /// GA-R-093, GA-E-015 — tier and stop words are read; a missing tier is own, an unknown one refused.
+    #[test]
+    fn ut_stage_tier_and_stop_words() {
+        let pr = "## Stages\n- [ ] A — next <!-- s1 blocked-by s0 tier batched -->\n- [ ] B — blocked <!-- s2 blocked-by s1 stop -->\n- [ ] C — blocked <!-- s3 tier fast -->\n";
+        let s = stages(pr);
+        assert_eq!(
+            (s[0].tier, s[0].stop, s[0].blocked_by.len()),
+            (Tier::Batched, false, 1)
+        );
+        assert_eq!((s[1].tier, s[1].stop), (Tier::Own, true));
+        assert_eq!(s[2].bad_tier.as_deref(), Some("fast"));
+        assert_eq!(check_stages(&s[2..]), Err(Refused::BadStage("s3".into())));
     }
 
     #[test]

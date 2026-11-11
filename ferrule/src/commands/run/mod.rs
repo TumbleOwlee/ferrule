@@ -152,6 +152,8 @@ Output:
       (never plan.md). The parent logs `rebuild reason=board-missing` and
       `pr=draft`; each done stage logs its `commit=<sha>`. `next` is the
       first stage not done; run `ferrule run reconcile <slug>` before resuming.
+      The stage cards take their tier and stop mark from the marker, own and
+      no stop when it names none.
 Refusals (nothing is written):
   rebuild=refused reason=no-pr         The host has no such PR
   rebuild=refused reason=no-stages     The PR body has no `## Stages` list
@@ -170,8 +172,10 @@ Refusals (nothing is written):
                                        letters, digits, -, _ and single dots
   rebuild=refused reason=bad-stage stage=<id>
                                        A `## Stages` line is not marked
-                                       `<!-- s<n> -->`, repeats a stage, or
-                                       blocks on one that is not `s<n>`
+                                       `<!-- s<n> -->`, repeats a stage,
+                                       blocks on one that is not `s<n>`, or
+                                       names a tier that is not own, batched
+                                       or skipped
   rebuild=refused reason=worktree      `git worktree add` failed
   rebuild=refused reason=host detail=\"<error>\"
                                        The host or tracker failed (auth,

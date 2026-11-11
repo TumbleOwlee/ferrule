@@ -209,6 +209,36 @@ fn it_rebuild_recreates_the_board() {
     check("run-rebuild-exists", &r.rebuild());
 }
 
+/// GA-R-093 — a rebuilt board keeps each stage's tier and stop mark.
+#[test]
+fn it_rebuild_keeps_stage_tiers_and_stops() {
+    let r = Repo::new();
+    r.rebuild();
+    let shown = |id: &str| r.ferrule(&["board", "show", id]).text();
+    let (s0, s1, s2) = (shown("rb.s0"), shown("rb.s1"), shown("rb.s2"));
+    assert!(s0.contains("tier: own") && s0.contains("stop: no"), "{s0}");
+    assert!(s1.contains("tier: own") && s1.contains("stop: yes"), "{s1}");
+    assert!(
+        s2.contains("tier: batched") && s2.contains("stop: no"),
+        "{s2}"
+    );
+}
+
+/// GA-E-015 — a stage line without a tier word rebuilds as own.
+#[test]
+fn it_rebuild_reads_a_stage_without_tier_as_own() {
+    let r = Repo::new();
+    let text = std::fs::read_to_string(fixtures().join("pr/rebuild.txt"))
+        .unwrap()
+        .replace("SHA0", &r.sha0)
+        .replace("SHA1", &r.sha1)
+        .replace(" tier batched", "");
+    r.gh.serve(&["pr", "view", "22", "--json", GH_FIELDS], &gh_json(&text));
+    r.rebuild();
+    let s2 = r.ferrule(&["board", "show", "rb.s2"]).text();
+    assert!(s2.contains("tier: own"), "{s2}");
+}
+
 #[test]
 fn it_rebuild_refuses_and_writes_nothing() {
     let r = Repo::new();
@@ -311,7 +341,8 @@ fn it_rebuild_refuses_a_bad_stage_before_the_worktree() {
     for (from, to, stage) in [
         ("<!-- s1 blocked", "<!-- stage blocked", "stage"),
         ("<!-- s2 blocked", "<!-- s1 blocked", "s1"),
-        ("blocked-by s1 -->", "blocked-by none -->", "none"),
+        ("blocked-by s1 tier", "blocked-by none tier", "none"),
+        ("tier batched", "tier fast", "s2"),
     ] {
         let r = Repo::new();
         let worktrees = git(&r.root, &["worktree", "list"]);

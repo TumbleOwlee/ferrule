@@ -182,6 +182,8 @@
 
 **GA-R-089** — A stage marked to stop at gate 2 takes the own tier.
 
+**GA-R-093** — A board rebuilt from the draft PR gives each stage the tier and stop mark settled at gate 2.
+
 ## Checks
 
 **GA-R-082** — Every stage runs the format check and its new tests.

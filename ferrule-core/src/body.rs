@@ -737,6 +737,23 @@ fn verification(summary: &str, sid: &str) -> Vec<String> {
     out
 }
 
+/// The `<!-- s<n> [blocked-by <list>] [tier <t>] [stop] -->` marker of a stage
+/// line; `own` and a missing tier write no tier word.
+fn stage_mark(sid: &str, blockers: &[&str], tier: &str, stop: bool) -> String {
+    let mut mark = format!("<!-- {sid}");
+    if !blockers.is_empty() {
+        let _ = write!(mark, " blocked-by {}", blockers.join(","));
+    }
+    if !tier.is_empty() && tier != "own" {
+        let _ = write!(mark, " tier {tier}");
+    }
+    if stop {
+        mark.push_str(" stop");
+    }
+    mark.push_str(" -->");
+    mark
+}
+
 fn stages(c: &Ctx, summary: &str, out: &mut String) -> Result<(), Error> {
     out.push_str("## Stages\n");
     let cards = board::stages(c.conn, c.slug)?;
@@ -760,11 +777,14 @@ fn stages(c: &Ctx, summary: &str, out: &mut String) -> Result<(), Error> {
             .iter()
             .map(|b| b.rsplit_once('.').map_or(*b, |(_, s)| s))
             .collect();
-        let mark = if short.is_empty() {
-            format!("<!-- {sid} -->")
-        } else {
-            format!("<!-- {sid} blocked-by {} -->", short.join(","))
+        let (tier, stop) = match card {
+            Some((_, id, _)) => (
+                board::field(c.conn, id, "tier")?.unwrap_or_default(),
+                board::field(c.conn, id, "stop")?.as_deref() == Some("yes"),
+            ),
+            None => (String::new(), false),
         };
+        let mark = stage_mark(&sid, &short, &tier, stop);
         let line = match state {
             Some(State::Done) => format!(
                 "- [x] {what} ({}) {mark}",
@@ -958,6 +978,21 @@ fn full(c: &Ctx, issue: &str, deltas: &[Delta]) -> Result<String, Error> {
 
 #[cfg(test)]
 mod tests {
+    /// GA-R-093 — the stage marker carries a non-own tier and a stop.
+    #[test]
+    fn ut_stage_marker_carries_tier_and_stop() {
+        assert_eq!(
+            stage_mark("s2", &["s1"], "batched", false),
+            "<!-- s2 blocked-by s1 tier batched -->"
+        );
+        assert_eq!(
+            stage_mark("s1", &["s0"], "own", true),
+            "<!-- s1 blocked-by s0 stop -->"
+        );
+        assert_eq!(stage_mark("s0", &[], "own", false), "<!-- s0 -->");
+        assert_eq!(stage_mark("s0", &[], "", false), "<!-- s0 -->");
+    }
+
     use super::*;
 
     const DECISIONS: &str = "# d\n\n- keep it (chosen) [spec R2] — why · planner\n- gone (chosen) [spec R9] — why · planner\n- fixed (chosen) [spec MB-R-005] — why · planner\n";
