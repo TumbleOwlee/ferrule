@@ -59,6 +59,7 @@
 ## ferrule issue post output
 
 - `milestone=<n> action=created|adopted|edited|recorded` — an epic filed on GitHub (RU-R-013)
+- `milestone=<n> action=edited|recorded` — printed after `issue=<n> action=commented|recorded` by a comment post on a slice run in milestone `<n>`: `edited` the kept change was applied, `recorded` its changelog entry was already there (RU-R-020)
 
 ## ferrule issue post refusals
 
@@ -66,6 +67,7 @@
 - `post=refused reason=milestone-stale hint=<fix>` (RU-E-011)
 - `post=refused reason=bad-dependency value=<text> hint=<fix>`
 - `post=refused reason=rejected length=<n> detail="<host error>" hint=<fix>` (RU-E-010)
+- `post=refused reason=missing file=milestone-change.md hint=<fix>` — nothing is posted (RU-E-030)
 
 ## ferrule issue milestones
 
