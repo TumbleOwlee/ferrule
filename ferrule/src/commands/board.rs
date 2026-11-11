@@ -333,8 +333,6 @@ Refusals:
   vocab=none hint=no such event for this card kind; ferrule board vocab lists them all
               No event matches the filters; exit 1.
 Exit codes: 0 ok, 1 nothing matched, 4 internal error.
-Dev build: the open that takes a copy of an older shared board prints to stderr
-`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show board";
 
 const IMPORT_AFTER_LONG_HELP: &str = "\

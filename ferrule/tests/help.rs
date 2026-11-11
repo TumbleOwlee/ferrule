@@ -997,3 +997,72 @@ fn it_abandon_help_says_confirm_only_on_the_users_word() {
     assert!(help.contains("--confirm"), "{help}");
     assert!(help.contains("user's word"), "{help}");
 }
+
+/// The dev-copy notice line, backticks included, as the help prints it.
+const DEV_COPY: &str = "`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`";
+
+/// Commands that open the board, so may print the dev-copy notice.
+const BOARD_OPENERS: &[&str] = &[
+    "run init",
+    "run reconcile",
+    "run live-check",
+    "run rebase",
+    "run rebuild",
+    "run abandon",
+    "run cleanup",
+    "run metrics",
+    "run status",
+    "run diff",
+    "run log",
+    "run export",
+    "gate approve",
+    "gate next",
+    "stage red",
+    "stage pins",
+    "stage verify",
+    "stage stop",
+    "stage replan",
+    "ci gauntlet",
+    "ci wait",
+    "spec render",
+    "spec next",
+    "prompt show",
+    "prompt render",
+    "issue body",
+    "issue post",
+    "pr body",
+    "pr open",
+    "pr push",
+    "pr publish",
+    "pr feedback route",
+    "guide show",
+    "hook shell",
+    "hook session-start",
+    "board events",
+    "board field",
+    "board import",
+    "board list",
+    "board log",
+    "board move",
+    "board new",
+    "board set",
+    "board show",
+    "stage commit",
+];
+
+/// The help of every command that opens the board names the dev-copy notice.
+#[test]
+fn it_every_board_opening_command_names_the_dev_copy_notice() {
+    let missing: Vec<&str> = BOARD_OPENERS
+        .iter()
+        .copied()
+        .filter(|c| !help_of(c).contains(DEV_COPY))
+        .collect();
+    assert!(missing.is_empty(), "no dev-copy notice in: {missing:?}");
+}
+
+/// The `board vocab` help has no dev-copy notice: it never opens the board.
+#[test]
+fn it_board_vocab_help_has_no_dev_copy_notice() {
+    assert!(!help_of("board vocab").contains("ferrule=dev-copy"));
+}

@@ -43,6 +43,8 @@ Refusals (stdout, exit 1):
       reference is no issue or PR (exit 2).
 Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
 Backend: reads threads from the configured code host.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show feedback";
 
 const FB_FETCH_AFTER_LONG_HELP: &str = "\

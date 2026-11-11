@@ -94,6 +94,8 @@ Refusals:
   (no line, nothing printed)
       The body would be empty. Exit 1.
 Exit codes: 0 ok, 1 refused, 3 content (stage-ref), 4 internal error.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show gate4";
 
 const PR_OPEN_AFTER_LONG_HELP: &str = "\
@@ -122,6 +124,8 @@ Refusals (stdout, exit 1):
       reference is no issue or PR (exit 2).
 Exit codes: 0 ok, 1 refused, 2 usage, 3 content, 4 internal error.
 Backend: opens the PR on the configured code host.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show stages";
 
 const PR_PUSH_AFTER_LONG_HELP: &str = "\
@@ -191,6 +195,8 @@ Refusals (stdout, exit 1):
       reference is no issue or PR (exit 2).
 Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
 Backend: pushes to origin; updates the PR on the configured code host.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show stages";
 
 const PR_PUBLISH_AFTER_LONG_HELP: &str = "\
@@ -234,6 +240,8 @@ Refusals (stdout, exit 1 unless noted):
 Exit codes: 0 ok, 1 refused, 2 usage, 3 content, 4 internal error.
 Backend: edits and readies the PR on the configured code host; files the
 follow-ups on the tracker.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show gate4";
 
 #[derive(Debug, Subcommand)]

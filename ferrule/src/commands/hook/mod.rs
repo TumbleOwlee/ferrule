@@ -67,7 +67,9 @@ Errors (stderr):
   ferrule hook: unreadable PreToolUse payload (...); refusing the call
                        exit 2, which blocks the call; fix the hook command
 Exit codes: 0 ok, 2 blocked, unreadable payload or internal error (a
-failing guard refuses the call).";
+failing guard refuses the call).
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.";
 
 /// Shown after `ferrule hook attribution --help`.
 const ATTRIBUTION_AFTER_LONG_HELP: &str = "\
@@ -150,6 +152,8 @@ Output (stdout, added to the session's context):
   (ferrule guide show resume).
 Prints nothing when there is no board or no unfinished card.
 Exit codes: 0 ok, 4 internal error.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show resume";
 
 #[derive(Debug, Subcommand)]

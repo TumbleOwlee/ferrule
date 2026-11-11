@@ -110,6 +110,8 @@ Refusals (each line ends in `hint=<fix>`):
                                    compile and fail, then run again
   red=refused reason=run           The test command could not start or timed out
 Exit codes: 0 ok, 1 refused, 4 internal error.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show stages";
 
 /// Shown after `ferrule stage pins --help`.
@@ -126,6 +128,8 @@ Refusals (each line ends in `hint=<fix>`):
                                    inreview
   pins=refused reason=stack        Not a Rust project: only it records proofs
 Exit codes: 0 ok, 1 refused, 4 internal error.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show stages";
 
 /// Shown after `ferrule stage verify --help`.
@@ -143,6 +147,8 @@ Refusals:
                                    commit; commit with `ferrule stage commit`
 Refusals end in ` hint=<fix>`.
 Exit codes: 0 ok, 1 mismatch, 2 usage, 4 internal error.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show stages";
 
 /// Shown after `ferrule stage stop --help`.
@@ -167,6 +173,8 @@ Refusals:
                                    stage with `ferrule board list`
 The refusal ends in ` hint=<fix>`.
 Exit codes: 0 auto or stop, 1 refused, 2 usage, 4 internal error.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show stage-review";
 
 /// Shown after `ferrule stage replan --help`.
@@ -200,6 +208,8 @@ Refusals:
                                    which is committed and stays
 Refusals end in ` hint=<fix>`.
 Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show replan";
 
 #[derive(Debug, Subcommand)]
