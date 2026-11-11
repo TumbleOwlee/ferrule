@@ -183,6 +183,17 @@ pub enum Target {
     Comment,
 }
 
+/// What a comment post did: the issue commented and, on a slice run in a
+/// milestone, the milestone and what happened to its description.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Commented {
+    pub issue: ItemRef,
+    /// `Commented`, or `Recorded` when every target carries the text.
+    pub action: Action,
+    /// `Edited` the kept change was applied, `Recorded` its entry was there.
+    pub milestone: Option<(u64, Action)>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     Created,
@@ -1268,6 +1279,18 @@ mod tests {
         run.file(target, None)
     }
 
+    fn comment_on(
+        db: &mut Board,
+        layout: &Layout,
+        host: &FakeHost,
+        tracker: &FakeTracker,
+    ) -> Result<Commented, Error> {
+        let config = Config::default();
+        let mut run = run_on(db, layout, &config, host);
+        run.tracker = Box::new(tracker.clone());
+        run.comment()
+    }
+
     /// RU-R-025 — a split-off issue gets the source as its parent and carries no `Split from`
     /// line.
     #[test]
@@ -1710,18 +1733,21 @@ mod tests {
         );
     }
 
-    /// RU-E-005 — the description is read just before it is written.
+    /// RU-E-005, RU-R-020 — the description is read just before it is written, and the comment
+    /// follows the write.
     #[test]
     fn ut_kept_change_reads_just_before_writing() {
         let (_dir, mut db, layout, host, tracker) = kept_setup("Goal\nold text\n");
         file_target(&mut db, &layout, &host, &tracker, Target::Comment).unwrap();
         let calls = tracker.calls();
-        let n = calls.len();
+        let i = calls.iter().position(|c| c == "get 4").unwrap();
         assert_eq!(
-            calls[n - 3..],
-            ["get 4", "login", "set_description 4"],
+            calls[i + 1..i + 3],
+            ["login", "set_description 4"],
             "{calls:?}"
         );
+        let c = calls.iter().position(|c| c == "comment 12").unwrap();
+        assert!(c > i + 2, "{calls:?}");
     }
 
     /// RU-E-011 — an old text no longer in the description refuses and leaves it unchanged.
@@ -1745,19 +1771,121 @@ mod tests {
             tracker.0.borrow().milestones[0].description,
             "Goal\nsomething else\n"
         );
+        assert!(tracker.0.borrow().comments.is_empty());
+        assert!(!tracker.calls().iter().any(|c| c.starts_with("comment")));
     }
 
-    /// A slice run without a readable change file refuses naming it.
+    /// RU-E-030 — a slice run without a readable change file refuses naming it and posts nothing.
     #[test]
     fn ut_kept_change_needs_a_readable_change_file() {
         let (_dir, mut db, layout, host, tracker) = kept_setup("Goal\nold text\n");
         let path = layout.run_dir("r").join("milestone-change.md");
+        let untouched = |tracker: &FakeTracker| {
+            assert!(tracker.0.borrow().comments.is_empty());
+            assert!(
+                !tracker
+                    .calls()
+                    .iter()
+                    .any(|c| c.starts_with("comment") || c.starts_with("set_description")),
+                "{:?}",
+                tracker.calls()
+            );
+        };
         std::fs::write(&path, "no decision here\n").unwrap();
         let e = file_target(&mut db, &layout, &host, &tracker, Target::Comment).unwrap_err();
         assert!(matches!(&e, Error::Missing(p) if *p == path), "{e}");
+        untouched(&tracker);
         std::fs::remove_file(&path).unwrap();
         let e = file_target(&mut db, &layout, &host, &tracker, Target::Comment).unwrap_err();
         assert!(matches!(&e, Error::Missing(p) if *p == path), "{e}");
+        untouched(&tracker);
+    }
+
+    fn set_descriptions(tracker: &FakeTracker) -> usize {
+        tracker
+            .calls()
+            .iter()
+            .filter(|c| c.starts_with("set_description"))
+            .count()
+    }
+
+    /// RU-R-020 — a comment post reports the milestone outcome: edited, then recorded.
+    #[test]
+    fn ut_comment_reports_the_milestone_outcome() {
+        let (_dir, mut db, layout, host, tracker) = kept_setup("Goal\nold text\n");
+        assert_eq!(
+            comment_on(&mut db, &layout, &host, &tracker).unwrap(),
+            Commented {
+                issue: ItemRef::Number(12),
+                action: Action::Commented,
+                milestone: Some((4, Action::Edited)),
+            }
+        );
+        let again = comment_on(&mut db, &layout, &host, &tracker).unwrap();
+        assert_eq!(again.action, Action::Recorded);
+        assert_eq!(again.milestone, Some((4, Action::Recorded)));
+        assert_eq!(tracker.0.borrow().comments.len(), 1);
+        assert_eq!(set_descriptions(&tracker), 1);
+    }
+
+    /// RU-R-020, RU-R-021 — a failed comment keeps the written change; the rerun posts the
+    /// comment alone.
+    #[test]
+    fn ut_failed_comment_rerun_posts_it_alone() {
+        let (_dir, mut db, layout, host, tracker) = kept_setup("Goal\nold text\n");
+        tracker.0.borrow_mut().fail_on = Some("comment");
+        comment_on(&mut db, &layout, &host, &tracker).unwrap_err();
+        let d = tracker.0.borrow().milestones[0].description.clone();
+        assert!(d.contains("new text"), "{d}");
+        assert_eq!(d.matches("keep retries — retries stay").count(), 1, "{d}");
+        assert!(tracker.0.borrow().comments.is_empty());
+        tracker.0.borrow_mut().fail_on = None;
+        let done = comment_on(&mut db, &layout, &host, &tracker).unwrap();
+        assert_eq!(done.milestone, Some((4, Action::Recorded)));
+        assert_eq!(done.action, Action::Commented);
+        assert_eq!(tracker.0.borrow().comments.len(), 1);
+        assert_eq!(set_descriptions(&tracker), 1);
+        let d = tracker.0.borrow().milestones[0].description.clone();
+        assert_eq!(d.matches("keep retries — retries stay").count(), 1, "{d}");
+    }
+
+    /// RU-R-020 — a failed description write posts no comment; the rerun does both.
+    #[test]
+    fn ut_failed_milestone_write_posts_no_comment() {
+        let (_dir, mut db, layout, host, tracker) = kept_setup("Goal\nold text\n");
+        tracker.0.borrow_mut().fail_on = Some("set_description");
+        comment_on(&mut db, &layout, &host, &tracker).unwrap_err();
+        assert!(tracker.0.borrow().comments.is_empty());
+        assert_eq!(
+            tracker.0.borrow().milestones[0].description,
+            "Goal\nold text\n"
+        );
+        tracker.0.borrow_mut().fail_on = None;
+        let done = comment_on(&mut db, &layout, &host, &tracker).unwrap();
+        assert_eq!(done.milestone, Some((4, Action::Edited)));
+        assert_eq!(done.action, Action::Commented);
+        assert_eq!(tracker.0.borrow().comments.len(), 1);
+    }
+
+    /// RU-R-020 — a comment on a run that is no slice run in a milestone reports no milestone.
+    #[test]
+    fn ut_comment_off_a_milestone_reports_none() {
+        let (_dir, mut db, layout, host) = linked_setup(&[]);
+        std::fs::write(layout.run_dir("r").join("issue-comment.md"), "Note.\n").unwrap();
+        let tracker = linked_tracker(|s| {
+            s.links.insert(
+                12,
+                remote::IssueLinks {
+                    open: true,
+                    labels: vec!["area:runs".into()],
+                    ..Default::default()
+                },
+            );
+        });
+        let done = comment_on(&mut db, &layout, &host, &tracker).unwrap();
+        assert_eq!(done.milestone, None);
+        assert_eq!(done.action, Action::Commented);
+        assert!(!tracker.calls().iter().any(|c| c.starts_with("get")));
     }
 
     /// RU-R-036 — a kept change adds the label of an area the brief now names, none removed.

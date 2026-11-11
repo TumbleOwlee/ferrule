@@ -3302,6 +3302,7 @@ fn it_kept_change_updates_the_milestone() {
     );
     assert!(stale.ends_with("exit=1"), "{stale}");
     assert!(!gh.log().contains("-X PATCH"), "{}", gh.log());
+    assert!(!gh.log().contains("issue comment 12"), "{}", gh.log());
     gh.serve(
         &["api", "repos/{owner}/{repo}/milestones/4"],
         &milestone_json(4, EPIC, "Goal\nold text\n"),
@@ -3309,7 +3310,7 @@ fn it_kept_change_updates_the_milestone() {
     gh.serve(&patch_args(), "{}");
     assert_eq!(
         p.ok(&["issue", "post", "demo", "--comment"]),
-        "issue=12 action=recorded"
+        "issue=12 action=commented"
     );
     let log = gh.log();
     assert_eq!(log.matches("-X PATCH").count(), 1, "{log}");
@@ -3317,6 +3318,7 @@ fn it_kept_change_updates_the_milestone() {
     let at = |s: &str| log.rfind(s).unwrap();
     assert!(at("milestones/4\n") < at("api user"), "{log}");
     assert!(at("api user") < at("-X PATCH"), "{log}");
+    assert!(at("-X PATCH") < at("issue comment 12"), "{log}");
 }
 
 /// S5, RU-R-025, RU-R-026 — a split-off of a slice run is filed in its milestone and made a

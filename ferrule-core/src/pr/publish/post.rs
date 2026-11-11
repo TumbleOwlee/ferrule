@@ -8,7 +8,8 @@ use crate::issue::changelog::keep_changelog;
 use crate::remote::{Milestones, NewIssue, SearchState};
 
 use super::{
-    Action, Error, ItemRef, Run, Target, attribution, board, body, remote, snapshot, split_title,
+    Action, Commented, Error, ItemRef, Run, Target, attribution, board, body, remote, snapshot,
+    split_title,
 };
 
 impl Run<'_> {
@@ -26,7 +27,7 @@ impl Run<'_> {
             Target::Slice(n) => self.file_slice(n),
             Target::Split => self.file_split(),
             Target::FollowUp(k) => self.file_follow_up(k),
-            Target::Comment => self.file_comment(),
+            Target::Comment => self.comment().map(|c| (c.issue, c.action)),
         }
     }
 
@@ -150,13 +151,28 @@ impl Run<'_> {
     /// target once per text: a `posted=comment issue=<n> sum=<hash>`
     /// marks one done, so a rerun after a failure posts only the rest. On a
     /// tracker with milestones the run's issue alone is commented, then
-    /// labelled, and a slice run's kept change is written to its milestone.
-    fn file_comment(&mut self) -> Result<(ItemRef, Action), Error> {
+    /// labelled, and a slice run's kept change is written to its milestone
+    /// first, so a missing, unreadable or stale change refuses before any
+    /// write.
+    ///
+    /// # Errors
+    /// `Missing` (milestone-change.md absent or unreadable on a slice run in
+    /// a milestone), `MilestoneStale`, a host failure; each before any write
+    /// when raised by the milestone step.
+    pub fn comment(&mut self) -> Result<Commented, Error> {
+        if board::state(self.conn, self.slug)?.is_none() {
+            return Err(Error::Card);
+        }
         let issue = self.issue()?;
         let text = self.artifact("issue-comment.md")?;
         let text = attribution::strip(&text).unwrap_or(text);
         let sum = crate::install::hash(&text);
         let native = self.tracker.milestones().is_some();
+        let milestone = if native {
+            self.write_kept_change()?
+        } else {
+            None
+        };
         let mut targets = vec![issue.clone()];
         if !native
             && self.field("kind")?.as_deref() == Some("slice")
@@ -196,9 +212,12 @@ impl Run<'_> {
         }
         if native {
             self.label_missing(&issue, &self.run_labels())?;
-            self.write_kept_change()?;
         }
-        Ok((issue, action))
+        Ok(Commented {
+            issue,
+            action,
+            milestone,
+        })
     }
 
     /// The milestone on the card of a slice run.
@@ -214,10 +233,11 @@ impl Run<'_> {
     /// A slice run's kept change written to its milestone: the description
     /// read again just before, the edits applied and one changelog entry
     /// added. Nothing is written when the entry is there already or an old
-    /// text is gone.
-    fn write_kept_change(&self) -> Result<(), Error> {
+    /// text is gone. `None` when the run is no slice run in a milestone,
+    /// else the milestone and `Edited` or `Recorded`.
+    fn write_kept_change(&self) -> Result<Option<(u64, Action)>, Error> {
         let Some(m) = self.slice_milestone()? else {
-            return Ok(());
+            return Ok(None);
         };
         let path = self.layout.run_dir(self.slug).join("milestone-change.md");
         let raw = self.artifact("milestone-change.md")?;
@@ -226,7 +246,7 @@ impl Run<'_> {
         let ms = self.milestones()?;
         let current = ms.get(m)?;
         if crate::issue::changelog::has_entry(&current.description, &sum) {
-            return Ok(());
+            return Ok(Some((m, Action::Recorded)));
         }
         let login = ms.login()?;
         let entry = crate::issue::changelog::Entry {
@@ -239,7 +259,7 @@ impl Run<'_> {
         let description = crate::issue::changelog::apply(&current.description, &change, &entry)
             .map_err(|e| Error::MilestoneStale(e.0))?;
         ms.set_description(m, &description)?;
-        Ok(())
+        Ok(Some((m, Action::Edited)))
     }
 
     /// Whether this run files its epic as a milestone.
