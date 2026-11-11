@@ -248,10 +248,10 @@ pub fn reconcile(r: &Reader<'_>, layout: &Layout, slug: &str) -> Result<Reconcil
             next = Some(format!("s{n}"));
         }
     }
-    if let (Some(g), Some(b)) = (board::pass_shas(conn, slug)?.pop(), &branch)
+    if let (Some(g), Some(b)) = (board::verified_shas(conn, slug)?.pop(), &branch)
         && !contains(&g)
     {
-        differ.push(format!("gauntlet {g} not on {b}"));
+        differ.push(format!("verified {g} not on {b}"));
     }
     Ok(Reconciled { differ, next })
 }

@@ -1,5 +1,5 @@
-//! `pr push`: a stage's verified commit pushed once the gauntlet passes on
-//! it, the pass logged and the draft PR opened or updated.
+//! `pr push`: a stage's verified commit pushed once the push-level steps
+//! pass on it, the push logged and the draft PR opened or updated.
 
 use crate::card::board;
 use crate::card::typed::Name;
@@ -35,7 +35,7 @@ pub enum PushRefused {
     },
     /// A rebase is in progress in the worktree.
     Rebasing,
-    /// The gauntlet did not pass: its outcome.
+    /// A push-level step did not pass: its outcome.
     Gauntlet(Outcome),
     /// `git push` failed.
     Push(git::GitError),
@@ -111,6 +111,7 @@ impl std::fmt::Display for PushRefused {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pushed {
     pub sha: String,
+    /// The push-level steps' pass was cached.
     pub cached: bool,
     /// The push was the leased force-push after a rebase.
     pub forced: bool,
@@ -128,7 +129,7 @@ pub enum Body {
 
 impl std::fmt::Display for Pushed {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "push=done sha={} gauntlet=pass", self.sha)?;
+        write!(f, "push=done sha={} checks=fast", self.sha)?;
         if self.cached {
             f.write_str(" cached")?;
         }
@@ -164,7 +165,7 @@ impl Run<'_> {
     }
 
     /// Pushes the worktree's head once it is a stage's verified commit and
-    /// the gauntlet passes on it, logs the pass, and updates the draft PR
+    /// the push-level steps pass on it, logs the push, and updates the draft PR
     /// (the first push opens it).
     pub fn push(&mut self) -> Result<Result<Pushed, PushRefused>, Error> {
         if board::state(self.conn, self.slug)?.is_none() {
@@ -225,19 +226,16 @@ impl Run<'_> {
             &log,
             gauntlet::Steps {
                 all: &self.config.gauntlet.step,
-                level: Level::Full,
+                level: Level::Push,
                 stage: None,
                 base: None,
                 stack: self.config.stack.as_deref(),
             },
-            forced,
+            false,
             self.now,
         )
         .map_err(|e| Error::Remote(remote::Error::Command(e.to_string())))?;
-        let Outcome::Pass {
-            cov, sha, cached, ..
-        } = outcome
-        else {
+        let Outcome::Pass { sha, cached, .. } = outcome else {
             return Ok(Err(PushRefused::Gauntlet(outcome)));
         };
         let pushed = if forced {
@@ -249,10 +247,7 @@ impl Run<'_> {
         if let Err(e) = pushed {
             return Ok(Err(PushRefused::Push(e)));
         }
-        self.log(
-            "gauntlet=pass",
-            &[format!("cov={cov}"), format!("sha={sha}")],
-        )?;
+        self.log(&format!("pushed={sha}"), &[])?;
         let body = match self.sync_draft()? {
             Some(sync) => Body::Synced(sync),
             None => Body::Opened(self.open_pr()?.0),

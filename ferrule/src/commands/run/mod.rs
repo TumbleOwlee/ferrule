@@ -54,7 +54,7 @@ then a summary:
     commit s<n> <sha> does not exist
     commit s<n> <sha> not on <b>
     done s<n> has no commit        A done stage never logged commit=
-    gauntlet <sha> not on <b>      The last gauntlet=pass is not on the branch
+    verified <sha> not on <b>      The newest verified commit (pushed= or gauntlet=pass) is not on the branch
     diverged <b> local=<sha> remote=<sha>
                                    The origin's branch holds commits the local
                                    one lacks; a check that cannot complete

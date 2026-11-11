@@ -227,7 +227,7 @@ fn it_sha_check_and_reconcile() {
     assert_eq!(
         s.run(&["run", "reconcile", "ss"]).text(),
         format!(
-            "differ row=commit s2 deadbee does not exist\ndiffer row=gauntlet {m} not on feat/ss\nreconcile=differ n=2 next=s1\nexit=1"
+            "differ row=commit s2 deadbee does not exist\ndiffer row=verified {m} not on feat/ss\nreconcile=differ n=2 next=s1\nexit=1"
         )
     );
     git(

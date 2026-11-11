@@ -705,7 +705,7 @@ mod tests {
         assert_eq!(crates(wt, "HEAD"), ["alpha", "beta"]);
     }
 
-    /// GA-R-091 — at review `{crates}` is `-p <name>` per touched crate, the
+    /// GA-R-091, GA-E-011 — at review `{crates}` is `-p <name>` per touched crate, the
     /// whole workspace when none is.
     #[test]
     fn ut_crates_expands_per_touched_crate_at_review() {
@@ -747,7 +747,7 @@ mod tests {
         }
     }
 
-    /// GA-R-082, GA-R-083, GA-R-084 — levels selecting different steps give
+    /// Levels selecting different steps give
     /// different cache keys, so a pass at one level is not reused at another.
     #[test]
     fn ut_cache_key_differs_between_levels() {

@@ -10,6 +10,7 @@ use crate::card::board::Event;
 pub enum Name {
     Commit,
     Gauntlet,
+    Pushed,
     Pr,
     Ci,
     CiWaived,
@@ -39,9 +40,10 @@ pub enum Name {
 }
 
 impl Name {
-    pub const ALL: [Name; 28] = [
+    pub const ALL: [Name; 29] = [
         Name::Commit,
         Name::Gauntlet,
+        Name::Pushed,
         Name::Pr,
         Name::Ci,
         Name::CiWaived,
@@ -76,6 +78,7 @@ impl Name {
         match self {
             Name::Commit => "commit=",
             Name::Gauntlet => "gauntlet=",
+            Name::Pushed => "pushed=",
             Name::Pr => "pr=",
             Name::Ci => "ci=",
             Name::CiWaived => "ci-waived",
@@ -185,6 +188,10 @@ pub enum Typed<'a> {
         step: Option<&'a str>,
         reason: Option<&'a str>,
     },
+    /// `ferrule pr push` pushed the commit `sha` after its fast checks.
+    Pushed {
+        sha: &'a str,
+    },
     Pr(PrState),
     Ci(&'a str),
     CiWaived,
@@ -267,6 +274,7 @@ impl Typed<'_> {
         Some(match self {
             Typed::Commit { .. } => Name::Commit,
             Typed::Gauntlet { .. } => Name::Gauntlet,
+            Typed::Pushed { .. } => Name::Pushed,
             Typed::Pr(_) => Name::Pr,
             Typed::Ci(_) => Name::Ci,
             Typed::CiWaived => Name::CiWaived,
@@ -341,6 +349,7 @@ impl Event {
                 step: key("step"),
                 reason: key("reason"),
             },
+            Name::Pushed => Typed::Pushed { sha: value? },
             Name::Pr => Typed::Pr(match value? {
                 "draft" => PrState::Draft,
                 "ready" => PrState::Ready,

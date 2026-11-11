@@ -237,6 +237,7 @@ fn it_render_every_stop() {
     )
     .golden("prompt-render-blocked");
     render(p, &["demo", "delta", "--stage", "s1"]).golden("prompt-render-delta");
+    seed_log(p, "2026-10-05T09:00", "demo", &["pushed=bbb2222"]);
     render(p, &["demo", "auto", "--stage", "s1"]).golden("prompt-render-auto");
     render(p, &["demo", "gate2-notice", "--issue", "new"]).golden("prompt-render-gate2-notice");
     render(p, &["demo", "replan-notice", "--from", "s3"]).golden("prompt-render-replan-notice");
@@ -260,13 +261,15 @@ fn it_render_blocked_diverged() {
     assert!(shown.contains(" stop kind=blocked"), "{shown}");
 }
 
-/// GW-R-066 — the auto-continue notice shows no pass from before the run's last rebase.
+/// GW-R-066 — the auto-continue notice takes its commit from a push and its
+/// coverage from a pass, each logged after the run's last rebase.
 #[test]
 fn it_render_auto_shows_no_pass_from_before_a_rebase() {
     let p = project();
     let p = p.path();
     let at = "2026-10-05T09:00";
     let notice = || render(p, &["demo", "auto", "--stage", "s1"]).text();
+    seed_log(p, at, "demo", &["pushed=bbb2222"]);
     assert!(notice().contains("gauntlet pass 81.2% · pushed bbb2222"));
     seed_log(
         p,
@@ -288,6 +291,8 @@ fn it_render_auto_shows_no_pass_from_before_a_rebase() {
         "demo",
         &["gauntlet=pass", "cov=90.0%", "sha=ccc3333"],
     );
+    assert!(notice().contains("gauntlet pass 90.0% · pushed -"));
+    seed_log(p, at, "demo", &["pushed=ccc3333"]);
     assert!(notice().contains("gauntlet pass 90.0% · pushed ccc3333"));
 }
 

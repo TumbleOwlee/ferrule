@@ -284,7 +284,7 @@ impl Config {
 mod tests {
     use super::*;
 
-    /// GA-R-091, GA-E-009 — a step's `at` parses, defaults to `[full]` and
+    /// GA-E-009 — a step's `at` parses, defaults to `[full]` and
     /// refuses an unknown level.
     #[test]
     fn ut_step_at_parses_defaults_and_refuses_unknown() {

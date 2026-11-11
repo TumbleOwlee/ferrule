@@ -90,7 +90,7 @@ impl Project {
         std::fs::create_dir_all(root.join(".ferrule")).unwrap();
         std::fs::write(
             root.join(".ferrule/ferrule.toml"),
-            "[[gauntlet.step]]\nname = \"check\"\ncmd = [\"true\"]\n",
+            "[[gauntlet.step]]\nname = \"check\"\ncmd = [\"true\"]\nat = [\"push\"]\n",
         )
         .unwrap();
         Project {
@@ -542,7 +542,7 @@ fn first_stage(p: &Project) {
     let pushed = p.ok(&["pr", "push", "demo"]);
     assert!(pushed.starts_with("push=done sha="), "{pushed}");
     assert!(
-        pushed.ends_with(" gauntlet=pass pr-body=opened pr=34"),
+        pushed.ends_with(" checks=fast pr-body=opened pr=34"),
         "{pushed}"
     );
     assert_eq!(p.field("demo", "pr"), "34");
@@ -550,7 +550,7 @@ fn first_stage(p: &Project) {
         git(&p.root, &["rev-parse", "--short", "origin/feat/demo"]),
         sha0
     );
-    assert!(p.field("demo", "pass-sha").starts_with(&sha0));
+    assert!(p.field("demo", "log:pushed").starts_with(&sha0));
 
     gh.serve(
         &["pr", "view", "34", "--json", "state,isDraft,body"],
@@ -2450,7 +2450,7 @@ fn it_push_refuses_a_branch_only_behind_the_remote() {
     assert!(got.starts_with(&line), "{got}");
 }
 
-/// GW-R-036, S1 — an adopted commit is reviewed, gauntleted and pushed as a fast-forward.
+/// GW-R-036, S1 — an adopted commit gets the push checks and is pushed as a fast-forward.
 #[test]
 fn it_adopted_commit_pushes_as_a_fast_forward() {
     let (p, _) = pushed_run();
@@ -2484,7 +2484,7 @@ fn it_adopted_commit_pushes_as_a_fast_forward() {
     assert!(!p.ok(&["board", "show", "demo"]).contains("replan"));
 }
 
-/// GW-R-009 — the divergence check runs before the gauntlet.
+/// GW-R-009 — the divergence check runs before the fast checks, so a diverged push runs no fast check.
 #[test]
 fn it_diverged_push_runs_no_gauntlet() {
     let (p, _, _) = diverged_run();
@@ -2601,10 +2601,10 @@ fn it_dirty_and_sha_refusals_precede_diverged() {
 
 /// GW-R-010, S6 — a branch missing from the remote is a normal first push.
 #[test]
-fn it_first_push_runs_the_gauntlet() {
+fn it_first_push_runs_the_fast_checks() {
     let (p, first) = pushed_run();
     assert!(first.starts_with("push=done sha="), "{first}");
-    assert!(first.contains(" gauntlet=pass pr-body=opened"), "{first}");
+    assert!(first.contains(" checks=fast pr-body=opened"), "{first}");
     assert!(!first.contains("cached"), "{first}");
     git(
         &p.root,
@@ -2612,7 +2612,7 @@ fn it_first_push_runs_the_gauntlet() {
     );
 }
 
-/// GW-R-011, S7 — a check that cannot complete lets the gauntlet and the push go on.
+/// GW-R-011, S7 — a divergence check that cannot complete lets the fast checks and the push go on.
 #[test]
 fn it_unreadable_remote_runs_the_gauntlet_and_the_push() {
     let (p, _) = pushed_run();
@@ -3569,6 +3569,11 @@ fn it_rebase_stops_on_a_conflict_and_maps_after_continue() {
         got.starts_with(&format!("rebase=done head={} mapped=2\n", wt_head(&p))),
         "{got}"
     );
+    let pushed = push_text(&p);
+    assert!(
+        pushed.starts_with(&format!("push=done sha={} checks=fast forced", wt_head(&p))),
+        "{pushed}"
+    );
 }
 
 /// Whether `ferrule hook shell` lets `cmd` run from the run's worktree.
@@ -3750,16 +3755,22 @@ fn rebased_after_push() -> (Project, String) {
     (p, pushed)
 }
 
-/// GW-R-007, GW-R-045, GW-R-050 — a push after a rebase reruns the gauntlet and forces with a lease.
+/// GW-R-007, GW-R-050, GW-R-079, S11 — a push after a rebase runs only the fast checks and forces with a lease.
 #[test]
-fn it_push_after_a_rebase_reruns_the_gauntlet_and_forces_with_lease() {
+fn it_push_after_a_rebase_runs_the_fast_checks_and_forces_with_lease() {
     let (p, _) = rebased_after_push();
+    std::fs::write(
+        p.root.join(".ferrule/ferrule.toml"),
+        "[[gauntlet.step]]\nname = \"check\"\ncmd = [\"true\"]\nat = [\"push\"]\n\n\
+         [[gauntlet.step]]\nname = \"slow\"\ncmd = [\"false\"]\n",
+    )
+    .unwrap();
     let head = wt_head(&p);
     let log = p.run_dir().join("gauntlet.log");
     let _ = std::fs::remove_file(&log);
     let got = push_text(&p);
     assert!(
-        got.starts_with(&format!("push=done sha={head} gauntlet=pass forced")),
+        got.starts_with(&format!("push=done sha={head} checks=fast forced")),
         "{got}"
     );
     assert!(!got.contains("cached"), "{got}");
@@ -3770,29 +3781,33 @@ fn it_push_after_a_rebase_reruns_the_gauntlet_and_forces_with_lease() {
     assert!(!again.contains("forced"), "{again}");
 }
 
-/// GW-R-045 — a push after a recorded rebase reruns the gauntlet even when the tree's pass is cached.
+/// GW-R-045 — after a recorded rebase no earlier `gauntlet=pass` counts, and
+/// `ferrule ci gauntlet` on the clean head logs a pass that does.
 #[test]
-fn it_push_after_a_rebase_reruns_a_cached_gauntlet() {
+fn it_gauntlet_after_a_rebase_logs_a_fresh_pass() {
     let p = pushed_s1();
     let head = wt_head(&p);
+    let pass = |p: &Project| {
+        p.ok(&["run", "status", "demo"])
+            .lines()
+            .any(|l| l.starts_with("gauntlet=pass"))
+    };
+    let first = p.ferrule(&["ci", "gauntlet", "demo"]).text();
+    assert!(first.starts_with("gauntlet=pass "), "{first}");
+    assert!(pass(&p));
     seed_log(
         &p.root,
         "2026-10-05T09:00",
         "demo",
         &[&format!("rebase={head} base=origin/main from={head}")],
     );
-    let log = p.run_dir().join("gauntlet.log");
-    let _ = std::fs::remove_file(&log);
-    let got = push_text(&p);
-    assert!(
-        got.starts_with(&format!("push=done sha={head} gauntlet=pass forced")),
-        "{got}"
-    );
-    assert!(!got.contains("cached"), "{got}");
-    assert!(log.is_file());
+    assert!(!pass(&p), "the earlier pass no longer counts");
+    let again = p.ferrule(&["ci", "gauntlet", "demo"]).text();
+    assert!(again.starts_with("gauntlet=pass "), "{again}");
+    assert!(pass(&p), "the new pass counts");
 }
 
-/// GW-R-064 — after a mapped rebase the status shows no gauntlet result until a later push logs one.
+/// GW-R-064 — after a mapped rebase the status shows no gauntlet result until a later gauntlet line is logged.
 #[test]
 fn it_run_status_shows_no_gauntlet_result_from_before_a_rebase() {
     let p = pushed_s1();
@@ -3801,6 +3816,8 @@ fn it_run_status_shows_no_gauntlet_result_from_before_a_rebase() {
             .lines()
             .any(|l| l.starts_with(line))
     };
+    let first = p.ferrule(&["ci", "gauntlet", "demo"]).text();
+    assert!(first.starts_with("gauntlet=pass "), "{first}");
     assert!(has(&p, "gauntlet=pass"));
     p.diverge_branch("main");
     let got = rebase(&p, &[]);
@@ -3809,7 +3826,49 @@ fn it_run_status_shows_no_gauntlet_result_from_before_a_rebase() {
     assert!(st.lines().any(|l| l == "gauntlet=-"), "{st}");
     let got = push_text(&p);
     assert!(got.starts_with("push=done"), "{got}");
+    assert!(!has(&p, "gauntlet=pass"), "a push logs no gauntlet line");
+    let later = p.ferrule(&["ci", "gauntlet", "demo"]).text();
+    assert!(later.starts_with("gauntlet=pass "), "{later}");
     assert!(has(&p, "gauntlet=pass"));
+}
+
+/// GW-R-078 — a push runs the push-level steps only: a step with no level
+/// that would fail does not run, and the push logs `pushed=` and no `gauntlet=`.
+#[test]
+fn it_push_runs_only_the_push_level_steps() {
+    let (p, _) = pushed_run();
+    std::fs::write(
+        p.root.join(".ferrule/ferrule.toml"),
+        "[[gauntlet.step]]\nname = \"quick\"\ncmd = [\"true\"]\nat = [\"push\"]\n\n\
+         [[gauntlet.step]]\nname = \"slow\"\ncmd = [\"false\"]\n",
+    )
+    .unwrap();
+    let sha = p.land("s1", "src/client.rs");
+    let got = push_text(&p);
+    assert!(
+        got.starts_with(&format!("push=done sha={sha} checks=fast ")),
+        "{got}"
+    );
+    let log = std::fs::read_to_string(p.run_dir().join("gauntlet.log")).unwrap();
+    assert!(
+        log.contains("### quick:") && !log.contains("### slow:"),
+        "{log}"
+    );
+    let card = p.ok(&["board", "show", "demo"]);
+    assert!(card.contains(&format!("pushed={sha}")), "{card}");
+    assert!(!card.contains("gauntlet="), "{card}");
+}
+
+/// A pushed commit verifies its stage with no `gauntlet=pass` on
+/// the card.
+#[test]
+fn it_pushed_commit_lets_the_stage_move_to_done() {
+    let (p, _) = pushed_run();
+    p.land("s1", "src/client.rs");
+    let got = push_text(&p);
+    assert!(got.starts_with("push=done "), "{got}");
+    p.ok(&["board", "move", "demo.s1", "done"]);
+    assert!(!p.ok(&["board", "show", "demo"]).contains("gauntlet=pass"));
 }
 
 /// GW-R-051 — a remote moved by someone else refuses the force-push before the gauntlet.
@@ -3854,7 +3913,7 @@ fn it_push_after_a_rebase_refuses_a_branch_deleted_on_origin() {
     assert!(heads.is_empty(), "{heads}");
 }
 
-/// GW-R-062 — a remote check that cannot complete lets the gauntlet and the push go on.
+/// GW-R-062 — a remote check that cannot complete lets the fast checks and the push go on.
 #[test]
 fn it_push_after_a_rebase_goes_on_when_the_remote_is_unreadable() {
     let (p, _) = rebased_after_push();

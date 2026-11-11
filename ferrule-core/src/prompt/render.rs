@@ -1028,8 +1028,9 @@ fn next_stage(run: &Run, me: u32) -> Result<Option<u32>, Error> {
         .find(|&n| n > me))
 }
 
-/// The one-line notice of a stage that auto-continues: its coverage and commit
-/// come from the newest pass after the run's last `rebase=`.
+/// The one-line notice of a stage that auto-continues: its coverage comes from
+/// the newest `gauntlet=pass` and its commit from the newest `pushed=`, each
+/// after the run's last `rebase=`.
 fn auto(run: &Run, args: &[(String, String)]) -> Result<Vec<String>, Error> {
     let sid = arg(args, "stage").ok_or(Error::Usage)?;
     let me: u32 = sid
@@ -1037,21 +1038,28 @@ fn auto(run: &Run, args: &[(String, String)]) -> Result<Vec<String>, Error> {
         .parse()
         .map_err(|_| Error::Usage)?;
     let next = next_stage(run, me)?.map_or_else(|| "gate 4".to_owned(), |n| format!("s{n}"));
-    let events = board::events(run.conn, run.slug, &[Name::Gauntlet, Name::Rebase])?;
-    let (cov, sha) = events
+    let events = board::events(
+        run.conn,
+        run.slug,
+        &[Name::Gauntlet, Name::Pushed, Name::Rebase],
+    )?;
+    let after: Vec<_> = events
         .iter()
         .rev()
         .take_while(|e| !matches!(e.typed(), Typed::Rebase { .. }))
-        .find_map(|e| match e.typed() {
-            Typed::Gauntlet {
-                result: Verdict::Pass,
-                cov,
-                sha,
-                ..
-            } => Some((cov, sha)),
-            _ => None,
-        })
-        .unwrap_or_default();
+        .collect();
+    let sha = after.iter().find_map(|e| match e.typed() {
+        Typed::Pushed { sha } => Some(sha),
+        _ => None,
+    });
+    let cov = after.iter().find_map(|e| match e.typed() {
+        Typed::Gauntlet {
+            result: Verdict::Pass,
+            cov,
+            ..
+        } => Some(cov),
+        _ => None,
+    });
     let detail = std::fs::read_to_string(run.art("review.verdict.md"))
         .ok()
         .and_then(|v| {
@@ -1064,7 +1072,7 @@ fn auto(run: &Run, args: &[(String, String)]) -> Result<Vec<String>, Error> {
     Ok(vec![format!(
         "Landed {sid} · {} · review clean · gauntlet pass {} · pushed {} · spec detail: {detail} · next: {next} (auto-continue — say stop to hold)",
         run.slug,
-        cov.unwrap_or("-"),
+        cov.flatten().unwrap_or("-"),
         sha.unwrap_or("-")
     )])
 }

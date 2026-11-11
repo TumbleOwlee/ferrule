@@ -227,7 +227,7 @@ Commands are grouped by what they act on. Most are run by the orchestrating agen
 | `ferrule pr view <n>` | A PR's title, body and a one-line index of its comments; `--comment <n\|a-b>` or `--comments` prints them in full |
 | `ferrule pr body <slug> draft\|full` | The PR body from the run's artifacts and cards; exit 3 when it names a stage or an agent |
 | `ferrule pr open <slug>` | Open the draft PR from the rendered draft body |
-| `ferrule pr push <slug>` | Push a verified, gauntlet-green head; update the draft body (the first push opens the PR) |
+| `ferrule pr push <slug>` | Push a verified head after the fast checks (push-level steps); update the draft body (the first push opens the PR) |
 | `ferrule pr push --no-run` | Push the current branch outside a run, never the main one |
 | `ferrule pr publish <slug> [--follow-ups 1,3\|none]` | Gate 4: threads, ID collisions, full body, ready, follow-ups filed |
 | `ferrule pr feedback route <slug>` | Fetch the threads, log `feedback=`, move the stages owning the commented files back |
