@@ -13,3 +13,23 @@
 ## Plan gate
 
 **GA-E-005** — `ferrule gate approve <slug> gate2 --live-repo` refuses a value that is not `<owner>/<name>`.
+
+## Stage tiers
+
+**GA-E-006** — A stage of a plan written without tiers gets its own review.
+
+**GA-E-007** — A run resumed mid-batch keeps the batch's committed stages in its review point.
+
+**GA-E-008** — A stage promoted by a spec change closes the open batch, and one review covers the batch's stages and the promoted stage.
+
+**GA-E-009** — On a project whose gauntlet steps name no level, a push and a review point run none of them and gate 3 runs them all.
+
+**GA-E-012** — The stage that lands the brief's spec text does not count as changing the spec, so it keeps its planned tier.
+
+**GA-E-013** — A stage that takes its batch to 1,200 changed lines or more is the last stage its batch's review covers.
+
+## Checks
+
+**GA-E-010** — On a project whose stack is not Rust, a stage's checks run only the push-level steps, not its new tests.
+
+**GA-E-011** — A `{crates}` argument runs as the whole workspace at a push, at gate 3 and when the diff touches no crate, and is dropped on a project whose stack is not Rust.

@@ -28,7 +28,7 @@
 
 **GW-R-035** — `--adopt` refuses a commit whose message carries attribution trailers, with a hint to amend the commit if it has not been pushed.
 
-**GW-R-036** — An adopted commit goes through the same push checks, gauntlet and stage review as a commit made by `ferrule stage commit`.
+**GW-R-036** — An adopted commit goes through the same push checks, stage checks and review tier as a commit made by `ferrule stage commit`.
 
 **GW-R-037** — `ferrule stage commit` requires `-m` unless `--adopt` is given, and `--adopt` together with `-m` or `--no-run` is a usage error.
 
@@ -40,11 +40,11 @@
 
 **GW-R-008** — Only exit code 1 from `git merge-base --is-ancestor`, run after `git fetch`, counts as diverged, never git's error text.
 
-**GW-R-009** — The divergence check runs before the gauntlet, so a diverged refusal runs no gauntlet.
+**GW-R-009** — The divergence check runs before the fast checks, so a diverged refusal runs none of them.
 
 **GW-R-010** — A branch that `git ls-remote --exit-code` reports missing from the remote is pushed as a normal first push.
 
-**GW-R-011** — A divergence check that cannot complete for any reason lets the gauntlet and the push go on.
+**GW-R-011** — A divergence check that cannot complete for any reason lets the fast checks and the push go on.
 
 **GW-R-012** — `ferrule pr push --no-run` applies the same divergence check and gives the same refusal fields.
 
@@ -96,7 +96,7 @@
 
 **GW-R-044** — Only committed stages are mapped; a stage not yet committed commits on the rebased branch as usual.
 
-**GW-R-045** — A mapped rebase makes the last `gauntlet=pass` no longer count, so the next push reruns the gauntlet on the rebased head.
+**GW-R-045** — A mapped rebase makes the last `gauntlet=pass` no longer count, so a gate 3 still ahead runs the gauntlet on the rebased head.
 
 **GW-R-046** — A mapped rebase leaves the stages' approved reviews in place.
 
@@ -130,11 +130,17 @@
 
 **GW-R-061** — `ferrule pr push` in a run refuses while a rebase is in progress in the run's worktree.
 
-**GW-R-062** — In a run with a rebase recorded since its last push, a remote-head check that cannot complete lets the gauntlet and the leased force-push go on.
+**GW-R-062** — In a run with a rebase recorded since its last push, a remote-head check that cannot complete lets the fast checks and the leased force-push go on.
 
 **GW-R-064** — After a mapped rebase, `ferrule run status` prints `gauntlet=-` until a later gauntlet line is logged.
 **GW-R-065** — After a mapped rebase, the PR body's status line takes its coverage only from a gauntlet line logged after the run's last `rebase=`.
-**GW-R-066** — After a mapped rebase, a stage's auto-continue notice takes its coverage and commit only from a `gauntlet=pass` logged after the run's last `rebase=`.
+**GW-R-066** — After a mapped rebase, a stage's auto-continue notice takes its coverage only from a `gauntlet=pass`, and its commit only from a push, each logged after the run's last `rebase=`.
+
+## Push checks
+
+**GW-R-078** — `ferrule pr push` runs only the fast checks before pushing.
+
+**GW-R-079** — The first push after a mapped rebase runs only the fast checks, like every other push.
 
 ## PR decisions list
 
