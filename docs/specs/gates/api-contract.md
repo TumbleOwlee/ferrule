@@ -5,6 +5,7 @@
 - `gate2 --live-repo <owner/name>` names the live-check repository (GA-R-062)
 - `gate2 --tiers s<n>=<own|batched|skipped>,…` sets the tier of each stage named; lists only the overrides (GA-R-070)
 - `approve=refused reason=tier stage=s<n> risk=<host-writes|persisted-state|public-surface> hint=<fix>` — a skipped tier on a stage with a risk; nothing is written (GA-R-071)
+- `approve=refused reason=tier stage=s<n> risk=<word> hint=<fix>` — a plan Risk word that names no risk; nothing is written (GA-E-014)
 
 ## ferrule stage tier
 

@@ -1120,7 +1120,7 @@ mod tests {
         assert!(s[0].blocked_by.is_empty());
     }
 
-    /// GA-R-071 — a risk word that names no risk is kept apart, not dropped.
+    /// GA-E-014 — a risk word that names no risk is kept apart, not dropped.
     #[test]
     fn ut_plan_stage_keeps_unknown_risk_words() {
         let plan = "## Shared\n| Stage | Title | Files | Blocked by | Tier | Risk |\n|---|---|---|---|---|---|\n| s1 | t | a.rs | — | skipped | host-write, public-surface |\n";

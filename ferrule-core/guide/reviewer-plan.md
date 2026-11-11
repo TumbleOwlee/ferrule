@@ -23,6 +23,7 @@ Check `plan.md` against `spec-diff.md`, spec-fidelity axis only:
 - no local `R<n>`/`E<n>` left; every fixed ID new to the run is unused on `{main}` (`ferrule spec refs <ID>… --ref {main} --path docs/specs` answers `refs=none`) and sequential within its prefix
 - every scenario `S<n>` is pinned by a test or a stage's Verification
 - the plan reaches `architecture.md`: every new or changed component has a stage, no stage builds one it doesn't name, and every signature of what `## Public surface` lists appears as written in the step that builds it
+- every stage row has a tier; `Risk` names every host write, persisted state and public surface the stage adds; no risky stage is skipped
 - spec edits the planner made since the architecture stop are recorded (`Revisions:`, a `decisions.md` line each)
 - every stage title is imperative, verb first; ≤ 3 words, ≤ 20 characters; letters, digits, hyphens, spaces only; unique within the plan; no stage id; `s0`, when present, is always `Land spec`; and it matches its heading and stage-table row
 

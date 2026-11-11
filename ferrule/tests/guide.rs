@@ -160,6 +160,154 @@ fn it_stage_review_guide_pushes_before_gate4() {
         ),
         "{text}"
     );
+    assert!(
+        text.contains(
+            "commit and push the stage, or its review fixes when it closes a batch, before gate 4"
+        ),
+        "{text}"
+    );
+}
+
+/// The topic as the full-lane run `demo` reads it.
+fn topic(name: &str) -> String {
+    let tmp = tempfile::tempdir().unwrap();
+    seed_card(tmp.path(), "demo", "open", &["lane=full"]);
+    ok(tmp.path(), &["guide", "show", name, "--slug", "demo"])
+}
+
+fn says(name: &str, phrases: &[&str]) {
+    let text = topic(name);
+    for p in phrases {
+        assert!(text.contains(p), "{name}: missing {p}\n{text}");
+    }
+}
+
+/// GA-R-069 — the planner's stage table carries a tier and a risk per stage.
+#[test]
+fn it_planner_guide_proposes_a_tier_per_stage() {
+    says(
+        "planner",
+        &[
+            "| Stage | Title | Files | Blocked by | Tier | Risk |",
+            "`Tier` is `own`, `batched` or `skipped`",
+            "A stage with a risk is never `skipped`; a stage marked `Stop` is `own`",
+        ],
+    );
+}
+
+/// GA-R-075 — a batched stage without a stop is committed and pushed, its card stays inreview.
+#[test]
+fn it_stages_guide_commits_a_batched_stage_without_a_stop() {
+    says(
+        "stages",
+        &[
+            "`review=batch stages=s<a>,s<b>` → resume the implementer to commit, `ferrule pr push demo`, the card stays `inreview`",
+        ],
+    );
+}
+
+/// GA-R-088 — a skipped or unbatched stage runs through: commit, push, done, next stage.
+#[test]
+fn it_stages_guide_runs_a_skipped_stage_through() {
+    says(
+        "stages",
+        &[
+            "`review=none` → no review, no stop: resume the implementer to commit, `ferrule pr push demo`, card → `done`, the next stage",
+        ],
+    );
+}
+
+/// GA-R-076 — a batch's review fixes are committed once, on the last stage's card.
+#[test]
+fn it_stage_review_guide_commits_batch_fixes_once() {
+    says(
+        "stage-review",
+        &["A batch's fixes are committed once, when clean, on the last stage's card, and pushed"],
+    );
+}
+
+/// GA-R-077 — minors are fixed by the stage's implementer before its commit.
+#[test]
+fn it_minors_are_fixed_before_the_commit() {
+    says("verify", &["that stage's implementer fixes every one"]);
+    says(
+        "implementer",
+        &["Minors in your brief are fixed before the commit"],
+    );
+    says(
+        "reviewer",
+        &["always `fixed before commit`, by that stage's implementer"],
+    );
+}
+
+/// GA-R-078 — gate 3 reviews the branch whatever the tiers.
+#[test]
+fn it_gate3_guide_always_reviews_the_branch() {
+    says(
+        "gate3",
+        &["Always a whole-branch review, whatever the stage tiers"],
+    );
+}
+
+/// GA-R-079 — each pass of the branch review is a fresh reviewer.
+#[test]
+fn it_gate3_guide_takes_a_fresh_reviewer_per_pass() {
+    says("gate3", &["each pass a fresh reviewer"]);
+    says("stage-review", &["each pass a fresh reviewer"]);
+}
+
+/// GA-R-080 — a batch scope reads every listed stage from the commit before the first.
+#[test]
+fn it_reviewer_guide_batch_scope_reads_every_stage() {
+    says(
+        "reviewer",
+        &[
+            "`batch s<a>,s<b>` (base = the commit before `s<a>`; reads the commits of every listed stage and the uncommitted fixes",
+        ],
+    );
+}
+
+/// GA-R-085 — the implementer reruns no suite the workflow runs.
+#[test]
+fn it_implementer_guide_reruns_no_workflow_suite() {
+    says(
+        "implementer",
+        &["Run a suite only to see a failure it reported go green, never again before your answer"],
+    );
+}
+
+/// GA-R-092 — stage and batch review status lines carry the blocker count.
+#[test]
+fn it_reviewer_status_line_reports_blockers() {
+    says(
+        "reviewer",
+        &["count=<blockers+majors> blockers=<n> user=<Needs user items>"],
+    );
+}
+
+/// GA-R-082, GA-R-083, GA-R-084 — the guides call each check level where it applies.
+#[test]
+fn it_guides_call_each_check_level() {
+    says(
+        "stages",
+        &["`ferrule ci gauntlet demo --level push --stage s<n>`"],
+    );
+    says(
+        "stage-review",
+        &["`ferrule ci gauntlet demo --level review`"],
+    );
+    says("gate3", &["`ferrule ci gauntlet demo` (the full level"]);
+}
+
+/// GW-R-036 — an adopted commit takes the stage checks, its tier and its review point.
+#[test]
+fn it_stages_guide_routes_an_adopted_commit_through_its_tier() {
+    says(
+        "stages",
+        &[
+            "The adopted commit then takes the stage checks, `ferrule stage tier` and its review point like any commit",
+        ],
+    );
 }
 
 /// GW-R-014, GW-R-016 — a diverged push refusal goes to the blocked stop with both heads, never to a re-plan.

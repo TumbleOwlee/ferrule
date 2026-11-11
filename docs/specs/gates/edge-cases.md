@@ -28,6 +28,8 @@
 
 **GA-E-013** — A stage that takes its batch to 1,200 changed lines or more is the last stage its batch's review covers.
 
+**GA-E-014** — A plan whose stage names a risk word that is none of `host-writes`, `persisted-state` and `public-surface` is refused at gate 2 on any tier, naming the stage and the word, and nothing is written.
+
 ## Checks
 
 **GA-E-010** — On a project whose stack is not Rust, a stage's checks run only the push-level steps, not its new tests.

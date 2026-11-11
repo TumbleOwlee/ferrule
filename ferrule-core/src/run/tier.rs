@@ -534,7 +534,7 @@ mod tests {
         assert_eq!(settle(&risky, &[(1, Tier::Own)]).unwrap(), [(1, Tier::Own)]);
     }
 
-    /// GA-R-071 — a risk word that names no risk is refused, whatever the tier.
+    /// GA-E-014 — a risk word that names no risk is refused, whatever the tier.
     #[test]
     fn ut_settle_refuses_an_unknown_risk_word() {
         let mut typo = stage(1, Some(Tier::Skipped), &[]);

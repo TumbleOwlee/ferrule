@@ -4106,7 +4106,7 @@ fn it_gate2_refuses_skipped_on_a_risky_stage() {
     }
 }
 
-/// GA-R-071 — a Risk word that names no risk is refused, naming the stage
+/// GA-E-014 — a Risk word that names no risk is refused, naming the stage
 /// and the word, before anything is written.
 #[test]
 fn it_gate2_refuses_an_unknown_risk_word() {

@@ -58,11 +58,12 @@ Refusals:
   approve=refused reason=no-stages gate2: plan.md has no `## Shared` stage table
   approve=refused reason=usage     gate2: --issue is neither `new` nor a number
   approve=refused reason=tier stage=s<n> risk=<host-writes|persisted-state|public-surface> hint=<fix>
-  approve=refused reason=tier stage=s<n> risk=<word> hint=<fix>
-                                   The plan's Risk cell names a word that is no risk
                                    gate2: a stage with a risk got the skipped
                                    tier, by the plan or by --tiers; nothing is
                                    written. Fix: --tiers s<n>=own (or batched)
+  approve=refused reason=tier stage=s<n> risk=<word> hint=<fix>
+                                   gate2: the plan's Risk cell names a word
+                                   that is no risk; nothing is written
   approve=refused reason=worktree detail=\"<git's error>\"
                                    gate2: `git worktree add` failed
   approve=refused reason=move      gate2: the parent card cannot move to

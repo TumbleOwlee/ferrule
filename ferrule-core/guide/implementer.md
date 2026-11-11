@@ -67,11 +67,11 @@ A reviewer classifies every change; one that contradicts a scenario or a user de
 - Fast lane (brief says `lane=fast`): on green card → `inreview`, `git add` your stage's files, `ferrule stage commit {card} -m <msg>` — no `status=inreview` (it refuses while the card sits in `inprogress`, logs `commit=<sha>` and prints it), end turn on `status=committed stage=s<n> sha=<sha> delta=<n>`; resumed, take the next stage. Fixes (review findings, PR feedback, a red gauntlet) are committed on green the same way, answering `status=committed`. The orchestrator pushes and verifies between stages; a review comes once, over the whole branch.
 
 <!-- lane: full -->
-- Full lane: on green end turn on `status=inreview stage=s<n> delta=<n>`; commit only once resumed with approval: `git add` your stage's files, `ferrule stage commit {card} -m <msg>`, then `status=committed stage=s<n> sha=<sha> delta=<n>`. Stage messages cheap, squashed later.
+- Full lane: on green end turn on `status=inreview stage=s<n> delta=<n>`; commit only once resumed (with approval, or for a stage without a stop: `review=none` or a batch stage): `git add` your stage's files, `ferrule stage commit {card} -m <msg>`, then `status=committed stage=s<n> sha=<sha> delta=<n>`. Stage messages cheap, squashed later.
 
-- Resumed with a `review.md` path: fix exactly its findings for your stage, re-run the checks (`## Stage completion`), then the lane's status above.
+- Resumed with a `review.md` path: fix exactly its findings for your stage, minors included, re-run the checks (`## Stage completion`), then the lane's status above.
 - Resumed with the user's answer on a spec change (keep, revert, narrow for a split): apply exactly that, re-run the checks (`## Stage completion`), then the lane's status.
-- Minors in your brief (the `minor=` log lines of your card) are folded into your next stage's work; when no stage follows (a last stage, a branch review) you are resumed with them and fix them before the commit — never skipped.
+- Minors in your brief are fixed before the commit, never skipped.
 
 ## PR feedback
 
@@ -83,11 +83,11 @@ Resumed with a `rebase=conflict` line: a rebase stopped in your worktree. Edit o
 
 ## Stage completion
 
-Before every `inreview` or `committed` answer, check that each spec ID a test's doc comment cites is asserted by that test, then run the checks (`## Checks`) in the worktree. Log `checks=pass crates=<the packages tested>` or `checks=fail -- <one-line reason>` — never an excerpt, never a log. No coverage run, no whole-project test run: the orchestrator runs the full gauntlet (`ferrule ci gauntlet`) on the tree you hand over and resumes you when it fails.
+Before every `inreview` or `committed` answer, check that each spec ID a test's doc comment cites is asserted by that test, then run the checks (`## Checks`) in the worktree. Log `checks=pass crates=<the packages tested>` or `checks=fail -- <one-line reason>` — never an excerpt, never a log. No coverage run, no whole-project test run: the orchestrator runs the workflow's checks on the tree you hand over and resumes you when one fails.
 
 ## Checks
 
-The project's fast checks, cheapest first:
+The workflow runs the formatter and your new tests at every stage, clippy and the changed packages' tests at a review point, everything at gate 3. Run a suite only to see a failure it reported go green, never again before your answer. Your checks, cheapest first:
 - the formatter, in check mode
 - the linter over the whole project, warnings as errors — so a dependant your change broke fails here
 - the tests of every package whose files you changed
