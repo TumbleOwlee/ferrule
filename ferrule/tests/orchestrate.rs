@@ -4121,6 +4121,18 @@ fn it_gate2_refuses_an_unknown_risk_word() {
     );
     assert!(!p.worktree().exists());
     assert_eq!(p.field("demo", "gate2"), "");
+
+    let own = Project::new();
+    gate2_ready(&own, &tier_plan("own | host_writes", "own | —"));
+    let got = own.ferrule(&["gate", "approve", "demo", "gate2"]).text();
+    assert!(
+        got.starts_with(
+            "approve=refused reason=tier stage=s1 risk=host_writes hint=fix s1's Risk cell"
+        ),
+        "{got}"
+    );
+    assert!(!own.worktree().exists());
+    assert_eq!(own.field("demo", "gate2"), "");
 }
 
 /// GA-R-081 — a slice run takes its stages' tiers from its own plan.

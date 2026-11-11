@@ -625,6 +625,7 @@ fn artifacts(
 mod tests {
     use super::*;
 
+    /// GA-E-015 — a line naming no tier reads as own, with no stop.
     #[test]
     fn ut_stage_lines() {
         let pr = "## Stages\n- [x] Land spec (abc1234) <!-- s0 -->\n- [ ] Retry — next <!-- s1 blocked-by s0 -->\n  - beyond unit tests: demo\n    - see it\n\n## Review here\n";

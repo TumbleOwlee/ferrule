@@ -157,7 +157,6 @@ fn rank(l: &str) -> u8 {
         ("Not checked: ", 20),
         ("Spec changes: ", 22),
         ("Spec: ", 21),
-        ("Minors ", 23),
         ("Needs user", 24),
     ];
     HEADS

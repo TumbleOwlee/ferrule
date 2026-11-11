@@ -223,13 +223,6 @@ fn verdict(text: &str, out: &mut Vec<String>) {
             out.push(format!("Spec changes: {c}"));
         }
     }
-    if let Some(header) = text.lines().find(|l| l.starts_with("Minors (folded into ")) {
-        let minors = block(text, header, false);
-        if !minors.is_empty() {
-            out.push(header.to_owned());
-            out.extend(minors);
-        }
-    }
     let needs = block(text, "Needs user", true);
     if !needs.is_empty() {
         out.push("Needs user:".to_owned());
@@ -319,5 +312,16 @@ mod tests {
             ),
             ["- MB-R-1 — a — why (author)", "- b", "- d (planner)"]
         );
+    }
+
+    /// A current verdict's minors block is not quoted; `Needs user` is.
+    #[test]
+    fn ut_verdict_skips_the_minors_block() {
+        let mut out = Vec::new();
+        verdict(
+            "Minors (fixed before commit)\n- a minor\n\nNeeds user\n- a question\n",
+            &mut out,
+        );
+        assert_eq!(out, ["Needs user:", "- a question"]);
     }
 }

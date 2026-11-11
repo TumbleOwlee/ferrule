@@ -506,7 +506,7 @@ fn it_reviewer_guide_reads_the_uncommitted_stage_in_stage_scope() {
     let specs = section("Spec changes");
     assert!(
         specs.contains(
-            "Scopes `stage s<n>` and `branch` also read `ferrule run diff demo --uncommitted --specs`"
+            "Scopes `stage s<n>`, `batch` and `branch` also read `ferrule run diff demo --uncommitted --specs`"
         ),
         "{specs}"
     );
