@@ -85,6 +85,8 @@ With --no-run the nothing-staged check applies, the new-test and removed-test
 checks do not, and no card is touched; the main-branch check applies too.
 Attribution trailers are stripped from the message first.
 Exit codes: 0 ok, 1 refused, 4 internal error.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show stages";
 
 /// Shown after `ferrule stage red --help`.

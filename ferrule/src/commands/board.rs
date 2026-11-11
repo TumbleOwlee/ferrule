@@ -12,7 +12,7 @@ use ferrule_core::project;
 use ferrule_core::refusal::{Exit, Refusal};
 use ferrule_core::run::testproof::TestCheck;
 use ferrule_core::store::Site;
-use ferrule_core::store::{Board, Error as StoreError};
+use ferrule_core::store::{Board, Error as StoreError, Origin};
 use ferrule_core::term::{self, Style};
 
 use super::{exit, internal, refuse};
@@ -81,6 +81,8 @@ Exit codes: 0 ok, 1 refused, 4 internal error.
 Examples:
   ferrule board events <slug> --event follow-up
   ferrule board events <slug> --event spec-delta --last 5
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show board";
 
 const BOARD_AFTER_LONG_HELP: &str = "\
@@ -95,6 +97,8 @@ Exit codes: 0 ok, 4 internal error.
 Examples:
   ferrule board list --state inprogress --state inreview
   ferrule board list --run <slug>
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show board";
 
 const SHOW_AFTER_LONG_HELP: &str = "\
@@ -115,6 +119,8 @@ Refusals:
                              No such card; check it with
                              `ferrule board list` (hint= says so)
 Exit codes: 0 ok, 1 refused, 4 internal error.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show board";
 
 const FIELD_AFTER_LONG_HELP: &str = "\
@@ -135,6 +141,8 @@ Examples:
   ferrule board field <slug>.s1 log:commit
   ferrule board field <slug>.s1 pass-sha
 Exit codes: 0 ok, 4 internal error.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show board";
 
 const NEW_AFTER_LONG_HELP: &str = "\
@@ -174,6 +182,8 @@ Fields (`ferrule board set` takes the same):
                                  file`; gate2 files the issue too), pr
                                  (`ferrule pr open`, or the first `pr push`).
 Exit codes: 0 ok, 1 refused (exists), 2 rejected input, 4 internal error.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show board";
 
 const SET_AFTER_LONG_HELP: &str = "\
@@ -202,6 +212,8 @@ Refusals:
                                  clears one; nothing is written
 Every refusal ends in `hint=<fix>`.
 Exit codes: 0 ok, 1 refused (card), 2 rejected input, 4 internal error.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show board";
 
 const MOVE_AFTER_LONG_HELP: &str = "\
@@ -245,6 +257,8 @@ Reasons:
                                  `gate2` field is set; `ferrule gate approve`
 Exit codes: 0 ok, 1 refused (no such card), 2 refused (reason) or rejected
 line, 4 internal error.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show board";
 
 const LOG_AFTER_LONG_HELP: &str = "\
@@ -290,6 +304,8 @@ Reasons:
   like MB-R-001, comma-separated without spaces if several (MB-R-001,MB-R-002).
   The hint of a value refusal names what that event takes.
 Exit codes: 0 ok, 1 refused (no such card), 2 rejected line, 4 internal error.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show board
 
 Examples:
@@ -317,6 +333,8 @@ Refusals:
   vocab=none hint=no such event for this card kind; ferrule board vocab lists them all
               No event matches the filters; exit 1.
 Exit codes: 0 ok, 1 nothing matched, 4 internal error.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show board";
 
 const IMPORT_AFTER_LONG_HELP: &str = "\
@@ -335,6 +353,8 @@ Refusals:
                                  ...`. Fix the file or the board and run it
                                  again.
 Exit codes: 0 ok, 2 refused, 4 internal error.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show board";
 
 const HINT_KEY_VALUE: &str = "pass each field as key=value";
@@ -469,13 +489,34 @@ pub enum BoardCommand {
 /// The board this checkout's build resolves to; `None` when there is none
 /// yet, which reads as an empty board.
 pub(crate) fn store() -> io::Result<Option<Board>> {
-    Board::open_existing(&Site::current()).map_err(internal)
+    let board = Board::open_existing(&Site::current()).map_err(internal)?;
+    if let Some(b) = &board {
+        notice(b);
+    }
+    Ok(board)
+}
+
+/// Tells on stderr that this open took a dev copy of an older shared board.
+fn notice(board: &Board) {
+    if let Origin::Taken {
+        path,
+        shared,
+        schema,
+    } = board.origin()
+    {
+        eprintln!(
+            "ferrule=dev-copy copy={} shared={shared} schema={schema}",
+            path.display()
+        );
+    }
 }
 
 /// The board this checkout's build resolves to, created when there is
 /// none: for the commands that start a board.
 pub(crate) fn create_store() -> io::Result<Board> {
-    Board::create(&Site::current()).map_err(internal)
+    let board = Board::create(&Site::current()).map_err(internal)?;
+    notice(&board);
+    Ok(board)
 }
 
 /// The board's database when `id` names a card on it; `None` otherwise.
