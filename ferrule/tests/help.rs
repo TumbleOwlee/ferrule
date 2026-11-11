@@ -983,6 +983,40 @@ fn it_cleanup_help_states_exemptions_and_issue_refusals() {
     }
 }
 
+/// RU-R-070 — the `run cleanup` help states the CI refusals and the waivers.
+#[test]
+fn it_cleanup_help_states_ci_refusals_and_waivers() {
+    let help = help_of("run cleanup");
+    for want in [
+        "reason=no-ci",
+        "reason=ci-red",
+        "ci-waived",
+        "run with no ci=",
+        "ci= logged after a waiver decides again",
+    ] {
+        assert!(help.contains(want), "{want}: {help}");
+    }
+}
+
+/// RU-R-071 — the metrics help names every case in which `ci` is `-`.
+#[test]
+fn it_metrics_help_names_every_ci_dash_case() {
+    let help = help_of("run metrics")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    for want in [
+        "or `-` for an epic",
+        "a request run",
+        "a run with no PR and no open issue",
+        "a run with no PR and an issue-waived line",
+        "an abandoned run",
+        "a waiver with no ci=",
+    ] {
+        assert!(help.contains(want), "{want}: {help}");
+    }
+}
+
 /// The `run init` help prints `Errors (stderr):` on a line of its own.
 #[test]
 fn it_init_help_breaks_before_the_errors_heading() {

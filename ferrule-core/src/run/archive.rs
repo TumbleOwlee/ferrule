@@ -40,7 +40,10 @@ impl CiRefusal {
     pub fn refusal(self, verb: &'static str, slug: &str) -> Refusal {
         let r = Refusal::new(verb, self.as_str());
         match self {
-            CiRefusal::NoCi => r.hint(format!("record CI first: ferrule ci wait {slug}")),
+            CiRefusal::NoCi => r.hint(format!(
+                "record CI first: ferrule ci wait {slug}; on the user's word only: \
+                 ferrule board log {slug} ci-waived -- <why>"
+            )),
             CiRefusal::CiRed => r.hint(format!(
                 "fix CI and rerun `ferrule ci wait {slug}`; on the user's word only: \
                  ferrule board log {slug} ci-waived -- <why>"
@@ -173,7 +176,8 @@ fn stops(events: &[Event], kind: &str) -> usize {
     )
 }
 
-/// The run's last `ci=` value, `waived` when a `ci-waived` line is newer.
+/// The run's last `ci=` value; `waived` when a `ci-waived` line follows the
+/// last `ci=` line, `-` when a `ci-waived` line exists and no `ci=` line at all.
 fn ci(events: &[Event]) -> Result<String, CiRefusal> {
     let mut last = None;
     let mut waived_after = false;
@@ -183,11 +187,12 @@ fn ci(events: &[Event]) -> Result<String, CiRefusal> {
                 last = Some(v.to_owned());
                 waived_after = false;
             }
-            Typed::CiWaived if last.is_some() => waived_after = true,
+            Typed::CiWaived => waived_after = true,
             _ => {}
         }
     }
     match last {
+        None if waived_after => Ok("-".to_owned()),
         None => Err(CiRefusal::NoCi),
         Some(_) if waived_after => Ok("waived".to_owned()),
         Some(v) if v == "0" => Ok(v),
@@ -730,13 +735,21 @@ mod tests {
         lines.iter().map(|b| Event::parsed(b)).collect()
     }
 
+    /// RU-R-061, RU-R-062, RU-R-063, RU-R-064, RU-E-033 — the last `ci=` line
+    /// and a newer `ci-waived` line decide the CI value; a waiver alone passes.
     #[test]
     fn ut_ci_last_value_and_newer_waiver() {
         assert_eq!(ci(&ev(&["ci=0"])), Ok("0".into()));
         assert_eq!(ci(&ev(&["ci=0", "ci=1"])), Err(CiRefusal::CiRed));
         assert_eq!(ci(&ev(&["ci=1", "ci-waived x"])), Ok("waived".into()));
         assert_eq!(ci(&ev(&["ci-waived x", "ci=1"])), Err(CiRefusal::CiRed));
-        assert_eq!(ci(&ev(&["ci-waived x"])), Err(CiRefusal::NoCi));
+        assert_eq!(ci(&ev(&["ci-waived x"])), Ok("-".into()));
+        assert_eq!(ci(&ev(&[])), Err(CiRefusal::NoCi));
+        assert_eq!(ci(&ev(&["ci-waived x", "ci=0"])), Ok("0".into()));
+        assert_eq!(
+            ci(&ev(&["ci-waived x", "ci=1", "ci-waived y"])),
+            Ok("waived".into())
+        );
     }
 
     #[test]

@@ -136,7 +136,7 @@ Commands are grouped by what they act on. Most are run by the orchestrating agen
 | `ferrule run rebuild <issue> <pr>` | Recreate a lost board from the issue, the draft PR and git; re-adds the worktree |
 | `ferrule run cleanup <slug>` | Remove worktree and branch, archive cards and artifacts |
 | `ferrule run abandon <slug> [--confirm]` | List, then on the user's word close the PR, delete branches and worktree, archive as abandoned |
-| `ferrule run metrics [<slug>]` | A run's metrics line (needs green CI), or every line recorded |
+| `ferrule run metrics [<slug>]` | A run's metrics line (needs green or waived CI), or every line recorded |
 | `ferrule run export <slug> [--archive id] [--to dir]` | Write an archive back out as files |
 
 ### Gate

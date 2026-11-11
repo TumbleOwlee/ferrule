@@ -646,6 +646,23 @@ fn it_metrics_count_the_runs_events_and_need_green_ci() {
 }
 
 #[test]
+fn it_metrics_take_a_waiver_without_ci() {
+    let dir = project();
+    let p = dir.path();
+    let refused = metrics(p, "mrc");
+    assert!(
+        refused.contains("ferrule board log mrc ci-waived -- <why>"),
+        "{refused}"
+    );
+    log_at(
+        p,
+        "2026-10-04T11:58",
+        &["mrc", "ci-waived", "--", "no", "checks"],
+    );
+    assert!(metrics(p, "mrc").ends_with(" ci=-\nexit=0"));
+}
+
+#[test]
 fn it_metrics_last_takes_no_slug() {
     let p = project();
     assert_eq!(
