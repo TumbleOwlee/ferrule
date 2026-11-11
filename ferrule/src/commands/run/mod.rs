@@ -312,8 +312,10 @@ Output, one line (recorded; a rerun replaces the run's line):
                      stage and blocked count them by kind
     replans          `replan from=` lines; overturned sums `count=` of the
                      `overturned` lines; reads counts `read path=` lines
-    lane, ci         lane is `epic` for an epic; ci is 0, `waived`, or `-` for
-                     an epic or a waiver with no ci=
+    lane, ci         lane is `epic` for an epic; ci is 0, `waived`, or `-`
+                     for an epic, a request run, a run with no PR and no
+                     open issue, a run with no PR and an issue-waived line,
+                     an abandoned run, or a waiver with no ci=
 Without a slug: every recorded line, oldest run first (nothing if none);
 --last <n> keeps the latest n.
 Refusals:

@@ -124,6 +124,8 @@
 
 **RU-R-070** — The `ferrule run cleanup` help states the CI refusals of RU-R-061 and RU-R-062 and the waivers of RU-R-063 and RU-R-064.
 
+**RU-R-071** — The `ferrule run metrics` help names every case in which the metrics line records `ci=-`: the runs of RU-R-012, an abandoned run (RU-R-055) and a run waived with no `ci=` line (RU-R-065).
+
 ## Live check
 
 **RU-R-043** — `ferrule run live-check <slug> start` opens the run's live check.
