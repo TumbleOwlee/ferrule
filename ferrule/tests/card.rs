@@ -60,6 +60,26 @@ fn it_field_reads_frontmatter_log_and_pass_sha() {
     check("card-field", &got);
 }
 
+/// SP-R-002 — `board log spec-delta` takes a three-letter prefix.
+#[test]
+fn it_log_takes_ids_with_long_prefixes() {
+    let p = project();
+    let got = log_tail(
+        p.path(),
+        "demo.s1",
+        &[
+            "spec-delta",
+            "OPS-R-002",
+            "changed",
+            "origin=impl",
+            "--",
+            "text",
+        ],
+    );
+    assert!(got.ends_with("exit=0"), "{got}");
+    assert!(got.contains("OPS-R-002"), "{got}");
+}
+
 #[test]
 fn it_log_appends_validated_lines() {
     let p = project();

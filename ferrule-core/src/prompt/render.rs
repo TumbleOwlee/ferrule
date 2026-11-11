@@ -275,6 +275,27 @@ impl Run<'_> {
         })
     }
 
+    /// The minors the newest review left, when no stop was logged since.
+    fn minors_fixed(&self) -> rusqlite::Result<Option<u64>> {
+        let events = board::events(self.conn, self.slug, &[Name::Review, Name::Stop])?;
+        let Some(at) = events
+            .iter()
+            .rposition(|e| matches!(e.typed(), Typed::Review(_)))
+        else {
+            return Ok(None);
+        };
+        if events[at + 1..]
+            .iter()
+            .any(|e| matches!(e.typed(), Typed::Stop { .. }))
+        {
+            return Ok(None);
+        }
+        Ok(events[at]
+            .arg("minors")
+            .and_then(|m| m.parse::<u64>().ok())
+            .filter(|&n| n > 0))
+    }
+
     fn stages(&self) -> rusqlite::Result<Vec<(u32, String, State)>> {
         board::stages(self.conn, self.slug)
     }
@@ -545,6 +566,11 @@ pub(crate) fn render_in(
     }
     let note = viewer_note(&mut run, view, &show)?;
     let approval = approval_text(&run, kind, args, &facts)?;
+    let minors = if matches!(kind, Kind::Stage | Kind::Gate3 | Kind::Gate4) {
+        run.minors_fixed()?
+    } else {
+        None
+    };
     if kind == Kind::Stage {
         run.log("stop", &["kind=stage"])?;
     } else {
@@ -561,6 +587,11 @@ pub(crate) fn render_in(
     )];
     out.extend(note);
     out.extend(quoted(&show, &quote, facts.seen, kind, args));
+    if let Some(n) = minors {
+        out.push(format!(
+            "Minors fixed after the review, not re-reviewed: {n}"
+        ));
+    }
     out.push("Approving will:".to_owned());
     out.extend(approval.will);
     if !approval.options.is_empty() {
@@ -1091,8 +1122,11 @@ fn auto(run: &Run, args: &[(String, String)]) -> Result<Vec<String>, Error> {
             })
         })
         .unwrap_or_else(|| "none".to_owned());
+    let minors = run
+        .minors_fixed()?
+        .map_or_else(String::new, |n| format!(" · minors fixed {n}"));
     Ok(vec![format!(
-        "Landed {sid} · {} · review clean · gauntlet pass {} · pushed {} · spec detail: {detail} · next: {next} (auto-continue — say stop to hold)",
+        "Landed {sid} · {} · review clean · gauntlet pass {} · pushed {} · spec detail: {detail}{minors} · next: {next} (auto-continue — say stop to hold)",
         run.slug,
         cov.flatten().unwrap_or("-"),
         sha.unwrap_or("-")

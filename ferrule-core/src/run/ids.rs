@@ -13,7 +13,7 @@ use crate::store::Board;
 /// Why no IDs were handed out.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IdsRefused {
-    /// The prefix is not two capital letters.
+    /// The prefix is not 2 to 5 capital letters.
     Prefix,
     /// The ref names no commit.
     Ref,
@@ -31,7 +31,7 @@ impl IdsRefused {
     pub fn refusal(&self) -> Refusal {
         match self {
             IdsRefused::Prefix => {
-                Refusal::new("next", "prefix").hint("a prefix is two capital letters, e.g. MB")
+                Refusal::new("next", "prefix").hint("a prefix is 2 to 5 capital letters, e.g. MB")
             }
             IdsRefused::Ref => Refusal::new("next", "ref").hint("fetch REF or pass --ref"),
             IdsRefused::Grep => {
@@ -75,7 +75,7 @@ pub fn next(
     ask: &Ask<'_>,
 ) -> std::io::Result<Result<Ids, IdsRefused>> {
     let prefix = ask.prefix;
-    if prefix.len() != 2 || !prefix.bytes().all(|b| b.is_ascii_uppercase()) {
+    if !crate::spec::is_prefix(prefix) {
         return Ok(Err(IdsRefused::Prefix));
     }
     let series = if ask.edge { 'E' } else { 'R' };

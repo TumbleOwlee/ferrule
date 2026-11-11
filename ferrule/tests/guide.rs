@@ -238,6 +238,7 @@ fn it_minors_are_fixed_before_the_commit() {
         "reviewer",
         &["always `fixed before commit`, by that stage's implementer"],
     );
+    says("stage-review", &["no review after the fix"]);
 }
 
 /// GA-R-078 — gate 3 reviews the branch whatever the tiers.
@@ -276,12 +277,23 @@ fn it_implementer_guide_reruns_no_workflow_suite() {
     );
 }
 
-/// GA-R-092 — stage and batch review status lines carry the blocker count.
+/// GA-R-092 — stage and batch review status lines carry the blocker and minor counts.
 #[test]
-fn it_reviewer_status_line_reports_blockers() {
+fn it_reviewer_status_line_reports_blockers_and_minors() {
     says(
         "reviewer",
-        &["count=<blockers+majors> blockers=<n> user=<Needs user items>"],
+        &["count=<blockers+majors> blockers=<n> user=<Needs user items> minors=<n>"],
+    );
+}
+
+/// GA-R-094 — the branch scope's status line carries the minor count.
+#[test]
+fn it_reviewer_branch_status_line_reports_minors() {
+    says(
+        "reviewer",
+        &[
+            "`minors=<n>` (the lines under `Minors`, 0 for none) on `stage`, `batch` and `branch` scopes",
+        ],
     );
 }
 
