@@ -78,6 +78,8 @@ Refusals:
                                    (not-found), a bad reference (ref, exit 2)
 The approve=refused lines end in ` hint=<fix>`.
 Exit codes: 0 done, 1 refused, 2 usage, 4 internal error.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show approval";
 
 /// Shown after `ferrule gate next --help`.
@@ -147,7 +149,9 @@ A log line the vocabulary rejects is a bug, not a refusal: exit 4.
 Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
 
 Example:
-  ferrule gate next <slug> gate2 status=ready file=plan.md";
+  ferrule gate next <slug> gate2 status=ready file=plan.md
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.";
 
 #[derive(Debug, Subcommand)]
 pub enum GateCommand {

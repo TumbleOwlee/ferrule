@@ -359,6 +359,7 @@ ci_wait = "2h"               # ci wait gives up on the PR's checks after this
 | Path | Holds |
 |---|---|
 | `.ferrule/state.db` | The board (SQLite), in the main checkout; commands in a worktree reach it through `git rev-parse --git-common-dir` |
+| `.ferrule/state.dev.db` | A dev build's copy of an older shared board, in the checkout it ran in; the shared board stays untouched |
 | `.ferrule/runs/<slug>/` | A run's artifacts: brief, architecture, plan, reviews, PR text |
 | `.ferrule/worktrees/<slug>/` | A run's git worktree |
 | `.ferrule/guide/<topic>.md` | The project's overrides of guide topics |

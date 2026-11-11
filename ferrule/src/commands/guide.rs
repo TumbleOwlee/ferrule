@@ -29,7 +29,9 @@ Refusals (stdout, exit 1):
                                  topic has; pick from those.
 Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
 Example:
-  ferrule guide show gate4 --section 'Gate 4 — pull request' --slug my-run";
+  ferrule guide show gate4 --section 'Gate 4 — pull request' --slug my-run
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.";
 
 /// Shown after `ferrule guide list --help`.
 const LIST_AFTER_LONG_HELP: &str = "\

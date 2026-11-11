@@ -36,6 +36,8 @@ Refusals (nothing ran):
   gauntlet=refused reason=no-steps hint=<fix>
       ferrule.toml has no [[gauntlet.step]]; add the project's checks.
 Exit codes: 0 pass, 1 fail, 4 internal error.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show verify";
 
 /// Shown after `ferrule ci wait --help`.
@@ -62,6 +64,8 @@ Refusals:
                                    (not-found), a bad reference (ref, exit 2)
 The ci=refused lines end in ` hint=<fix>`.
 Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show gate4";
 
 const FAILED_AFTER_LONG_HELP: &str = "\

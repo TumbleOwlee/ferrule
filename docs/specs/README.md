@@ -10,12 +10,14 @@ The authoritative description of what this project does, one directory per capab
 | Git writes | git-writes/ | GW |
 | Session guard | session-guard/ | SG |
 | Runs | runs/ | RU |
+| Board | board/ | BO |
 
 ## Per-area files
 
 - `requirements.md` — what must be true, one entry per rule.
 - `edge-cases.md` — deliberate limits and ugly-but-intended behavior, so nobody "fixes" them.
 - `api-contract.md` — the public surface (flags, config keys, exported signatures, error variants), when the area has one.
+- `data-contract.md` — the files and stored data the area owns, when it has any.
 
 ## Rules for writing specs
 

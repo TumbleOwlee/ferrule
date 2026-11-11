@@ -70,6 +70,8 @@ Refusals:
   prompt show: ...     the viewer step refused; see `ferrule prompt show`
 Exit codes: 0 ok, 1 refused (a shown file is not readable), 2 usage,
 3 content (a shown summary is over its cap), 4 internal error.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show approval";
 
 /// Shown after `ferrule prompt lines --help`.
@@ -109,6 +111,8 @@ Errors (stderr):
                        it, never show the full file instead
 Exit codes: 0 ok, 1 refused, 2 usage, 3 content (summary over its cap),
 4 internal error.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show approval";
 
 #[derive(Debug, Subcommand)]

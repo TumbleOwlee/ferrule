@@ -89,7 +89,9 @@ Refusals (exit 1):
 Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
 Examples:
   ferrule spec next MB --count 3
-  ferrule spec next MB --edge --run <slug>";
+  ferrule spec next MB --edge --run <slug>
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.";
 
 /// Shown after `ferrule spec refs --help`.
 const REFS_AFTER_LONG_HELP: &str = "\
@@ -124,7 +126,9 @@ Refusals (stderr, exit 1):
   cannot read <file>: <error>    The spec-diff.md is missing or unreadable.
 Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
 Example:
-  ferrule spec render .ferrule/runs/<slug>/spec-diff.md entries --only 'R1 R3'";
+  ferrule spec render .ferrule/runs/<slug>/spec-diff.md entries --only 'R1 R3'
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.";
 
 #[derive(Debug, Subcommand)]
 pub enum SpecCommand {

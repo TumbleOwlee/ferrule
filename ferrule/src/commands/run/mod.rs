@@ -42,6 +42,8 @@ Errors (stderr):
   init: <host error>               The issue could not be read (exit 1)
 Refusals end in ` hint=<fix>`.
 Exit codes: 0 done, 1 refused, 2 usage, 4 internal error.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show gate1";
 
 /// Shown after `ferrule run reconcile --help`.
@@ -74,6 +76,8 @@ Refusals:
   reconcile=refused reason=card hint=check the slug with `ferrule board list`
                                    No card for the slug
 Exit codes: 0 clean, 1 differ or refused, 2 usage, 4 internal error.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show resume";
 
 /// Shown after `ferrule run live-check --help`.
@@ -91,6 +95,8 @@ Output:
   live-check=refused reason=card hint=check the slug with `ferrule board list`
       No such card
 Exit codes: 0 done, 1 refused, 2 usage, 4 internal error.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show gate2";
 
 /// What `run live-check` does.
@@ -140,6 +146,8 @@ Refusals (stdout, exit 1):
       A git command failed
 Refusals end in ` hint=<fix>`.
 Exit codes: 0 done or unchanged, 1 conflict or refused, 2 usage, 4 internal error.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show stages";
 
 /// Shown after `ferrule run rebuild --help`.
@@ -178,6 +186,8 @@ Refusals (nothing is written):
                                        network, an answer it could not read)
 Refusals end in ` hint=<fix>`.
 Exit codes: 0 done, 1 refused, 2 usage, 4 internal error.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show resume";
 
 /// Shown after `ferrule run cleanup --help`.
@@ -226,6 +236,8 @@ Refusals after it (the run is archived; rerun to finish):
 The two git failures carry ` detail=\"<git's error>\"`. Refusals end in
 ` hint=<fix>`.
 Exit codes: 0 done, 1 refused, 4 internal error.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show cleanup";
 
 /// Shown after `ferrule run abandon --help`.
@@ -281,6 +293,8 @@ Refusals after a step was done (rerun; only the steps still missing are done):
                                                  deleted; ask the user
 The last four carry ` detail=\"<error>\"`. Refusals end in ` hint=<fix>`.
 Exit codes: 0 done or planned, 1 refused, 4 internal error.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show cleanup";
 
 /// Shown after `ferrule run metrics --help`.
@@ -306,6 +320,8 @@ Refusals:
                                    `ferrule board list`
 The reason lines end in ` hint=<fix>`.
 Exit codes: 0 ok, 1 refused, 4 internal error.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show cleanup";
 
 /// Shown after `ferrule run status --help`.
@@ -330,6 +346,8 @@ Output, local only (no host call):
 Refusals (exit 1):
   status=refused reason=card hint=check the slug with `ferrule board list`
 Exit codes: 0 ok, 1 refused, 4 internal error.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show resume";
 
 /// Shown after `ferrule run diff --help`.
@@ -348,7 +366,9 @@ Refusals (exit 1, nothing else printed):
 Exit codes: 0 ok, 1 refused, 4 internal error.
 Examples:
   ferrule run diff <slug> --specs
-  ferrule run diff <slug> --base <sha> --stat";
+  ferrule run diff <slug> --base <sha> --stat
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.";
 
 /// Shown after `ferrule run log --help`.
 const LOG_AFTER_LONG_HELP: &str = "\
@@ -357,7 +377,9 @@ newest first; with --stat each commit's files too. base is main_branch of
 ferrule.toml unless --base names another commit.
 Refusals (exit 1): the `log=refused reason=card|no-worktree|base hint=…` lines
 of `ferrule run diff --help`.
-Exit codes: 0 ok, 1 refused, 4 internal error.";
+Exit codes: 0 ok, 1 refused, 4 internal error.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.";
 
 /// Shown after `ferrule run plan-diff --help`.
 const PLAN_DIFF_AFTER_LONG_HELP: &str = "\
@@ -380,6 +402,8 @@ Refusals:
                                    `ferrule run cleanup` creates one and
                                    prints its id. Ends in ` hint=<fix>`.
 Exit codes: 0 done, 1 refused, 4 internal error.
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show cleanup";
 
 #[derive(Debug, Subcommand)]
