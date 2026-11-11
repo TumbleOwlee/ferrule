@@ -4021,6 +4021,131 @@ fn it_gate2_refuses_a_malformed_live_repo() {
     assert_eq!(p.field("demo", "live-repo"), "");
 }
 
+/// A plan with tier and risk columns: s1 and s2 as given, s0 own.
+fn tier_plan(s1: &str, s2: &str) -> String {
+    format!(
+        "# demo — plan (rev 1)\n\n## Shared\n\
+         | Stage | Title | Files | Blocked by | Tier | Risk |\n|---|---|---|---|---|---|\n\
+         | s0 | Land spec | docs/specs/modbus/requirements.md | — | own | — |\n\
+         | s1 | Add backoff | src/client.rs | s0 | {s1} |\n\
+         | s2 | Show status | src/tab.rs | s1 | {s2} |\n\n## Stage s0: Land spec\n"
+    )
+}
+
+/// A run ready for gate 2 with `plan` and no stop in its summary.
+fn gate2_ready(p: &Project, plan: &str) {
+    p.ok(&["run", "init", "demo"]);
+    p.artifacts();
+    std::fs::remove_file(p.run_dir().join("plan.summary.md")).unwrap();
+    std::fs::write(p.run_dir().join("plan.md"), plan).unwrap();
+    p.ok(&["board", "set", "demo", "lane=fast", "arch=skipped"]);
+    serve(
+        &p.gh,
+        &find("Reconnect dropped Modbus clients"),
+        r#"[{"number":12,"title":"Reconnect dropped Modbus clients"}]"#,
+    );
+    serve(
+        &p.gh,
+        &edit_issue("12", "Reconnect dropped Modbus clients"),
+        "",
+    );
+    adopted_issue(&p.gh, "12");
+}
+
+fn tiers(p: &Project) -> Vec<String> {
+    ["s0", "s1", "s2"]
+        .iter()
+        .map(|s| p.field(&format!("demo.{s}"), "tier"))
+        .collect()
+}
+
+/// GA-R-070, S1 — the plan's tiers and `--tiers` overrides land as each
+/// stage card's `tier:` field.
+#[test]
+fn it_gate2_sets_each_stage_tier() {
+    let p = Project::new();
+    gate2_ready(&p, &tier_plan("batched | —", "batched | —"));
+    p.ok(&["gate", "approve", "demo", "gate2", "--tiers", "s2=skipped"]);
+    assert_eq!(tiers(&p), ["own", "batched", "skipped"]);
+}
+
+/// GA-R-071, S2 — a skipped stage with a risk is refused, by the plan or by
+/// an override, before anything is written.
+#[test]
+fn it_gate2_refuses_skipped_on_a_risky_stage() {
+    let by_plan = Project::new();
+    gate2_ready(&by_plan, &tier_plan("skipped | host-writes", "own | —"));
+    let got = by_plan
+        .ferrule(&["gate", "approve", "demo", "gate2"])
+        .text();
+    assert!(
+        got.starts_with("approve=refused reason=tier stage=s1 risk=host-writes hint="),
+        "{got}"
+    );
+    let by_override = Project::new();
+    gate2_ready(
+        &by_override,
+        &tier_plan("own | —", "batched | persisted-state"),
+    );
+    let got = by_override
+        .ferrule(&["gate", "approve", "demo", "gate2", "--tiers", "s2=skipped"])
+        .text();
+    assert!(
+        got.starts_with("approve=refused reason=tier stage=s2 risk=persisted-state hint="),
+        "{got}"
+    );
+    for p in [&by_plan, &by_override] {
+        let log = p.gh.log();
+        assert!(
+            !log.contains("issue edit") && !log.contains("issue create"),
+            "{log}"
+        );
+        assert!(!p.worktree().exists());
+        assert_eq!(p.field("demo", "gate2"), "");
+        assert!(!p.ok(&["board", "list"]).contains("demo.s1"));
+    }
+}
+
+/// GA-R-081 — a slice run takes its stages' tiers from its own plan.
+#[test]
+fn it_slice_run_takes_tiers_from_its_plan() {
+    let p = Project::new();
+    gate2_ready(&p, &tier_plan("skipped | —", "batched | —"));
+    seed_set(
+        &p.root,
+        "demo",
+        &["kind=slice", "epic=70", "milestone=4", "slice=2"],
+    );
+    p.ok(&["gate", "approve", "demo", "gate2"]);
+    assert_eq!(tiers(&p), ["own", "skipped", "batched"]);
+}
+
+/// GA-R-089 — a stage marked to stop, by the summary's Stop column or by
+/// `--stops`, takes the own tier over a batched plan row.
+#[test]
+fn it_gate2_stop_makes_a_stage_own() {
+    let p = Project::new();
+    gate2_ready(&p, &tier_plan("batched | —", "batched | —"));
+    std::fs::copy(
+        fixtures().join("board/artifacts/demo/plan.summary.md"),
+        p.run_dir().join("plan.summary.md"),
+    )
+    .unwrap();
+    p.ok(&["gate", "approve", "demo", "gate2", "--stops", "s2"]);
+    assert_eq!(p.field("demo.s1", "stop"), "yes");
+    assert_eq!(p.field("demo.s2", "stop"), "yes");
+    assert_eq!(tiers(&p), ["own", "own", "own"]);
+}
+
+/// GA-E-006 — a plan table without tier and risk columns reads as own.
+#[test]
+fn it_gate2_four_column_table_reads_as_own() {
+    let p = Project::new();
+    gate2_ready(&p, PLAN);
+    p.ok(&["gate", "approve", "demo", "gate2"]);
+    assert_eq!(tiers(&p), ["own", "own", "own"]);
+}
+
 /// RU-E-018 — `live-repo` is set by gate 2 only; `board set` refuses it.
 #[test]
 fn it_board_set_refuses_the_live_repo() {

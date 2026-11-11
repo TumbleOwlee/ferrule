@@ -206,7 +206,15 @@ pub const PARENT_FIELDS: &[&str] = &[
     "live-repo",
 ];
 /// Frontmatter keys a stage card may carry; `id` and `parent` are derived.
-pub const STAGE_FIELDS: &[&str] = &["title", "blocked-by", "files", "branch", "worktree", "stop"];
+pub const STAGE_FIELDS: &[&str] = &[
+    "title",
+    "blocked-by",
+    "files",
+    "branch",
+    "worktree",
+    "stop",
+    "tier",
+];
 
 /// Frontmatter keys only ferrule commands give a value, each with the
 /// command that does: a hand-set one would approve a gate or point
@@ -214,6 +222,7 @@ pub const STAGE_FIELDS: &[&str] = &["title", "blocked-by", "files", "branch", "w
 /// one stays open.
 pub const FERRULE_FIELDS: &[(&str, &str)] = &[
     ("gate2", "ferrule gate approve <slug> gate2"),
+    ("tier", "ferrule gate approve <slug> gate2"),
     (
         "live-repo",
         "ferrule gate approve <slug> gate2 --live-repo <owner/name>",

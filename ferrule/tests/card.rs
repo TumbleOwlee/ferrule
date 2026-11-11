@@ -318,7 +318,7 @@ fn it_new_and_set_validate_fields() {
     );
     assert_eq!(
         run(&["board", "new", "r.s1", "lane=fast"]),
-        "card-new=reject reason=key key=lane hint=a stage card takes only title, blocked-by, files, branch, worktree, stop\nexit=2"
+        "card-new=reject reason=key key=lane hint=a stage card takes only title, blocked-by, files, branch, worktree, stop, tier\nexit=2"
     );
     assert_eq!(
         run(&["board", "set", "r", "lane=full", "gate2=2026-10-03"]),

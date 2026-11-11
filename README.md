@@ -303,10 +303,12 @@ A project overrides a topic with `.ferrule/guide/<topic>.md`:
 `plan.md`'s `## Shared` section opens with the stage table that `ferrule gate approve <slug> gate2` creates the stage cards from:
 
 ```
-| Stage | Title       | Files                          | Blocked by |
-|-------|-------------|--------------------------------|------------|
-| s1    | Add backoff | src/client.rs, tests/client.rs | s0         |
+| Stage | Title       | Files                          | Blocked by | Tier    | Risk       |
+|-------|-------------|--------------------------------|------------|---------|------------|
+| s1    | Add backoff | src/client.rs, tests/client.rs | s0         | batched | —          |
 ```
+
+`Tier` is `own`, `batched` or `skipped` (how the stage is reviewed); `Risk` lists `host-writes`, `persisted-state` or `public-surface`, and a stage with a risk cannot be skipped. A table without the two columns reads as own, no risk.
 
 ## Configuration
 
