@@ -81,7 +81,7 @@ tree. With --run <slug>, also the run's worktree docs/specs, its
 spec-diff.md and every `spec-delta <ID> added` on its cards, so a number
 dropped earlier in the run is not reused.
 Refusals (exit 1):
-  next=refused reason=prefix hint=a prefix is two capital letters, e.g. MB
+  next=refused reason=prefix hint=a prefix is 2 to 5 capital letters, e.g. MB
   next=refused reason=ref hint=fetch REF or pass --ref
   next=refused reason=grep hint=git grep failed on REF; report it to the user
   next=refused reason=card hint=check the slug with `ferrule board list`
@@ -157,7 +157,7 @@ pub enum SpecCommand {
 
 #[derive(Debug, Args)]
 pub struct NextArgs {
-    /// The area's prefix, two capital letters: `MB` of `MB-R-001`.
+    /// The area's prefix, 2 to 5 capital letters: `MB` of `MB-R-001`.
     pub prefix: String,
     /// The edge-case series, `-E-`, instead of requirements, `-R-`.
     #[arg(long)]

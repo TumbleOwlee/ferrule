@@ -225,7 +225,9 @@ impl SpecDiff {
         let mut copied = 0;
         let mut i = 0;
         while i < bytes.len() {
-            if let Some(len) = fixed_id_len(&bytes[i..]) {
+            if (i == 0 || !is_alnum(bytes[i - 1]))
+                && let Some(len) = fixed_id_len(&bytes[i..])
+            {
                 let id = &s[i..i + len];
                 out.push_str(&s[copied..i]);
                 out.push_str(self.was.get(id).map_or(id, String::as_str));
@@ -278,7 +280,7 @@ fn is_alnum(b: u8) -> bool {
     b.is_ascii_alphanumeric()
 }
 
-/// Whether `s` holds something shaped like an ID (`R1`, `E-2`, `MB-R-042`)
+/// Whether `s` holds something shaped like an ID (`R1`, `E-2`, `MB-R-042`, `AUT-R-1`)
 /// standing on its own.
 fn mentions_any_id(s: &str) -> bool {
     let b = s.as_bytes();
@@ -287,13 +289,12 @@ fn mentions_any_id(s: &str) -> bool {
             return false;
         }
         let mut i = start;
-        if b.len() >= i + 3
-            && b[i].is_ascii_uppercase()
-            && b[i + 1].is_ascii_uppercase()
-            && b[i + 2] == b'-'
-            && id_tail(b, i + 3).is_some()
+        let k = b[i..].iter().take_while(|c| c.is_ascii_uppercase()).count();
+        if s.get(i..i + k).is_some_and(crate::spec::is_prefix)
+            && b.get(i + k) == Some(&b'-')
+            && id_tail(b, i + k + 1).is_some()
         {
-            i += 3;
+            i += k + 1;
         }
         id_tail(b, i).is_some()
     })
@@ -541,6 +542,17 @@ mod tests {
             diff.back("MB-R-161 replaces MB-R-002"),
             "R1 replaces MB-R-002"
         );
+    }
+
+    /// SP-E-001 — a run of six capitals is no ID and an ID needs a word
+    /// boundary before it.
+    #[test]
+    fn ut_back_needs_a_word_boundary() {
+        let mut diff = SpecDiff::default();
+        diff.was.insert("BCDEF-R-001".into(), "R1".into());
+        assert_eq!(diff.back("ABCDEF-R-001"), "ABCDEF-R-001");
+        assert_eq!(diff.back("xBCDEF-R-001"), "xBCDEF-R-001");
+        assert_eq!(diff.back("(BCDEF-R-001)"), "(R1)");
     }
 }
 

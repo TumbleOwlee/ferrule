@@ -175,6 +175,32 @@ fn it_collisions_reports_ids_both_branches_took() {
     );
 }
 
+/// SP-R-001 — `spec collisions` and `spec id` take a three-letter prefix.
+#[test]
+fn it_id_and_collisions_take_long_prefixes() {
+    let repo = tempfile::tempdir().unwrap();
+    let wt = repo.path();
+    let spec = wt.join("docs/specs/r.md");
+    git(wt, &["init", "-q", "-b", "main"]);
+    std::fs::create_dir_all(spec.parent().unwrap()).unwrap();
+    append(&spec, "**OPS-R-001** — The client connects.\n");
+    git(wt, &["add", "."]);
+    git(wt, &["commit", "-q", "-m", "base"]);
+    git(wt, &["checkout", "-q", "-b", "feat/x"]);
+    append(&spec, "**OPS-R-002** — The client polls.\n");
+    git(wt, &["commit", "-q", "-am", "x"]);
+    git(wt, &["checkout", "-q", "main"]);
+    append(&spec, "**OPS-R-002** — The server answers.\n");
+    git(wt, &["commit", "-q", "-am", "y"]);
+    git(wt, &["checkout", "-q", "feat/x"]);
+    let got = Run::new(["spec", "collisions", &wt.display().to_string(), "main"]).text();
+    assert!(got.starts_with("ids=collide OPS-R-002"), "{got}");
+    let id = Run::new(["spec", "id", "--dir", "docs/specs", "OPS-R-001"])
+        .cwd(wt)
+        .text();
+    assert!(id.contains("OPS-R-001"), "{id}");
+}
+
 #[test]
 fn it_collisions_sees_list_and_table_definitions() {
     let repo = tempfile::tempdir().unwrap();

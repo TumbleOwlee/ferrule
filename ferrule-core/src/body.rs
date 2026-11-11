@@ -978,6 +978,21 @@ fn full(c: &Ctx, issue: &str, deltas: &[Delta]) -> Result<String, Error> {
 
 #[cfg(test)]
 mod tests {
+    /// SP-R-003 — the spec-change list names a three-letter ID.
+    #[test]
+    fn ut_spec_changes_list_a_three_letter_id() {
+        let diff = SpecDiff::parse("");
+        let mut out = String::new();
+        let ids = spec_changes(
+            &diff,
+            &[],
+            &["- OPS-R-002 changed — text".to_owned()],
+            &mut out,
+        );
+        assert!(ids.contains("OPS-R-002"));
+        assert!(out.contains("- OPS-R-002"), "{out}");
+    }
+
     /// GA-R-093 — the stage marker carries a non-own tier and a stop.
     #[test]
     fn ut_stage_marker_carries_tier_and_stop() {

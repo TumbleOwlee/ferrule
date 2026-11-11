@@ -948,6 +948,14 @@ mod tests {
         assert_eq!(body("green", "", STAGE).unwrap(), "green");
     }
 
+    /// SP-R-002 — `spec-delta` and `test-red` take a three-letter prefix.
+    #[test]
+    fn ut_ids_with_long_prefixes_in_spec_delta_and_test_red() {
+        assert!(body("spec-delta", "OPS-R-002 changed origin=impl -- text", STAGE).is_ok());
+        assert!(body("test-red", "AUT-R-001 -- it_x", STAGE).is_ok());
+        assert!(body("spec-delta", "A-R-1 changed origin=impl -- text", STAGE).is_err());
+    }
+
     #[test]
     fn ut_rejects_by_reason() {
         let r = |e, a, c| body(e, a, c).unwrap_err();

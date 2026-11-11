@@ -1,5 +1,5 @@
 //! The spec tree: `docs/specs/<area>/requirements.md` and `edge-cases.md`,
-//! whose entries carry fixed IDs such as `MB-R-012` or `OC-E-003`.
+//! whose entries carry fixed IDs such as `MB-R-012`, `AUT-R-001` or `OC-E-003`.
 
 pub mod diff;
 
@@ -36,17 +36,24 @@ pub struct SpecEntry {
     pub text: String,
 }
 
-/// Length of the fixed ID at the start of `s`: two capital letters, `-`, `R`
-/// or `E`, `-`, digits.
+/// Whether `s` is an area prefix: 2 to 5 capital letters.
+#[must_use]
+pub fn is_prefix(s: &str) -> bool {
+    (2..=5).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_uppercase())
+}
+
+/// Length of the fixed ID at the start of `s`: 2 to 5 capital letters, `-`,
+/// `R` or `E`, `-`, digits. A longer run of capitals is no ID.
 pub(crate) fn fixed_id_len(s: &[u8]) -> Option<usize> {
-    let head = s.get(..6)?;
-    let shape = head[0].is_ascii_uppercase()
-        && head[1].is_ascii_uppercase()
-        && head[2] == b'-'
-        && matches!(head[3], b'R' | b'E')
-        && head[4] == b'-'
-        && head[5].is_ascii_digit();
-    shape.then(|| 5 + s[5..].iter().take_while(|c| c.is_ascii_digit()).count())
+    let k = s.iter().take_while(|c| c.is_ascii_uppercase()).count();
+    if !(2..=5).contains(&k) {
+        return None;
+    }
+    let shape = s.get(k) == Some(&b'-')
+        && matches!(s.get(k + 1), Some(b'R' | b'E'))
+        && s.get(k + 2) == Some(&b'-')
+        && s.get(k + 3).is_some_and(u8::is_ascii_digit);
+    shape.then(|| k + 3 + s[k + 3..].iter().take_while(|c| c.is_ascii_digit()).count())
 }
 
 /// Whether `s` is a whole fixed ID, `MB-R-001`.
@@ -291,6 +298,7 @@ mod tests {
         assert!(is_fixed_id("MB-R-001") && !is_fixed_id("MB-R-001x") && !is_fixed_id("R1"));
     }
 
+    /// SP-R-001, SP-E-001 — a fixed ID has 2 to 5 capitals; a longer run is no ID.
     #[test]
     fn ut_id_shape() {
         assert_eq!(id_len("MB-R-002 x"), Some(8));
@@ -298,6 +306,16 @@ mod tests {
         assert_eq!(id_len("MB-X-002"), None);
         assert_eq!(id_len("Mb-R-002"), None);
         assert_eq!(id_len("MB-R-"), None);
+        assert_eq!(id_len("AUT-R-001 x"), Some(9));
+        assert_eq!(id_len("ABCDE-E-7"), Some(9));
+        assert_eq!(id_len("A-R-1"), None);
+        assert_eq!(id_len("ABCDEF-R-1"), None);
+        assert_eq!(id_len("AuT-R-1"), None);
+        assert!(is_prefix("MB"));
+        assert!(is_prefix("ABCDE"));
+        assert!(!is_prefix("A"));
+        assert!(!is_prefix("ABCDEF"));
+        assert!(!is_prefix("Ab"));
     }
 
     #[test]
