@@ -5,7 +5,10 @@
 
 Full lane. A review point is the stage `ferrule stage tier {slug} s<n>` names (`review=stage`) or the batch it closes (`review=batch stages=…`); a stage with `review=none` has none.
 - Fresh `fe-reviewer`. Scope `stage s<n>`: base = the previous stage's commit (branch point for the first stage). Scope `batch s<a>,s<b>`: base = the commit before `s<a>`, the review reads the commits of every listed stage and the uncommitted fixes. Both scopes run `ferrule ci gauntlet {slug} --level review` first.
-- `clean`, or `findings` with `count=0` → the `Stage stop` rules below, for a stage or a batch alike (a batch's stop prompt names its stages); forward the gauntlet line; minors per `ferrule guide show verify`.
+- Every stage or batch status line → `ferrule gate next {slug} stage <status line>` (a batch's stop prompt names its stages); its answer:
+  - `fix` → the `count>0` bullet below.
+  - `minors` → resume the stage's implementer with the verdict's minors (`ferrule guide show verify`); no review after the fix; then the stage stop step printed below it.
+  - `stage-stop` → the `Stage stop` rules below, forwarding the gauntlet line.
 - `count>0` → card → `inprogress`, resume the implementer with the `review.md` path and stage id, who fixes every finding, minors included; card → `inreview`, re-run `ferrule ci gauntlet {slug} --level review`, follow-up pass by the same reviewer; rounds per `ferrule guide show verify`. A batch's fixes are committed once, when clean, on the last stage's card, and pushed.
 - A batch review status line with `blockers=` above 0 → `ferrule stage tier {slug} s<next> --after-blocker` before the next stage starts: that stage gets its own review.
 - **The last code stage's review point**: scope `branch`, each pass a fresh reviewer — it is gate 3's review; its status line → `ferrule gate next {slug} gate3 …` (it answers `stage-stop` or gate 3's stop).

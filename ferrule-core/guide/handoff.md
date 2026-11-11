@@ -23,6 +23,6 @@ status=<token> [file=<path>] [summary=<path>] [stage=s<n>] [issue=<n>] [reason=<
 - An agent returning more than the status line is told to move the rest into its file and answer again.
 - A status line naming a file the user must approve (`spec-diff.md`, `pr.md`, a `summary=` path) → the stop's `ferrule prompt render` call (`ferrule guide show approval`): it opens the files outside the context (`ferrule prompt show`) and quotes only their `ferrule prompt lines` lines. Exit 3 = a summary over its cap: the agent that wrote it trims it, never show the full file instead.
 
-At gate 2, a re-plan, a branch review, gate 4 and CI the status line goes to `ferrule gate next {slug} <gate2|replan|gate3|gate4|ci> <status line>`: it logs the typed event (`plan-review=`, `review=`, `ci=`, `replan=pre-authorized`) and prints `next=`, `run:` the command, `do:` what to do and `guide:` the topic to read; `ferrule gate next --help` has the rules.
+At gate 2, a re-plan, a stage or batch review, a branch review, gate 4 and CI the status line goes to `ferrule gate next {slug} <gate2|replan|stage|gate3|gate4|ci> <status line>`: it logs the typed event (`plan-review=`, `review=`, `ci=`, `replan=pre-authorized`) and prints `next=`, `run:` the command, `do:` what to do and `guide:` the topic to read; `ferrule gate next --help` has the rules.
 
 Reviewer scope tokens: `plan` (gate 2), `plan from s<n>` (`ferrule guide show replan`), `stage s<n>`, `delta s<n>` (one stage's spec changes, `ferrule guide show spec-changes`), `branch` (gate 3).
