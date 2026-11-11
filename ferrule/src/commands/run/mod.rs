@@ -213,7 +213,9 @@ Refusals before the archive is written (nothing is changed):
                                               them, or ask the user, then push
   cleanup=refused reason=no-upstream          The branch was never pushed
   cleanup=refused reason=unpushed-commits     Push with `ferrule pr push <slug>`
-  cleanup=refused reason=no-ci                No ci= logged; `ferrule ci wait`
+  cleanup=refused reason=no-ci                No ci= logged; `ferrule ci wait`,
+                                              or on the user's word only log
+                                              ci-waived with a reason
   cleanup=refused reason=ci-red               The last ci= is not 0 and no later
                                               ci-waived line exists
   cleanup=refused reason=issue-open           A feature run opened no PR and its
@@ -225,7 +227,9 @@ Refusals before the archive is written (nothing is changed):
                                               `issue-waived` with a reason
 CI is not asked of a request run (`kind=request`), an epic, or a run
 without a PR whose issue is not open (no issue, or a closed one); its metrics
-line records ci=-. A run with a PR needs a green or waived CI result.
+line records ci=-. A run with a PR needs a green or waived CI result. A
+ci-waived line also lets through a run with no ci= (its metrics line records
+ci=-); a ci= logged after a waiver decides again.
 Refusals after it (the run is archived; rerun to finish):
   cleanup=refused reason=worktree-remove-failed
                                               git could not remove the worktree;
@@ -309,11 +313,12 @@ Output, one line (recorded; a rerun replaces the run's line):
     replans          `replan from=` lines; overturned sums `count=` of the
                      `overturned` lines; reads counts `read path=` lines
     lane, ci         lane is `epic` for an epic; ci is 0, `waived`, or `-` for
-                     an epic
+                     an epic or a waiver with no ci=
 Without a slug: every recorded line, oldest run first (nothing if none);
 --last <n> keeps the latest n.
 Refusals:
-  metrics=refused reason=no-ci     No ci= logged; run `ferrule ci wait <slug>`
+  metrics=refused reason=no-ci     No ci= logged; run `ferrule ci wait <slug>`,
+                                   or on the user's word only log ci-waived
   metrics=refused reason=ci-red    The last ci= is not 0 and no later
                                    ci-waived line exists
   metrics=refused reason=card      No card for the slug; check it with
@@ -494,7 +499,7 @@ pub enum RunCommand {
     },
     /// Record and print a run's metrics line.
     ///
-    /// Needs the run's CI green. Without a slug, prints every line recorded.
+    /// Needs the run's CI green or waived. Without a slug, prints every line recorded.
     #[command(after_long_help = METRICS_AFTER_LONG_HELP)]
     Metrics {
         /// The run's slug; without one, every line recorded.

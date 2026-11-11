@@ -983,6 +983,21 @@ fn it_cleanup_help_states_exemptions_and_issue_refusals() {
     }
 }
 
+/// RU-R-070 — the `run cleanup` help states the CI refusals and the waivers.
+#[test]
+fn it_cleanup_help_states_ci_refusals_and_waivers() {
+    let help = help_of("run cleanup");
+    for want in [
+        "reason=no-ci",
+        "reason=ci-red",
+        "ci-waived",
+        "run with no ci=",
+        "ci= logged after a waiver decides again",
+    ] {
+        assert!(help.contains(want), "{want}: {help}");
+    }
+}
+
 /// The `run init` help prints `Errors (stderr):` on a line of its own.
 #[test]
 fn it_init_help_breaks_before_the_errors_heading() {

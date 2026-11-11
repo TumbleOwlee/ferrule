@@ -787,6 +787,45 @@ fn it_cleanup_guide_states_exemptions_and_notices() {
     }
 }
 
+/// RU-R-066, RU-R-069 — the cleanup guide states the waived notice and that a
+/// `ci-waived` line lets through a PR run with no `ci=` line.
+#[test]
+fn it_cleanup_guide_states_the_ci_waiver() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let text = ok(root, &["guide", "cleanup", "--slug", "demo"]);
+    for want in [
+        "Done · demo · PR #<pr> ready · CI waived · cleaned up · archived",
+        "no-ci",
+        "a ci-waived line also lets through a PR run with no ci= line",
+    ] {
+        assert!(text.contains(want), "{want}: {text}");
+    }
+}
+
+/// S4, RU-R-068 — the gate 4 guide has the workflow tell the user when checks
+/// never arrive and log `ci-waived` only on the user's word.
+#[test]
+fn it_gate4_guide_waives_missing_checks_on_the_users_word() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let text = ok(root, &["guide", "gate4", "--slug", "demo"]);
+    let line = text
+        .lines()
+        .find(|l| l.contains("reason=no-checks"))
+        .unwrap_or_else(|| panic!("no no-checks line: {text}"));
+    for want in [
+        "after retries",
+        "tell the user",
+        "on the user's word only",
+        "ferrule board log demo ci-waived -- <why>",
+    ] {
+        assert!(line.contains(want), "{want}: {line}");
+    }
+}
+
 /// RU-R-056, RU-R-057, RU-R-058 — the cleanup guide names abandon, its
 /// confirmation on the user's word and its two notices.
 #[test]
