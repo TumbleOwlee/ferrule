@@ -313,7 +313,7 @@ fn uncommitted(z: &str) -> Vec<String> {
 /// a control character.
 fn display(path: &str) -> String {
     use std::fmt::Write as _;
-    if !path.chars().any(|c| c < ' ' || c == '\u{7f}') {
+    if !path.chars().any(char::is_control) {
         return path.to_owned();
     }
     let mut out = String::from('"');
@@ -328,8 +328,11 @@ fn display(path: &str) -> String {
             '\r' => out.push_str("\\r"),
             '"' => out.push_str("\\\""),
             '\\' => out.push_str("\\\\"),
-            c if c < ' ' || c == '\u{7f}' => {
-                let _ = write!(out, "\\{:03o}", c as u32);
+            c if c.is_control() => {
+                let mut buf = [0; 4];
+                for b in c.encode_utf8(&mut buf).bytes() {
+                    let _ = write!(out, "\\{b:03o}");
+                }
             }
             c => out.push(c),
         }
@@ -457,5 +460,6 @@ mod tests {
         assert_eq!(display("n\nl.txt"), "\"n\\nl.txt\"");
         assert_eq!(display("a\u{1}b"), "\"a\\001b\"");
         assert_eq!(display("t\tü\"x"), "\"t\\tü\\\"x\"");
+        assert_eq!(display("a\u{85}b"), "\"a\\302\\205b\"");
     }
 }
