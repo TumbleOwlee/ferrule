@@ -140,6 +140,8 @@ impl Scratch {
     }
 }
 
+/// GA-R-102, GA-R-103, GA-E-016 — the rules fire in order, a plan-marked
+/// stage stops on a clean verdict, and a large diff does not stop.
 #[test]
 fn it_stage_stop_rules_in_order() {
     let s = Scratch::new(5);
@@ -168,14 +170,14 @@ fn it_stage_stop_rules_in_order() {
     s.ok(&["board", "set", "ss.s5", "stop=yes"]);
     assert_eq!(stop("s5"), "stop=5 reason=plan-marked");
 
-    std::fs::write(s.wt.join("a.txt"), "a\n").unwrap();
-    std::fs::write(s.wt.join("b.txt"), "b\nc\n").unwrap();
-    s.config("[thresholds]\nstage_stop_files = 1\n");
-    assert_eq!(
-        stop("s1"),
-        "stop=6 reason=diff-size detail=\"3 lines, 2 files\""
-    );
-    s.config("[thresholds]\nstage_stop_files = 2\n");
+    for i in 0..9 {
+        let text = if i == 0 {
+            "x\n".repeat(500)
+        } else {
+            "x\n".to_owned()
+        };
+        std::fs::write(s.wt.join(format!("big{i}.txt")), text).unwrap();
+    }
     assert_eq!(stop("s1"), "auto");
     assert!(stop("s9").starts_with("stage-stop=refused reason=card hint="));
 }
@@ -377,22 +379,14 @@ fn it_gauntlet_review_level_takes_crates_from_the_batch_base() {
     );
 }
 
+/// GA-R-102 — auto-continues in a row never raise a stop.
 #[test]
-fn it_stage_stop_checkpoint_after_three_autos() {
+fn it_stage_stop_never_counts_auto_continues() {
     let s = Scratch::new(5);
     s.remove_artifact("plan.summary.md");
-    for n in 1..=3 {
+    for n in 1..=4 {
         assert_eq!(s.say(&["stage", "stop", "ss", &format!("s{n}")]), "auto");
     }
-    assert_eq!(
-        s.say(&["stage", "stop", "ss", "s4"]),
-        "stop=7 reason=checkpoint"
-    );
-
-    let s = Scratch::new(5);
-    seed_log(&s.root, NOW, "ss.s2", &["stop=5"]);
-    seed_log(&s.root, NOW, "ss.s3", &["auto=yes"]);
-    assert_eq!(s.say(&["stage", "stop", "ss", "s4"]), "auto");
 }
 
 #[test]

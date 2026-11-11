@@ -164,10 +164,6 @@ Output (also logged on the stage card; s0 never stops):
                                    detail names it
     stop=3 reason=pr-threads       --threads is above 0; detail=\"<n> threads\"
     stop=5 reason=plan-marked      The stage's card has stop: yes
-    stop=6 reason=diff-size        The diff since the previous stage is over
-                                   the [thresholds] of ferrule.toml; detail=
-                                   \"<lines> lines, <files> files\"
-    stop=7 reason=checkpoint       Enough stages auto-continued in a row
 Refusals:
   stage-stop=refused reason=card   No such stage card; check the slug and
                                    stage with `ferrule board list`

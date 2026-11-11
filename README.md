@@ -349,9 +349,6 @@ allow = ["make check"]       # word prefixes it lets through; it runs only its r
 
 [thresholds]
 read_budget = 3              # read events one stage card may carry
-stage_stop_lines = 400       # a stage diff above this many changed lines stops
-stage_stop_files = 8         # or touching more files than this
-stage_stop_checkpoint = 3    # stages auto-continued in a row before one stops anyway
 summary_max_lines = 25       # caps on *.summary.md and *.verdict.md
 summary_max_bytes = 2048
 search_max = 40              # spec related/refs and issue search refuse more hits

@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use rusqlite::Connection;
 
 use crate::card::board::{self, State};
-use crate::card::typed::{Name, Typed};
+use crate::card::typed::Name;
 use crate::config::Config;
 use crate::project::Layout;
 use crate::store::{Board, Reader};
@@ -264,8 +264,6 @@ pub enum Stop {
     Verification(String),
     PrThreads(u32),
     PlanMarked,
-    DiffSize { lines: usize, files: usize },
-    Checkpoint,
 }
 
 impl Stop {
@@ -277,8 +275,6 @@ impl Stop {
             Stop::Verification(_) => 2,
             Stop::PrThreads(_) => 3,
             Stop::PlanMarked => 5,
-            Stop::DiffSize { .. } => 6,
-            Stop::Checkpoint => 7,
         }
     }
 }
@@ -291,11 +287,6 @@ impl std::fmt::Display for Stop {
             Stop::Verification(what) => write!(f, "stop={n} reason=verification detail=\"{what}\""),
             Stop::PrThreads(t) => write!(f, "stop={n} reason=pr-threads detail=\"{t} threads\""),
             Stop::PlanMarked => write!(f, "stop={n} reason=plan-marked"),
-            Stop::DiffSize { lines, files } => write!(
-                f,
-                "stop={n} reason=diff-size detail=\"{lines} lines, {files} files\""
-            ),
-            Stop::Checkpoint => write!(f, "stop={n} reason=checkpoint"),
         }
     }
 }
@@ -352,7 +343,6 @@ pub fn stage_base(
 fn decide(
     conn: &Connection,
     layout: &Layout,
-    config: &Config,
     slug: &str,
     me: u32,
     threads: u32,
@@ -380,25 +370,7 @@ fn decide(
     if board::field(conn, &card, "stop")?.as_deref() == Some("yes") {
         return Ok(Some(Stop::PlanMarked));
     }
-    let stages = board::stages(conn, slug)?;
-    let wt = worktree(conn, layout, slug, &card)?;
-    let base = stage_base(conn, &wt, slug, me, &config.main_branch)?;
-    if let Some(base) = base
-        && let Some((lines, files)) = diff_size(&wt, &base)
-        && (lines > config.thresholds.stage_stop_lines
-            || files > config.thresholds.stage_stop_files)
-    {
-        return Ok(Some(Stop::DiffSize { lines, files }));
-    }
-    let mut run = 0;
-    for (_, id, _) in stages.iter().filter(|(n, _, _)| (1..me).contains(n)) {
-        match board::last_event(conn, id, &[Name::Auto, Name::StageStop])? {
-            Some(e) if e.typed() == Typed::Auto => run += 1,
-            Some(_) => run = 0,
-            None => {}
-        }
-    }
-    Ok((run >= config.thresholds.stage_stop_checkpoint).then_some(Stop::Checkpoint))
+    Ok(None)
 }
 
 /// The stage-stop decision for `s<n>`, logged on its card as `stop=<rule>`
@@ -406,7 +378,7 @@ fn decide(
 pub fn stage_stop(
     db: &mut Board,
     layout: &Layout,
-    config: &Config,
+    _config: &Config,
     slug: &str,
     me: u32,
     threads: u32,
@@ -417,7 +389,7 @@ pub fn stage_stop(
     if board::state(conn, &card)?.is_none() {
         return Err(Error::Card);
     }
-    let stop = decide(conn, layout, config, slug, me, threads)?;
+    let stop = decide(conn, layout, slug, me, threads)?;
     let event = match &stop {
         Some(s) => format!("stop={}", s.rule()),
         None => "auto=yes".to_owned(),
