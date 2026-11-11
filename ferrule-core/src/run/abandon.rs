@@ -22,7 +22,7 @@ pub const CLOSE_COMMENT: &str = "Run abandoned: this PR is closed unmerged. The 
 /// What a confirmed abandon would do.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AbandonPlan {
-    /// Paths `git status --porcelain` lists in the worktree; empty without one.
+    /// Paths of the worktree's uncommitted changes, plain unless they hold a control character; empty without a worktree.
     pub uncommitted: Vec<String>,
     /// `<short-sha> <subject>` of the local branch's commits on no origin branch.
     pub unpushed: Vec<String>,
@@ -211,13 +211,18 @@ pub fn plan(
     }
     let wt = super::worktree(conn, layout, slug, slug)?;
     if wt.is_dir() {
-        plan.uncommitted = git::out(&wt, &["status", "--porcelain"])
-            .map(|o| {
-                o.lines()
-                    .map(|l| l.get(3..).unwrap_or(l).to_owned())
-                    .collect()
-            })
-            .unwrap_or_default();
+        plan.uncommitted = git::out(
+            &wt,
+            &[
+                "status",
+                "--porcelain",
+                "-z",
+                "--renames",
+                "--untracked-files=normal",
+            ],
+        )
+        .map(|o| uncommitted(&o))
+        .unwrap_or_default();
         plan.worktree = Some(wt);
     }
     Ok(Ok(plan))
@@ -288,6 +293,52 @@ pub fn abandon(
         })),
         Err(e) => local(e).map(Err),
     }
+}
+
+/// The paths of a `git status --porcelain -z` stream, one per record; a
+/// rename or copy record drops the old path that follows it.
+fn uncommitted(z: &str) -> Vec<String> {
+    let mut fields = z.split('\0').filter(|f| !f.is_empty());
+    let mut out = Vec::new();
+    while let Some(rec) = fields.next() {
+        if rec.starts_with(['R', 'C']) || rec.get(1..2).is_some_and(|y| y == "R" || y == "C") {
+            fields.next();
+        }
+        out.push(display(rec.get(3..).unwrap_or(rec)));
+    }
+    out
+}
+
+/// A path as shown to the user: verbatim, or git's quoted form when it holds
+/// a control character.
+fn display(path: &str) -> String {
+    use std::fmt::Write as _;
+    if !path.chars().any(char::is_control) {
+        return path.to_owned();
+    }
+    let mut out = String::from('"');
+    for c in path.chars() {
+        match c {
+            '\u{7}' => out.push_str("\\a"),
+            '\u{8}' => out.push_str("\\b"),
+            '\t' => out.push_str("\\t"),
+            '\n' => out.push_str("\\n"),
+            '\u{b}' => out.push_str("\\v"),
+            '\u{c}' => out.push_str("\\f"),
+            '\r' => out.push_str("\\r"),
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            c if c.is_control() => {
+                let mut buf = [0; 4];
+                for b in c.encode_utf8(&mut buf).bytes() {
+                    let _ = write!(out, "\\{b:03o}");
+                }
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 #[cfg(test)]
@@ -374,5 +425,41 @@ mod tests {
                 "branch-delete-failed",
             ]
         );
+    }
+
+    /// RU-R-060 — a rename or copy record drops the old path that follows it.
+    #[test]
+    fn ut_uncommitted_drops_a_rename_source() {
+        assert_eq!(
+            uncommitted("R  b.txt\0a.txt\0?? c.txt\0"),
+            ["b.txt", "c.txt"]
+        );
+        assert_eq!(
+            uncommitted("C  b.txt\0a.txt\0?? c.txt\0"),
+            ["b.txt", "c.txt"]
+        );
+        assert_eq!(
+            uncommitted(" R b.txt\0a.txt\0?? c.txt\0"),
+            ["b.txt", "c.txt"]
+        );
+    }
+
+    /// RU-R-059 — spaces, quotes, backslashes, non-ASCII and a directory
+    /// slash stay verbatim.
+    #[test]
+    fn ut_uncommitted_keeps_paths_plain() {
+        assert_eq!(
+            uncommitted("?? s p.txt\0?? ü.txt\0?? d/\0 M q\"b\\.txt\0"),
+            ["s p.txt", "ü.txt", "d/", "q\"b\\.txt"]
+        );
+    }
+
+    /// RU-E-030 — a control character puts the path in git's quoted form.
+    #[test]
+    fn ut_display_quotes_control_characters() {
+        assert_eq!(display("n\nl.txt"), "\"n\\nl.txt\"");
+        assert_eq!(display("a\u{1}b"), "\"a\\001b\"");
+        assert_eq!(display("t\tü\"x"), "\"t\\tü\\\"x\"");
+        assert_eq!(display("a\u{85}b"), "\"a\\302\\205b\"");
     }
 }

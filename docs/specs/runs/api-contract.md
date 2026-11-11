@@ -32,7 +32,7 @@
 
 ## ferrule run abandon output
 
-- `abandon=plan` followed by one line per effect: `uncommitted <path>`, `unpushed <sha> <subject>`, `close-pr <n>`, `delete-remote-branch <branch>`, `delete-branch <branch>`, `remove-worktree <path>`, then `hint=on the user's word only: ferrule run abandon <slug> --confirm` (RU-R-045, RU-R-046, RU-E-020)
+- `abandon=plan` followed by one line per effect: `uncommitted <path>`, `unpushed <sha> <subject>`, `close-pr <n>`, `delete-remote-branch <branch>`, `delete-branch <branch>`, `remove-worktree <path>`, then `hint=on the user's word only: ferrule run abandon <slug> --confirm` (RU-R-045, RU-R-046, RU-E-020, RU-R-059, RU-R-060, RU-E-030, RU-E-031, RU-E-032)
 - `abandon=done archive=<id>`, with ` issue=<n>` when the run references an issue and ` resumed` when an earlier abandon archived the run (RU-R-047, RU-R-056, RU-E-021)
 - `abandon=already archive=<id>` — the run is fully abandoned, exit 0 (RU-E-026)
 

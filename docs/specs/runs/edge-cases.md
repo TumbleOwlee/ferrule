@@ -73,3 +73,9 @@
 **RU-E-028** — The abandon command refuses a run whose remote branch cannot be looked up, changing nothing.
 
 **RU-E-029** — The abandon command refuses a run that has no card and no abandoned archive, changing nothing.
+
+**RU-E-030** — The abandon command's plan lists a path holding a line break or other control character in git's quoted form, so each change stays one line.
+
+**RU-E-031** — The abandon command's plan lists an untracked directory as one `uncommitted <dir>/` line, not one line per file in it.
+
+**RU-E-032** — The abandon command's plan lists a move the index does not hold as two `uncommitted` lines, the old path and the new path.

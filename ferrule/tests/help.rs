@@ -250,6 +250,10 @@ const IGNORED: &[(&str, &str)] = &[
         "a git log argument, not a status line",
     ),
     (
+        "ferrule-core/src/run/abandon.rs:untracked-files=normal",
+        "a git status argument, not a status line",
+    ),
+    (
         "ferrule-core/src/issue/changelog.rs",
         "a hidden marker inside milestone text, not a status line",
     ),

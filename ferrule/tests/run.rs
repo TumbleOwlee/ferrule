@@ -1148,6 +1148,84 @@ fn it_abandon_without_confirm_lists_and_changes_nothing() {
     assert_eq!(s.say(&["board", "field", "demo", "pr"]), "34");
 }
 
+/// Lines of an abandon plan that name uncommitted files.
+fn uncommitted_lines(s: &Scratch, gh: &FakeGh) -> Vec<String> {
+    say_on(s, gh, &["run", "abandon", "demo"])
+        .lines()
+        .filter(|l| l.starts_with("uncommitted "))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// S1, RU-R-060 — a staged rename is one `uncommitted` line naming the new path.
+#[test]
+fn it_abandon_plan_lists_a_staged_rename_by_its_new_path() {
+    let s = pushed_run();
+    let gh = FakeGh::new();
+    serve_pr(&gh, "OPEN");
+    s.commit_in_worktree("a.txt", "a\n", "add a");
+    git(&s.wt, &["mv", "a.txt", "b.txt"]);
+    assert_eq!(uncommitted_lines(&s, &gh), ["uncommitted b.txt"]);
+}
+
+/// S2, RU-R-059 — a path with a space or non-ASCII letter is listed plain.
+#[test]
+fn it_abandon_plan_lists_special_paths_plain() {
+    let s = pushed_run();
+    let gh = FakeGh::new();
+    serve_pr(&gh, "OPEN");
+    std::fs::write(s.wt.join("s p.txt"), "x\n").unwrap();
+    std::fs::write(s.wt.join("ü.txt"), "x\n").unwrap();
+    assert_eq!(
+        uncommitted_lines(&s, &gh),
+        ["uncommitted s p.txt", "uncommitted ü.txt"]
+    );
+}
+
+/// S3, RU-E-030 — a path with a line break is listed quoted on one line.
+#[cfg(unix)]
+#[test]
+fn it_abandon_plan_quotes_a_path_with_a_line_break() {
+    let s = pushed_run();
+    let gh = FakeGh::new();
+    serve_pr(&gh, "OPEN");
+    std::fs::write(s.wt.join("n\nl.txt"), "x\n").unwrap();
+    let out = say_on(&s, &gh, &["run", "abandon", "demo"]);
+    let lines: Vec<&str> = out.lines().collect();
+    assert!(lines.contains(&"uncommitted \"n\\nl.txt\""), "{out}");
+    assert_eq!(
+        lines.len(),
+        1 + 1 + 4 + 1 + usize::from(out.contains("unpushed")),
+        "{out}"
+    );
+}
+
+/// RU-E-031 — an untracked directory is one `uncommitted <dir>/` line.
+#[test]
+fn it_abandon_plan_lists_an_untracked_dir_once() {
+    let s = pushed_run();
+    let gh = FakeGh::new();
+    serve_pr(&gh, "OPEN");
+    std::fs::create_dir(s.wt.join("d")).unwrap();
+    std::fs::write(s.wt.join("d/x.txt"), "x\n").unwrap();
+    std::fs::write(s.wt.join("d/y.txt"), "y\n").unwrap();
+    assert_eq!(uncommitted_lines(&s, &gh), ["uncommitted d/"]);
+}
+
+/// RU-E-032 — a move the index does not hold is two lines, old then new.
+#[test]
+fn it_abandon_plan_lists_an_unstaged_move_as_two_lines() {
+    let s = pushed_run();
+    let gh = FakeGh::new();
+    serve_pr(&gh, "OPEN");
+    s.commit_in_worktree("a.txt", "a\n", "add a");
+    std::fs::rename(s.wt.join("a.txt"), s.wt.join("b.txt")).unwrap();
+    assert_eq!(
+        uncommitted_lines(&s, &gh),
+        ["uncommitted a.txt", "uncommitted b.txt"]
+    );
+}
+
 /// S14, RU-R-047, RU-R-049, RU-R-050, RU-R-051, RU-R-052, RU-R-053, RU-R-055,
 /// RU-E-022 — a confirmed abandon of a run whose worktree is gone archives it
 /// as abandoned, deletes both branches, comments on and closes the PR, and
