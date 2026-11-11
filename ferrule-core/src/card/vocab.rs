@@ -264,8 +264,15 @@ pub const VOCABULARY: &[Event] = &[
         Text::No,
     )
     .by("ferrule gate next <slug> <gate> <status line>"),
-    ev(Parent, "review=", V::Any, P::None, &["scope"], Text::No)
-        .by("ferrule gate next <slug> <gate> <status line>"),
+    ev(
+        Parent,
+        "review=",
+        V::Any,
+        P::None,
+        &["scope", "minors"],
+        Text::No,
+    )
+    .by("ferrule gate next <slug> <stage|gate3> <status line>"),
     ev(
         Parent,
         "overturned",

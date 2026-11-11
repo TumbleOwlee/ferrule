@@ -1,0 +1,31 @@
+$ gate next ns gate3 status=clean minors=2
+logged: review=clean minors=2
+next=minors then=pr
+do: resume the implementer to fix the minors the verdict lists (count 2), with no review after the fix, then the step below
+do: spawn the spec author for the PR body
+guide: ferrule guide show gate4 --slug ns
+exit=0
+log:
+2026-10-05T09:00 review=clean minors=2
+$ gate next ns gate3 status=clean minors=1
+logged: review=2-resolved minors=1
+next=minors then=stage-stop
+do: resume the implementer to fix the minors the verdict lists (count 1), with no review after the fix, then the step below
+run: ferrule stage stop ns s2 --threads <n>
+do: run the stage stop decision with the PR thread count
+guide: ferrule guide show stage-review --slug ns
+exit=0
+log:
+2026-10-05T09:00 review=2-open scope=branch
+2026-10-05T09:00 review=clean scope=stage
+2026-10-05T09:00 review=2-resolved minors=1
+$ gate next ns gate3 status=findings count=0 user=1 minors=1
+logged: review=clean minors=1
+next=minors then=pr reason=needs-user
+do: resume the implementer to fix the minors the verdict lists (count 1), with no review after the fix, then the step below
+do: spawn the spec author for the PR body
+guide: ferrule guide show gate4 --slug ns
+exit=0
+log:
+2026-10-05T09:00 review=clean minors=1
+exit=0

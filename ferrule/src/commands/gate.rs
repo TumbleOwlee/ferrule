@@ -96,7 +96,10 @@ Statuses each position takes:
   gate2    ready, findings, clean, question, arch-gap, split, behavior-change,
            new, reuse (with issue=<n>)
   replan   ready, findings, clean, question, arch-gap, split, behavior-change
-  gate3    findings (with count=<n>), clean
+  stage    findings (with count=<n>), clean; clean and findings count=0 need
+           minors=<n>
+  gate3    findings (with count=<n>), clean; clean and findings count=0 need
+           minors=<n>
   gate4    ready, question
   ci       ci=<exit code of gh pr checks>
 
@@ -105,7 +108,9 @@ Output, in order:
                                    `plan-review=findings count=<n> round=<r>`,
                                    `plan-review=clean round=<r>`,
                                    `review=<n>-open scope=branch`,
-                                   `review=<n>-resolved`, `review=clean`,
+                                   `review=clean scope=stage [minors=<n>]`,
+                                   `review=<n>-resolved [minors=<n>]`,
+                                   `review=clean [minors=<n>]`,
                                    `replan=pre-authorized`, `ci=<code>` or
                                    `spawn agent=plan-reviewer` (gate2, replan:
                                    ready). A status line that repeats the
@@ -125,12 +130,19 @@ Output, in order:
                      the spec author for the tracking issue
     stop             show the stop and wait for the user's approval
     notice           show the notice, then go on as if approved
-    fix              gate3: findings are open; ci: CI is red
-    stage-stop       gate3 clean with a stage not done: decide its stop
+    fix              stage: findings are open; gate3: findings are open;
+                     ci: CI is red
+    minors           a clean review left minors (`next=minors then=<word>`):
+                     resume the implementer to fix them, no re-review; then=
+                     names the step whose run:/do:/guide: lines follow
+    stage-stop       stage clean, or gate3 clean with a stage not done:
+                     decide its stop
     pr               gate3 clean on every stage: spawn the spec author for
                      the PR body
     done             ci=0: clean up the run
-  reason=<why>                     Why `stop` stops, or `pr` has `needs-user`.
+  reason=<why>                     Why `stop` stops, or `pr` has `needs-user`;
+                                   `minors` carries the reason of the step it
+                                   precedes.
                                    gate2 stops for: lane (not fast),
                                    no-arch-stop, needs-user, outgrown (plan
                                    over two stages) and reuse. A re-plan stops
@@ -252,6 +264,8 @@ pub enum NextAt {
     Gate2,
     /// A re-plan's planner and plan reviewer.
     Replan,
+    /// A stage or batch review.
+    Stage,
     /// The branch review.
     Gate3,
     /// The spec author's PR body.
@@ -351,6 +365,7 @@ fn next_step(slug: &str, at: NextAt, status: &[String], out: &mut impl Write) ->
     let at = match at {
         NextAt::Gate2 => At::Gate2,
         NextAt::Replan => At::Replan,
+        NextAt::Stage => At::Stage,
         NextAt::Gate3 => At::Gate3,
         NextAt::Gate4 => At::Gate4,
         NextAt::Ci => At::Ci,
