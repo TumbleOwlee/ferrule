@@ -58,6 +58,8 @@ Refusals:
   approve=refused reason=no-stages gate2: plan.md has no `## Shared` stage table
   approve=refused reason=usage     gate2: --issue is neither `new` nor a number
   approve=refused reason=tier stage=s<n> risk=<host-writes|persisted-state|public-surface> hint=<fix>
+  approve=refused reason=tier stage=s<n> risk=<word> hint=<fix>
+                                   The plan's Risk cell names a word that is no risk
                                    gate2: a stage with a risk got the skipped
                                    tier, by the plan or by --tiers; nothing is
                                    written. Fix: --tiers s<n>=own (or batched)
@@ -384,6 +386,8 @@ fn parse_tiers(v: &str) -> Result<String, String> {
         Err(TierRefused::UnknownTier(word)) => Err(format!(
             "'{word}' is no tier; give them as s2=batched,s3=skipped (own, batched or skipped)"
         )),
-        Err(TierRefused::Risky { .. }) => Err("a risky stage cannot be skipped".to_owned()),
+        Err(TierRefused::Risky { .. } | TierRefused::UnknownRisk { .. }) => {
+            Err("a risky stage cannot be skipped".to_owned())
+        }
     }
 }

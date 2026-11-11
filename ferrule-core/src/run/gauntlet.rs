@@ -393,7 +393,8 @@ fn stage_tests(wt: &Path, steps: Steps<'_>) -> Vec<Step> {
 }
 
 /// The commit a run at `level` measures from: at push the base of `stage`,
-/// at review the base of the run's first stage not yet done, none at full.
+/// at review the base of the first stage of the review point of the run's first
+/// stage not yet done, none at full.
 ///
 /// # Errors
 ///
@@ -410,11 +411,23 @@ pub fn base(
         let conn = r.conn();
         let me = match level {
             Level::Push => stage,
-            Level::Review => crate::card::board::stages(conn, run)?
-                .into_iter()
-                .filter(|(_, _, st)| *st != crate::card::board::State::Done)
-                .map(|(n, _, _)| n)
-                .min(),
+            Level::Review => {
+                let first = crate::card::board::stages(conn, run)?
+                    .into_iter()
+                    .filter(|(_, _, st)| *st != crate::card::board::State::Done)
+                    .map(|(n, _, _)| n)
+                    .min();
+                match first {
+                    Some(n) => Some(
+                        match crate::run::tier::review_point(conn, wt, run, n, main)? {
+                            crate::run::tier::ReviewPoint::Batch(v) => v[0],
+                            crate::run::tier::ReviewPoint::Stage(_)
+                            | crate::run::tier::ReviewPoint::None => n,
+                        },
+                    ),
+                    None => None,
+                }
+            }
             Level::Full => None,
         };
         match me {

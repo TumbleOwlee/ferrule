@@ -180,6 +180,203 @@ fn it_stage_stop_rules_in_order() {
     assert!(stop("s9").starts_with("stage-stop=refused reason=card hint="));
 }
 
+/// A run whose stage `n` carries the `n`th of `tiers`.
+fn tiered(tiers: &[&str]) -> Scratch {
+    let s = Scratch::new(u32::try_from(tiers.len()).unwrap());
+    for (i, t) in tiers.iter().enumerate() {
+        seed_set(&s.root, &format!("ss.s{}", i + 1), &[&format!("tier={t}")]);
+    }
+    s
+}
+
+fn tier_of(s: &Scratch, n: u32) -> String {
+    s.say(&["stage", "tier", "ss", &format!("s{n}")])
+}
+
+/// Commits `s<n>`'s file in the worktree and logs the commit on its card.
+fn land_stage(s: &Scratch, n: u32, text: &str) {
+    let sha = s.commit_in_worktree(&format!("f{n}.txt"), text, &format!("s{n}"));
+    seed_log(
+        &s.root,
+        NOW,
+        &format!("ss.s{n}"),
+        &[&format!("commit={sha}")],
+    );
+}
+
+fn lines_of(n: usize) -> String {
+    "x\n".repeat(n)
+}
+
+/// GA-R-086 — a batch of two closes at its second stage, before the
+/// own stage; its first stage has no review point.
+#[test]
+fn it_stage_tier_batch_of_two_closes_at_the_second() {
+    let s = tiered(&["batched", "batched", "own"]);
+    s.commit_in_worktree("f1.txt", "a\n", "s1");
+    assert_eq!(tier_of(&s, 1), "tier=batched review=none");
+    let sha = git(&s.wt, &["rev-parse", "--short", "HEAD"]);
+    seed_log(&s.root, NOW, "ss.s1", &[&format!("commit={sha}")]);
+    std::fs::write(s.wt.join("f2.txt"), "b\n").unwrap();
+    assert_eq!(tier_of(&s, 2), "tier=batched review=batch stages=s1,s2");
+    assert_eq!(tier_of(&s, 3), "tier=own review=stage");
+}
+
+/// A skipped stage has no review point.
+#[test]
+fn it_stage_tier_skipped_stage_has_no_review() {
+    let s = tiered(&["skipped"]);
+    assert_eq!(tier_of(&s, 1), "tier=skipped review=none");
+    assert!(s.last_line("ss.s1").ends_with("tier=skipped"));
+}
+
+/// GA-R-074 — a batch closes at three stages.
+#[test]
+fn it_stage_tier_batch_closes_at_three_stages() {
+    let s = tiered(&["batched", "batched", "batched", "batched"]);
+    land_stage(&s, 1, "a\n");
+    land_stage(&s, 2, "b\n");
+    assert_eq!(tier_of(&s, 2), "tier=batched review=none");
+    std::fs::write(s.wt.join("f3.txt"), "c\n").unwrap();
+    assert_eq!(tier_of(&s, 3), "tier=batched review=batch stages=s1,s2,s3");
+}
+
+/// GA-R-074, GA-E-013 — the stage that reaches 1,200 changed lines closes
+/// its batch and is the last it covers; a lone stage over the cap covers itself.
+#[test]
+fn it_stage_tier_crossing_1200_lines_closes_the_batch() {
+    let s = tiered(&["batched", "batched", "batched"]);
+    land_stage(&s, 1, &lines_of(700));
+    std::fs::write(s.wt.join("f2.txt"), lines_of(500)).unwrap();
+    assert_eq!(tier_of(&s, 2), "tier=batched review=batch stages=s1,s2");
+    let s = tiered(&["batched", "batched"]);
+    std::fs::write(s.wt.join("f1.txt"), lines_of(1200)).unwrap();
+    assert_eq!(tier_of(&s, 1), "tier=batched review=batch stages=s1");
+    let s = tiered(&["batched", "batched"]);
+    std::fs::write(s.wt.join("f1.txt"), lines_of(1199)).unwrap();
+    assert_eq!(tier_of(&s, 1), "tier=batched review=none");
+}
+
+/// GA-R-087 — a batch open at the last stage closes there.
+#[test]
+fn it_stage_tier_batch_closes_at_the_last_stage() {
+    let s = tiered(&["batched", "batched"]);
+    land_stage(&s, 1, "a\n");
+    assert_eq!(tier_of(&s, 1), "tier=batched review=none");
+    std::fs::write(s.wt.join("f2.txt"), "b\n").unwrap();
+    assert_eq!(tier_of(&s, 2), "tier=batched review=batch stages=s1,s2");
+}
+
+/// GA-R-072 — a planned batched stage that changes the spec is promoted to
+/// its own review, logged on its card.
+#[test]
+fn it_stage_tier_spec_change_promotes_the_stage() {
+    let s = tiered(&["batched", "batched"]);
+    std::fs::create_dir_all(s.wt.join("docs/specs")).unwrap();
+    std::fs::write(s.wt.join("docs/specs/x.md"), "x\n").unwrap();
+    assert_eq!(tier_of(&s, 1), "tier=own review=stage promoted=spec-change");
+    assert!(
+        s.last_line("ss.s1")
+            .ends_with("tier=own promoted=spec-change")
+    );
+    assert_eq!(tier_of(&s, 1), "tier=own review=stage promoted=spec-change");
+}
+
+/// GA-E-008 — a stage promoted by a spec change closes the open batch, and
+/// one review covers the batch and the promoted stage.
+#[test]
+fn it_stage_tier_promoted_stage_closes_the_open_batch() {
+    let s = tiered(&["batched", "batched", "batched"]);
+    land_stage(&s, 1, "a\n");
+    land_stage(&s, 2, "b\n");
+    assert_eq!(tier_of(&s, 2), "tier=batched review=none");
+    std::fs::create_dir_all(s.wt.join("docs/specs")).unwrap();
+    std::fs::write(s.wt.join("docs/specs/x.md"), "x\n").unwrap();
+    assert_eq!(
+        tier_of(&s, 3),
+        "tier=own review=batch stages=s1,s2,s3 promoted=spec-change"
+    );
+}
+
+/// GA-E-012 — stage 0 lands the spec text and keeps its tier.
+#[test]
+fn it_stage_tier_s0_keeps_its_tier() {
+    let s = tiered(&["own"]);
+    seed_set(&s.root, "ss.s0", &["tier=batched"]);
+    std::fs::create_dir_all(s.wt.join("docs/specs")).unwrap();
+    std::fs::write(s.wt.join("docs/specs/x.md"), "x\n").unwrap();
+    let out = tier_of(&s, 0);
+    assert!(out.starts_with("tier=batched review="), "{out}");
+    assert!(!out.contains("promoted"), "{out}");
+}
+
+/// GA-R-073 — after a batch blocker the next stage gets its own review.
+#[test]
+fn it_stage_tier_after_blocker_gives_own_review() {
+    let s = tiered(&["batched", "batched"]);
+    assert_eq!(
+        s.say(&["stage", "tier", "ss", "s1", "--after-blocker"]),
+        "tier=own review=stage promoted=batch-blocker"
+    );
+    assert_eq!(
+        tier_of(&s, 1),
+        "tier=own review=stage promoted=batch-blocker"
+    );
+    assert!(
+        s.last_line("ss.s1")
+            .ends_with("tier=own promoted=batch-blocker")
+    );
+}
+
+/// GA-E-007 — a rerun after the batch's earlier stage committed, and after
+/// the last one did too, names the same stages.
+#[test]
+fn it_stage_tier_mid_batch_rerun_keeps_committed_stages() {
+    let s = tiered(&["batched", "batched", "own"]);
+    land_stage(&s, 1, "a\n");
+    std::fs::write(s.wt.join("f2.txt"), "b\n").unwrap();
+    let want = "tier=batched review=batch stages=s1,s2";
+    assert_eq!(tier_of(&s, 2), want);
+    land_stage(&s, 2, "b\n");
+    assert_eq!(tier_of(&s, 2), want);
+    assert_eq!(tier_of(&s, 2), want);
+    assert!(tier_of(&s, 9).starts_with("stage-tier=refused reason=card hint="));
+}
+
+/// GA-R-091 — at a review point `{crates}` takes the packages the batch's
+/// stages touched since its base.
+#[test]
+fn it_gauntlet_review_level_takes_crates_from_the_batch_base() {
+    let s = tiered(&["batched", "batched"]);
+    s.config(
+        "stack = \"rust\"\n[[gauntlet.step]]\nname = \"crates\"\ncmd = [\"echo\", \"{crates}\"]\nat = [\"review\"]\n",
+    );
+    let mut base = String::new();
+    for (dir, name) in [("a", "alpha"), ("b", "beta")] {
+        std::fs::create_dir_all(s.wt.join(dir)).unwrap();
+        base = s.commit_in_worktree(
+            &format!("{dir}/Cargo.toml"),
+            &format!("[package]\nname = \"{name}\"\nversion = \"0.0.0\"\n"),
+            name,
+        );
+    }
+    seed_log(&s.root, NOW, "ss.s0", &[&format!("commit={base}")]);
+    let sha = s.commit_in_worktree("a/x.rs", "x\n", "s1");
+    seed_log(&s.root, NOW, "ss.s1", &[&format!("commit={sha}")]);
+    seed_log(&s.root, NOW, "ss", &[&format!("pushed={sha}")]);
+    for to in ["inprogress", "inreview", "done"] {
+        s.ok(&["board", "move", "ss.s1", to]);
+    }
+    std::fs::write(s.wt.join("b/y.rs"), "y\n").unwrap();
+    let out = s.run(&["ci", "gauntlet", "ss", "--level", "review"]).text();
+    assert!(out.starts_with("gauntlet=pass"), "{out}");
+    assert!(
+        gauntlet_log(&s).contains("-p alpha -p beta"),
+        "{}",
+        gauntlet_log(&s)
+    );
+}
+
 #[test]
 fn it_stage_stop_checkpoint_after_three_autos() {
     let s = Scratch::new(5);

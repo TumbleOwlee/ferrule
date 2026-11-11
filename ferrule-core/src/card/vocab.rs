@@ -181,6 +181,15 @@ pub const VOCABULARY: &[Event] = &[
     ev(Stage, "auto=", V::Any, P::None, &[], Text::No).by("ferrule stage stop <slug> <n>"),
     ev(Stage, "stop=", V::Any, P::None, &[], Text::No).by("ferrule stage stop <slug> <n>"),
     ev(
+        Stage,
+        "tier=",
+        V::OneOf(&["own", "batched", "skipped"]),
+        P::None,
+        &["promoted"],
+        Text::No,
+    )
+    .by("ferrule stage tier <slug> <n>"),
+    ev(
         Parent,
         "stop",
         V::None,

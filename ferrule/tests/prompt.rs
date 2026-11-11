@@ -6,7 +6,7 @@ mod golden;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use golden::{Run, check, fixtures, seed_log};
+use golden::{Run, check, fixtures, seed_log, seed_set};
 
 const NOW: &str = "2026-10-05T09:00";
 
@@ -325,7 +325,8 @@ fn it_render_blocked_takes_both_heads_or_neither() {
     .golden("prompt-render-blocked");
 }
 
-/// GA-R-005, GA-R-006, GA-R-007 — the stage stop names what follows the approval.
+/// GA-R-005, GA-R-006, GA-R-007 — the stage stop names what follows the approval;
+/// at a batch's review point it commits the batch's review fixes.
 #[test]
 fn it_render_stage_says_what_follows() {
     let p = project();
@@ -349,6 +350,22 @@ fn it_render_stage_says_what_follows() {
     let general = render(p, &["demo", "stage", "--reason", "plan-marked"]).text();
     assert!(general.contains("- spawn the next stage\nAnswer: approve · change <what> · stop"));
     assert!(!general.contains("gate 4"));
+    seed_set(p, "demo.s1", &["tier=batched"]);
+    seed_set(p, "demo.s2", &["tier=batched"]);
+    let batch = render(
+        p,
+        &["demo", "stage", "--stage", "s2", "--reason", "plan-marked"],
+    )
+    .text();
+    assert!(batch.contains(
+        "Approving will:\n- commit the review fixes of s1, s2, push, update the draft PR\n- next stop: gate 4"
+    ));
+    let open = render(
+        p,
+        &["demo", "stage", "--stage", "s1", "--reason", "plan-marked"],
+    )
+    .text();
+    assert!(open.contains("- commit s1, push, update the draft PR\n- spawn the next stage"));
 }
 
 #[test]

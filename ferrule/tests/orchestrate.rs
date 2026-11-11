@@ -4106,6 +4106,23 @@ fn it_gate2_refuses_skipped_on_a_risky_stage() {
     }
 }
 
+/// GA-R-071 — a Risk word that names no risk is refused, naming the stage
+/// and the word, before anything is written.
+#[test]
+fn it_gate2_refuses_an_unknown_risk_word() {
+    let p = Project::new();
+    gate2_ready(&p, &tier_plan("skipped | host_writes", "own | —"));
+    let got = p.ferrule(&["gate", "approve", "demo", "gate2"]).text();
+    assert!(
+        got.starts_with(
+            "approve=refused reason=tier stage=s1 risk=host_writes hint=fix s1's Risk cell"
+        ),
+        "{got}"
+    );
+    assert!(!p.worktree().exists());
+    assert_eq!(p.field("demo", "gate2"), "");
+}
+
 /// GA-R-081 — a slice run takes its stages' tiers from its own plan.
 #[test]
 fn it_slice_run_takes_tiers_from_its_plan() {

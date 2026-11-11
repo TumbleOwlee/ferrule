@@ -787,14 +787,37 @@ fn approval_text(
 /// there is no stage to tell apart, so the text stays the general one.
 fn stage(run: &Run, args: &[(String, String)]) -> Result<Approval, Error> {
     let sid = arg(args, "stage").unwrap_or("");
-    let last = match sid.trim_start_matches('s').parse() {
-        Ok(me) => next_stage(run, me)?.is_none(),
-        Err(_) => false,
+    let me = sid.trim_start_matches('s').parse().ok();
+    let last = match me {
+        Some(me) => next_stage(run, me)?.is_none(),
+        None => false,
+    };
+    let batch = match me {
+        Some(me) => {
+            let main = Config::load(&run.layout.root)
+                .map_or_else(|_| "main".to_owned(), |c| c.main_branch);
+            let wt = board::worktree(run.conn, run.layout, run.slug, run.slug)?;
+            match crate::run::tier::review_point(run.conn, &wt, run.slug, me, &main)? {
+                crate::run::tier::ReviewPoint::Batch(v) => Some(v),
+                _ => None,
+            }
+        }
+        None => None,
+    };
+    let commit = match batch {
+        Some(v) => {
+            let ids: Vec<String> = v.iter().map(|n| format!("s{n}")).collect();
+            format!(
+                "- commit the review fixes of {}, push, update the draft PR",
+                ids.join(", ")
+            )
+        }
+        None => format!("- commit {sid}, push, update the draft PR"),
     };
     Ok(Approval::new(
         format!("Stage {sid}"),
         vec![
-            format!("- commit {sid}, push, update the draft PR"),
+            commit,
             if last {
                 "- next stop: gate 4".to_owned()
             } else {

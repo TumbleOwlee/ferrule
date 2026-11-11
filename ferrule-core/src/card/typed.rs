@@ -3,6 +3,7 @@
 //! [`Event`] and never from the rendered body.
 
 use crate::card::board::Event;
+use crate::run::tier::Tier;
 
 /// An event code reads, without its words: the stored name a reader
 /// filters on in SQL.
@@ -37,10 +38,11 @@ pub enum Name {
     Rebase,
     LiveCheck,
     Abandoned,
+    Tier,
 }
 
 impl Name {
-    pub const ALL: [Name; 29] = [
+    pub const ALL: [Name; 30] = [
         Name::Commit,
         Name::Gauntlet,
         Name::Pushed,
@@ -70,6 +72,7 @@ impl Name {
         Name::Rebase,
         Name::LiveCheck,
         Name::Abandoned,
+        Name::Tier,
     ];
 
     /// The name as stored, `=` included for a valued event.
@@ -105,6 +108,7 @@ impl Name {
             Name::Rebase => "rebase=",
             Name::LiveCheck => "live-check=",
             Name::Abandoned => "abandoned",
+            Name::Tier => "tier=",
         }
     }
 
@@ -123,6 +127,7 @@ impl Name {
             Name::TestRed => &["test", "mutation"],
             Name::TestPins => &["test"],
             Name::TestReplaced => &["old", "new"],
+            Name::Tier => &["promoted"],
             _ => &[],
         }
     }
@@ -264,6 +269,11 @@ pub enum Typed<'a> {
     },
     /// The run was abandoned, `abandoned`.
     Abandoned,
+    /// A stage's tier decision, `tier=<tier>` with the `promoted` reason.
+    Tier {
+        tier: Tier,
+        promoted: Option<&'a str>,
+    },
     Other,
 }
 
@@ -301,6 +311,7 @@ impl Typed<'_> {
             Typed::Rebase { .. } => Name::Rebase,
             Typed::LiveCheck { .. } => Name::LiveCheck,
             Typed::Abandoned => Name::Abandoned,
+            Typed::Tier { .. } => Name::Tier,
             Typed::Other => return None,
         })
     }
@@ -359,6 +370,10 @@ impl Event {
             Name::CiWaived => Typed::CiWaived,
             Name::IssueWaived => Typed::IssueWaived,
             Name::Abandoned => Typed::Abandoned,
+            Name::Tier => Typed::Tier {
+                tier: Tier::parse(value?)?,
+                promoted: key("promoted"),
+            },
             Name::BlockedStart => Typed::BlockedStart {
                 blockers: self.text.as_deref().unwrap_or(""),
             },

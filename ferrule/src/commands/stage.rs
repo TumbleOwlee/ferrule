@@ -167,6 +167,25 @@ The refusal ends in ` hint=<fix>`.
 Exit codes: 0 auto or stop, 1 refused, 2 usage, 4 internal error.
 See: ferrule guide show stage-review";
 
+/// Shown after `ferrule stage tier --help`.
+const TIER_AFTER_LONG_HELP: &str = "\
+Output (also logged on the stage card as `tier=<tier>`):
+  tier=<own|batched|skipped> review=<stage|batch|none> [stages=s<a>,s<b>]
+                                   [promoted=<why>]
+    review=stage   The stage is reviewed alone
+    review=batch   A batch closes here; stages= lists its stages, oldest first
+    review=none    No review before gate 3
+Promotions (the stage then has its own review):
+  promoted=spec-change     A planned batched or skipped stage changes docs/specs
+  promoted=batch-blocker   --after-blocker: the previous batch's review found
+                           a blocker
+Refusals:
+  stage-tier=refused reason=card   No such stage card; check the slug and
+                                   stage with `ferrule board list`
+The refusal ends in ` hint=<fix>`.
+Exit codes: 0 decided, 1 refused, 2 usage, 4 internal error.
+See: ferrule guide show stages";
+
 /// Shown after `ferrule stage replan --help`.
 const REPLAN_AFTER_LONG_HELP: &str = "\
 Output:
@@ -278,6 +297,21 @@ pub enum StageCommand {
         #[arg(long, default_value_t = 0)]
         threads: u32,
     },
+    /// Decide a green stage's tier and review point.
+    ///
+    /// Logs the tier on the stage card.
+    #[command(after_long_help = TIER_AFTER_LONG_HELP)]
+    Tier {
+        /// The run's slug.
+        slug: Slug,
+        /// The stage, `s<n>`.
+        #[arg(value_parser = stage_id, value_name = "STAGE")]
+        stage: u32,
+        /// The previous batch's review found a blocker: this stage gets its
+        /// own review.
+        #[arg(long)]
+        after_blocker: bool,
+    },
     /// Start or approve a re-plan.
     #[command(after_long_help = REPLAN_AFTER_LONG_HELP)]
     Replan {
@@ -328,6 +362,11 @@ pub fn run(command: &StageCommand, out: &mut impl Write) -> io::Result<u8> {
             stage,
             threads,
         } => stage_stop(slug, *stage, *threads, out),
+        StageCommand::Tier {
+            slug,
+            stage,
+            after_blocker,
+        } => stage_tier(slug, *stage, *after_blocker, out),
         StageCommand::Replan { slug, step, stops } => replan(slug, *step, stops.as_deref(), out),
     }
 }
@@ -462,6 +501,28 @@ fn stage_stop(slug: &str, stage: u32, threads: u32, out: &mut impl Write) -> io:
         Ok(Some(stop)) => writeln!(out, "{stop}")?,
         Ok(None) => writeln!(out, "auto")?,
         Err(Error::Card) => return refuse(out, &Refusal::card("stage-stop")),
+        Err(Error::Sql(e)) => return Err(internal(e)),
+    }
+    Ok(exit::OK)
+}
+
+fn stage_tier(slug: &str, stage: u32, after_blocker: bool, out: &mut impl Write) -> io::Result<u8> {
+    let layout = layout();
+    let config = super::config()?;
+    let Some(mut s) = store()? else {
+        return refuse(out, &Refusal::card("stage-tier"));
+    };
+    match core_run::tier::decide(
+        &mut s,
+        &layout,
+        &config,
+        slug,
+        stage,
+        after_blocker,
+        &board::now(),
+    ) {
+        Ok(line) => writeln!(out, "{line}")?,
+        Err(Error::Card) => return refuse(out, &Refusal::card("stage-tier")),
         Err(Error::Sql(e)) => return Err(internal(e)),
     }
     Ok(exit::OK)

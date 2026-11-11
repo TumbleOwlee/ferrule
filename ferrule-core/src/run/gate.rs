@@ -64,6 +64,8 @@ pub enum GateRefusal {
     Committed(u32),
     /// A skipped tier on a stage that carries a risk.
     Tier { stage: u32, risk: Risk },
+    /// A plan risk word that names no risk.
+    RiskWord { stage: u32, word: String },
     /// A slice run on an issue with open blockers, before the user approved.
     Blocked {
         issue: String,
@@ -92,7 +94,7 @@ impl GateRefusal {
             GateRefusal::Epic => "epic",
             GateRefusal::Branch(_) => "branch",
             GateRefusal::Committed(_) => "committed",
-            GateRefusal::Tier { .. } => "tier",
+            GateRefusal::Tier { .. } | GateRefusal::RiskWord { .. } => "tier",
             GateRefusal::Blocked { .. } => "blocked",
         }
     }
@@ -139,6 +141,12 @@ impl GateRefusal {
             GateRefusal::Committed(n) => r.field("stage", format!("s{n}")).hint(format!(
                 "s{n} is committed and stays; number the new plan's stages around it"
             )),
+            GateRefusal::RiskWord { stage, word } => r
+                .field("stage", format!("s{stage}"))
+                .field("risk", word)
+                .hint(format!(
+                    "fix s{stage}'s Risk cell: `{word}` is none of host-writes, persisted-state, public-surface"
+                )),
             GateRefusal::Tier { stage, risk } => r
                 .field("stage", format!("s{stage}"))
                 .field("risk", risk.as_str())
@@ -569,6 +577,8 @@ pub struct PlanStage {
     pub tier: Option<Tier>,
     /// What forbids the skipped tier.
     pub risk: Vec<Risk>,
+    /// Risk words that name no risk.
+    pub unknown_risk: Vec<String>,
 }
 
 fn cells_list(cell: &str) -> Vec<String> {
@@ -603,16 +613,19 @@ pub fn plan_stages(plan: &str) -> Vec<PlanStage> {
         let Some(n) = cells[1].strip_prefix('s').and_then(|n| n.parse().ok()) else {
             continue;
         };
-        let (tier, risk) = if cells.len() >= 8 {
+        let (tier, risk, unknown_risk) = if cells.len() >= 8 {
+            let words = cells_list(cells[6]);
             (
                 Tier::parse(cells[5]),
-                cells_list(cells[6])
+                words.iter().filter_map(|w| Risk::parse(w)).collect(),
+                words
                     .iter()
-                    .filter_map(|w| Risk::parse(w))
+                    .filter(|w| Risk::parse(w).is_none())
+                    .cloned()
                     .collect(),
             )
         } else {
-            (None, Vec::new())
+            (None, Vec::new(), Vec::new())
         };
         out.push(PlanStage {
             n,
@@ -621,6 +634,7 @@ pub fn plan_stages(plan: &str) -> Vec<PlanStage> {
             blocked_by: cells_list(cells[4]),
             tier,
             risk,
+            unknown_risk,
         });
     }
     out
@@ -718,6 +732,9 @@ pub fn parse_live_repo(v: &str) -> Result<String, String> {
 fn settle_tiers(stages: &[PlanStage], over: &[(u32, Tier)]) -> Result<Vec<(u32, Tier)>, Error> {
     tier::settle(stages, over).map_err(|e| match e {
         TierRefused::Risky { stage, risk } => Error::Refused(GateRefusal::Tier { stage, risk }),
+        TierRefused::UnknownRisk { stage, word } => {
+            Error::Refused(GateRefusal::RiskWord { stage, word })
+        }
         // `parse_overrides` refuses these; `settle` never returns them.
         TierRefused::UnknownStage(_) | TierRefused::UnknownTier(_) => {
             Error::Refused(GateRefusal::Usage)
@@ -1101,6 +1118,15 @@ mod tests {
         assert_eq!(s[1].files, ["a.rs", "b.rs"]);
         assert_eq!(s[1].blocked_by, ["s0"]);
         assert!(s[0].blocked_by.is_empty());
+    }
+
+    /// GA-R-071 — a risk word that names no risk is kept apart, not dropped.
+    #[test]
+    fn ut_plan_stage_keeps_unknown_risk_words() {
+        let plan = "## Shared\n| Stage | Title | Files | Blocked by | Tier | Risk |\n|---|---|---|---|---|---|\n| s1 | t | a.rs | — | skipped | host-write, public-surface |\n";
+        let s = plan_stages(plan);
+        assert_eq!(s[0].risk, [Risk::PublicSurface]);
+        assert_eq!(s[0].unknown_risk, ["host-write"]);
     }
 
     #[test]

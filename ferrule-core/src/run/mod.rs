@@ -301,7 +301,7 @@ impl std::fmt::Display for Stop {
 }
 
 /// Changed lines and files in `wt` since `base`, untracked files included.
-fn diff_size(wt: &Path, base: &str) -> Option<(usize, usize)> {
+pub(crate) fn diff_size(wt: &Path, base: &str) -> Option<(usize, usize)> {
     let numstat = git::out(wt, &["diff", "--numstat", base])?;
     let (mut lines, mut files) = (0, 0);
     for l in numstat.lines().filter(|l| !l.is_empty()) {
