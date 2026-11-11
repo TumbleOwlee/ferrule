@@ -162,9 +162,52 @@ fn it_stage_review_guide_pushes_before_gate4() {
     );
     assert!(
         text.contains(
-            "commit and push the stage, or its review fixes when it closes a batch, before gate 4"
+            "commits and pushes the stage, or its review fixes when it closes a batch, before gate 4, whether or not its stop is shown"
         ),
         "{text}"
+    );
+}
+
+/// GA-E-016 — a plan-marked stage stops after its review even with nothing to decide.
+#[test]
+fn it_stage_review_guide_stops_a_plan_marked_stage() {
+    says(
+        "stage-review",
+        &["A plan-marked stage stops after its review even with nothing to decide."],
+    );
+}
+
+/// RU-R-073 — the live check runs after the last code stage is pushed and before the branch review.
+#[test]
+fn it_guides_run_the_live_check_before_the_branch_review() {
+    says(
+        "stage-review",
+        &[
+            "the implementer commits the last code stage first, `ferrule pr push demo`, the card stays `inreview`; then `ferrule run live-check demo start`, the live check, `ferrule run live-check demo end`; then the branch review",
+            "`live-check=refused reason=open-stage` → commit and push the stage it names first.",
+        ],
+    );
+    says(
+        "gate3",
+        &[
+            "With `live-repo` set the live check runs before this review, after the last code stage is committed and pushed",
+            "`ferrule run live-check demo start`, the live check, `ferrule run live-check demo end`",
+        ],
+    );
+}
+
+/// RU-R-072, RU-E-035 — gate 1 and resume run the preflight first and relay a refusal.
+#[test]
+fn it_guides_run_the_preflight_first() {
+    says(
+        "gate1",
+        &[
+            "`ferrule run preflight` first: `preflight=refused` → stop, relay its `hint=` to the user, no card is made; then `ferrule run init",
+        ],
+    );
+    says(
+        "resume",
+        &["Then `ferrule run preflight`: `preflight=refused` → stop and relay its `hint=`."],
     );
 }
 
