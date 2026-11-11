@@ -11,7 +11,7 @@ Full lane. A review point is the stage `ferrule stage tier {slug} s<n>` names (`
   - `stage-stop` → the `Stage stop` rules below, forwarding the gauntlet line.
 - `count>0` → card → `inprogress`, resume the implementer with the `review.md` path and stage id, who fixes every finding, minors included; card → `inreview`, re-run `ferrule ci gauntlet {slug} --level review`, follow-up pass by the same reviewer; rounds per `ferrule guide show verify`. A batch's fixes are committed once, when clean, on the last stage's card, and pushed.
 - A batch review status line with `blockers=` above 0 → `ferrule stage tier {slug} s<next> --after-blocker` before the next stage starts: that stage gets its own review.
-- **The last code stage's review point**: scope `branch`, each pass a fresh reviewer — it is gate 3's review; its status line → `ferrule gate next {slug} gate3 …` (it answers `stage-stop` or gate 3's stop).
+- **The last code stage's review point**: scope `branch`, each pass a fresh reviewer — it is gate 3's review; its status line → `ferrule gate next {slug} gate3 …` (it answers `minors` first when the review left minors, then `stage-stop` or gate 3's stop).
 
 <!-- lane: full -->
 ## Stage stop

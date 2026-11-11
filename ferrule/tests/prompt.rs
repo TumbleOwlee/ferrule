@@ -314,6 +314,8 @@ fn it_render_states_the_minors_fixed() {
     assert!(stage.contains("Minors fixed after the review, not re-reviewed: 2"));
     let gate4 = render(p, &["demo", "gate4"]).text();
     assert!(!gate4.contains("Minors fixed"), "{gate4}");
+    let after_stop = render(p, &["demo", "auto", "--stage", "s1"]).text();
+    assert!(!after_stop.contains("minors fixed"), "{after_stop}");
     seed_log(p, at, "demo", &["review=clean", "minors=3"]);
     let gate3 = render(p, &["demo", "gate3"]).text();
     assert!(gate3.contains("Minors fixed after the review, not re-reviewed: 3"));
