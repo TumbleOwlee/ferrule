@@ -34,7 +34,7 @@
 
 **RU-E-012** — A slice filing adopts an open issue of the same title only when that issue is already in the epic's milestone.
 
-**RU-E-030** — A comment post on a slice run in a milestone without a milestone change file is refused, names the missing file and posts nothing.
+**RU-E-034** — A comment post on a slice run in a milestone without a milestone change file is refused, names the missing file and posts nothing.
 
 ## Issue metadata
 

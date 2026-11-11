@@ -3321,7 +3321,7 @@ fn it_kept_change_updates_the_milestone() {
     assert!(at("-X PATCH") < at("issue comment 12"), "{log}");
 }
 
-/// RU-E-030 — a comment post on a slice run without milestone-change.md is refused and posts
+/// RU-E-034 — a comment post on a slice run without milestone-change.md is refused and posts
 /// nothing.
 #[test]
 fn it_comment_without_milestone_change_posts_nothing() {

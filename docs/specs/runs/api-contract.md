@@ -69,7 +69,7 @@
 - `post=refused reason=milestone-stale hint=<fix>` (RU-E-011)
 - `post=refused reason=bad-dependency value=<text> hint=<fix>`
 - `post=refused reason=rejected length=<n> detail="<host error>" hint=<fix>` (RU-E-010)
-- `post=refused reason=missing file=milestone-change.md hint=<fix>` — nothing is posted (RU-E-030)
+- `post=refused reason=missing file=milestone-change.md hint=<fix>` — nothing is posted (RU-E-034)
 
 ## ferrule issue milestones
 

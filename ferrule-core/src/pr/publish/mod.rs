@@ -1775,7 +1775,7 @@ mod tests {
         assert!(!tracker.calls().iter().any(|c| c.starts_with("comment")));
     }
 
-    /// RU-E-030 — a slice run without a readable change file refuses naming it and posts nothing.
+    /// RU-E-034 — a slice run without a readable change file refuses naming it and posts nothing.
     #[test]
     fn ut_kept_change_needs_a_readable_change_file() {
         let (_dir, mut db, layout, host, tracker) = kept_setup("Goal\nold text\n");
