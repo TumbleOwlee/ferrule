@@ -11,6 +11,7 @@ use ferrule_core::pr::publish;
 use ferrule_core::project;
 use ferrule_core::refusal::{Exit, Refusal};
 use ferrule_core::run::testproof::TestCheck;
+use ferrule_core::store::Site;
 use ferrule_core::store::{Board, Error as StoreError};
 use ferrule_core::term::{self, Style};
 
@@ -465,16 +466,16 @@ pub enum BoardCommand {
     },
 }
 
-/// The board's database; `None` when there is none yet, which reads as an
-/// empty board.
+/// The board this checkout's build resolves to; `None` when there is none
+/// yet, which reads as an empty board.
 pub(crate) fn store() -> io::Result<Option<Board>> {
-    Board::open_existing(&project::main_checkout()).map_err(internal)
+    Board::open_existing(&Site::current()).map_err(internal)
 }
 
-/// The board's database, created when there is none: for the commands
-/// that start a board.
+/// The board this checkout's build resolves to, created when there is
+/// none: for the commands that start a board.
 pub(crate) fn create_store() -> io::Result<Board> {
-    Board::create(&project::main_checkout()).map_err(internal)
+    Board::create(&Site::current()).map_err(internal)
 }
 
 /// The board's database when `id` names a card on it; `None` otherwise.

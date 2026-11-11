@@ -61,11 +61,20 @@ impl Run {
     }
 }
 
+/// A dev binary's view from the main checkout at `root`.
+fn dev_site(root: &Path) -> ferrule_core::store::Site {
+    ferrule_core::store::Site::new(
+        root.to_path_buf(),
+        root.to_path_buf(),
+        ferrule_core::store::Build::Dev,
+    )
+}
+
 /// Logs `words` (`<event> [args…]`) on `card` of the project at `root` as a
 /// ferrule command would: `board log` refuses the events only ferrule
 /// writes, which a test needs on a card as if a command had logged them.
 pub fn seed_log(root: &Path, at: &str, card: &str, words: &[&str]) {
-    let mut board = ferrule_core::store::Board::open_existing(root)
+    let mut board = ferrule_core::store::Board::open_existing(&dev_site(root))
         .unwrap()
         .expect("a board");
     let args: Vec<String> = words[1..].iter().map(|w| (*w).to_owned()).collect();
@@ -219,7 +228,7 @@ pub const GH_FIELDS: &str = "number,title,state,url,author,body,comments";
 /// command would: `board new` refuses the fields only ferrule sets and a
 /// stage starting done, which a test needs on a board.
 pub fn seed_card(root: &Path, id: &str, state: &str, fields: &[&str]) {
-    let mut board = ferrule_core::store::Board::create(root).unwrap();
+    let mut board = ferrule_core::store::Board::create(&dev_site(root)).unwrap();
     let state = ferrule_core::card::board::State::parse(state).expect("a state");
     let fields = key_values(fields);
     board
@@ -229,7 +238,7 @@ pub fn seed_card(root: &Path, id: &str, state: &str, fields: &[&str]) {
 
 /// Sets `fields` (`key=value`) on card `id` as a ferrule command would.
 pub fn seed_set(root: &Path, id: &str, fields: &[&str]) {
-    let mut board = ferrule_core::store::Board::open_existing(root)
+    let mut board = ferrule_core::store::Board::open_existing(&dev_site(root))
         .unwrap()
         .expect("a board");
     let fields = key_values(fields);

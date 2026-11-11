@@ -1592,7 +1592,7 @@ impl Board {
 mod tests {
     use super::*;
 
-    use crate::store::Store;
+    use crate::store::{DIR, FILE, Store};
 
     /// The `files` value parses to its paths.
     #[test]
@@ -2035,11 +2035,12 @@ mod tests {
     #[test]
     fn ut_two_writers_at_once_lose_nothing() {
         let dir = tempfile::tempdir().unwrap();
-        let mut s = Store::open(dir.path(), true).unwrap();
+        let file = dir.path().join(DIR).join(FILE);
+        let mut s = Store::open(&file, true).unwrap();
         create(&mut s.conn, "r", State::Open, &[], "t").unwrap();
         let writers: Vec<_> = (0..2)
             .map(|w| {
-                let root = dir.path().to_path_buf();
+                let root = file.clone();
                 std::thread::spawn(move || {
                     let mut s = Store::open(&root, false).unwrap();
                     for i in 0..50 {

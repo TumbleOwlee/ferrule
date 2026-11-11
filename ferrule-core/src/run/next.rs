@@ -613,7 +613,11 @@ mod tests {
     #[test]
     fn ut_a_log_line_the_vocabulary_rejects_is_an_error() {
         let dir = tempfile::tempdir().unwrap();
-        let mut store = crate::store::Store::open(dir.path(), true).unwrap();
+        let mut store = crate::store::Store::open(
+            &dir.path().join(crate::store::DIR).join(crate::store::FILE),
+            true,
+        )
+        .unwrap();
         board::create(
             &mut store.conn,
             "ns",
