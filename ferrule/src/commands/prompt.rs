@@ -255,7 +255,8 @@ fn lines(files: &[PathBuf], seen: usize, out: &mut impl Write) -> io::Result<u8>
 pub enum Shown {
     Viewer(String),
     Stdout,
-    /// The viewer program does not exist: shown as on stdout.
+    /// The viewer program cannot be found or run (a bare name on `PATH` can
+    /// report permission denied): shown as on stdout.
     Missing,
     /// The viewer did not start or failed: why, from its error output.
     Failed(String),
@@ -284,7 +285,14 @@ fn view(viewer: &[String], path: &Path) -> Shown {
                 None => format!("{program} exited {}", o.status.code().unwrap_or(1)),
             })
         }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Shown::Missing,
+        Err(e)
+            if matches!(
+                e.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied
+            ) =>
+        {
+            Shown::Missing
+        }
         Err(e) => Shown::Failed(format!("{program}: {e}")),
     }
 }

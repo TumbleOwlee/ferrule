@@ -43,6 +43,6 @@ Every change to `docs/specs/` after `s0` — `ferrule run diff {slug} --base <ba
 - `stage s<n>` / `batch s<a>,s<b>` / `delta s<n>` scope: the stage's current diff (the same commands as the first pass) whole — a stage diff is small; your earlier findings don't narrow it.
 <!-- include: reviewer-follow-up-end -->
 
-Never re-raise an item a `(user)` line of `decisions.md` settles. Resumed with `recheck <sha>`: read only `ferrule run diff {slug} --base <sha>` and review that change alone. Resumed with `settle` and the user's answers: re-read nothing, review nothing; rewrite `review.verdict.md` with each answered item moved off `Needs user` (`Needs user` → `- none` when all are answered), the status line `user=` counting only unanswered items.
+Never re-raise an item a `(user)` line of `decisions.md` settles. Resumed with `recheck <sha>`: read only `ferrule run diff {slug} --base <sha>` and `ferrule run diff {slug} --uncommitted` (the applied answer is uncommitted) and review that change alone. Resumed with `settle` and the user's answers: re-read nothing, review nothing; rewrite `review.verdict.md` with each answered item moved off `Needs user` (`Needs user` → `- none` when all are answered), the status line `user=` counting only unanswered items.
 
 <!-- include: reviewer-output -->

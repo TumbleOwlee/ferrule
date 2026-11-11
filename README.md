@@ -337,7 +337,7 @@ cmd = ["cargo", "llvm-cov", "--workspace", "--fail-under-lines", "80"]
 coverage = "llvm-cov"        # how the pass's cov= is read from the output
 
 [viewer]
-command = ["glow"]           # prompt show appends the file path; unset: stdout
+command = ["glow"]           # prompt show appends the file path; unset or not startable: stdout
 
 [guard]
 allow = ["gh api"]           # raw calls the guard re-opens; see The guard

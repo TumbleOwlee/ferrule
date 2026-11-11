@@ -278,7 +278,7 @@ fn it_reviewer_guide_never_reraises_a_settled_item() {
     says(
         "reviewer",
         &[
-            "Never re-raise an item a `(user)` line of `decisions.md` settles. Resumed with `recheck <sha>`: read only `ferrule run diff demo --base <sha>` and review that change alone.",
+            "Never re-raise an item a `(user)` line of `decisions.md` settles. Resumed with `recheck <sha>`: read only `ferrule run diff demo --base <sha>` and `ferrule run diff demo --uncommitted` (the applied answer is uncommitted) and review that change alone.",
         ],
     );
 }

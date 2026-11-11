@@ -405,10 +405,7 @@ fn it_render_without_a_viewer_names_the_files() {
 fn it_show_prints_the_file_when_the_viewer_cannot_start() {
     let p = project();
     let p = p.path();
-    config(
-        p,
-        "[viewer]\ncommand = [\"/nonexistent/ferrule-no-such-viewer\"]\n",
-    );
+    config(p, "[viewer]\ncommand = [\"ferrule-no-such-viewer\"]\n");
     let plan = art(p, "demo", "plan.summary.md");
     let out = ferrule(p, &["prompt", "show", "--no-lines", plan.to_str().unwrap()]).text();
     assert!(out.starts_with("prompt show: stdout: "), "{out}");
@@ -424,10 +421,7 @@ fn it_show_prints_the_file_when_the_viewer_cannot_start() {
 fn it_render_without_a_startable_viewer_names_the_files() {
     let p = project();
     let p = p.path();
-    config(
-        p,
-        "[viewer]\ncommand = [\"/nonexistent/ferrule-no-such-viewer\"]\n",
-    );
+    config(p, "[viewer]\ncommand = [\"ferrule-no-such-viewer\"]\n");
     let out = render(p, &["demo", "gate3"]).text();
     let root = p.canonicalize().unwrap();
     let out = out.replace(root.to_str().unwrap(), "<P>");
