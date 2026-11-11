@@ -169,3 +169,9 @@
 ## Files list
 
 **GW-R-077** — A stage changing a file outside its `files` list is noted on the card and blocks neither the commit nor the review.
+
+## Body checks
+
+**GW-R-080** — PR and issue body assembly refuses prose naming a stage id with `reason=stage-ref`.
+
+**GW-R-081** — The stage-ref check skips a code span or fenced block whose content is anything other than a bare stage id or a bare agent name.

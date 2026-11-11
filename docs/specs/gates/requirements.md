@@ -28,6 +28,10 @@
 
 **GA-R-079** — Each pass of the gate 3 review uses a fresh reviewer.
 
+**GA-R-094** — The reviewer's gate 3 branch review status line reports its minor count as `minors=<n>`.
+
+**GA-R-096** — When a clean gate 3 branch review reports `minors=` above 0, `ferrule gate next` answers a step that resumes the implementer with the minors before the review fixes are committed.
+
 ## Stage review
 
 **GA-R-011** — The reviewer guide's stage scope directs the review to read the worktree's uncommitted changes as well as the commits since its base.
@@ -41,6 +45,18 @@
 **GA-R-077** — Minor findings are fixed by the implementer of that stage before the commit.
 
 **GA-R-080** — A batch's review point covers the commits of every stage in the batch.
+
+**GA-R-095** — When a clean stage or batch review reports `minors=` above 0, `ferrule gate next` answers a step that resumes the stage's implementer with the minors before the stage stop (GA-R-077).
+
+**GA-R-097** — After the minors fix step, the next step is the stop, with no second review.
+
+**GA-R-098** — The stop that follows a minors fix step states how many minors were fixed.
+
+**GA-R-099** — `ferrule gate next <slug> stage` takes a stage or batch review's status line; `findings` with `count=` above 0 answers `next=fix`.
+
+**GA-R-102** — The auto-continue notice that follows a minors fix step states how many minors were fixed.
+
+**GA-R-103** — `ferrule gate next <slug> stage` logs `review=clean scope=stage` on the run card for a clean stage or batch review.
 
 ## Review rules
 
@@ -60,7 +76,11 @@
 
 **GA-R-067** — The reviewer guide rates a plan bookkeeping gap as no finding, so it blocks nothing and never reaches the verdict.
 
-**GA-R-092** — The reviewer's stage and batch status line reports its blocker count as `blockers=<n>`.
+**GA-R-092** — The reviewer's stage and batch status line reports its blocker count as `blockers=<n>` and its minor count as `minors=<n>`.
+
+**GA-R-100** — At the `stage` and `gate3` positions, a `clean` status line, or `findings` with `count=0`, that lacks a numeric `minors=` is a usage error (exit 2).
+
+**GA-R-101** — `ferrule gate next` logs a clean review's minor count above 0 as `minors=<n>` on its `review=` card event.
 
 ## Guide rules
 
