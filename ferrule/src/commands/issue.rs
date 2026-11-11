@@ -168,6 +168,10 @@ Output:
       kept as the card's `issue:`. <action> is created, adopted (an open
       milestone of the same title), edited (the description rewritten) or
       recorded (nothing changed). The description keeps its `## Changelog`.
+      `--comment` on a slice run in milestone <n> prints this line after its
+      issue= line: edited (the kept change of milestone-change.md applied,
+      one changelog entry added) or recorded (the entry was already there).
+      The milestone is written before the comment.
       Each host write that can be retried is logged on the card, so a rerun
       after a failure does only what is missing:
         posted=comment issue=<n> sum=<hash>
@@ -192,7 +196,9 @@ Refusals (stdout, exit 1):
       The configured tracker cannot file, search, edit or comment on
       issues (Jira). Fix: do it on the tracker by hand.
   post=refused reason=missing file=<path> hint=write the run artifact first; `ferrule prompt render` names it
-      A run file the body or comment needs is absent.
+      A run file the body or comment needs is absent. On a slice run in a
+      milestone, `--comment` refuses this way when milestone-change.md is
+      absent or unreadable, posting nothing.
   post=refused reason=no-slice slice=<n> hint=name a slice slices.md lists
       `--slice` names a slice slices.md lacks (or 0).
   post=refused reason=bad-dependency value=<text> hint=<fix>
@@ -617,14 +623,22 @@ fn file(slug: &str, t: FileTarget, reuse: Option<ItemRef>, out: &mut impl Write)
             writeln!(out, "milestone={n} action={}", action.as_str())?;
             Ok(exit::OK)
         }
+        Ok(Filed::Comment(c)) => {
+            writeln!(out, "issue={} action={}", c.issue, c.action.as_str())?;
+            if let Some((m, a)) = c.milestone {
+                writeln!(out, "milestone={m} action={}", a.as_str())?;
+            }
+            Ok(exit::OK)
+        }
         Err(e) => post_failed(e, "post", out),
     }
 }
 
-/// What a post filed: an issue, or an epic's milestone.
+/// What a post filed: an issue, an epic's milestone, or a comment and its milestone.
 enum Filed {
     Issue(ItemRef, publish::Action),
     Milestone(u64, publish::Action),
+    Comment(publish::Commented),
 }
 
 fn filed(
@@ -635,6 +649,9 @@ fn filed(
     if target == Target::Run && run.files_milestone()? {
         let (n, action) = run.file_epic(reuse)?;
         return Ok(Filed::Milestone(n, action));
+    }
+    if target == Target::Comment {
+        return run.comment().map(Filed::Comment);
     }
     let (n, action) = run.file(target, reuse)?;
     Ok(Filed::Issue(n, action))

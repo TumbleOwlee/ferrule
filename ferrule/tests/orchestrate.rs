@@ -3302,6 +3302,7 @@ fn it_kept_change_updates_the_milestone() {
     );
     assert!(stale.ends_with("exit=1"), "{stale}");
     assert!(!gh.log().contains("-X PATCH"), "{}", gh.log());
+    assert!(!gh.log().contains("issue comment 12"), "{}", gh.log());
     gh.serve(
         &["api", "repos/{owner}/{repo}/milestones/4"],
         &milestone_json(4, EPIC, "Goal\nold text\n"),
@@ -3309,7 +3310,7 @@ fn it_kept_change_updates_the_milestone() {
     gh.serve(&patch_args(), "{}");
     assert_eq!(
         p.ok(&["issue", "post", "demo", "--comment"]),
-        "issue=12 action=recorded"
+        "issue=12 action=commented\nmilestone=4 action=edited"
     );
     let log = gh.log();
     assert_eq!(log.matches("-X PATCH").count(), 1, "{log}");
@@ -3317,6 +3318,27 @@ fn it_kept_change_updates_the_milestone() {
     let at = |s: &str| log.rfind(s).unwrap();
     assert!(at("milestones/4\n") < at("api user"), "{log}");
     assert!(at("api user") < at("-X PATCH"), "{log}");
+    assert!(at("-X PATCH") < at("issue comment 12"), "{log}");
+}
+
+/// RU-E-030 — a comment post on a slice run without milestone-change.md is refused and posts
+/// nothing.
+#[test]
+fn it_comment_without_milestone_change_posts_nothing() {
+    let p = slice_run();
+    let gh = &p.gh;
+    std::fs::write(p.run_dir().join("issue-comment.md"), "Kept.\n").unwrap();
+    no_comments(gh, "12");
+    gh.serve(&["issue", "comment", "12", "--body-file", "-"], "");
+    let out = p.ferrule(&["issue", "post", "demo", "--comment"]).text();
+    assert!(
+        out.starts_with("post=refused reason=missing file=milestone-change.md hint="),
+        "{out}"
+    );
+    assert!(out.ends_with("exit=1"), "{out}");
+    let log = gh.log();
+    assert!(!log.contains("issue comment"), "{log}");
+    assert!(!log.contains("-X PATCH"), "{log}");
 }
 
 /// S5, RU-R-025, RU-R-026 — a split-off of a slice run is filed in its milestone and made a

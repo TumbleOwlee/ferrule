@@ -23,7 +23,7 @@ Every requirement or scenario change kept after filing, detail or meaningful (`f
 ferrule issue post {slug} --comment     # a slice run: also updates the milestone from milestone-change.md
 ```
 
-Each target posted is logged (`posted=comment issue=<n> sum=<hash>`); after a failure, rerun the same command — it posts only to the targets still missing that text (`action=recorded` when none is).
+Each target posted is logged (`posted=comment issue=<n> sum=<hash>`); after a failure, rerun the same command — it posts only to the targets still missing that text (`action=recorded` when none is). A slice run in a milestone also prints `milestone=<n> action=edited|recorded`; its milestone is written first, so a stale or missing `milestone-change.md` refuses before anything is posted.
 
 Exit 3 (`body=refused reason=stage-ref stage-ref=…`): the visible text names a stage or an agent; resume `fe-author` to reword `issue.md`, never edit the body by hand.
 
