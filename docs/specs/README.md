@@ -10,6 +10,7 @@ The authoritative description of what this project does, one directory per capab
 | Git writes | git-writes/ | GW |
 | Session guard | session-guard/ | SG |
 | Runs | runs/ | RU |
+| Board | board/ | BO |
 
 ## Per-area files
 
