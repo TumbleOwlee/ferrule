@@ -23,9 +23,17 @@
 - `cleanup=refused reason=issue-unreadable issue=<n> detail="<host error>" hint=on the user's word only: ferrule board log <slug> issue-waived -- <why>` (RU-R-004)
 - `cleanup=refused reason=no-ci hint=record CI first: ferrule ci wait <slug>; on the user's word only: ferrule board log <slug> ci-waived -- <why>` (RU-R-061, RU-R-067)
 
+## ferrule run preflight
+
+- `preflight=ok gh=<login>` (RU-R-072)
+- `preflight=ok gh=skipped host=<host>` (RU-E-037)
+- `preflight=refused reason=gh-login hint=run gh auth login, then start again` — exit 1 on refused (RU-E-035)
+- `preflight=refused reason=gh-unknown detail="<error>" hint=<fix>` — exit 1 on refused (RU-E-036)
+
 ## ferrule run live-check
 
 - `ferrule run live-check <slug> start|end` — both take the run's slug; `start` refuses with `reason=no-repo` (RU-R-043, RU-R-044, RU-E-019)
+- `start` also refuses with `live-check=refused reason=open-stage stage=s<n> hint=<fix>`, naming the first stage with no logged commit (RU-E-038)
 
 ## ferrule run abandon
 
