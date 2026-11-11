@@ -8,6 +8,20 @@
 
 **RU-R-012** — The metrics line of a run `ferrule run cleanup` archives without a CI check records `ci=-`.
 
+## CI waiver
+
+**RU-R-061** — `ferrule run cleanup` refuses a PR run whose card carries neither a `ci=` line nor a `ci-waived` line.
+
+**RU-R-062** — `ferrule run cleanup` refuses a PR run whose last `ci=` line is non-zero and is followed by no `ci-waived` line.
+
+**RU-R-063** — `ferrule run cleanup` of a PR run whose card carries no `ci=` line goes through once the card carries a `ci-waived` line.
+
+**RU-R-064** — `ferrule run cleanup` of a PR run goes through when a `ci-waived` line follows its last non-zero `ci=` line.
+
+**RU-R-065** — The metrics line of a run `ferrule run cleanup` archives on a `ci-waived` line with no `ci=` line records `ci=-`, as RU-R-012.
+
+**RU-R-067** — The `no-ci` refusal of RU-R-061 ends in a hint that a `ci-waived` line, logged on the user's word only, lets cleanup through.
+
 ## Open issue refusal
 
 **RU-R-003** — `ferrule run cleanup` refuses a `/fe-feature` run that opened no PR while its referenced issue is open.
@@ -27,6 +41,8 @@
 **RU-R-008** — The closing notice of a run without a PR that references an issue reads `Done · <slug> · issue #<n> · cleaned up · archived`.
 
 **RU-R-009** — The closing notice of a run without a PR that references no issue reads `Done · <slug> · cleaned up · archived`.
+
+**RU-R-066** — The closing notice of a PR run archived on a `ci-waived` line reads `Done · <slug> · PR #<pr> ready · CI waived · cleaned up · archived`.
 
 ## Epic milestones
 
@@ -101,6 +117,12 @@
 **RU-R-035** — The epic guide's closing notice of an epic filed as a milestone reads `Epic · <slug> · milestone #<m> · slices #a, #b, … filed · start with /fe-feature on #a`.
 
 **RU-R-058** — The feature guide names the abandon command for a run the user gives up: without its confirm option first, with it only on the user's word.
+
+**RU-R-068** — The gate 4 guide states that when `ferrule ci wait` still answers `no-checks` after retries, the workflow tells the user and logs `ci-waived` only on the user's word.
+
+**RU-R-069** — The cleanup guide states that a `ci-waived` line also lets through a PR run with no `ci=` line.
+
+**RU-R-070** — The `ferrule run cleanup` help states the CI refusals of RU-R-061 and RU-R-062 and the waivers of RU-R-063 and RU-R-064.
 
 ## Live check
 

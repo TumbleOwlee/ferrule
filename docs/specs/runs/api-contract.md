@@ -21,6 +21,7 @@
 
 - `cleanup=refused reason=issue-open issue=<n> hint=<fix>` (RU-R-003)
 - `cleanup=refused reason=issue-unreadable issue=<n> detail="<host error>" hint=on the user's word only: ferrule board log <slug> issue-waived -- <why>` (RU-R-004)
+- `cleanup=refused reason=no-ci hint=record CI first: ferrule ci wait <slug>; on the user's word only: ferrule board log <slug> ci-waived -- <why>` (RU-R-061, RU-R-067)
 
 ## ferrule run live-check
 
@@ -52,6 +53,7 @@
 ## Card events
 
 - `issue-waived` — parent-card event with a required reason (RU-R-005)
+- `ci-waived` — parent-card event with a required reason (RU-R-063, RU-R-064)
 - `blocked-start` — parent-card event naming the open blockers the user approved starting with (RU-R-034)
 - `live-check=open` and `live-check=closed` — parent-card events only ferrule logs (RU-R-043, RU-R-044)
 - `abandoned` — parent-card event only ferrule logs (RU-R-047)
