@@ -321,6 +321,31 @@ fn diff_size(wt: &Path, base: &str) -> Option<(usize, usize)> {
     Some((lines, files))
 }
 
+/// The commit a stage's diff starts from: the newest `commit=` of a stage
+/// before `me`, else the branch point with `main`; `None` when neither
+/// names a commit.
+pub fn stage_base(
+    conn: &Connection,
+    wt: &Path,
+    slug: &str,
+    me: u32,
+    main: &str,
+) -> rusqlite::Result<Option<String>> {
+    let mut base = None;
+    for (_, id, _) in board::stages(conn, slug)?
+        .iter()
+        .rev()
+        .filter(|(n, _, _)| *n < me)
+    {
+        base = board::last_value(conn, id, Name::Commit)?;
+        if base.is_some() {
+            break;
+        }
+    }
+    let base = base.or_else(|| git::out(wt, &["merge-base", "HEAD", main]));
+    Ok(base.filter(|b| git::commit(wt, b).is_some()))
+}
+
 /// Whether a green, clean-reviewed full-lane stage stops for approval;
 /// `None` means it auto-continues. s0 never stops.
 fn decide(
@@ -356,15 +381,8 @@ fn decide(
     }
     let stages = board::stages(conn, slug)?;
     let wt = worktree(conn, layout, slug, &card)?;
-    let mut base = None;
-    for (_, id, _) in stages.iter().rev().filter(|(n, _, _)| *n < me) {
-        base = board::last_value(conn, id, Name::Commit)?;
-        if base.is_some() {
-            break;
-        }
-    }
-    let base = base.or_else(|| git::out(&wt, &["merge-base", "HEAD", &config.main_branch]));
-    if let Some(base) = base.filter(|b| git::commit(&wt, b).is_some())
+    let base = stage_base(conn, &wt, slug, me, &config.main_branch)?;
+    if let Some(base) = base
         && let Some((lines, files)) = diff_size(&wt, &base)
         && (lines > config.thresholds.stage_stop_lines
             || files > config.thresholds.stage_stop_files)

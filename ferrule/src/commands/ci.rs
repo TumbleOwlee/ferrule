@@ -5,15 +5,27 @@ use std::io::{self, Write};
 
 use clap::Subcommand;
 use ferrule_core::card::board;
+use ferrule_core::config::Level;
 use ferrule_core::refusal::Refusal;
 use ferrule_core::remote;
-use ferrule_core::run::gauntlet::{self, Outcome};
+use ferrule_core::run::gauntlet::{self, Outcome, Steps};
 
 use super::board::store;
 use super::{exit, internal, layout, refuse};
+use crate::cli::stage_id;
 
 /// Shown after `ferrule ci gauntlet --help`.
 const GAUNTLET_AFTER_LONG_HELP: &str = "\
+Levels (--level, default full):
+  push    the steps whose `at` names push
+  review  the steps whose `at` names review
+  full    every step
+A step runs at full always and at the levels its `at = [..]` lists; a step
+with no `at` runs only at full. `{crates}` in a step's `cmd` expands to
+`--workspace`, at review to `-p <crate>` for each crate the diff since the
+review point's base touches, and is dropped when `stack` is not rust.
+--stage s<n> also runs the tests the stage's diff adds or rewrites
+(`stack = \"rust\"` only).
 Output (the steps' own output goes to .ferrule/runs/<slug>/gauntlet.log):
   gauntlet=pass cov=<pct> sha=<sha> [cached] [dirty]
       Every step passed; `cov` is the line coverage of the step marked
@@ -21,8 +33,8 @@ Output (the steps' own output goes to .ferrule/runs/<slug>/gauntlet.log):
       passed before with the same steps and nothing ran; --force runs it
       anyway. A failing run forgets the cached pass. `dirty`: the worktree
       holds changes beyond HEAD, so the pass is not of the commit; it is
-      never cached, and `ferrule pr push` refuses it. Not logged on the
-      card: `ferrule pr push` logs `gauntlet=pass`.
+      never cached, and `ferrule pr push` refuses it. At level full on a
+      clean worktree, logs `gauntlet=pass|fail` on the run card.
 Failures:
   gauntlet=fail step=<name> sha=<sha> log=<path>
       The step exited non-zero; read the log, fix, rerun.
@@ -97,6 +109,12 @@ pub enum CiCommand {
         /// Run even when this tree passed before.
         #[arg(long)]
         force: bool,
+        /// The steps to run: push, review or full [default: full].
+        #[arg(long, value_name = "LEVEL", value_parser = level)]
+        level: Option<Level>,
+        /// Also run the tests this stage's diff adds or rewrites.
+        #[arg(long, value_parser = stage_id, value_name = "STAGE")]
+        stage: Option<u32>,
     },
     /// Wait for the PR's checks and print the next step.
     ///
@@ -131,7 +149,12 @@ pub enum CiCommand {
 
 pub fn run(command: &CiCommand, out: &mut impl Write) -> io::Result<u8> {
     match command {
-        CiCommand::Gauntlet { slug, force } => run_gauntlet(slug, *force, out),
+        CiCommand::Gauntlet {
+            slug,
+            force,
+            level,
+            stage,
+        } => run_gauntlet(slug, *force, level.unwrap_or(Level::Full), *stage, out),
         CiCommand::Wait { slug } => wait(slug, out),
         CiCommand::Failed {
             branch,
@@ -150,23 +173,46 @@ pub fn run(command: &CiCommand, out: &mut impl Write) -> io::Result<u8> {
     }
 }
 
-fn run_gauntlet(slug: &str, force: bool, out: &mut impl Write) -> io::Result<u8> {
+fn level(s: &str) -> Result<Level, String> {
+    match s {
+        "push" => Ok(Level::Push),
+        "review" => Ok(Level::Review),
+        "full" => Ok(Level::Full),
+        _ => Err(format!("expected push, review or full, got {s}")),
+    }
+}
+
+fn run_gauntlet(
+    slug: &str,
+    force: bool,
+    level: Level,
+    stage: Option<u32>,
+    out: &mut impl Write,
+) -> io::Result<u8> {
     let layout = layout();
     let config = super::config()?;
     // No board, no run: the gauntlet never creates one.
-    let Some(s) = store()? else {
+    let Some(mut s) = store()? else {
         return refuse(out, &Refusal::card("gauntlet"));
     };
     let wt = s
         .read(|r| r.worktree(&layout, slug, slug))
         .map_err(internal)?;
     let log = layout.run_dir(slug).join("gauntlet.log");
+    let base =
+        gauntlet::base(&s, &wt, slug, level, stage, &config.main_branch).map_err(internal)?;
     let outcome = gauntlet::run(
-        &s,
+        &mut s,
         slug,
         &wt,
         &log,
-        &config.gauntlet.step,
+        Steps {
+            all: &config.gauntlet.step,
+            level,
+            stage,
+            base: base.as_deref(),
+            stack: config.stack.as_deref(),
+        },
         force,
         &board::now(),
     )

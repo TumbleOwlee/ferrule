@@ -3,6 +3,7 @@
 
 use crate::card::board;
 use crate::card::typed::Name;
+use crate::config::Level;
 use std::path::Path;
 
 use crate::git;
@@ -222,7 +223,13 @@ impl Run<'_> {
             self.slug,
             &wt,
             &log,
-            &self.config.gauntlet.step,
+            gauntlet::Steps {
+                all: &self.config.gauntlet.step,
+                level: Level::Full,
+                stage: None,
+                base: None,
+                stack: self.config.stack.as_deref(),
+            },
             forced,
             self.now,
         )

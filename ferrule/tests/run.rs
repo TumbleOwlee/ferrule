@@ -702,6 +702,164 @@ fn it_gauntlet_runs_the_configured_steps_and_caches_a_pass() {
     assert!(g(&[]).starts_with("gauntlet=refused reason=no-worktree hint="));
 }
 
+/// Three labeled steps, each printing its own name, and one with no label.
+const LEVELS: &str = r#"
+[[gauntlet.step]]
+name = "pushed"
+cmd = ["sh", "-c", "echo pushed-out"]
+at = ["push"]
+
+[[gauntlet.step]]
+name = "reviewed"
+cmd = ["sh", "-c", "echo reviewed-out"]
+at = ["review"]
+
+[[gauntlet.step]]
+name = "everywhere"
+cmd = ["sh", "-c", "echo everywhere-out"]
+at = ["push", "review"]
+
+[[gauntlet.step]]
+name = "plain"
+cmd = ["sh", "-c", "echo plain-out"]
+"#;
+
+fn gauntlet_log(s: &Scratch) -> String {
+    std::fs::read_to_string(s.root.join(".ferrule/runs/ss/gauntlet.log")).unwrap_or_default()
+}
+
+/// A worktree holding a crate whose one test is not yet committed.
+fn crate_scratch(stack: &str) -> Scratch {
+    let s = Scratch::new(1);
+    s.config(&format!("{stack}{LEVELS}"));
+    std::fs::write(
+        s.wt.join("Cargo.toml"),
+        "[package]\nname = \"probe\"\nversion = \"0.0.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir(s.wt.join("src")).unwrap();
+    std::fs::write(
+        s.wt.join("src/lib.rs"),
+        "#[test]\nfn t_added() {\n    assert!(true);\n}\n",
+    )
+    .unwrap();
+    s
+}
+
+/// GA-R-082 — `--level push --stage s1` runs the push steps and the test
+/// the stage's diff adds, and no other step.
+#[test]
+fn it_gauntlet_stage_checks_run_push_steps_and_new_tests() {
+    let s = crate_scratch("stack = \"rust\"\n");
+    let out = s
+        .run(&["ci", "gauntlet", "ss", "--level", "push", "--stage", "s1"])
+        .text();
+    assert!(out.starts_with("gauntlet=pass cov=? sha="), "{out}");
+    let log = gauntlet_log(&s);
+    assert!(log.contains("### pushed:"), "{log}");
+    assert!(log.contains("### everywhere:"), "{log}");
+    assert!(
+        log.contains("### test:t_added: cargo test --workspace -- t_added"),
+        "{log}"
+    );
+    assert!(
+        !log.contains("### reviewed:") && !log.contains("### plain:"),
+        "{log}"
+    );
+}
+
+/// GA-R-083 — `--level review` runs the steps labeled review and no stage test.
+#[test]
+fn it_gauntlet_review_level_runs_only_review_steps() {
+    let s = crate_scratch("stack = \"rust\"\n");
+    let out = s.run(&["ci", "gauntlet", "ss", "--level", "review"]).text();
+    assert!(out.starts_with("gauntlet=pass cov=? sha="), "{out}");
+    let log = gauntlet_log(&s);
+    assert!(
+        log.contains("### reviewed:") && log.contains("### everywhere:"),
+        "{log}"
+    );
+    assert!(
+        !log.contains("### pushed:") && !log.contains("### plain:"),
+        "{log}"
+    );
+    assert!(!log.contains("### test:"), "{log}");
+}
+
+/// GA-R-084 — the full level, the default, runs every step, labeled or not.
+#[test]
+fn it_gauntlet_full_level_runs_every_step() {
+    let s = crate_scratch("stack = \"rust\"\n");
+    let out = s.run(&["ci", "gauntlet", "ss"]).text();
+    assert!(out.starts_with("gauntlet=pass cov=? sha="), "{out}");
+    let log = gauntlet_log(&s);
+    for name in ["pushed", "reviewed", "everywhere", "plain"] {
+        assert!(log.contains(&format!("### {name}:")), "{name}: {log}");
+    }
+    assert!(!log.contains("### test:"), "{log}");
+}
+
+/// GA-R-090 — a pass or failure at full is logged on a clean worktree only,
+/// never at another level.
+#[test]
+fn it_gauntlet_full_logs_on_a_clean_tree_only() {
+    let s = Scratch::new(1);
+    s.config("[[gauntlet.step]]\nname = \"ok\"\ncmd = [\"true\"]\nat = [\"push\"]\n");
+    let logged = |s: &Scratch| s.say(&["board", "show", "ss"]).matches("gauntlet=").count();
+    assert!(
+        s.run(&["ci", "gauntlet", "ss", "--level", "push"])
+            .text()
+            .ends_with("exit=0")
+    );
+    assert_eq!(logged(&s), 0, "push logs nothing");
+    assert!(s.run(&["ci", "gauntlet", "ss"]).text().ends_with("exit=0"));
+    assert_eq!(logged(&s), 1);
+    assert!(
+        s.say(&["board", "show", "ss"])
+            .contains("gauntlet=pass cov=? sha=")
+    );
+    std::fs::write(s.wt.join("b.txt"), "b\n").unwrap();
+    assert!(
+        s.run(&["ci", "gauntlet", "ss", "--force"])
+            .text()
+            .ends_with("exit=0")
+    );
+    assert_eq!(logged(&s), 1, "a dirty pass is not logged");
+    std::fs::remove_file(s.wt.join("b.txt")).unwrap();
+    s.config("[[gauntlet.step]]\nname = \"bad\"\ncmd = [\"false\"]\n");
+    assert!(s.run(&["ci", "gauntlet", "ss"]).text().ends_with("exit=1"));
+    assert_eq!(logged(&s), 2);
+    assert!(s.say(&["board", "show", "ss"]).contains("step=bad"));
+}
+
+/// GA-E-009 — steps naming no level run only at full: push and review pass
+/// without running or logging anything.
+#[test]
+fn it_gauntlet_unlabeled_steps_run_only_at_full() {
+    let s = Scratch::new(1);
+    s.config("[[gauntlet.step]]\nname = \"plain\"\ncmd = [\"true\"]\n");
+    for level in ["push", "review"] {
+        let out = s.run(&["ci", "gauntlet", "ss", "--level", level]).text();
+        assert!(out.starts_with("gauntlet=pass cov=? sha="), "{out}");
+        assert_eq!(gauntlet_log(&s), "", "{level} ran a step");
+    }
+    assert!(s.run(&["ci", "gauntlet", "ss"]).text().ends_with("exit=0"));
+    assert!(gauntlet_log(&s).contains("### plain:"));
+}
+
+/// GA-E-010 — off a Rust stack a stage's checks run only the push steps.
+#[test]
+fn it_gauntlet_stage_tests_skipped_off_rust() {
+    let s = crate_scratch("");
+    let out = s
+        .run(&["ci", "gauntlet", "ss", "--level", "push", "--stage", "s1"])
+        .text();
+    assert!(out.starts_with("gauntlet=pass cov=? sha="), "{out}");
+    let log = gauntlet_log(&s);
+    assert!(log.contains("### pushed:"), "{log}");
+    assert!(!log.contains("### test:"), "{log}");
+}
+
 #[test]
 fn it_gauntlet_cache_follows_the_steps_and_forgets_on_failure() {
     let s = Scratch::new(1);
