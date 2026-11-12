@@ -1,6 +1,4 @@
 Confirm:
-- MB-R-161 — reconnecting is its own state — the tab must tell it from disconnected (author)
-- MB-E-031 — drop it — a replayed write may apply twice (architect)
 - policy owned by the client task — RTU and TCP share it (architect)
 - MB-R-042 — reconnecting is its own state — the tab must tell it from disconnected (architect)
 - one stage per crate — the UI change is reviewed apart (planner)

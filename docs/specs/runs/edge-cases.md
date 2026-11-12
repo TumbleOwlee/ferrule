@@ -52,11 +52,21 @@
 
 **RU-E-013** — A run start that cannot read an issue's blockers at all is refused and starts no run.
 
+## Preflight
+
+**RU-E-035** — On GitHub, a preflight that finds `gh` not logged in stops the run before any work, naming the login command.
+
+**RU-E-036** — On GitHub, a preflight that cannot tell whether `gh` is logged in stops the run before any work, naming the failure.
+
+**RU-E-037** — A repository not hosted on GitHub gets no `gh` preflight check.
+
 ## Live check
 
 **RU-E-018** — `ferrule board set` refuses the field naming the live-check repository.
 
 **RU-E-019** — `ferrule run live-check <slug> start` refuses a run with no repository named at gate 2.
+
+**RU-E-038** — `ferrule run live-check <slug> start` refuses while a code stage of the run has no logged commit.
 
 ## Abandon
 

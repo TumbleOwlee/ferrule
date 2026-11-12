@@ -2,7 +2,7 @@
 
 ## Resume an interrupted run
 
-**Step 0.** `git pull --ff-only` in the main checkout before reading anything.
+**Step 0.** `git pull --ff-only` in the main checkout before reading anything. Then `ferrule run preflight`: `preflight=refused` → stop and relay its `hint=`.
 
 **No card, PR exists** (the user names the issue and its draft PR): `ferrule run rebuild <issue> <pr>`. `rebuild=done … next=s<n>` → the reconcile table below, then `ferrule guide show replan` from `next=` with a fresh planner (`plan.md` is never rebuilt; `next=none` → `ferrule guide show gate3`). `rebuild=refused reason=no-stages` → the PR is ready: `ferrule ci wait`, then `ferrule guide show cleanup`. No PR → gate 1 with "take issue #n". Any other refusal → report it.
 

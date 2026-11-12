@@ -212,12 +212,6 @@ pub struct Readonly {
 pub struct Thresholds {
     /// `read` events one stage card may carry.
     pub read_budget: usize,
-    /// A stage diff above this many changed lines stops.
-    pub stage_stop_lines: usize,
-    /// A stage diff touching more files than this stops.
-    pub stage_stop_files: usize,
-    /// Stages auto-continued in a row before one stops anyway.
-    pub stage_stop_checkpoint: usize,
     /// A user-facing summary longer than this is refused.
     pub summary_max_lines: usize,
     pub summary_max_bytes: usize,
@@ -233,9 +227,6 @@ impl Default for Thresholds {
     fn default() -> Self {
         Thresholds {
             read_budget: 3,
-            stage_stop_lines: 400,
-            stage_stop_files: 8,
-            stage_stop_checkpoint: 3,
             summary_max_lines: 25,
             summary_max_bytes: 2048,
             search_max: 40,
@@ -301,12 +292,24 @@ mod tests {
         assert!(bad.is_err());
     }
 
+    /// GA-R-113 — `[thresholds]` no longer reads the stage-stop size keys.
+    #[test]
+    fn ut_thresholds_refuse_the_stage_stop_keys() {
+        for key in [
+            "stage_stop_lines",
+            "stage_stop_files",
+            "stage_stop_checkpoint",
+        ] {
+            let text = format!("[thresholds]\n{key} = 3\n");
+            assert!(toml::from_str::<Config>(&text).is_err(), "{key}");
+        }
+    }
+
     #[test]
     fn ut_defaults_and_partial_files() {
-        let c: Config = toml::from_str("[thresholds]\nstage_stop_files = 2\n").unwrap();
+        let c: Config = toml::from_str("[thresholds]\nread_budget = 7\n").unwrap();
         assert_eq!(c.main_branch, "main");
-        assert_eq!(c.thresholds.stage_stop_files, 2);
-        assert_eq!(c.thresholds.stage_stop_lines, 400);
+        assert_eq!(c.thresholds.read_budget, 7);
         assert_eq!(c.viewer.command, None);
     }
 
@@ -352,8 +355,6 @@ allow = ["make check"]
 
 [thresholds]
 read_budget = 3
-stage_stop_lines = 400
-stage_stop_files = 8
 summary_max_lines = 25
 summary_max_bytes = 2048
 ci_wait = "45m"

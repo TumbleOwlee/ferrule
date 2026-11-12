@@ -194,7 +194,7 @@ fn plan(text: &str, out: &mut Vec<String>) {
 /// The agents' decisions below line `seen`, as
 /// `- [<ID> — ]<choice>[ — <why>][ (<agent>)]`; the user's are settled.
 fn decisions(text: &str, seen: usize, confirm: &mut Vec<String>) {
-    for d in artifacts::decisions(text, seen) {
+    for d in artifacts::current(text, seen) {
         if d.by != artifacts::By::Chosen {
             continue;
         }
@@ -302,6 +302,21 @@ mod tests {
         let mut c = Vec::new();
         decisions(text, 0, &mut c);
         c
+    }
+
+    /// GA-R-111 — a superseded decision line is left out of the confirm list.
+    #[test]
+    fn ut_confirm_skips_superseded_lines() {
+        assert!(
+            decided("- a (chosen) [spec MB-R-1] — w · author\n- b (user) [spec MB-R-1]\n")
+                .is_empty()
+        );
+        assert_eq!(
+            decided(
+                "- a (chosen) [design] — w · planner\n- b (chosen) [design] — supersedes \"a\" · planner\n"
+            ),
+            ["- b — supersedes \"a\" (planner)"]
+        );
     }
 
     #[test]

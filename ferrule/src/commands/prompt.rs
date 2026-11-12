@@ -97,7 +97,7 @@ Output, one block per file:
                        the viewer opened it; then the file's quoted lines
                        unless --no-lines
   prompt show: stdout: <path> [(approval marker: <slug>)]
-                       no viewer is configured; the whole file follows
+                       no viewer is configured, or it cannot be started; the whole file follows
   prompt show: viewer failed: <path> [(approval marker: <slug>)]
                        the viewer exited non-zero; exit 1; open it by hand
 The files of a run replace that run's approval marker, so the approval that
@@ -255,6 +255,9 @@ fn lines(files: &[PathBuf], seen: usize, out: &mut impl Write) -> io::Result<u8>
 pub enum Shown {
     Viewer(String),
     Stdout,
+    /// The viewer program cannot be found or run (a bare name on `PATH` can
+    /// report permission denied): shown as on stdout.
+    Missing,
     /// The viewer did not start or failed: why, from its error output.
     Failed(String),
 }
@@ -281,6 +284,14 @@ fn view(viewer: &[String], path: &Path) -> Shown {
                 Some(l) => format!("{program}: {}", l.trim()),
                 None => format!("{program} exited {}", o.status.code().unwrap_or(1)),
             })
+        }
+        Err(e)
+            if matches!(
+                e.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied
+            ) =>
+        {
+            Shown::Missing
         }
         Err(e) => Shown::Failed(format!("{program}: {e}")),
     }
@@ -361,7 +372,7 @@ fn show(files: &[PathBuf], with_lines: bool, out: &mut impl Write) -> io::Result
                 eprintln!("prompt show: {why}");
                 code = exit::REFUSED;
             }
-            Shown::Stdout => {
+            Shown::Stdout | Shown::Missing => {
                 writeln!(out, "prompt show: stdout: {}{marker}", path.display())?;
                 out.write_all(&std::fs::read(&path)?)?;
                 continue;

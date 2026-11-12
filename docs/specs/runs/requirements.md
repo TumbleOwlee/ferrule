@@ -126,11 +126,17 @@
 
 **RU-R-071** — The `ferrule run metrics` help names every case in which the metrics line records `ci=-`: the runs of RU-R-012, an abandoned run (RU-R-055) and a run waived with no `ci=` line (RU-R-065).
 
+## Preflight
+
+**RU-R-072** — The run's preflight checks that `gh` is logged in and reports the viewer.
+
 ## Live check
 
 **RU-R-043** — `ferrule run live-check <slug> start` opens the run's live check.
 
 **RU-R-044** — `ferrule run live-check <slug> end` closes the run's live check.
+
+**RU-R-073** — The live check runs at the end of the run, after the last code stage is committed and pushed and before the branch review of gate 3.
 
 ## Abandon
 

@@ -8,7 +8,7 @@
 
 **GA-R-003** — The `ferrule gate approve` help lists `inprogress` and `inreview` as the parent states of the stage gate.
 
-**GA-R-004** — The stage-review guide directs the last code stage's approved stage stop to commit and push the stage, or its review fixes when that stage closes a batch, before gate 4.
+**GA-R-004** — The stage-review guide directs the last code stage to commit and push the stage, or its review fixes when that stage closes a batch, before gate 4, whether or not its stage stop is shown.
 
 **GA-R-005** — The stage stop's `Approving will:` list names committing and pushing the stage on every stage reviewed on its own, and committing and pushing the review fixes at a batch's review point.
 
@@ -190,7 +190,7 @@
 
 **GA-R-074** — A batch closes at 3 stages or 1,200 changed lines, whichever comes first.
 
-**GA-R-075** — A batched stage commits and pushes when its checks pass, with no stop.
+**GA-R-075** — A batched stage commits and pushes when its checks pass, with no stop unless its implementer has open questions, which reach the user in one batch before the commit.
 
 **GA-R-081** — A slice run takes its stages' tiers from its own plan.
 
@@ -198,7 +198,7 @@
 
 **GA-R-087** — A batch open at the run's last code stage closes there.
 
-**GA-R-088** — A skipped stage commits and pushes when its checks pass, with no stop and no review before gate 3.
+**GA-R-088** — A skipped stage commits and pushes when its checks pass, with no stop and no review before gate 3, unless its implementer has open questions, which reach the user in one batch before the commit.
 
 **GA-R-089** — A stage marked to stop at gate 2 takes the own tier.
 
@@ -217,3 +217,31 @@
 **GA-R-090** — `ferrule ci gauntlet` at the full level logs its pass or failure on the run card when the worktree holds no uncommitted change.
 
 **GA-R-091** — A gauntlet step's `{crates}` argument runs at a review point as the crates the diff since the review point's base touches.
+
+**GA-R-115** — A batched, skipped or fast-lane stage's checks also run the review-level steps, `{crates}` as the crates its own diff touches.
+
+## Stage questions
+
+**GA-R-104** — The implementer asks its open questions in one batch before review.
+
+**GA-R-105** — The implementer asks a question at once only when it is blocked.
+
+**GA-R-106** — Items a reviewer raises for the user are relayed after the first review pass.
+
+**GA-R-107** — A user's answer that changes code gets a recheck of that change only.
+
+**GA-R-108** — A user's answer that changes no code triggers no review rerun.
+
+## Stage stops
+
+**GA-R-109** — A spec change with `origin=user` counts as kept.
+
+**GA-R-110** — An item the user has settled does not reappear at a later stop.
+
+**GA-R-111** — A `Confirm:` line that has been superseded does not reappear at a later stop.
+
+**GA-R-112** — A stage stop is shown only when the user has a real decision to make; otherwise the run continues.
+
+**GA-R-113** — No stop is triggered by the number of lines a stage changed.
+
+**GA-R-114** — A missing `glow` does not stop the run; stops are shown as plain text instead.

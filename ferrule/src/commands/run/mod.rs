@@ -92,12 +92,28 @@ Output:
   live-check=refused reason=no-repo hint=name the repository at gate 2: ferrule
   gate approve <slug> gate2 --live-repo <owner/name>
       The run names no live-repo
+  live-check=refused reason=open-stage stage=s<n>
+      A code stage has no logged commit; commit and push it first
   live-check=refused reason=card hint=check the slug with `ferrule board list`
       No such card
 Exit codes: 0 done, 1 refused, 2 usage, 4 internal error.
 Dev build: the open that takes a copy of an older shared board prints to stderr
 `ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show gate2";
+
+const PREFLIGHT_AFTER_LONG_HELP: &str = "\
+Checks the code host's CLI before a run starts: on GitHub, `gh` is logged in.
+Output:
+  preflight=ok gh=<login>
+      `gh` is logged in as <login>
+  preflight=ok gh=skipped host=<host>
+      The repository is not hosted on GitHub; nothing was checked
+  preflight=refused reason=gh-login hint=run gh auth login, then start again
+      `gh` is not logged in
+  preflight=refused reason=gh-unknown detail=\"<error>\" hint=<fix>
+      `gh` did not answer; the error is quoted
+Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
+See: ferrule guide show gate1";
 
 /// What `run live-check` does.
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -419,6 +435,9 @@ See: ferrule guide show cleanup";
 
 #[derive(Debug, Subcommand)]
 pub enum RunCommand {
+    /// Check the code host's CLI before a run starts.
+    #[command(after_long_help = PREFLIGHT_AFTER_LONG_HELP)]
+    Preflight,
     /// Start a run: its parent card and directory.
     ///
     /// With `--issue`, also the issue's request, its brief and, for a
@@ -577,6 +596,7 @@ pub enum RunCommand {
 
 pub fn run(command: &RunCommand, out: &mut impl Write) -> io::Result<u8> {
     match command {
+        RunCommand::Preflight => start::preflight(out),
         RunCommand::Init {
             slug,
             issue,

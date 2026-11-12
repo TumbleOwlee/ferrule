@@ -253,6 +253,11 @@ pub struct Steps<'a> {
     /// The commit the stage's diff, and a review point's `{crates}`, start from.
     pub base: Option<&'a str>,
     pub stack: Option<&'a str>,
+    /// The stage commits before any review (batched, skipped, fast lane):
+    /// at push with `stage`, the review-level steps run too, `{crates}` as
+    /// the crates the stage's diff since `base` touches; none when it
+    /// touches no crate or the stack is not Rust.
+    pub unreviewed: bool,
 }
 
 /// Package names of the crates whose files differ between `base` and the
@@ -313,12 +318,22 @@ fn selected(wt: &Path, steps: Steps<'_>) -> Vec<Step> {
     let rust = steps.stack == Some("rust");
     let crates = match (steps.level, steps.base) {
         (Level::Review, Some(base)) => crates(wt, base),
+        (Level::Push, Some(base)) if steps.stage.is_some() => crates(wt, base),
         _ => Vec::new(),
     };
+    let widen = steps.level == Level::Push
+        && steps.stage.is_some()
+        && steps.unreviewed
+        && rust
+        && !crates.is_empty();
     steps
         .all
         .iter()
-        .filter(|s| steps.level == Level::Full || s.at.contains(&steps.level))
+        .filter(|s| {
+            steps.level == Level::Full
+                || s.at.contains(&steps.level)
+                || (widen && s.at.contains(&Level::Review))
+        })
         .map(|s| {
             let mut step = s.clone();
             step.cmd = s
@@ -434,6 +449,24 @@ pub fn base(
             Some(n) => Ok(crate::run::stage_base(conn, wt, run, n, main)?),
             None => Ok(None),
         }
+    })
+}
+
+/// Whether `stage` commits before any review: the run's lane is fast, or its
+/// effective tier is batched or skipped. The tier is read now; a later
+/// promotion does not rerun the checks.
+///
+/// # Errors
+///
+/// The state database failed.
+pub fn unreviewed(db: &Board, slug: &str, stage: u32) -> Result<bool, crate::store::Error> {
+    db.read(|r| {
+        let conn = r.conn();
+        Ok(
+            crate::card::board::field(conn, slug, "lane")?.as_deref() == Some("fast")
+                || crate::run::tier::effective(conn, slug, stage)?.effective
+                    != crate::run::tier::Tier::Own,
+        )
     })
 }
 
@@ -574,6 +607,7 @@ pub(crate) fn run_in(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::card::board::State;
 
     #[test]
     fn ut_coverage_is_the_third_percentage_of_the_last_total() {
@@ -648,6 +682,7 @@ mod tests {
             stage: None,
             base,
             stack,
+            unreviewed: false,
         }
     }
 
@@ -758,6 +793,127 @@ mod tests {
             let got = selected(dir.path(), all(&steps, Level::Push, Some("HEAD"), stack));
             assert_eq!(got[0].cmd, ["make", "x"]);
         }
+    }
+
+    fn staged<'a>(
+        steps: &'a [Step],
+        stage: Option<u32>,
+        unreviewed: bool,
+        stack: Option<&'a str>,
+    ) -> Steps<'a> {
+        Steps {
+            stage,
+            unreviewed,
+            ..all(steps, Level::Push, Some("HEAD"), stack)
+        }
+    }
+
+    fn widen_steps() -> [Step; 4] {
+        [
+            step("p", &["a"], &[Level::Push]),
+            step("r", &["cargo", "test", "{crates}"], &[Level::Review]),
+            step("pr", &["c"], &[Level::Push, Level::Review]),
+            step("pc", &["cargo", "test", "{crates}"], &[Level::Push]),
+        ]
+    }
+
+    /// GA-R-115 — a stage is unreviewed in the fast lane or at an effective
+    /// tier other than own; a promotion makes it own.
+    #[test]
+    fn ut_unreviewed_follows_lane_and_tier() {
+        const NOW: &str = "2026-11-10T12:00";
+        let mut db = Board::memory().unwrap();
+        let f = |k: &str, v: &str| vec![(k.to_owned(), v.to_owned())];
+        db.write(|w| {
+            w.create("demo", State::Open, &f("lane", "full"), NOW)?;
+            for (n, t) in [(1, "own"), (2, "batched"), (3, "skipped"), (4, "batched")] {
+                w.create(&format!("demo.s{n}"), State::Open, &f("tier", t), NOW)?;
+            }
+            w.create("fast", State::Open, &f("lane", "fast"), NOW)?;
+            w.create("fast.s1", State::Open, &f("tier", "own"), NOW)
+        })
+        .unwrap();
+        db.write(|w| {
+            w.log(
+                "demo.s4",
+                "tier=own",
+                &["promoted=spec-change".to_owned()],
+                NOW,
+            )
+        })
+        .unwrap();
+        let got: Vec<bool> = (1..=4)
+            .map(|n| unreviewed(&db, "demo", n).unwrap())
+            .collect();
+        assert_eq!(got, [false, true, true, false]);
+        assert!(unreviewed(&db, "fast", 1).unwrap());
+    }
+
+    /// GA-R-115, GA-E-011 — an unreviewed stage's checks add the review steps
+    /// over the stage's crates; a push step's `{crates}` is scoped to the
+    /// stage, and stays the workspace without one.
+    #[test]
+    fn ut_widened_stage_checks_add_review_steps_over_the_stage_crates() {
+        let dir = workspace();
+        let wt = dir.path();
+        std::fs::write(wt.join("b/src/lib.rs"), "// changed\n").unwrap();
+        let steps = widen_steps();
+        let go = |stage, unreviewed| selected(wt, staged(&steps, stage, unreviewed, Some("rust")));
+        let got = go(Some(1), true);
+        assert_eq!(names(&got).join(","), "p,r,pr,pc");
+        assert_eq!(got[1].cmd.join(" "), "cargo test -p beta");
+        let got = go(Some(1), false);
+        assert_eq!(names(&got).join(","), "p,pr,pc");
+        assert_eq!(got[2].cmd.join(" "), "cargo test -p beta");
+        let got = go(None, false);
+        assert_eq!(got[2].cmd.join(" "), "cargo test --workspace");
+    }
+
+    /// GA-E-019, GA-E-010 — no crate touched, or a stack that is not Rust,
+    /// leaves the push steps only.
+    #[test]
+    fn ut_widened_stage_checks_skip_review_steps_without_a_crate() {
+        let dir = workspace();
+        let wt = dir.path();
+        let steps = widen_steps();
+        let pick = |stack| names(&selected(wt, staged(&steps, Some(1), true, stack))).join(",");
+        assert_eq!(pick(Some("rust")), "p,pr,pc");
+        std::fs::write(wt.join("README.md"), "\n").unwrap();
+        assert_eq!(pick(Some("rust")), "p,pr,pc");
+        std::fs::write(wt.join("b/src/lib.rs"), "// changed\n").unwrap();
+        assert_eq!(pick(Some("node")), "p,pr,pc");
+    }
+
+    /// GA-E-020 — a crate that only depends on the changed one is not among
+    /// the stage's crates.
+    #[test]
+    fn ut_widened_stage_checks_leave_out_dependent_crates() {
+        let dir = workspace();
+        let wt = dir.path();
+        let manifest = wt.join("b/Cargo.toml");
+        let mut text = std::fs::read_to_string(&manifest).unwrap();
+        text.push_str("[dependencies]\nalpha = { path = \"../a\" }\n");
+        std::fs::write(&manifest, text).unwrap();
+        git::run(wt, &["add", "."]).unwrap();
+        git::run(
+            wt,
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-q",
+                "-m",
+                "dep",
+            ],
+        )
+        .unwrap();
+        std::fs::write(wt.join("a/src/lib.rs"), "// changed\n").unwrap();
+        let steps = widen_steps();
+        let got = selected(wt, staged(&steps, Some(1), true, Some("rust")));
+        assert_eq!(got[1].cmd.join(" "), "cargo test -p alpha");
+        assert!(!got[1].cmd.contains(&"beta".to_owned()));
     }
 
     /// Levels selecting different steps give

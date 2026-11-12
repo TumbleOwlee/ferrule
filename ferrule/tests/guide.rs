@@ -162,9 +162,52 @@ fn it_stage_review_guide_pushes_before_gate4() {
     );
     assert!(
         text.contains(
-            "commit and push the stage, or its review fixes when it closes a batch, before gate 4"
+            "commits and pushes the stage, or its review fixes when it closes a batch, before gate 4, whether or not its stop is shown"
         ),
         "{text}"
+    );
+}
+
+/// GA-E-018 — a plan-marked stage stops after its review even with nothing to decide.
+#[test]
+fn it_stage_review_guide_stops_a_plan_marked_stage() {
+    says(
+        "stage-review",
+        &["A plan-marked stage stops after its review even with nothing to decide."],
+    );
+}
+
+/// RU-R-073 — the live check runs after the last code stage is pushed and before the branch review.
+#[test]
+fn it_guides_run_the_live_check_before_the_branch_review() {
+    says(
+        "stage-review",
+        &[
+            "the implementer commits the last code stage first, `ferrule pr push demo`, the card stays `inreview`; then `ferrule run live-check demo start`, the live check, `ferrule run live-check demo end`; then the branch review",
+            "`live-check=refused reason=open-stage` → commit and push the stage it names first.",
+        ],
+    );
+    says(
+        "gate3",
+        &[
+            "With `live-repo` set the live check runs before this review, after the last code stage is committed and pushed",
+            "`ferrule run live-check demo start`, the live check, `ferrule run live-check demo end`",
+        ],
+    );
+}
+
+/// RU-R-072, RU-E-035 — gate 1 and resume run the preflight first and relay a refusal.
+#[test]
+fn it_guides_run_the_preflight_first() {
+    says(
+        "gate1",
+        &[
+            "`ferrule run preflight` first: `preflight=refused` → stop, relay its `hint=` to the user, no card is made; then `ferrule run init",
+        ],
+    );
+    says(
+        "resume",
+        &["Then `ferrule run preflight`: `preflight=refused` → stop and relay its `hint=`."],
     );
 }
 
@@ -200,9 +243,7 @@ fn it_planner_guide_proposes_a_tier_per_stage() {
 fn it_stages_guide_commits_a_batched_stage_without_a_stop() {
     says(
         "stages",
-        &[
-            "`review=batch stages=s<a>,s<b>` → resume the implementer to commit, `ferrule pr push demo`, the card stays `inreview`",
-        ],
+        &["resume the implementer to commit, `ferrule pr push demo`, the card stays `inreview`"],
     );
 }
 
@@ -212,8 +253,91 @@ fn it_stages_guide_runs_a_skipped_stage_through() {
     says(
         "stages",
         &[
-            "`review=none` → no review, no stop: resume the implementer to commit, `ferrule pr push demo`, card → `done`, the next stage",
+            "`review=none` → no review, no stop:",
+            "resume the implementer to commit, `ferrule pr push demo`, card → `done`, the next stage",
         ],
+    );
+}
+
+/// GA-R-104, GA-R-105 — the implementer batches open questions before `inreview`.
+#[test]
+fn it_implementer_guide_batches_questions_before_review() {
+    says(
+        "implementer",
+        &[
+            "Collect your open questions as you work and ask them in one batch before `status=inreview`; ask at once only when you are blocked: the stage cannot go on until the answer comes.",
+        ],
+    );
+}
+
+/// GA-R-075, GA-R-088 — open implementer questions stop once before a batched or skipped commit.
+#[test]
+fn it_stages_guide_asks_before_a_batched_or_skipped_commit() {
+    says(
+        "stages",
+        &["open implementer questions → one question stop before the commit"],
+    );
+}
+
+/// GA-R-106, GA-R-110 — first-pass `Needs user` items reach the user before any fix round.
+#[test]
+fn it_stage_review_guide_relays_needs_user_after_the_first_pass() {
+    says(
+        "stage-review",
+        &[
+            "First-pass `Needs user` items → relayed to the user at once, as a question batch, before any fix round; each answer is appended to `decisions.md` as a `(user)` line.",
+        ],
+    );
+}
+
+/// GA-R-107, GA-R-108 — a code-changing answer is committed first and rechecked on its diff only.
+#[test]
+fn it_stage_review_guide_rechecks_only_a_code_changing_answer() {
+    says(
+        "stage-review",
+        &[
+            "An answer that changes code → the implementer commits the reviewed stage first, then applies the answer; the same reviewer's follow-up pass reads only the diff from that commit (`recheck <sha>`).",
+            "An answer that changes no code → no review rerun",
+        ],
+    );
+}
+
+/// GA-R-109 — a spec change logged `origin=user` counts as kept.
+#[test]
+fn it_reviewer_guide_keeps_user_spec_changes() {
+    says(
+        "reviewer",
+        &["A change logged `origin=user` counts as kept: listed, never a `Needs user` item."],
+    );
+    says(
+        "spec-changes",
+        &["- **origin=user** → kept: the user asked for it; no `Needs user` item."],
+    );
+}
+
+/// GA-R-110, GA-R-107 — a settled item is never raised again; a recheck reads only its diff.
+#[test]
+fn it_reviewer_guide_never_reraises_a_settled_item() {
+    says(
+        "reviewer",
+        &[
+            "Never re-raise an item a `(user)` line of `decisions.md` settles. Resumed with `recheck <sha>`: read only `ferrule run diff demo --base <sha>` and `ferrule run diff demo --uncommitted` (the applied answer is uncommitted) and review that change alone.",
+        ],
+    );
+}
+
+/// GA-R-108, GA-R-110 — answers that change no code settle the verdict without a review.
+#[test]
+fn it_reviewer_guide_settles_answered_items_without_review() {
+    says(
+        "reviewer",
+        &[
+            "Resumed with `settle` and the user's answers: re-read nothing, review nothing; rewrite `review.verdict.md` with each answered item moved off `Needs user`",
+        ],
+    );
+    says(
+        "stage-review",
+        &["resume the same reviewer with the answers to settle the verdict"],
     );
 }
 
@@ -309,6 +433,26 @@ fn it_guides_call_each_check_level() {
         &["`ferrule ci gauntlet demo --level review`"],
     );
     says("gate3", &["`ferrule ci gauntlet demo` (the full level"]);
+}
+
+/// GA-R-115 — the guides say a stage that commits before any review also gets
+/// the review-level steps at its checks.
+#[test]
+fn it_guides_widen_checks_before_an_unreviewed_commit() {
+    says(
+        "stages",
+        &[
+            "a batched, skipped or fast-lane stage also the review-level steps over the crates its diff touches",
+        ],
+    );
+    says(
+        "implementer",
+        &["also clippy and your changed packages' tests when the stage commits before any review"],
+    );
+    says(
+        "verify",
+        &["with the review-level steps for a stage that commits before any review"],
+    );
 }
 
 /// GW-R-036 — an adopted commit takes the stage checks, its tier and its review point.
@@ -1019,7 +1163,7 @@ fn it_principles_guide_names_the_run_without_a_pr_ending() {
     );
 }
 
-/// GA-R-044 — each guide that records decisions states the line shape and its rules.
+/// GA-R-044, GA-R-111 — each guide that records decisions states the line shape and its rules.
 #[test]
 fn it_guides_state_the_decision_line_shape() {
     let tmp = tempfile::tempdir().unwrap();
@@ -1037,7 +1181,11 @@ fn it_guides_state_the_decision_line_shape() {
                 "Decision lines",
             ],
         );
-        for needle in ["- <choice> (<user | chosen>) [", "Append only"] {
+        for needle in [
+            "- <choice> (<user | chosen>) [",
+            "Append only",
+            "A reversal line's why starts `supersedes \"<earlier choice>\"`",
+        ] {
             assert!(text.contains(needle), "{topic}: {text}");
         }
         assert!(!text.contains("{run_dir}"), "{topic}: {text}");

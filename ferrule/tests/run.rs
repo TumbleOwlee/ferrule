@@ -140,6 +140,27 @@ impl Scratch {
     }
 }
 
+/// GA-R-110, GA-R-112 — a verdict listing a `Needs user` item stops; the settled verdict does not.
+#[test]
+fn it_stage_stop_ignores_a_settled_verdict() {
+    let s = Scratch::new(2);
+    s.artifact(
+        "review.verdict.md",
+        "Verdict: findings — 0 must fix, 1 needs you\n\nNeeds user\n- keep it?\n  - a) yes\n",
+    );
+    assert_eq!(
+        s.say(&["stage", "stop", "ss", "s1"]),
+        "stop=1 reason=needs-user"
+    );
+    s.artifact(
+        "review.verdict.md",
+        "Verdict: clean — ready for approval\n\nNeeds user\n- none\n",
+    );
+    assert_eq!(s.say(&["stage", "stop", "ss", "s1"]), "auto");
+}
+
+/// GA-R-112, GA-R-113, GA-E-018 — the rules fire in order, a plan-marked
+/// stage stops on a clean verdict, and a large diff does not stop.
 #[test]
 fn it_stage_stop_rules_in_order() {
     let s = Scratch::new(5);
@@ -168,14 +189,14 @@ fn it_stage_stop_rules_in_order() {
     s.ok(&["board", "set", "ss.s5", "stop=yes"]);
     assert_eq!(stop("s5"), "stop=5 reason=plan-marked");
 
-    std::fs::write(s.wt.join("a.txt"), "a\n").unwrap();
-    std::fs::write(s.wt.join("b.txt"), "b\nc\n").unwrap();
-    s.config("[thresholds]\nstage_stop_files = 1\n");
-    assert_eq!(
-        stop("s1"),
-        "stop=6 reason=diff-size detail=\"3 lines, 2 files\""
-    );
-    s.config("[thresholds]\nstage_stop_files = 2\n");
+    for i in 0..9 {
+        let text = if i == 0 {
+            "x\n".repeat(500)
+        } else {
+            "x\n".to_owned()
+        };
+        std::fs::write(s.wt.join(format!("big{i}.txt")), text).unwrap();
+    }
     assert_eq!(stop("s1"), "auto");
     assert!(stop("s9").starts_with("stage-stop=refused reason=card hint="));
 }
@@ -377,22 +398,14 @@ fn it_gauntlet_review_level_takes_crates_from_the_batch_base() {
     );
 }
 
+/// GA-R-112 — auto-continues in a row never raise a stop.
 #[test]
-fn it_stage_stop_checkpoint_after_three_autos() {
+fn it_stage_stop_never_counts_auto_continues() {
     let s = Scratch::new(5);
     s.remove_artifact("plan.summary.md");
-    for n in 1..=3 {
+    for n in 1..=4 {
         assert_eq!(s.say(&["stage", "stop", "ss", &format!("s{n}")]), "auto");
     }
-    assert_eq!(
-        s.say(&["stage", "stop", "ss", "s4"]),
-        "stop=7 reason=checkpoint"
-    );
-
-    let s = Scratch::new(5);
-    seed_log(&s.root, NOW, "ss.s2", &["stop=5"]);
-    seed_log(&s.root, NOW, "ss.s3", &["auto=yes"]);
-    assert_eq!(s.say(&["stage", "stop", "ss", "s4"]), "auto");
 }
 
 #[test]
@@ -1019,6 +1032,74 @@ fn it_gauntlet_stage_checks_run_push_steps_and_new_tests() {
     );
 }
 
+const STAGE_CHECKS: [&str; 6] = ["ci", "gauntlet", "ss", "--level", "push", "--stage"];
+
+fn stage_checks(s: &Scratch) -> (String, String) {
+    let mut args = STAGE_CHECKS.to_vec();
+    args.push("s1");
+    let out = s.run(&args).text();
+    (out, gauntlet_log(s))
+}
+
+/// GA-R-115 — a batched stage's checks also run the review-level steps, a step
+/// naming both levels once, and not the unlabeled steps.
+#[test]
+fn it_gauntlet_batched_stage_checks_run_review_steps() {
+    let s = crate_scratch("stack = \"rust\"\n");
+    seed_set(&s.root, "ss.s1", &["tier=batched"]);
+    let (out, log) = stage_checks(&s);
+    assert!(out.starts_with("gauntlet=pass cov=? sha="), "{out}");
+    for name in ["pushed", "reviewed", "everywhere"] {
+        assert!(log.contains(&format!("### {name}:")), "{name}: {log}");
+    }
+    assert_eq!(log.matches("### everywhere:").count(), 1, "{log}");
+    assert!(log.contains("### test:t_added:"), "{log}");
+    assert!(!log.contains("### plain:"), "{log}");
+}
+
+/// GA-R-115 — a fast-lane stage's checks also run the review-level steps.
+#[test]
+fn it_gauntlet_fast_lane_stage_checks_run_review_steps() {
+    let s = crate_scratch("stack = \"rust\"\n");
+    seed_set(&s.root, "ss", &["lane=fast"]);
+    let (out, log) = stage_checks(&s);
+    assert!(out.starts_with("gauntlet=pass cov=? sha="), "{out}");
+    assert!(log.contains("### reviewed:"), "{log}");
+}
+
+/// GA-R-082, GA-R-115 — an own-tier stage's checks stay the push steps.
+#[test]
+fn it_gauntlet_own_stage_checks_skip_review_steps() {
+    let s = crate_scratch("stack = \"rust\"\n");
+    seed_set(&s.root, "ss.s1", &["tier=own"]);
+    let (out, log) = stage_checks(&s);
+    assert!(out.starts_with("gauntlet=pass cov=? sha="), "{out}");
+    assert!(log.contains("### pushed:"), "{log}");
+    assert!(log.contains("### test:t_added:"), "{log}");
+    assert!(!log.contains("### reviewed:"), "{log}");
+}
+
+/// GA-R-115, GA-E-011 — a widened stage's `{crates}` names the crates its diff
+/// touches.
+#[test]
+fn it_gauntlet_stage_checks_scope_crates_to_the_stage() {
+    let s = Scratch::new(1);
+    s.config(
+        "stack = \"rust\"\n[[gauntlet.step]]\nname = \"crates\"\ncmd = [\"echo\", \"{crates}\"]\nat = [\"review\"]\n",
+    );
+    std::fs::write(
+        s.wt.join("Cargo.toml"),
+        "[package]\nname = \"probe\"\nversion = \"0.0.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir(s.wt.join("src")).unwrap();
+    std::fs::write(s.wt.join("src/lib.rs"), "\n").unwrap();
+    seed_set(&s.root, "ss.s1", &["tier=skipped"]);
+    let (out, log) = stage_checks(&s);
+    assert!(out.starts_with("gauntlet=pass cov=? sha="), "{out}");
+    assert!(log.contains("### crates: echo -p probe"), "{log}");
+}
+
 /// GA-R-083 — `--level review` runs the steps labeled review and no stage test.
 #[test]
 fn it_gauntlet_review_level_runs_only_review_steps() {
@@ -1487,6 +1568,9 @@ fn it_archived_run_opens_no_live_check() {
     let s = pushed_run();
     seed_set(&s.root, "demo", &["live-repo=o/r"]);
     seed_log(&s.root, NOW, "demo", &["ci=0"]);
+    for n in 1..=2 {
+        seed_log(&s.root, NOW, &format!("demo.s{n}"), &["commit=abc1234"]);
+    }
     assert_eq!(
         s.say(&["run", "live-check", "demo", "start"]),
         "live-check=open repo=o/r"

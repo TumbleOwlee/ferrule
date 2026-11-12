@@ -125,6 +125,7 @@ Commands are grouped by what they act on. Most are run by the orchestrating agen
 
 | Command | Does |
 |---|---|
+| `ferrule run preflight` | Check the code host's CLI before a run starts: `gh` logged in, its login printed; skipped off GitHub |
 | `ferrule run init <slug> [--issue <n>] [--request] [--start-blocked]` | Start a run: parent card, run directory, the named issue's request and brief; a slice's milestone description (or epic); an open blocker refuses a slice until `--start-blocked`; `--request` marks a `/fe-request` run |
 | `ferrule run status <slug>` | Where a run stands: parent and stage cards, worktree, gauntlet, CI, last event |
 | `ferrule run diff <slug> [--specs] [--stat] [--base <ref>]` | The run branch's diff against main, in its worktree; `--uncommitted` for the work not yet committed |
@@ -165,7 +166,7 @@ Commands are grouped by what they act on. Most are run by the orchestrating agen
 
 | Command | Does |
 |---|---|
-| `ferrule ci gauntlet <slug> [--level push\|review\|full] [--stage s<n>] [--force]` | Run the `ferrule.toml` gauntlet steps of one level (default full) in the run's worktree, cached by tree; `--stage` adds the tests the stage's diff adds or rewrites; at full on a clean worktree the result is logged on the run card |
+| `ferrule ci gauntlet <slug> [--level push\|review\|full] [--stage s<n>] [--force]` | Run the `ferrule.toml` gauntlet steps of one level (default full) in the run's worktree, cached by tree; `--stage` adds the tests the stage's diff adds or rewrites, and the review-level steps over the stage's crates for a batched, skipped or fast-lane stage; at full on a clean worktree the result is logged on the run card |
 | `ferrule ci wait <slug>` | Wait for the PR's checks, log `ci=`, print the next step and the failed run's errors |
 | `ferrule ci failed [<branch>] [--run <id>] [--job <name>] [--context <n>]` | The error lines of a failed CI run, the branch's latest unless `--run` names one, each with `n` lines after it |
 
@@ -326,7 +327,7 @@ host = "github"              # github (gh) | bitbucket (.ferrule/bitbucket.local
 
 [[gauntlet.step]]
 name = "test"
-cmd = ["cargo", "test", "{crates}"]   # {crates}: --workspace, at review -p <crate> per crate the diff touches
+cmd = ["cargo", "test", "{crates}"]   # {crates}: --workspace, at review -p <crate> per crate the diff touches, at the stage checks per crate the stage's diff touches
 at = ["review"]              # levels it runs at besides full: push | review
 timeout = "30m"
 
@@ -336,7 +337,7 @@ cmd = ["cargo", "llvm-cov", "--workspace", "--fail-under-lines", "80"]
 coverage = "llvm-cov"        # how the pass's cov= is read from the output
 
 [viewer]
-command = ["glow"]           # prompt show appends the file path; unset: stdout
+command = ["glow"]           # prompt show appends the file path; unset or not startable: stdout
 
 [guard]
 allow = ["gh api"]           # raw calls the guard re-opens; see The guard
@@ -349,9 +350,6 @@ allow = ["make check"]       # word prefixes it lets through; it runs only its r
 
 [thresholds]
 read_budget = 3              # read events one stage card may carry
-stage_stop_lines = 400       # a stage diff above this many changed lines stops
-stage_stop_files = 8         # or touching more files than this
-stage_stop_checkpoint = 3    # stages auto-continued in a row before one stops anyway
 summary_max_lines = 25       # caps on *.summary.md and *.verdict.md
 summary_max_bytes = 2048
 search_max = 40              # spec related/refs and issue search refuse more hits

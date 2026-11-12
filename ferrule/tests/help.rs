@@ -194,6 +194,7 @@ const SOURCES: &[(&str, &[&str])] = &[
             "run log",
             "run metrics",
             "run plan-diff",
+            "run preflight",
             "run rebase",
             "run rebuild",
             "run reconcile",
@@ -213,6 +214,7 @@ const SOURCES: &[(&str, &[&str])] = &[
         &[
             "run init",
             "run live-check",
+            "run preflight",
             "run reconcile",
             "run rebase",
             "run rebuild",

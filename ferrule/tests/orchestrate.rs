@@ -4218,6 +4218,14 @@ fn it_live_check_contains_gh_api_writes() {
     let p = Project::new();
     through_gate2(&p);
     p.ok(&["gate", "approve", "demo", "gate2", "--live-repo", "o/r"]);
+    for n in 1..=2 {
+        seed_log(
+            &p.root,
+            "2026-10-05T09:00",
+            &format!("demo.s{n}"),
+            &["commit=abc1234"],
+        );
+    }
     let own = "gh api -X POST repos/o/r/issues -f title=x";
     let other = "gh api -X POST repos/o/other/issues -f title=x";
     assert_eq!(shell_hook(&p, own), "deny");
@@ -4241,9 +4249,85 @@ fn it_live_check_contains_gh_api_writes() {
 fn it_live_check_start_refuses_a_run_with_no_repository() {
     let p = Project::new();
     through_gate2(&p);
+    for n in 1..=2 {
+        seed_log(
+            &p.root,
+            "2026-10-05T09:00",
+            &format!("demo.s{n}"),
+            &["commit=abc1234"],
+        );
+    }
     let got = p.ferrule(&["run", "live-check", "demo", "start"]).text();
     assert!(
         got.starts_with("live-check=refused reason=no-repo hint="),
+        "{got}"
+    );
+    assert_eq!(shell_hook(&p, "gh api -X POST repos/o/r/issues"), "deny");
+}
+
+/// RU-R-072 — the preflight prints the login `gh` is logged in as.
+#[test]
+fn it_preflight_names_the_gh_login() {
+    let p = Project::new();
+    p.gh.serve(&["auth", "status"], "");
+    p.gh.serve(&["api", "user", "--jq", ".login"], "octo\n");
+    assert_eq!(p.ok(&["run", "preflight"]), "preflight=ok gh=octo");
+}
+
+/// RU-E-035 — a `gh` that is not logged in is refused, naming the login command.
+#[test]
+fn it_preflight_refuses_a_logged_out_gh() {
+    let p = Project::new();
+    p.gh.serve_err(
+        &["auth", "status"],
+        "You are not logged into any GitHub hosts. To log in, run: gh auth login",
+        1,
+    );
+    assert_eq!(
+        p.ferrule(&["run", "preflight"]).text(),
+        "preflight=refused reason=gh-login hint=run gh auth login, then start again\nexit=1"
+    );
+}
+
+/// RU-E-036 — a `gh` that fails for another reason is refused with its error.
+#[test]
+fn it_preflight_refuses_an_unknown_gh_state() {
+    let p = Project::new();
+    p.gh.serve_err(&["auth", "status"], "error connecting to api.github.com", 1);
+    let got = p.ferrule(&["run", "preflight"]).text();
+    assert!(
+        got.starts_with(
+            "preflight=refused reason=gh-unknown detail=\"error connecting to api.github.com\" hint="
+        ),
+        "{got}"
+    );
+    assert!(got.ends_with("exit=1"), "{got}");
+}
+
+/// RU-E-037 — a repository not on GitHub gets no `gh` check.
+#[test]
+fn it_preflight_skips_gh_off_github() {
+    let p = Project::new();
+    let toml = p.root.join(".ferrule/ferrule.toml");
+    let body = std::fs::read_to_string(&toml).unwrap();
+    std::fs::write(&toml, format!("{body}\n[backend]\nhost = \"bitbucket\"\n")).unwrap();
+    assert_eq!(
+        p.ok(&["run", "preflight"]),
+        "preflight=ok gh=skipped host=bitbucket"
+    );
+    assert!(!p.gh.log().contains("auth status"), "{}", p.gh.log());
+}
+
+/// RU-E-038 — a live check does not start while a code stage has no logged commit.
+#[test]
+fn it_live_check_start_refuses_an_open_stage() {
+    let p = Project::new();
+    through_gate2(&p);
+    p.ok(&["gate", "approve", "demo", "gate2", "--live-repo", "o/r"]);
+    seed_log(&p.root, "2026-10-05T09:00", "demo.s1", &["commit=abc1234"]);
+    let got = p.ferrule(&["run", "live-check", "demo", "start"]).text();
+    assert!(
+        got.starts_with("live-check=refused reason=open-stage stage=s2 hint="),
         "{got}"
     );
     assert_eq!(shell_hook(&p, "gh api -X POST repos/o/r/issues"), "deny");

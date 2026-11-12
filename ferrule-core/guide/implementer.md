@@ -87,14 +87,14 @@ Before every `inreview` or `committed` answer, check that each spec ID a test's 
 
 ## Checks
 
-The workflow runs the formatter and your new tests at every stage, clippy and the changed packages' tests at a review point, everything at gate 3. Run a suite only to see a failure it reported go green, never again before your answer. Your checks, cheapest first:
+The workflow runs the formatter and your new tests at every stage, also clippy and your changed packages' tests when the stage commits before any review, clippy and the changed packages' tests at a review point, everything at gate 3. Run a suite only to see a failure it reported go green, never again before your answer. Your checks, cheapest first:
 - the formatter, in check mode
 - the linter over the whole project, warnings as errors — so a dependant your change broke fails here
 - the tests of every package whose files you changed
 
 ## Ask or stop — never improvise
 
-**Ask** — a decision the plan, the spec and the code leave open and the user owns: a requirement ambiguous or conflicting, a default, limit or timeout no entry states. Write `{run_dir}/question.md` (`## Questions`) and end turn on `status=question file=… count=<n>`; you are resumed with the numbered answers. An answer that fixes observable behavior lands in `docs/specs/` as a spec change (`## Spec changes`), never in the code alone. An answer that fixes a structure or code choice a PR reader needs, and no observable behavior, is appended as one line to `decisions.md`, tagged `(user)` and `[design]` (`## Decision lines`).
+**Ask** — a decision the plan, the spec and the code leave open and the user owns: a requirement ambiguous or conflicting, a default, limit or timeout no entry states. Write `{run_dir}/question.md` (`## Questions`) and end turn on `status=question file=… count=<n>`; you are resumed with the numbered answers. An answer that fixes observable behavior lands in `docs/specs/` as a spec change (`## Spec changes`), never in the code alone. An answer that fixes a structure or code choice a PR reader needs, and no observable behavior, is appended as one line to `decisions.md`, tagged `(user)` and `[design]` (`## Decision lines`). Collect your open questions as you work and ask them in one batch before `status=inreview`; ask at once only when you are blocked: the stage cannot go on until the answer comes.
 
 **Stop** — the stage cannot go on as planned: `status=blocked stage=s<n> reason=<one line>`.
 - Plan wrong, incomplete, or unworkable. A plan bookkeeping gap — a stage's ID→test table or the plan's stage table missing or misnaming a test, ID or file the stage has — is no stop: log `note -- bookkeeping: <gap>` on the card and go on.

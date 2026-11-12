@@ -36,10 +36,18 @@
 
 **GA-E-010** — On a project whose stack is not Rust, a stage's checks run only the push-level steps, not its new tests.
 
-**GA-E-011** — A `{crates}` argument runs as the whole workspace at a push, at gate 3 and when the diff touches no crate, and is dropped on a project whose stack is not Rust.
+**GA-E-011** — A `{crates}` argument runs as the whole workspace at a push without a stage, at gate 3 and when the diff touches no crate, and is dropped on a project whose stack is not Rust.
+
+**GA-E-019** — A stage whose diff touches no crate runs no review-level steps at its checks.
+
+**GA-E-020** — A stage change that breaks only a dependent crate's tests is caught at the review point or gate 3, not at the stage's checks.
 
 ## Review rules
 
 **GA-E-016** — A clean review reporting `minors=0` routes straight to its stop, with no fix step.
 
 **GA-E-017** — A stop or auto-continue notice states no minors fixed when a stop was already logged after the newest review.
+
+## Stage stops
+
+**GA-E-018** — A stage marked to stop at gate 2 stops after its review even when the user has no decision to make.

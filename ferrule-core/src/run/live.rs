@@ -1,7 +1,7 @@
 //! The run's live check: while it is open, `ferrule hook shell` lets a
 //! `gh api` write through to the repository the run named at gate 2.
 
-use crate::card::board::LogError;
+use crate::card::board::{self, LogError};
 use crate::card::typed::{Name, Typed};
 use crate::store::{Board, Reader};
 
@@ -12,6 +12,8 @@ pub enum LiveRefused {
     Card,
     /// RU-E-019: the run names no `live-repo`.
     NoRepo,
+    /// RU-E-038: a code stage of the run has no logged commit.
+    OpenStage { stage: u32 },
 }
 
 fn log(
@@ -37,12 +39,17 @@ pub fn start(
     now: &str,
 ) -> rusqlite::Result<Result<String, LiveRefused>> {
     let repo = db.read(|r| {
-        Ok::<_, rusqlite::Error>(match r.state(slug)? {
-            None => Err(LiveRefused::Card),
-            Some(_) => match r.field(slug, "live-repo")? {
-                Some(repo) if !repo.is_empty() => Ok(repo),
-                _ => Err(LiveRefused::NoRepo),
-            },
+        if r.state(slug)?.is_none() {
+            return Ok::<_, rusqlite::Error>(Err(LiveRefused::Card));
+        }
+        for (n, id, _) in board::stages(r.conn(), slug)? {
+            if n != 0 && board::last_value(r.conn(), &id, Name::Commit)?.is_none() {
+                return Ok(Err(LiveRefused::OpenStage { stage: n }));
+            }
+        }
+        Ok(match r.field(slug, "live-repo")? {
+            Some(repo) if !repo.is_empty() => Ok(repo),
+            _ => Err(LiveRefused::NoRepo),
         })
     })?;
     let Ok(repo) = repo else {
@@ -119,6 +126,33 @@ mod tests {
         assert_eq!(start(&mut db, "nope", NOW).unwrap(), Err(LiveRefused::Card));
         assert_eq!(end(&mut db, "nope", NOW).unwrap(), Err(LiveRefused::Card));
         assert!(open(&db).is_empty());
+    }
+
+    /// RU-E-038 — `start` refuses while a code stage has no logged commit, before the repository check.
+    #[test]
+    fn ut_start_refuses_an_uncommitted_stage() {
+        let mut db = board(Some("o/r"));
+        for n in 0..=2 {
+            db.write(|w| w.create(&format!("demo.s{n}"), State::Open, &[], NOW))
+                .unwrap();
+        }
+        db.write(|w| w.log("demo.s1", "commit=abc1234", &[], NOW))
+            .unwrap();
+        assert_eq!(
+            start(&mut db, "demo", NOW).unwrap(),
+            Err(LiveRefused::OpenStage { stage: 2 })
+        );
+        db.write(|w| w.log("demo.s2", "commit=abc1235", &[], NOW))
+            .unwrap();
+        assert_eq!(start(&mut db, "demo", NOW).unwrap(), Ok("o/r".to_owned()));
+
+        let mut db = board(None);
+        db.write(|w| w.create("demo.s1", State::Open, &[], NOW))
+            .unwrap();
+        assert_eq!(
+            start(&mut db, "demo", NOW).unwrap(),
+            Err(LiveRefused::OpenStage { stage: 1 })
+        );
     }
 
     /// RU-R-043, RU-R-044 — `start` opens the check and names the repository, `end` closes it.

@@ -23,8 +23,11 @@ Levels (--level, default full):
 A step runs at full always and at the levels its `at = [..]` lists; a step
 with no `at` runs only at full. `{crates}` in a step's `cmd` expands to
 `--workspace`, at review to `-p <crate>` for each crate the diff since the
-review point's base touches, and is dropped when `stack` is not rust.
---stage s<n> also runs the tests the stage's diff adds or rewrites
+review point's base touches, at push with --stage to `-p <crate>` for each
+crate the stage's diff touches, and is dropped when `stack` is not rust.
+--stage s<n> also runs the tests the stage's diff adds or rewrites (`stack =
+\"rust\"` only); for a stage that commits before any review (batched, skipped,
+fast lane) also the review-level steps, when its diff touches a crate
 (`stack = \"rust\"` only).
 Output (the steps' own output goes to .ferrule/runs/<slug>/gauntlet.log):
   gauntlet=pass cov=<pct> sha=<sha> [cached] [dirty]
@@ -205,6 +208,10 @@ fn run_gauntlet(
     let log = layout.run_dir(slug).join("gauntlet.log");
     let base =
         gauntlet::base(&s, &wt, slug, level, stage, &config.main_branch).map_err(internal)?;
+    let unreviewed = match (level, stage) {
+        (Level::Push, Some(n)) => gauntlet::unreviewed(&s, slug, n).map_err(internal)?,
+        _ => false,
+    };
     let outcome = gauntlet::run(
         &mut s,
         slug,
@@ -216,6 +223,7 @@ fn run_gauntlet(
             stage,
             base: base.as_deref(),
             stack: config.stack.as_deref(),
+            unreviewed,
         },
         force,
         &board::now(),

@@ -1,4 +1,4 @@
-Every decision of the run, asked or settled alone, is one line appended to `{run_dir}/decisions.md` (absolute path from your brief; create it with the heading `# {slug} — decisions` when absent). Append only (`>>`), never edit or delete a line: a decision reversed later is a new line saying so, and the later line wins.
+Every decision of the run, asked or settled alone, is one line appended to `{run_dir}/decisions.md` (absolute path from your brief; create it with the heading `# {slug} — decisions` when absent). Append only (`>>`), never edit or delete a line: a decision reversed later is a new line saying so, and the later line wins. A reversal line's why starts `supersedes "<earlier choice>"`; a later line with the same `[spec <ID>]` tag supersedes too. A superseded line is left out of the next `Confirm:`.
 
 ```
 - <choice> (<user | chosen>) [<scope | spec <ID> | design | process>] — <≤ 1 line why> · <author | architect | planner | implementer>
