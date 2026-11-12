@@ -140,7 +140,7 @@ impl Scratch {
     }
 }
 
-/// GA-R-100, GA-R-102 — a verdict listing a `Needs user` item stops; the settled verdict does not.
+/// GA-R-110, GA-R-112 — a verdict listing a `Needs user` item stops; the settled verdict does not.
 #[test]
 fn it_stage_stop_ignores_a_settled_verdict() {
     let s = Scratch::new(2);
@@ -159,7 +159,7 @@ fn it_stage_stop_ignores_a_settled_verdict() {
     assert_eq!(s.say(&["stage", "stop", "ss", "s1"]), "auto");
 }
 
-/// GA-R-102, GA-R-103, GA-E-016 — the rules fire in order, a plan-marked
+/// GA-R-112, GA-R-113, GA-E-018 — the rules fire in order, a plan-marked
 /// stage stops on a clean verdict, and a large diff does not stop.
 #[test]
 fn it_stage_stop_rules_in_order() {
@@ -398,7 +398,7 @@ fn it_gauntlet_review_level_takes_crates_from_the_batch_base() {
     );
 }
 
-/// GA-R-102 — auto-continues in a row never raise a stop.
+/// GA-R-112 — auto-continues in a row never raise a stop.
 #[test]
 fn it_stage_stop_never_counts_auto_continues() {
     let s = Scratch::new(5);
@@ -1041,7 +1041,7 @@ fn stage_checks(s: &Scratch) -> (String, String) {
     (out, gauntlet_log(s))
 }
 
-/// GA-R-105 — a batched stage's checks also run the review-level steps, a step
+/// GA-R-115 — a batched stage's checks also run the review-level steps, a step
 /// naming both levels once, and not the unlabeled steps.
 #[test]
 fn it_gauntlet_batched_stage_checks_run_review_steps() {
@@ -1057,7 +1057,7 @@ fn it_gauntlet_batched_stage_checks_run_review_steps() {
     assert!(!log.contains("### plain:"), "{log}");
 }
 
-/// GA-R-105 — a fast-lane stage's checks also run the review-level steps.
+/// GA-R-115 — a fast-lane stage's checks also run the review-level steps.
 #[test]
 fn it_gauntlet_fast_lane_stage_checks_run_review_steps() {
     let s = crate_scratch("stack = \"rust\"\n");
@@ -1067,7 +1067,7 @@ fn it_gauntlet_fast_lane_stage_checks_run_review_steps() {
     assert!(log.contains("### reviewed:"), "{log}");
 }
 
-/// GA-R-082, GA-R-105 — an own-tier stage's checks stay the push steps.
+/// GA-R-082, GA-R-115 — an own-tier stage's checks stay the push steps.
 #[test]
 fn it_gauntlet_own_stage_checks_skip_review_steps() {
     let s = crate_scratch("stack = \"rust\"\n");
@@ -1079,7 +1079,7 @@ fn it_gauntlet_own_stage_checks_skip_review_steps() {
     assert!(!log.contains("### reviewed:"), "{log}");
 }
 
-/// GA-R-105, GA-E-011 — a widened stage's `{crates}` names the crates its diff
+/// GA-R-115, GA-E-011 — a widened stage's `{crates}` names the crates its diff
 /// touches.
 #[test]
 fn it_gauntlet_stage_checks_scope_crates_to_the_stage() {

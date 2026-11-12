@@ -198,30 +198,30 @@
 
 **GA-R-091** — A gauntlet step's `{crates}` argument runs at a review point as the crates the diff since the review point's base touches.
 
-**GA-R-105** — A batched, skipped or fast-lane stage's checks also run the review-level steps, `{crates}` as the crates its own diff touches.
+**GA-R-115** — A batched, skipped or fast-lane stage's checks also run the review-level steps, `{crates}` as the crates its own diff touches.
 
 ## Stage questions
 
-**GA-R-094** — The implementer asks its open questions in one batch before review.
+**GA-R-104** — The implementer asks its open questions in one batch before review.
 
-**GA-R-095** — The implementer asks a question at once only when it is blocked.
+**GA-R-105** — The implementer asks a question at once only when it is blocked.
 
-**GA-R-096** — Items a reviewer raises for the user are relayed after the first review pass.
+**GA-R-106** — Items a reviewer raises for the user are relayed after the first review pass.
 
-**GA-R-097** — A user's answer that changes code gets a recheck of that change only.
+**GA-R-107** — A user's answer that changes code gets a recheck of that change only.
 
-**GA-R-098** — A user's answer that changes no code triggers no review rerun.
+**GA-R-108** — A user's answer that changes no code triggers no review rerun.
 
 ## Stage stops
 
-**GA-R-099** — A spec change with `origin=user` counts as kept.
+**GA-R-109** — A spec change with `origin=user` counts as kept.
 
-**GA-R-100** — An item the user has settled does not reappear at a later stop.
+**GA-R-110** — An item the user has settled does not reappear at a later stop.
 
-**GA-R-101** — A `Confirm:` line that has been superseded does not reappear at a later stop.
+**GA-R-111** — A `Confirm:` line that has been superseded does not reappear at a later stop.
 
-**GA-R-102** — A stage stop is shown only when the user has a real decision to make; otherwise the run continues.
+**GA-R-112** — A stage stop is shown only when the user has a real decision to make; otherwise the run continues.
 
-**GA-R-103** — No stop is triggered by the number of lines a stage changed.
+**GA-R-113** — No stop is triggered by the number of lines a stage changed.
 
-**GA-R-104** — A missing `glow` does not stop the run; stops are shown as plain text instead.
+**GA-R-114** — A missing `glow` does not stop the run; stops are shown as plain text instead.

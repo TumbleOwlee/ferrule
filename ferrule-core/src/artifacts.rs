@@ -358,7 +358,7 @@ pub fn rev(text: &str) -> Option<u32> {
 mod tests {
     use super::*;
 
-    /// GA-R-101 — a later same-spec-tag line or a `supersedes` line drops the earlier one.
+    /// GA-R-111 — a later same-spec-tag line or a `supersedes` line drops the earlier one.
     #[test]
     fn ut_current_drops_superseded_lines() {
         let c = |t: &str| {

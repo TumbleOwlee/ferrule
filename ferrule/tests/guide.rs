@@ -168,7 +168,7 @@ fn it_stage_review_guide_pushes_before_gate4() {
     );
 }
 
-/// GA-E-016 — a plan-marked stage stops after its review even with nothing to decide.
+/// GA-E-018 — a plan-marked stage stops after its review even with nothing to decide.
 #[test]
 fn it_stage_review_guide_stops_a_plan_marked_stage() {
     says(
@@ -259,7 +259,7 @@ fn it_stages_guide_runs_a_skipped_stage_through() {
     );
 }
 
-/// GA-R-094, GA-R-095 — the implementer batches open questions before `inreview`.
+/// GA-R-104, GA-R-105 — the implementer batches open questions before `inreview`.
 #[test]
 fn it_implementer_guide_batches_questions_before_review() {
     says(
@@ -279,7 +279,7 @@ fn it_stages_guide_asks_before_a_batched_or_skipped_commit() {
     );
 }
 
-/// GA-R-096, GA-R-100 — first-pass `Needs user` items reach the user before any fix round.
+/// GA-R-106, GA-R-110 — first-pass `Needs user` items reach the user before any fix round.
 #[test]
 fn it_stage_review_guide_relays_needs_user_after_the_first_pass() {
     says(
@@ -290,7 +290,7 @@ fn it_stage_review_guide_relays_needs_user_after_the_first_pass() {
     );
 }
 
-/// GA-R-097, GA-R-098 — a code-changing answer is committed first and rechecked on its diff only.
+/// GA-R-107, GA-R-108 — a code-changing answer is committed first and rechecked on its diff only.
 #[test]
 fn it_stage_review_guide_rechecks_only_a_code_changing_answer() {
     says(
@@ -302,7 +302,7 @@ fn it_stage_review_guide_rechecks_only_a_code_changing_answer() {
     );
 }
 
-/// GA-R-099 — a spec change logged `origin=user` counts as kept.
+/// GA-R-109 — a spec change logged `origin=user` counts as kept.
 #[test]
 fn it_reviewer_guide_keeps_user_spec_changes() {
     says(
@@ -315,7 +315,7 @@ fn it_reviewer_guide_keeps_user_spec_changes() {
     );
 }
 
-/// GA-R-100, GA-R-097 — a settled item is never raised again; a recheck reads only its diff.
+/// GA-R-110, GA-R-107 — a settled item is never raised again; a recheck reads only its diff.
 #[test]
 fn it_reviewer_guide_never_reraises_a_settled_item() {
     says(
@@ -326,7 +326,7 @@ fn it_reviewer_guide_never_reraises_a_settled_item() {
     );
 }
 
-/// GA-R-098, GA-R-100 — answers that change no code settle the verdict without a review.
+/// GA-R-108, GA-R-110 — answers that change no code settle the verdict without a review.
 #[test]
 fn it_reviewer_guide_settles_answered_items_without_review() {
     says(
@@ -423,7 +423,7 @@ fn it_guides_call_each_check_level() {
     says("gate3", &["`ferrule ci gauntlet demo` (the full level"]);
 }
 
-/// GA-R-105 — the guides say a stage that commits before any review also gets
+/// GA-R-115 — the guides say a stage that commits before any review also gets
 /// the review-level steps at its checks.
 #[test]
 fn it_guides_widen_checks_before_an_unreviewed_commit() {
@@ -1151,7 +1151,7 @@ fn it_principles_guide_names_the_run_without_a_pr_ending() {
     );
 }
 
-/// GA-R-044, GA-R-101 — each guide that records decisions states the line shape and its rules.
+/// GA-R-044, GA-R-111 — each guide that records decisions states the line shape and its rules.
 #[test]
 fn it_guides_state_the_decision_line_shape() {
     let tmp = tempfile::tempdir().unwrap();

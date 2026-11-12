@@ -304,7 +304,7 @@ mod tests {
         c
     }
 
-    /// GA-R-101 — a superseded decision line is left out of the confirm list.
+    /// GA-R-111 — a superseded decision line is left out of the confirm list.
     #[test]
     fn ut_confirm_skips_superseded_lines() {
         assert!(

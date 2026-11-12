@@ -817,7 +817,7 @@ mod tests {
         ]
     }
 
-    /// GA-R-105 — a stage is unreviewed in the fast lane or at an effective
+    /// GA-R-115 — a stage is unreviewed in the fast lane or at an effective
     /// tier other than own; a promotion makes it own.
     #[test]
     fn ut_unreviewed_follows_lane_and_tier() {
@@ -849,7 +849,7 @@ mod tests {
         assert!(unreviewed(&db, "fast", 1).unwrap());
     }
 
-    /// GA-R-105, GA-E-011 — an unreviewed stage's checks add the review steps
+    /// GA-R-115, GA-E-011 — an unreviewed stage's checks add the review steps
     /// over the stage's crates; a push step's `{crates}` is scoped to the
     /// stage, and stays the workspace without one.
     #[test]
@@ -869,7 +869,7 @@ mod tests {
         assert_eq!(got[2].cmd.join(" "), "cargo test --workspace");
     }
 
-    /// GA-E-017, GA-E-010 — no crate touched, or a stack that is not Rust,
+    /// GA-E-019, GA-E-010 — no crate touched, or a stack that is not Rust,
     /// leaves the push steps only.
     #[test]
     fn ut_widened_stage_checks_skip_review_steps_without_a_crate() {
@@ -884,7 +884,7 @@ mod tests {
         assert_eq!(pick(Some("node")), "p,pr,pc");
     }
 
-    /// GA-E-018 — a crate that only depends on the changed one is not among
+    /// GA-E-020 — a crate that only depends on the changed one is not among
     /// the stage's crates.
     #[test]
     fn ut_widened_stage_checks_leave_out_dependent_crates() {

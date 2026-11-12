@@ -292,7 +292,7 @@ mod tests {
         assert!(bad.is_err());
     }
 
-    /// GA-R-103 — `[thresholds]` no longer reads the stage-stop size keys.
+    /// GA-R-113 — `[thresholds]` no longer reads the stage-stop size keys.
     #[test]
     fn ut_thresholds_refuse_the_stage_stop_keys() {
         for key in [

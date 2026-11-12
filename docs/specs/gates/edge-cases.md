@@ -38,10 +38,10 @@
 
 **GA-E-011** — A `{crates}` argument runs as the whole workspace at a push without a stage, at gate 3 and when the diff touches no crate, and is dropped on a project whose stack is not Rust.
 
-**GA-E-017** — A stage whose diff touches no crate runs no review-level steps at its checks.
+**GA-E-019** — A stage whose diff touches no crate runs no review-level steps at its checks.
 
-**GA-E-018** — A stage change that breaks only a dependent crate's tests is caught at the review point or gate 3, not at the stage's checks.
+**GA-E-020** — A stage change that breaks only a dependent crate's tests is caught at the review point or gate 3, not at the stage's checks.
 
 ## Stage stops
 
-**GA-E-016** — A stage marked to stop at gate 2 stops after its review even when the user has no decision to make.
+**GA-E-018** — A stage marked to stop at gate 2 stops after its review even when the user has no decision to make.

@@ -400,7 +400,7 @@ fn it_render_without_a_viewer_names_the_files() {
     );
 }
 
-/// GA-R-104 — a viewer that cannot start falls back to the file on stdout.
+/// GA-R-114 — a viewer that cannot start falls back to the file on stdout.
 #[test]
 fn it_show_prints_the_file_when_the_viewer_cannot_start() {
     let p = project();
@@ -416,7 +416,7 @@ fn it_show_prints_the_file_when_the_viewer_cannot_start() {
     assert!(out.ends_with("exit=0"), "{out}");
 }
 
-/// GA-R-104 — render treats a viewer that cannot start as no viewer.
+/// GA-R-114 — render treats a viewer that cannot start as no viewer.
 #[test]
 fn it_render_without_a_startable_viewer_names_the_files() {
     let p = project();
