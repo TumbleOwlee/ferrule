@@ -6,6 +6,9 @@
 - `gate2 --tiers s<n>=<own|batched|skipped>,…` sets the tier of each stage named; lists only the overrides (GA-R-070)
 - `approve=refused reason=tier stage=s<n> risk=<host-writes|persisted-state|public-surface> hint=<fix>` — a skipped tier on a stage with a risk; nothing is written (GA-R-071)
 - `approve=refused reason=tier stage=s<n> risk=<word> hint=<fix>` — a plan Risk word that names no risk; nothing is written (GA-E-014)
+- `arch --plan-stop` asks for gate 2's own stop (GA-R-129)
+- no `--lane` flag (GA-R-119)
+- no `gate3` gate; `ferrule prompt render` has no `gate3` kind (GA-R-125)
 
 ## ferrule stage tier
 
@@ -24,6 +27,14 @@
 
 - a viewer that cannot be started prints `prompt show: stdout: <path>` and the file, exit 0, as with no viewer (GA-R-114)
 
+## ferrule guide show
+
+- no `--lane` flag (GA-R-120)
+
+## ferrule prompt render
+
+- no `--recommend` flag; the gate 1 stop offers no lane (GA-R-130)
+
 ## Run files
 
 - a `decisions.md` line supersedes an earlier one when it has the same `[spec <ID>]` tag or its why starts `supersedes "<earlier choice>"`; a superseded line is left out of `Confirm:` (GA-R-111)
@@ -37,9 +48,14 @@
 - `ferrule gate next <slug> stage <status line>` takes `clean` and `findings count=<n>` (GA-R-099, GA-R-095)
 - `next=minors then=<stage-stop|stop|pr> [reason=<why>]`, followed by the `run:`/`do:`/`guide:` lines of the step after the fix (GA-R-095, GA-R-096, GA-R-097)
 - `usage: ferrule gate next <slug> <stage|gate3> status=<word>…` (exit 2) for a clean line without `minors=` (GA-R-100)
+- position `gate1` takes the spec author's status line and prints `next=stop` (gate 1 stop), `next=arch` (architecture, no stop) or `next=plan` (architecture skipped, no stop) (GA-R-116, GA-R-117, GA-R-118)
+- gate 2's stop for a brief of more than 3 entries carries `reason=size` (GA-R-117)
+- gate 2's stop carries `reason=plan-stop` when the combined stop asked for it (GA-R-129)
 
 ## Card events
 
 - `tier=<tier> [promoted=<why>]` on a stage card, logged only by `ferrule stage tier` (GA-R-072, GA-R-073)
 - `gauntlet=pass|fail` on the run card, logged by `ferrule ci gauntlet` at level full (GA-R-090)
-- `review=clean scope=stage [minors=<n>]`, `review=clean [minors=<n>]` and `review=<n>-resolved [minors=<n>]` on the run card, logged by `ferrule gate next` (GA-R-101, GA-R-103)
+- `review=clean scope=<stage|batch> [minors=<n>]`, `review=clean [minors=<n>]` and `review=<n>-resolved [minors=<n>]` on the run card, logged by `ferrule gate next` (GA-R-101, GA-R-103)
+- `review=<n>-open scope=<stage|batch> round=<k>` on the run card, logged by `ferrule gate next` (RU-R-074)
+- `spawn agent=architect|planner` on the run card, logged by `ferrule gate next <slug> gate1` when gate 1 passes without a stop; the brief phase ends there (RU-R-075)

@@ -8,7 +8,7 @@
 
 **GA-E-003** — A project's existing `.ferrule/guide/decisions.md` is listed as a project topic.
 
-**GA-E-004** — An installed agent file takes no run placeholder and no lane or done tag from shared text.
+**GA-E-004** — An installed agent file takes no run placeholder and no done tag from shared text.
 
 ## Plan gate
 
@@ -51,3 +51,9 @@
 ## Stage stops
 
 **GA-E-018** — A stage marked to stop at gate 2 stops after its review even when the user has no decision to make.
+
+## Early stops
+
+**GA-E-021** — A `lane` value already on a saved card is ignored.
+
+**GA-E-022** — A `gate3` date already on a saved card is ignored.
