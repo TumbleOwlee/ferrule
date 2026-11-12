@@ -17,3 +17,9 @@
 **BO-R-006** — A dev build's copy is removed when its worktree is removed.
 
 **BO-R-007** — A dev build taking its copy from a shared board of an older schema prints one stderr line naming the copy and both schemas.
+
+## Card log
+
+**BO-R-008** — A `ferrule board log` call that answers `card-log=reject`, for any reason, leaves the card's log unchanged.
+
+**BO-R-009** — `ferrule board log` takes every argument after the first `--` as the line's free text, words starting with `--` included.
