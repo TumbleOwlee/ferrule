@@ -146,6 +146,7 @@ fn it_log_appends_validated_lines() {
     );
 }
 
+/// BO-R-008 — every reject reason leaves the stage card's log unchanged.
 #[test]
 fn it_log_rejects_and_leaves_the_card_unchanged() {
     let p = project();
@@ -197,6 +198,132 @@ fn it_log_rejects_and_leaves_the_card_unchanged() {
     assert_eq!(ferrule(p, &["board", "show", "demo.s1"]).text(), before);
     let waived = ferrule(p, &["board", "log", "demo", "ci-waived"]).output();
     assert_eq!(waived.status.code(), Some(2));
+}
+
+/// BO-R-008 — a rejected log call leaves the card's log unchanged, for each reason.
+#[test]
+fn it_log_reject_leaves_the_log_unchanged() {
+    let p = project();
+    let p = p.path();
+    let show = |card: &str| ferrule(p, &["board", "show", card]).text();
+    let (parent, stage) = (show("demo"), show("demo.s1"));
+    let got = ferrule(p, &["board", "log", "demo.s1", "checks=maybe", "--", "x"]).text();
+    assert!(
+        got.starts_with("card-log=reject reason=value event=checks "),
+        "{got}"
+    );
+    assert!(got.ends_with("exit=2"), "{got}");
+    let cases: &[(&str, &[&str])] = &[
+        ("owner", &["demo", "gauntlet=pass", "sha=abc1234"]),
+        (
+            "typed",
+            &[
+                "demo",
+                "note",
+                "--",
+                "plan-review",
+                "findings",
+                "count=3",
+                "round=1",
+            ],
+        ),
+        ("scope", &["demo", "checks=pass", "--", "x"]),
+    ];
+    for (reason, args) in cases {
+        let mut all = vec!["board", "log"];
+        all.extend_from_slice(args);
+        let got = ferrule(p, &all).text();
+        assert!(
+            got.starts_with(&format!("card-log=reject reason={reason} ")),
+            "{got}"
+        );
+        assert!(got.ends_with("exit=2"), "{got}");
+    }
+    assert_eq!(show("demo"), parent);
+    assert_eq!(show("demo.s1"), stage);
+    for k in 1..=3 {
+        let path = format!("path=f{k}.rs");
+        let got = ferrule(
+            p,
+            &[
+                "board", "log", "demo.s2", "read", &path, "--", "the", "plan",
+            ],
+        )
+        .text();
+        assert_eq!(got, "exit=0");
+    }
+    let budget = show("demo.s2");
+    let got = ferrule(
+        p,
+        &[
+            "board",
+            "log",
+            "demo.s2",
+            "read",
+            "path=f4.rs",
+            "--",
+            "still",
+            "thin",
+        ],
+    )
+    .text();
+    assert!(got.starts_with("card-log=reject reason=budget "), "{got}");
+    assert!(got.ends_with("exit=2"), "{got}");
+    assert_eq!(show("demo.s2"), budget);
+}
+
+/// BO-R-008 — a retry after a reject appends exactly one line.
+#[test]
+fn it_log_retry_after_reject_appends_one_line() {
+    let p = project();
+    let p = p.path();
+    let log = || ferrule(p, &["board", "show", "demo.s1", "--log"]).text();
+    let before = log();
+    let rejected = ferrule(p, &["board", "log", "demo.s1", "checks=maybe", "--", "x"]).text();
+    assert!(rejected.ends_with("exit=2"), "{rejected}");
+    let ok = ferrule(p, &["board", "log", "demo.s1", "checks=fail", "--", "x"]).text();
+    assert_eq!(ok, "exit=0");
+    let after = log();
+    let old: Vec<&str> = before.lines().filter(|l| *l != "exit=0").collect();
+    let new: Vec<&str> = after.lines().filter(|l| *l != "exit=0").collect();
+    assert_eq!(new.len(), old.len() + 1, "{after}");
+    assert_eq!(new[..old.len()], old[..]);
+    assert_eq!(new[old.len()], "2026-10-05T09:00 checks=fail x");
+}
+
+/// BO-R-009 — words starting with `--` after the first `--` stay in the text.
+#[test]
+fn it_log_text_keeps_dash_dash_words() {
+    let p = project();
+    let p = p.path();
+    let got = log_tail(
+        p,
+        "demo.s1",
+        &[
+            "checks=fail",
+            "--",
+            "it_x:",
+            "cargo",
+            "fmt",
+            "--check",
+            "expected",
+            "allow,",
+            "got",
+            "Deny",
+        ],
+    );
+    assert_eq!(
+        got,
+        "2026-10-05T09:00 checks=fail it_x: cargo fmt --check expected allow, got Deny\nexit=0"
+    );
+    let got = log_tail(
+        p,
+        "demo.s2",
+        &["read", "path=f.rs", "--", "a", "--b", "--", "c"],
+    );
+    assert_eq!(got, "2026-10-05T09:00 read path=f.rs a --b -- c\nexit=0");
+    let got = log_tail(p, "demo.s1", &["note", "--", "--flag", "first"]);
+    assert!(got.ends_with("note --flag first\nexit=0"), "{got}");
 }
 
 #[test]
