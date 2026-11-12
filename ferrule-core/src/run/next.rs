@@ -1,5 +1,5 @@
-//! The next step of a run after an agent's status line, for the gate 2,
-//! re-plan, stage review, branch-review, gate 4 and CI decisions: logs the events the
+//! The next step of a run after an agent's status line, for the gate 1,
+//! gate 2, re-plan, stage review, branch-review, gate 4 and CI decisions: logs the events the
 //! outcome implies and names the one next action.
 
 use rusqlite::Connection;
@@ -11,11 +11,14 @@ use crate::card::vocab;
 use crate::guide::Topic;
 use crate::project::Layout;
 use crate::refusal::{Exit, Refusal};
+use crate::run::stops::{self, EarlyStops};
 use crate::store::Board;
 
 /// Where in the run the status line comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum At {
+    /// The spec author's brief.
+    Gate1,
     /// Planner, plan reviewer, the spec author's issue answer.
     Gate2,
     /// A re-plan's planner and plan reviewer.
@@ -34,6 +37,7 @@ impl At {
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
+            At::Gate1 => "gate1",
             At::Gate2 => "gate2",
             At::Replan => "replan",
             At::Stage => "stage",
@@ -53,10 +57,12 @@ pub struct Status {
     pub ci: Option<String>,
     /// `minors=`: the clean review's minor count.
     pub minors: Option<String>,
+    /// `size=`: `epic` for a brief too big for one run.
+    pub size: Option<String>,
 }
 
 impl Status {
-    /// Reads `status=`, `count=`, `issue=`, `ci=`, `minors=` from any number of
+    /// Reads `status=`, `count=`, `issue=`, `ci=`, `minors=`, `size=` from any number of
     /// whitespace-separated words; other tokens are ignored.
     #[must_use]
     pub fn parse(words: &[String]) -> Self {
@@ -69,6 +75,7 @@ impl Status {
                     "issue" => &mut s.issue,
                     "ci" => &mut s.ci,
                     "minors" => &mut s.minors,
+                    "size" => &mut s.size,
                     _ => continue,
                 };
                 *slot = Some(v.to_owned());
@@ -249,13 +256,6 @@ impl Ctx<'_> {
             .is_some_and(|v| artifacts::needs_user(&v))
     }
 
-    /// More than two plan summary rows from s1 on.
-    fn outgrown(&self) -> bool {
-        self.layout
-            .artifact(self.slug, "plan.summary.md")
-            .is_some_and(|s| artifacts::stage_rows(&s) > 2)
-    }
-
     fn gate_guide(&mut self) {
         if self.at == At::Replan {
             self.guide(Topic::Replan);
@@ -354,7 +354,8 @@ pub fn next(
     };
     let mut branch_clean = false;
     match (at, word.as_str()) {
-        (At::Gate2 | At::Replan | At::Gate4, "question") => {
+        (At::Gate1, "ready" | "no-diff") => gate1_decision(&mut c, status),
+        (At::Gate1 | At::Gate2 | At::Replan | At::Gate4, "question") => {
             c.next("relay", None);
             c.act("relay the question file to the user and resume the agent with the answers");
             c.guide(Topic::Question);
@@ -532,18 +533,52 @@ fn ask_issue(c: &mut Ctx) {
     c.guide(Topic::Gate2);
 }
 
-/// Gate 2 stops unless a fast-lane run with a dated architecture stop, no
-/// Needs user item, a small plan and a new issue.
+/// The spec author's brief: an epic-sized one, or one whose size asks for
+/// separate early stops, stops; a small one goes to the architect, a
+/// one-entry one to the planner.
+fn gate1_decision(c: &mut Ctx, status: &Status) {
+    let slug = c.slug;
+    if status.size.as_deref() == Some("epic") {
+        c.next("stop", None);
+        c.run(&format!(
+            "ferrule prompt render {slug} gate1 --epic --reason <the author's reason>"
+        ));
+        c.act("show the gate 1 stop and wait for the user's approval");
+        c.guide(Topic::Gate1);
+        return;
+    }
+    match stops::early_stops(c.layout, slug) {
+        EarlyStops::Separate => {
+            c.next("stop", None);
+            c.run(&format!("ferrule prompt render {slug} gate1"));
+            c.act("show the gate 1 stop and wait for the user's approval");
+            c.guide(Topic::Gate1);
+        }
+        EarlyStops::Combined => {
+            c.next("arch", None);
+            c.act("spawn the architect; the brief is approved at the architecture stop");
+            c.guide(Topic::Architecture);
+        }
+        EarlyStops::Gate2Only => {
+            c.next("plan", None);
+            c.run(&format!("ferrule board set {slug} arch=skipped"));
+            c.act("spawn the planner; the brief is approved at gate 2's stop");
+            c.guide(Topic::Gate2);
+        }
+    }
+}
+
+/// Gate 2 stops when the brief asks for separate early stops, when no
+/// architecture stop was approved, when a Needs user item is open or when
+/// the run reuses an issue; else it is a notice.
 fn gate2_decision(c: &mut Ctx, word: &str, status: &Status) -> rusqlite::Result<()> {
     let issue = status.issue.as_deref().unwrap_or("new");
-    let reason = if c.field("lane")?.as_deref() != Some("fast") {
-        Some("lane")
+    let reason = if stops::early_stops(c.layout, c.slug) == EarlyStops::Separate {
+        Some("size")
     } else if !board::is_date(c.field("arch")?.as_deref()) {
         Some("no-arch-stop")
     } else if c.needs_user() {
         Some("needs-user")
-    } else if c.outgrown() {
-        Some("outgrown")
     } else if word == "reuse" {
         Some("reuse")
     } else {
@@ -597,8 +632,6 @@ fn replan_decision(c: &mut Ctx, events: &[Event]) -> Result<(), Error> {
         Some("needs-user")
     } else if arch_moved {
         Some("arch-moved")
-    } else if c.field("lane")?.as_deref() == Some("fast") && c.outgrown() {
-        Some("outgrown")
     } else {
         None
     };

@@ -41,19 +41,23 @@ impl Board {
         assert_eq!(self.ferrule(args).text(), "exit=0", "{args:?}");
     }
 
-    /// A fresh `ns`: parent in inprogress with `lane` (`-` for none) and
-    /// `arch`, a plan summary with s0 and `rows` more stages, and a verdict.
-    fn reset(&mut self, lane: &str, arch: &str, rows: u32, verdict: &str) {
+    /// A fresh `ns`: parent in inprogress with `arch`, a brief of `size`
+    /// new entries (`-` for no brief), a plan summary with s0 and `rows`
+    /// more stages, and a verdict.
+    fn reset(&mut self, size: &str, arch: &str, rows: u32, verdict: &str) {
         let transcript = std::mem::take(&mut self.transcript);
         *self = Board::new();
         self.transcript = transcript;
         let arch = format!("arch={arch}");
-        let lane = format!("lane={lane}");
-        let mut fields = vec!["branch=feat/ns", "gate1=2026-10-01", &arch];
-        if lane != "lane=-" {
-            fields.push(&lane);
+        seed_card(
+            self.root(),
+            "ns",
+            "inprogress",
+            &["branch=feat/ns", "gate1=2026-10-01", &arch],
+        );
+        if size != "-" {
+            self.brief(size.parse().unwrap());
         }
-        seed_card(self.root(), "ns", "inprogress", &fields);
         let mut summary = format!(
             "# ns — plan summary (rev 1)\n\nDecide: {rows} stages.\n\n| Stage | What | Pins | Files | Stop |\n|---|---|---|---|---|\n"
         );
@@ -62,6 +66,15 @@ impl Board {
         }
         self.artifact("plan.summary.md", &summary);
         self.verdict(verdict);
+    }
+
+    /// A brief of `n` new entries.
+    fn brief(&self, n: usize) {
+        let mut text = String::from("# ns — spec diff (rev 1)\n\n");
+        for i in 1..=n {
+            let _ = writeln!(text, "## R{i} — new · requirements\nEntry {i}.\n");
+        }
+        self.artifact("spec-diff.md", &text);
     }
 
     fn artifact(&self, name: &str, text: &str) {
@@ -120,7 +133,7 @@ fn summary(name: &str) -> String {
 #[test]
 fn it_next_plan_rounds() {
     let mut b = Board::new();
-    b.reset("full", "2026-10-02", 2, "clean");
+    b.reset("-", "2026-10-02", 2, "clean");
     let (plan, ps, review, verdict) = (
         file("plan.md"),
         summary("plan.summary.md"),
@@ -141,7 +154,7 @@ fn it_next_plan_rounds() {
         ]);
     }
     b.log_dump();
-    b.reset("full", "2026-10-02", 2, "clean");
+    b.reset("-", "2026-10-02", 2, "clean");
     b.next(&[
         "ns",
         "gate2",
@@ -159,25 +172,149 @@ fn it_next_plan_rounds() {
     b.finish("run-next-plan");
 }
 
+/// GA-R-122 — gate 2 after the combined early stop is a notice unless a
+/// Needs user item is open or the run reuses an issue.
 #[test]
-fn it_next_gate2_stops_unless_fast_and_small() {
+fn it_next_gate2_notice_after_combined_stop() {
     let mut b = Board::new();
     let issue = file("issue.md");
     let new = ["ns", "gate2", "status=new", issue.as_str()];
-    b.reset("full", "2026-10-02", 2, "clean");
-    b.next(&new);
-    b.reset("fast", "2026-10-02", 2, "clean");
+    b.reset("2", "2026-10-02", 2, "clean");
     b.next(&new);
     b.next(&["ns", "gate2", "status=reuse", "issue=41", &issue]);
-    b.reset("fast", "skipped", 1, "clean");
+    b.reset("2", "2026-10-02", 2, "needs-user");
     b.next(&new);
-    b.reset("fast", "2026-10-02", 3, "clean");
-    b.next(&new);
-    b.reset("fast", "2026-10-02", 2, "needs-user");
+    b.finish("run-next-gate2");
+}
+
+/// GA-R-123, GA-R-128 — a run without an architecture stop stops at gate 2.
+#[test]
+fn it_gate2_without_arch_stops() {
+    let mut b = Board::new();
+    let new = ["ns", "gate2", "status=new"];
+    b.reset("1", "skipped", 1, "clean");
     b.next(&new);
     b.reset("-", "no-arch", 2, "clean");
     b.next(&new);
-    b.finish("run-next-gate2");
+    let out = b.transcript.clone();
+    assert_eq!(
+        out.matches("next=stop reason=no-arch-stop").count(),
+        2,
+        "{out}"
+    );
+}
+
+/// GA-R-117, S501 — a brief of more than 3 entries stops at gate 2 for its size.
+#[test]
+fn it_gate2_large_brief_stops_for_size() {
+    let mut b = Board::new();
+    b.reset("4", "2026-10-02", 2, "clean");
+    b.next(&["ns", "gate2", "status=new"]);
+    assert!(
+        b.transcript.contains("next=stop reason=size"),
+        "{}",
+        b.transcript
+    );
+}
+
+/// GA-R-126 — a run without a brief whose architecture has at most 3
+/// changes gets a notice at gate 2.
+#[test]
+fn it_gate2_no_brief_small_arch_notice() {
+    let mut b = Board::new();
+    b.reset("-", "2026-10-02", 2, "clean");
+    b.artifact("architecture.md", &components(3));
+    b.next(&["ns", "gate2", "status=new"]);
+    assert!(b.transcript.contains("next=notice"), "{}", b.transcript);
+}
+
+/// GA-R-127 — a run without a brief whose architecture has more than 3
+/// changes stops at gate 2 for its size.
+#[test]
+fn it_gate2_no_brief_large_arch_stops() {
+    let mut b = Board::new();
+    b.reset("-", "2026-10-02", 2, "clean");
+    b.artifact("architecture.md", &components(4));
+    b.next(&["ns", "gate2", "status=new"]);
+    assert!(
+        b.transcript.contains("next=stop reason=size"),
+        "{}",
+        b.transcript
+    );
+}
+
+/// An architecture with `n` new components.
+fn components(n: usize) -> String {
+    let mut text = String::from("## Components\n| Component | Change |\n|---|---|\n");
+    for i in 0..n {
+        let _ = writeln!(text, "| c{i} | new |");
+    }
+    text
+}
+
+/// GA-R-116 — a brief of 2 or 3 entries goes to the architect without a stop.
+#[test]
+fn it_gate1_small_brief_goes_to_arch() {
+    for n in ["2", "3"] {
+        let mut b = Board::new();
+        b.reset(n, "-", 2, "clean");
+        b.next(&["ns", "gate1", "status=ready"]);
+        assert!(b.transcript.contains("next=arch"), "{}", b.transcript);
+        assert!(!b.transcript.contains("next=stop"), "{}", b.transcript);
+    }
+}
+
+/// GA-R-117, S501 — a brief of more than 3 entries stops at gate 1.
+#[test]
+fn it_gate1_large_brief_stops() {
+    let mut b = Board::new();
+    b.reset("4", "-", 2, "clean");
+    b.next(&["ns", "gate1", "status=ready"]);
+    assert!(b.transcript.contains("next=stop"), "{}", b.transcript);
+    assert!(
+        b.transcript
+            .contains("run: ferrule prompt render ns gate1\n"),
+        "{}",
+        b.transcript
+    );
+}
+
+/// GA-R-117 — an epic-sized brief stops at gate 1 whatever its entry count,
+/// and a gate 1 question is relayed.
+#[test]
+fn it_gate1_epic_and_question() {
+    let mut b = Board::new();
+    b.reset("1", "-", 2, "clean");
+    b.next(&["ns", "gate1", "status=ready", "size=epic"]);
+    b.next(&["ns", "gate1", "status=question"]);
+    let out = &b.transcript;
+    assert!(
+        out.contains("next=stop\nrun: ferrule prompt render ns gate1 --epic --reason"),
+        "{out}"
+    );
+    assert!(out.contains("next=relay"), "{out}");
+}
+
+/// GA-R-118 — a brief of one entry, or a no-diff brief, skips the architecture.
+#[test]
+fn it_gate1_one_entry_brief_skips_arch() {
+    let mut b = Board::new();
+    b.reset("1", "-", 2, "clean");
+    b.next(&["ns", "gate1", "status=ready"]);
+    b.reset("-", "-", 2, "clean");
+    b.artifact(
+        "spec-diff.md",
+        "# ns — spec diff (rev 1)\n\n## R1 — violated\nA.\n\n- why\n\n## R2 — violated\nB.\n\n- why\n",
+    );
+    b.next(&["ns", "gate1", "status=no-diff"]);
+    let out = b.transcript.clone();
+    assert_eq!(out.matches("next=plan").count(), 2, "{out}");
+    assert_eq!(
+        out.matches("run: ferrule board set ns arch=skipped")
+            .count(),
+        2,
+        "{out}"
+    );
 }
 
 #[test]
@@ -185,7 +322,7 @@ fn it_next_replan_is_pre_authorized_only_after_gate4() {
     let mut b = Board::new();
     let review = file("review.md");
     let clean = ["ns", "replan", "status=clean", review.as_str()];
-    b.reset("fast", "2026-10-02", 2, "clean");
+    b.reset("-", "2026-10-02", 2, "clean");
     b.log(&["plan-review=findings", "count=2", "round=1"]);
     b.log(&["stop", "kind=approval", "gate=gate4"]);
     b.log(&["replan", "from=s3"]);
@@ -204,11 +341,11 @@ fn it_next_replan_is_pre_authorized_only_after_gate4() {
         &summary("review.verdict.md"),
     ]);
     b.log_dump();
-    b.reset("fast", "2026-10-02", 2, "clean");
+    b.reset("-", "2026-10-02", 2, "clean");
     b.log(&["stop", "kind=stage"]);
     b.log(&["replan", "from=s3"]);
     b.next(&clean);
-    b.reset("fast", "2026-10-02", 2, "clean");
+    b.reset("-", "2026-10-02", 2, "clean");
     b.log(&["stop", "kind=approval", "gate=gate4"]);
     b.log(&["arch-rev=1"]);
     b.log(&["replan", "from=s3"]);
@@ -217,15 +354,11 @@ fn it_next_replan_is_pre_authorized_only_after_gate4() {
         "# ns — architecture summary (rev 2)\n",
     );
     b.next(&clean);
-    b.reset("fast", "2026-10-02", 3, "clean");
+    b.reset("-", "2026-10-02", 3, "clean");
     b.log(&["stop", "kind=approval", "gate=gate4"]);
     b.log(&["replan", "from=s3"]);
     b.next(&clean);
-    b.reset("full", "2026-10-02", 3, "clean");
-    b.log(&["stop", "kind=approval", "gate=gate4"]);
-    b.log(&["replan", "from=s3"]);
-    b.next(&clean);
-    b.reset("fast", "2026-10-02", 2, "clean");
+    b.reset("-", "2026-10-02", 2, "clean");
     b.log(&["stop", "kind=approval", "gate=gate4"]);
     b.log(&["replan", "from=s3"]);
     b.log(&["stop", "kind=stage"]);
@@ -238,7 +371,7 @@ fn it_next_replan_is_pre_authorized_only_after_gate4() {
 fn it_next_branch_review_rounds() {
     let mut b = Board::new();
     let (review, verdict) = (file("review.md"), summary("review.verdict.md"));
-    b.reset("full", "2026-10-02", 2, "clean");
+    b.reset("-", "2026-10-02", 2, "clean");
     seed_card(b.root(), "ns.s1", "done", &[]);
     b.ok(&["board", "new", "ns.s2", "--state", "inreview"]);
     let findings = |count: &'static str, user: &'static str| {
@@ -269,7 +402,8 @@ fn it_next_branch_review_rounds() {
     ]);
     b.log_dump();
     // s2 reaches done: the same log on a board where it already is.
-    b.reset("full", "2026-10-02", 2, "needs-user");
+    b.reset("-", "2026-10-02", 2, "needs-user");
+    b.ok(&["board", "set", "ns", "lane=full"]);
     seed_card(b.root(), "ns.s1", "done", &[]);
     seed_card(b.root(), "ns.s2", "done", &[]);
     b.log(&["review=2-open", "scope=branch"]);
@@ -278,7 +412,7 @@ fn it_next_branch_review_rounds() {
     b.ok(&["board", "set", "ns", "lane=fast"]);
     b.next(&findings("count=0", "user=1"));
     b.log_dump();
-    b.reset("full", "2026-10-02", 2, "clean");
+    b.reset("-", "2026-10-02", 2, "clean");
     seed_card(b.root(), "ns.s1", "done", &[]);
     seed_card(b.root(), "ns.s2", "done", &[]);
     let clean = [
@@ -302,13 +436,13 @@ fn it_next_branch_review_rounds() {
 #[test]
 fn it_next_stage_review_routes_minors() {
     let mut b = Board::new();
-    b.reset("full", "2026-10-02", 3, "clean");
+    b.reset("-", "2026-10-02", 3, "clean");
     seed_card(b.root(), "ns.s1", "done", &[]);
     b.ok(&["board", "new", "ns.s2", "--state", "inreview"]);
     b.next(&["ns", "stage", "status=findings", "count=1", "minors=1"]);
     b.next(&["ns", "stage", "status=clean", "minors=2"]);
     b.log_dump();
-    b.reset("full", "2026-10-02", 3, "clean");
+    b.reset("-", "2026-10-02", 3, "clean");
     seed_card(b.root(), "ns.s1", "done", &[]);
     b.ok(&["board", "new", "ns.s2", "--state", "inreview"]);
     b.next(&["ns", "stage", "status=clean", "minors=0"]);
@@ -329,19 +463,19 @@ fn it_next_stage_review_routes_minors() {
 #[test]
 fn it_next_branch_review_routes_minors() {
     let mut b = Board::new();
-    b.reset("full", "2026-10-02", 2, "clean");
+    b.reset("-", "2026-10-02", 2, "clean");
     seed_card(b.root(), "ns.s1", "done", &[]);
     seed_card(b.root(), "ns.s2", "done", &[]);
     b.next(&["ns", "gate3", "status=clean", "minors=2"]);
     b.log_dump();
-    b.reset("full", "2026-10-02", 2, "clean");
+    b.reset("-", "2026-10-02", 2, "clean");
     seed_card(b.root(), "ns.s1", "done", &[]);
     b.ok(&["board", "new", "ns.s2", "--state", "inreview"]);
     b.log(&["review=2-open", "scope=branch"]);
     b.log(&["review=clean", "scope=stage"]);
     b.next(&["ns", "gate3", "status=clean", "minors=1"]);
     b.log_dump();
-    b.reset("full", "2026-10-02", 2, "needs-user");
+    b.reset("-", "2026-10-02", 2, "needs-user");
     seed_card(b.root(), "ns.s1", "done", &[]);
     seed_card(b.root(), "ns.s2", "done", &[]);
     b.ok(&["board", "set", "ns", "lane=fast"]);
@@ -360,7 +494,7 @@ fn it_next_branch_review_routes_minors() {
 #[test]
 fn it_next_pr_and_ci() {
     let mut b = Board::new();
-    b.reset("full", "2026-10-02", 2, "clean");
+    b.reset("-", "2026-10-02", 2, "clean");
     b.next(&[
         "ns",
         "gate4",
@@ -385,7 +519,7 @@ fn it_next_pr_and_ci() {
 /// GA-R-100 — a clean line at `stage` and `gate3` without a numeric `minors=` is a usage error.
 fn it_next_usage() {
     let mut b = Board::new();
-    b.reset("full", "2026-10-02", 2, "clean");
+    b.reset("-", "2026-10-02", 2, "clean");
     b.next(&[]);
     b.next(&["ns", "nowhere", "status=ready"]);
     b.next(&["ns", "gate4", "status=new", "file=x"]);
@@ -413,7 +547,7 @@ fn log_of(b: &Board) -> String {
 fn it_next_retried_status_line_logs_and_counts_once() {
     let mut b = Board::new();
     let (review, verdict) = (file("review.md"), summary("review.verdict.md"));
-    b.reset("full", "2026-10-02", 2, "clean");
+    b.reset("-", "2026-10-02", 2, "clean");
     seed_card(b.root(), "ns.s1", "done", &[]);
     let g3 = [
         "gate",
@@ -437,7 +571,7 @@ fn it_next_retried_status_line_logs_and_counts_once() {
 
     // gate2: a retried findings is the same round, so round 3 still comes
     // after two `revise` answers.
-    b.reset("full", "2026-10-02", 2, "clean");
+    b.reset("-", "2026-10-02", 2, "clean");
     let (plan, ps) = (file("plan.md"), summary("plan.summary.md"));
     let ready = ["gate", "next", "ns", "gate2", "status=ready", &plan, &ps];
     let find = [

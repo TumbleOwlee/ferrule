@@ -93,6 +93,8 @@ See: ferrule guide show approval";
 /// Shown after `ferrule gate next --help`.
 const NEXT_AFTER_LONG_HELP: &str = "\
 Statuses each position takes:
+  gate1    ready, no-diff, question; size=epic marks a brief too big for one
+           run
   gate2    ready, findings, clean, question, arch-gap, split, behavior-change,
            new, reuse (with issue=<n>)
   replan   ready, findings, clean, question, arch-gap, split, behavior-change
@@ -118,6 +120,10 @@ Output, in order:
                                    retry: nothing is logged again, no round is
                                    used up and `next=` is the same.
   next=<word> [reason=<why>]       The one next action:
+    arch             gate1: a brief of 2 or 3 entries: spawn the architect,
+                     no stop
+    plan             gate1: a brief of 0 or 1 entries: run `board set <slug>
+                     arch=skipped`, spawn the planner, no stop
     relay            question: relay the question file to the user
     arch-gap         spawn the architect, then resume the planner
     split            handle the split request
@@ -128,7 +134,8 @@ Output, in order:
                      planner with the review file
     issue            plan review is done (clean, or findings in round 3): ask
                      the spec author for the tracking issue
-    stop             show the stop and wait for the user's approval
+    stop             show the stop and wait for the user's approval (gate1: a
+                     brief of more than 3 entries, or size=epic)
     notice           show the notice, then go on as if approved
     fix              stage: findings are open; gate3: findings are open;
                      ci: CI is red
@@ -143,11 +150,11 @@ Output, in order:
   reason=<why>                     Why `stop` stops, or `pr` has `needs-user`;
                                    `minors` carries the reason of the step it
                                    precedes.
-                                   gate2 stops for: lane (not fast),
-                                   no-arch-stop, needs-user, outgrown (plan
-                                   over two stages) and reuse. A re-plan stops
-                                   for: not-gate4, needs-user, arch-moved and
-                                   outgrown; otherwise it logs
+                                   gate2 stops for: size (a brief of more
+                                   than 3 entries), no-arch-stop, needs-user
+                                   and reuse. A re-plan stops for: not-gate4,
+                                   needs-user and arch-moved; otherwise it
+                                   logs
                                    replan=pre-authorized and gives `notice`.
   run: <command>                   A command to run now, slug filled in
   do: <what>                       What to do next (spawn, resume, show)
@@ -260,6 +267,8 @@ pub struct ApproveArgs {
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum NextAt {
+    /// The spec author's brief.
+    Gate1,
     /// Planner, plan reviewer, the spec author's issue answer.
     Gate2,
     /// A re-plan's planner and plan reviewer.
@@ -363,6 +372,7 @@ fn approve(args: &ApproveArgs, out: &mut impl Write) -> io::Result<u8> {
 
 fn next_step(slug: &str, at: NextAt, status: &[String], out: &mut impl Write) -> io::Result<u8> {
     let at = match at {
+        NextAt::Gate1 => At::Gate1,
         NextAt::Gate2 => At::Gate2,
         NextAt::Replan => At::Replan,
         NextAt::Stage => At::Stage,

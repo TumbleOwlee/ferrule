@@ -17,6 +17,7 @@ pub mod preflight;
 pub mod push;
 pub mod rebase;
 pub mod rebuild;
+pub mod stops;
 pub mod testproof;
 pub mod tier;
 

@@ -142,12 +142,6 @@ pub fn rows(summary: &str) -> Vec<Row<'_>> {
         .collect()
 }
 
-/// The plan summary's stage rows from s1 on.
-#[must_use]
-pub fn stage_rows(summary: &str) -> usize {
-    rows(summary).iter().filter(|r| r.n >= 1).count()
-}
-
 /// The run's `follow-up-<k>.md` files in `dir`, by `k`.
 #[must_use]
 pub fn follow_ups(dir: &Path) -> Vec<(u32, PathBuf)> {
@@ -482,14 +476,6 @@ mod tests {
     fn ut_line_count_counts_an_unterminated_last_line() {
         assert_eq!(line_count("- a\n- b"), 2);
         assert_eq!(line_count("- a\n- b\n"), 2);
-    }
-
-    #[test]
-    fn ut_stage_rows_skip_s0() {
-        assert_eq!(
-            stage_rows("| s0 | a |\n| s1 | b |\n| s12 | c |\n| Stage |\n"),
-            2
-        );
     }
 
     #[test]

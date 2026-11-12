@@ -1,10 +1,4 @@
 $ gate next ns gate2 status=new file=.claude/tasks/artifacts/ns/issue.md
-next=stop reason=lane
-run: ferrule prompt render ns gate2 --issue new
-do: show the gate 2 stop and wait for the user's approval
-guide: ferrule guide show gate2 --slug ns
-exit=0
-$ gate next ns gate2 status=new file=.claude/tasks/artifacts/ns/issue.md
 next=notice
 run: ferrule prompt render ns gate2-notice --issue new
 do: show the notice without stopping, then act on approval as if given
@@ -17,25 +11,7 @@ do: show the gate 2 stop and wait for the user's approval
 guide: ferrule guide show gate2 --slug ns
 exit=0
 $ gate next ns gate2 status=new file=.claude/tasks/artifacts/ns/issue.md
-next=stop reason=no-arch-stop
-run: ferrule prompt render ns gate2 --issue new
-do: show the gate 2 stop and wait for the user's approval
-guide: ferrule guide show gate2 --slug ns
-exit=0
-$ gate next ns gate2 status=new file=.claude/tasks/artifacts/ns/issue.md
-next=stop reason=outgrown
-run: ferrule prompt render ns gate2 --issue new
-do: show the gate 2 stop and wait for the user's approval
-guide: ferrule guide show gate2 --slug ns
-exit=0
-$ gate next ns gate2 status=new file=.claude/tasks/artifacts/ns/issue.md
 next=stop reason=needs-user
-run: ferrule prompt render ns gate2 --issue new
-do: show the gate 2 stop and wait for the user's approval
-guide: ferrule guide show gate2 --slug ns
-exit=0
-$ gate next ns gate2 status=new file=.claude/tasks/artifacts/ns/issue.md
-next=stop reason=lane
 run: ferrule prompt render ns gate2 --issue new
 do: show the gate 2 stop and wait for the user's approval
 guide: ferrule guide show gate2 --slug ns
