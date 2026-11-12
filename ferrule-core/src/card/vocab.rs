@@ -264,8 +264,15 @@ pub const VOCABULARY: &[Event] = &[
         Text::No,
     )
     .by("ferrule gate next <slug> <gate> <status line>"),
-    ev(Parent, "review=", V::Any, P::None, &["scope"], Text::No)
-        .by("ferrule gate next <slug> <gate> <status line>"),
+    ev(
+        Parent,
+        "review=",
+        V::Any,
+        P::None,
+        &["scope", "minors"],
+        Text::No,
+    )
+    .by("ferrule gate next <slug> <stage|gate3> <status line>"),
     ev(
         Parent,
         "overturned",
@@ -939,6 +946,14 @@ mod tests {
             "gauntlet=pass cov=80.1% sha=abc"
         );
         assert_eq!(body("green", "", STAGE).unwrap(), "green");
+    }
+
+    /// SP-R-002 — `spec-delta` and `test-red` take a three-letter prefix.
+    #[test]
+    fn ut_ids_with_long_prefixes_in_spec_delta_and_test_red() {
+        assert!(body("spec-delta", "OPS-R-002 changed origin=impl -- text", STAGE).is_ok());
+        assert!(body("test-red", "AUT-R-001 -- it_x", STAGE).is_ok());
+        assert!(body("spec-delta", "A-R-1 changed origin=impl -- text", STAGE).is_err());
     }
 
     #[test]

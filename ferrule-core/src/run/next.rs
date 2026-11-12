@@ -1,5 +1,5 @@
 //! The next step of a run after an agent's status line, for the gate 2,
-//! re-plan, branch-review, gate 4 and CI decisions: logs the events the
+//! re-plan, stage review, branch-review, gate 4 and CI decisions: logs the events the
 //! outcome implies and names the one next action.
 
 use rusqlite::Connection;
@@ -20,6 +20,8 @@ pub enum At {
     Gate2,
     /// A re-plan's planner and plan reviewer.
     Replan,
+    /// A stage or batch review.
+    Stage,
     /// The branch review.
     Gate3,
     /// The spec author's PR body.
@@ -34,6 +36,7 @@ impl At {
         match self {
             At::Gate2 => "gate2",
             At::Replan => "replan",
+            At::Stage => "stage",
             At::Gate3 => "gate3",
             At::Gate4 => "gate4",
             At::Ci => "ci",
@@ -48,10 +51,12 @@ pub struct Status {
     pub count: Option<String>,
     pub issue: Option<String>,
     pub ci: Option<String>,
+    /// `minors=`: the clean review's minor count.
+    pub minors: Option<String>,
 }
 
 impl Status {
-    /// Reads `status=`, `count=`, `issue=`, `ci=` from any number of
+    /// Reads `status=`, `count=`, `issue=`, `ci=`, `minors=` from any number of
     /// whitespace-separated words; other tokens are ignored.
     #[must_use]
     pub fn parse(words: &[String]) -> Self {
@@ -63,6 +68,7 @@ impl Status {
                     "count" => &mut s.count,
                     "issue" => &mut s.issue,
                     "ci" => &mut s.ci,
+                    "minors" => &mut s.minors,
                     _ => continue,
                 };
                 *slot = Some(v.to_owned());
@@ -75,7 +81,9 @@ impl Status {
     /// one, a `ci=` that is no exit code, an `issue=` that is neither a
     /// number nor `new` or `status=findings` without a numeric `count=` is
     /// a usage error: the first reach a command line the decision prints,
-    /// and an unreadable count would read as none.
+    /// and an unreadable count would read as none. At `stage` and `gate3`,
+    /// `clean` or `findings` with a count of 0 without a numeric `minors=`
+    /// is one too.
     fn word(&self, at: At) -> Result<String, Error> {
         let digits = |v: &str| !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit());
         let word = match at {
@@ -95,7 +103,17 @@ impl Status {
                 .count
                 .as_deref()
                 .is_some_and(|c| digits(c) && c.parse::<u64>().is_ok());
-        word.filter(|_| issue_ok && count_ok).ok_or(Error::Usage)
+        let clean = word.as_deref() == Some("clean")
+            || (word.as_deref() == Some("findings")
+                && self.count.as_deref().and_then(|c| c.parse::<u64>().ok()) == Some(0));
+        let minors_ok = !matches!(at, At::Stage | At::Gate3)
+            || !clean
+            || self
+                .minors
+                .as_deref()
+                .is_some_and(|m| digits(m) && m.parse::<u64>().is_ok());
+        word.filter(|_| issue_ok && count_ok && minors_ok)
+            .ok_or(Error::Usage)
     }
 }
 
@@ -281,6 +299,11 @@ fn is_replan(e: &Event) -> bool {
     matches!(e.typed(), Typed::Replan { from: Some(_) })
 }
 
+/// A status line's number; 0 when absent or unreadable.
+fn number(v: Option<&str>) -> u64 {
+    v.and_then(|v| v.parse().ok()).unwrap_or(0)
+}
+
 /// Decides the next step; returns the lines to print.
 pub fn next(
     db: &mut Board,
@@ -310,11 +333,8 @@ pub fn next(
         })
         .collect();
     let mut round = plan_reviews.len() + 1;
-    let count: u64 = status
-        .count
-        .as_deref()
-        .and_then(|c| c.parse().ok())
-        .unwrap_or(0);
+    let count = number(status.count.as_deref());
+    let minors = number(status.minors.as_deref());
     // A retried plan review verdict is the same round, not the next.
     if matches!(at, At::Gate2 | At::Replan)
         && let Some(last) = events.iter().rfind(|e| marks(e))
@@ -371,6 +391,8 @@ pub fn next(
             plan_review(&mut c, &word, round, count, &events)?;
         }
         (At::Gate2, "new" | "reuse") => gate2_decision(&mut c, &word, status)?,
+        (At::Stage, "findings") if count > 0 => stage_findings(&mut c),
+        (At::Stage, "findings" | "clean") => stage_clean(&mut c, minors)?,
         (At::Gate3, "findings") if count > 0 => branch_findings(&mut c, count)?,
         (At::Gate3, "findings" | "clean") => branch_clean = true,
         (At::Gate4, "ready") => {
@@ -383,7 +405,7 @@ pub fn next(
         _ => return Err(Error::Unknown(word)),
     }
     if branch_clean {
-        branch_resolved(&mut c, window)?;
+        branch_resolved(&mut c, window, minors)?;
     }
     Ok(c.out)
 }
@@ -418,6 +440,57 @@ fn plan_review(
     } else {
         replan_decision(c, events)
     }
+}
+
+/// A stage or batch review with open findings: nothing is logged.
+fn stage_findings(c: &mut Ctx) {
+    c.next("fix", None);
+    c.act("move the stage card to inprogress, resume its implementer with the review file, then the gauntlet and the same reviewer's follow-up");
+    c.guide(Topic::StageReview);
+}
+
+/// A clean stage or batch review: logged, then its stop, after the minors
+/// fix when it left any.
+fn stage_clean(c: &mut Ctx, minors: u64) -> Result<(), Error> {
+    if minors > 0 {
+        c.log(&["review=clean", "scope=stage", &format!("minors={minors}")])?;
+    } else {
+        c.log(&["review=clean", "scope=stage"])?;
+    }
+    announce(c, "stage-stop", None, minors);
+    let n = c.open_stage()?;
+    stage_stop_lines(c, n);
+    Ok(())
+}
+
+/// The lines of a stage stop decision; `None` when no stage is open.
+fn stage_stop_lines(c: &mut Ctx, n: Option<u32>) {
+    let slug = c.slug;
+    let n = n.map_or_else(|| "s<n>".to_owned(), |n| format!("s{n}"));
+    c.run(&format!("ferrule stage stop {slug} {n} --threads <n>"));
+    c.act("run the stage stop decision with the PR thread count");
+    c.guide(Topic::StageReview);
+}
+
+/// The next step, or the minors fix step ahead of it.
+fn announce(c: &mut Ctx, word: &str, reason: Option<&str>, minors: u64) {
+    if minors > 0 {
+        minors_step(c, minors, word, reason);
+    } else {
+        c.next(word, reason);
+    }
+}
+
+/// A clean review left minors: the implementer fixes them, no review
+/// follows, then the step `then` names.
+fn minors_step(c: &mut Ctx, minors: u64, then: &str, reason: Option<&str>) {
+    match reason {
+        Some(r) => c.out.push(format!("next=minors then={then} reason={r}")),
+        None => c.out.push(format!("next=minors then={then}")),
+    }
+    c.act(&format!(
+        "resume the implementer to fix the minors the verdict lists (count {minors}), with no review after the fix, then the step below"
+    ));
 }
 
 fn branch_findings(c: &mut Ctx, count: u64) -> Result<(), Error> {
@@ -550,12 +623,15 @@ fn replan_decision(c: &mut Ctx, events: &[Event]) -> Result<(), Error> {
 
 /// A clean branch review: resolves the findings it followed up, then the
 /// next stage's stop decision, gate 3's stop, or the PR.
-fn branch_resolved(c: &mut Ctx, window: &[Event]) -> Result<(), Error> {
+fn branch_resolved(c: &mut Ctx, window: &[Event], minors: u64) -> Result<(), Error> {
     let mut first: Option<String> = None;
-    let reviews = window.iter().filter_map(|e| match e.typed() {
-        Typed::Review(v) => Some(v),
-        _ => None,
-    });
+    let reviews = window
+        .iter()
+        .filter(|e| e.arg("scope") != Some("stage"))
+        .filter_map(|e| match e.typed() {
+            Typed::Review(v) => Some(v),
+            _ => None,
+        });
     for v in reviews {
         if v == "clean"
             || v.strip_suffix("-resolved")
@@ -570,24 +646,27 @@ fn branch_resolved(c: &mut Ctx, window: &[Event]) -> Result<(), Error> {
             first = Some(n.to_owned());
         }
     }
-    match first {
-        Some(n) => c.log(&[&format!("review={n}-resolved")])?,
-        None => c.log(&["review=clean"])?,
+    let mut line = match first {
+        Some(n) => vec![format!("review={n}-resolved")],
+        None => vec!["review=clean".to_owned()],
+    };
+    if minors > 0 {
+        line.push(format!("minors={minors}"));
     }
+    let words: Vec<&str> = line.iter().map(String::as_str).collect();
+    c.log(&words)?;
     let slug = c.slug;
     if let Some(n) = c.open_stage()? {
-        c.next("stage-stop", None);
-        c.run(&format!("ferrule stage stop {slug} s{n} --threads <n>"));
-        c.act("run the stage stop decision with the PR thread count");
-        c.guide(Topic::StageReview);
+        announce(c, "stage-stop", None, minors);
+        stage_stop_lines(c, Some(n));
     } else if c.needs_user() && c.field("lane")?.as_deref() == Some("full") {
-        c.next("stop", None);
+        announce(c, "stop", None, minors);
         c.run(&format!("ferrule prompt render {slug} gate3"));
         c.act("show the gate 3 stop with the open Needs user item");
         c.guide(Topic::Gate3);
     } else {
         let reason = c.needs_user().then_some("needs-user");
-        c.next("pr", reason);
+        announce(c, "pr", reason, minors);
         c.act("spawn the spec author for the PR body");
         c.guide(Topic::Gate4);
     }
@@ -609,6 +688,34 @@ mod tests {
         assert_eq!(one.status.as_deref(), Some("findings"));
         assert_eq!(one.count, many.count);
         assert_eq!(many.issue, None);
+    }
+
+    /// `parse` fills `minors` from a status line.
+    #[test]
+    fn ut_status_reads_minors() {
+        let s = Status::parse(&["status=clean minors=2".to_owned()]);
+        assert_eq!(s.minors.as_deref(), Some("2"));
+    }
+
+    /// GA-R-100 — a clean line at `stage` and `gate3` needs a numeric `minors=`.
+    #[test]
+    fn ut_clean_needs_minors_at_stage_and_gate3() {
+        let st = |w: &str| Status::parse(&[w.to_owned()]);
+        for (at, line) in [
+            (At::Stage, "status=clean"),
+            (At::Gate3, "status=clean"),
+            (At::Gate3, "status=findings count=0"),
+            (At::Stage, "status=clean minors=x"),
+        ] {
+            assert!(matches!(st(line).word(at), Err(Error::Usage)), "{line}");
+        }
+        for (at, line) in [
+            (At::Stage, "status=clean minors=0"),
+            (At::Stage, "status=findings count=2"),
+            (At::Replan, "status=clean"),
+        ] {
+            assert!(st(line).word(at).is_ok(), "{line}");
+        }
     }
 
     #[test]

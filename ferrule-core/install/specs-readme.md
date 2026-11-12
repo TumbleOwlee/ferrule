@@ -18,7 +18,7 @@ The authoritative description of what this project does, one directory per capab
 These rules bind text in `docs/specs/`. A run's draft entries before they land (local `R<n>`/`E<n>` IDs in its `spec-diff.md`) may be coarser; they meet the rules once they land.
 
 1. **No code pointers.** Never cite file:line or internal identifiers — a spec states what must be true, not where. Public, user-facing surface is spec and lives in the area's `api-contract.md`.
-2. **ID format.** `<PREFIX>-R-nnn` for a requirement, `<PREFIX>-E-nnn` for an edge case; the prefix is the area's (table above). The two series are numbered independently per area. IDs are stable and append-only once on the main branch: a dropped ID is retired and its number never reused.
+2. **ID format.** `<PREFIX>-R-nnn` for a requirement, `<PREFIX>-E-nnn` for an edge case; the prefix is the area's (table above), 2 to 5 uppercase letters. The two series are numbered independently per area. IDs are stable and append-only once on the main branch: a dropped ID is retired and its number never reused.
 3. **Owner = the behavior, not the surface.** Shared behavior is stated once, in the area that owns it.
 4. **Requirements are testable.** Normative indicative statements with observable outcomes. Good: "The client retries with exponential backoff bounded to 1s–30s." Bad: "The client is robust."
 5. **Known gaps are specified, not hidden.** Intentional-but-ugly behavior goes into the area's `edge-cases.md` as a stated constraint.

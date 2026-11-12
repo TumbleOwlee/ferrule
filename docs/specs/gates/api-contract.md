@@ -28,7 +28,18 @@
 
 - a `decisions.md` line supersedes an earlier one when it has the same `[spec <ID>]` tag or its why starts `supersedes "<earlier choice>"`; a superseded line is left out of `Confirm:` (GA-R-111)
 
+## Reviewer status line
+
+- `blockers=<n>` and `minors=<n>` on the stage and batch status line, `minors=<n>` on the branch status line (GA-R-092, GA-R-094)
+
+## ferrule gate next
+
+- `ferrule gate next <slug> stage <status line>` takes `clean` and `findings count=<n>` (GA-R-099, GA-R-095)
+- `next=minors then=<stage-stop|stop|pr> [reason=<why>]`, followed by the `run:`/`do:`/`guide:` lines of the step after the fix (GA-R-095, GA-R-096, GA-R-097)
+- `usage: ferrule gate next <slug> <stage|gate3> status=<word>…` (exit 2) for a clean line without `minors=` (GA-R-100)
+
 ## Card events
 
 - `tier=<tier> [promoted=<why>]` on a stage card, logged only by `ferrule stage tier` (GA-R-072, GA-R-073)
 - `gauntlet=pass|fail` on the run card, logged by `ferrule ci gauntlet` at level full (GA-R-090)
+- `review=clean scope=stage [minors=<n>]`, `review=clean [minors=<n>]` and `review=<n>-resolved [minors=<n>]` on the run card, logged by `ferrule gate next` (GA-R-101, GA-R-103)

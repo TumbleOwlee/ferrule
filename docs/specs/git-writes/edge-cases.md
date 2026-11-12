@@ -47,3 +47,7 @@
 **GW-E-021** — On a Rust project, a change to a function outside a test's body counts as rewriting no test.
 
 **GW-E-022** — On a Rust project, tests are told apart by function name, so two tests of one name in different modules count as one test.
+
+## Body checks
+
+**GW-E-024** — A code span or fenced block whose whole content is a bare stage id or a bare agent name is refused with `reason=stage-ref`.

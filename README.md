@@ -145,7 +145,7 @@ Commands are grouped by what they act on. Most are run by the orchestrating agen
 | Command | Does |
 |---|---|
 | `ferrule gate approve <slug> <gate> [--<flag>…]` | Record an approval; gate 2 files the issue, adds the worktree and creates the stage cards from `plan.md`'s `## Shared` table |
-| `ferrule gate next <slug> <gate2\|replan\|gate3\|gate4\|ci> <status…>` | The next step after an agent's status line, with the guide topic to read |
+| `ferrule gate next <slug> <gate2\|replan\|stage\|gate3\|gate4\|ci> <status…>` | The next step after an agent's status line, with the guide topic to read |
 
 ### Stage
 

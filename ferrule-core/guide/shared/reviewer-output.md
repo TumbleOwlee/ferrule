@@ -32,11 +32,11 @@ Minors are information, never asked: always `fixed before commit`, by that stage
 Final message one line:
 
 ```
-status=clean file={run_dir}/review.md summary={run_dir}/review.verdict.md
-status=findings file={run_dir}/review.md summary={run_dir}/review.verdict.md count=<blockers+majors> blockers=<n> user=<Needs user items> stage=[s2,s4]
+status=clean file={run_dir}/review.md summary={run_dir}/review.verdict.md minors=<n>
+status=findings file={run_dir}/review.md summary={run_dir}/review.verdict.md count=<blockers+majors> blockers=<n> user=<Needs user items> minors=<n> stage=[s2,s4]
 status=blocked reason=<empty diff | unresolvable base ref | …>
 ```
 
-`blockers=<n>` (the blockers alone) goes on the status line of `stage` and `batch` scopes.
+`blockers=<n>` (the blockers alone) goes on the status line of `stage` and `batch` scopes; `minors=<n>` (the lines under `Minors`, 0 for none) on `stage`, `batch` and `branch` scopes.
 
 Findings needing a user decision (scope question, spec ambiguity, semver call, a meaningful spec change, an architecture deviation) are flagged as `Needs user` with `user=<n>` on the status line, not resolved; with only those, `status=findings count=0 user=<n>`.

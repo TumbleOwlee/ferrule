@@ -74,6 +74,45 @@ fn it_issue_body() {
     body(&["demo", "--status", "x.md"], "issue-body-status-gone");
 }
 
+/// GW-R-081, GW-E-024 — code holding more than a bare stage id is no stage
+/// ref; a bare one in a span or a block is.
+#[test]
+fn it_body_stage_ref_skips_code_unless_bare() {
+    let p = project();
+    let p = p.path();
+    let old = "retry with backoff";
+    variant(
+        p,
+        "demo",
+        "sref5",
+        "pr.md",
+        old,
+        "retry with backoff, set by `--tiers s2=batched,s3=skipped`",
+    );
+    let ok = ferrule(p, &["pr", "body", "sref5", "full"]).text();
+    assert!(ok.ends_with("exit=0"), "{ok}");
+    variant(
+        p,
+        "demo",
+        "sref6",
+        "pr.md",
+        old,
+        "retry with backoff as in `s2`",
+    );
+    let bare = ferrule(p, &["pr", "body", "sref6", "full"]).text();
+    assert!(bare.contains("reason=stage-ref"), "{bare}");
+    variant(
+        p,
+        "demo",
+        "sref7",
+        "issue.md",
+        "Today the user restarts the tab by hand.",
+        "Today:\n\n```\ns2\n```\n",
+    );
+    let block = ferrule(p, &["issue", "body", "sref7"]).text();
+    assert!(block.contains("reason=stage-ref"), "{block}");
+}
+
 #[test]
 fn it_issue_body_refuses_stage_and_agent_names() {
     let p = project();

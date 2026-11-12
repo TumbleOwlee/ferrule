@@ -250,6 +250,7 @@ fn it_next_branch_review_rounds() {
             verdict.as_str(),
             count,
             user,
+            "minors=0",
         ]
     };
     let mut first = findings("count=2", "user=0").to_vec();
@@ -263,6 +264,7 @@ fn it_next_branch_review_rounds() {
         &verdict,
         "count=0",
         "user=0",
+        "minors=0",
         "stage=[s2]",
     ]);
     b.log_dump();
@@ -285,6 +287,7 @@ fn it_next_branch_review_rounds() {
         "status=clean",
         review.as_str(),
         verdict.as_str(),
+        "minors=0",
     ];
     b.next(&findings("count=1", "user=0"));
     b.next(&clean);
@@ -292,6 +295,66 @@ fn it_next_branch_review_rounds() {
     b.next(&clean);
     b.log_dump();
     b.finish("run-next-branch");
+}
+
+/// GA-R-095, GA-R-097, GA-R-099, GA-R-101, GA-R-103, GA-E-016 — a stage review routes its
+/// minors to a fix step before the stop, and logs the clean review.
+#[test]
+fn it_next_stage_review_routes_minors() {
+    let mut b = Board::new();
+    b.reset("full", "2026-10-02", 3, "clean");
+    seed_card(b.root(), "ns.s1", "done", &[]);
+    b.ok(&["board", "new", "ns.s2", "--state", "inreview"]);
+    b.next(&["ns", "stage", "status=findings", "count=1", "minors=1"]);
+    b.next(&["ns", "stage", "status=clean", "minors=2"]);
+    b.log_dump();
+    b.reset("full", "2026-10-02", 3, "clean");
+    seed_card(b.root(), "ns.s1", "done", &[]);
+    b.ok(&["board", "new", "ns.s2", "--state", "inreview"]);
+    b.next(&["ns", "stage", "status=clean", "minors=0"]);
+    b.next(&[
+        "ns",
+        "stage",
+        "status=findings",
+        "count=0",
+        "minors=1",
+        "user=0",
+    ]);
+    b.log_dump();
+    b.finish("run-next-stage");
+}
+
+/// GA-R-096, GA-R-097, GA-R-101 — a branch review routes its minors to a fix step before the
+/// stop or the PR, and a stage review never resets an open branch count.
+#[test]
+fn it_next_branch_review_routes_minors() {
+    let mut b = Board::new();
+    b.reset("full", "2026-10-02", 2, "clean");
+    seed_card(b.root(), "ns.s1", "done", &[]);
+    seed_card(b.root(), "ns.s2", "done", &[]);
+    b.next(&["ns", "gate3", "status=clean", "minors=2"]);
+    b.log_dump();
+    b.reset("full", "2026-10-02", 2, "clean");
+    seed_card(b.root(), "ns.s1", "done", &[]);
+    b.ok(&["board", "new", "ns.s2", "--state", "inreview"]);
+    b.log(&["review=2-open", "scope=branch"]);
+    b.log(&["review=clean", "scope=stage"]);
+    b.next(&["ns", "gate3", "status=clean", "minors=1"]);
+    b.log_dump();
+    b.reset("full", "2026-10-02", 2, "needs-user");
+    seed_card(b.root(), "ns.s1", "done", &[]);
+    seed_card(b.root(), "ns.s2", "done", &[]);
+    b.ok(&["board", "set", "ns", "lane=fast"]);
+    b.next(&[
+        "ns",
+        "gate3",
+        "status=findings",
+        "count=0",
+        "user=1",
+        "minors=1",
+    ]);
+    b.log_dump();
+    b.finish("run-next-branch-minors");
 }
 
 #[test]
@@ -319,6 +382,7 @@ fn it_next_pr_and_ci() {
 }
 
 #[test]
+/// GA-R-100 — a clean line at `stage` and `gate3` without a numeric `minors=` is a usage error.
 fn it_next_usage() {
     let mut b = Board::new();
     b.reset("full", "2026-10-02", 2, "clean");
@@ -331,6 +395,10 @@ fn it_next_usage() {
     // Findings without a count would read as clean.
     b.next(&["ns", "gate3", "status=findings"]);
     b.next(&["ns", "gate3", "status=findings", "count=two"]);
+    b.next(&["ns", "stage", "status=clean"]);
+    b.next(&["ns", "gate3", "status=clean"]);
+    b.next(&["ns", "gate3", "status=findings", "count=0"]);
+    b.next(&["ns", "stage", "status=clean", "minors=x"]);
     b.finish("run-next-usage");
 }
 

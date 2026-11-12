@@ -1361,7 +1361,31 @@ fn it_spec_next_counts_main_and_with_run_the_run() {
     );
     assert_eq!(
         s.run(&["spec", "next", "mb"]).text(),
-        "next=refused reason=prefix hint=a prefix is two capital letters, e.g. MB\nexit=1"
+        "next=refused reason=prefix hint=a prefix is 2 to 5 capital letters, e.g. MB\nexit=1"
+    );
+}
+
+/// SP-R-001 — `spec next` and `spec refs` take a three-letter prefix and
+/// refuse a six-letter one.
+#[test]
+fn it_spec_next_and_refs_take_long_prefixes() {
+    let s = Scratch::new(1);
+    std::fs::create_dir_all(s.root.join("docs/specs")).unwrap();
+    std::fs::write(s.root.join("docs/specs/a.md"), "**AUT-R-001** — x\n").unwrap();
+    git(&s.root, &["add", "docs"]);
+    git(&s.root, &["commit", "-q", "-m", "specs"]);
+    assert_eq!(
+        s.say(&["spec", "next", "AUT"]),
+        "next=AUT-R-002 last=AUT-R-001"
+    );
+    assert_eq!(
+        s.say(&["spec", "refs", "AUT-R-001", "--path", "docs/specs"]),
+        "docs/specs/a.md:1:**AUT-R-001** — x"
+    );
+    let refused = s.run(&["spec", "next", "ABCDEF"]).text();
+    assert!(
+        refused.starts_with("next=refused reason=prefix"),
+        "{refused}"
     );
 }
 

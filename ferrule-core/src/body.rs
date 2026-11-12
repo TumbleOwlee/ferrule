@@ -102,14 +102,40 @@ const AGENTS: [&str; 6] = [
     "orchestrator",
 ];
 
-/// The first stage id or agent name in the visible text. HTML comments,
-/// fenced blocks, code spans holding `.` or `/` and the original request
-/// are not scanned.
+/// `s` when its trimmed content is a whole stage id or an agent name.
+fn bare(s: &str) -> Option<String> {
+    let t = s.trim();
+    if stage_word(t).as_deref() == Some(t) {
+        return Some(t.to_owned());
+    }
+    let lower = t.to_ascii_lowercase();
+    AGENTS.contains(&lower.as_str()).then_some(lower)
+}
+
+/// The first stage id or agent name in the visible text. HTML comments, the
+/// original request, and code (spans and fenced blocks) are not scanned,
+/// except code whose whole content is a bare stage id or agent name.
 #[must_use]
 pub fn stage_ref(text: &str) -> Option<String> {
     let mut request = false;
+    let mut block: Option<String> = None;
     for line in markdown::classified(text) {
+        if request && line.fenced {
+            continue;
+        }
         if line.fenced {
+            if line.delimiter {
+                if let Some(buf) = block.take() {
+                    if let Some(t) = bare(&buf) {
+                        return Some(t);
+                    }
+                } else {
+                    block = Some(String::new());
+                }
+            } else if let Some(buf) = block.as_mut() {
+                buf.push_str(line.text);
+                buf.push('\n');
+            }
             continue;
         }
         let line = line.text;
@@ -135,11 +161,11 @@ pub fn stage_ref(text: &str) -> Option<String> {
             return Some(agent.to_owned());
         }
     }
-    None
+    block.and_then(|buf| bare(&buf))
 }
 
-/// The line without HTML comments and without code spans that hold `.`
-/// or `/` (paths, file names), each span replaced by a space.
+/// The line without HTML comments and without code spans, except a span
+/// whose whole content is a bare stage id or agent name.
 fn visible(line: &str) -> String {
     let mut s = String::new();
     let mut rest = line;
@@ -150,7 +176,7 @@ fn visible(line: &str) -> String {
     s.push_str(rest);
     let mut out = String::new();
     for (i, seg) in s.split('`').enumerate() {
-        if i % 2 == 0 || !seg.contains(['.', '/']) {
+        if i % 2 == 0 || bare(seg).is_some() {
             out.push_str(seg);
             out.push(' ');
         }
@@ -978,6 +1004,21 @@ fn full(c: &Ctx, issue: &str, deltas: &[Delta]) -> Result<String, Error> {
 
 #[cfg(test)]
 mod tests {
+    /// SP-R-003 — the spec-change list names a three-letter ID.
+    #[test]
+    fn ut_spec_changes_list_a_three_letter_id() {
+        let diff = SpecDiff::parse("");
+        let mut out = String::new();
+        let ids = spec_changes(
+            &diff,
+            &[],
+            &["- OPS-R-002 changed — text".to_owned()],
+            &mut out,
+        );
+        assert!(ids.contains("OPS-R-002"));
+        assert!(out.contains("- OPS-R-002"), "{out}");
+    }
+
     /// GA-R-093 — the stage marker carries a non-own tier and a stop.
     #[test]
     fn ut_stage_marker_carries_tier_and_stop() {
@@ -1041,13 +1082,22 @@ mod tests {
         assert!(out.contains("- gone (chosen)"), "{out}");
     }
 
+    /// GW-R-080, GW-R-081, GW-E-024 — code is skipped unless its whole content
+    /// is a bare stage id or agent name.
     #[test]
     fn ut_stage_refs() {
         assert_eq!(stage_ref("Today s3 restarts it.").as_deref(), Some("s3"));
         assert_eq!(stage_ref("Today `s3` restarts it.").as_deref(), Some("s3"));
         assert_eq!(stage_ref("Today `docs/s3.md` restarts it."), None);
         assert_eq!(stage_ref("x <!-- s1 --> y"), None);
-        assert_eq!(stage_ref("```\ns1\n```\n"), None);
+        assert_eq!(stage_ref("```\ns1\n```\n").as_deref(), Some("s1"));
+        assert_eq!(stage_ref("Run `--tiers s2=batched,s3=skipped` now."), None);
+        assert_eq!(
+            stage_ref("the `fe-architect` said").as_deref(),
+            Some("fe-architect")
+        );
+        assert_eq!(stage_ref("```\nferrule stage stop demo s2\n```\n"), None);
+        assert_eq!(stage_ref("```sh\n  s4\n```\n").as_deref(), Some("s4"));
         assert_eq!(stage_ref("uses2 and s2x"), None);
         assert_eq!(
             stage_ref("the Fe-Architect said").as_deref(),
@@ -1088,9 +1138,12 @@ mod tests {
         assert!(verification(tight, "s2").is_empty());
     }
 
+    /// GW-R-081, GW-E-024 — a fence of either kind hides its content unless
+    /// that is a bare stage id.
     #[test]
     fn ut_fences_of_either_kind_hide_refs_and_headings() {
-        assert_eq!(stage_ref("~~~\ns1\n~~~\n"), None);
+        assert_eq!(stage_ref("~~~\nrun s1 now\n~~~\n"), None);
+        assert_eq!(stage_ref("~~~\ns1\n~~~\n").as_deref(), Some("s1"));
         assert_eq!(
             stage_ref("~~~\n```\ns1\n```\n~~~\ns2\n").as_deref(),
             Some("s2")
