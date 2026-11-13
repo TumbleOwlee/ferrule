@@ -491,8 +491,6 @@ pub enum Gate {
     Stage,
     /// A re-plan stop: only what was shown is recorded.
     Replan,
-    /// A meaningful spec change: only what was shown is recorded.
-    Delta,
     Gate4,
 }
 
@@ -506,7 +504,6 @@ impl Gate {
             Gate::Gate2 => "gate2",
             Gate::Stage => "stage",
             Gate::Replan => "replan",
-            Gate::Delta => "delta",
             Gate::Gate4 => "gate4",
         }
     }
@@ -520,7 +517,7 @@ impl Gate {
             Gate::Arch | Gate::Epic => Some("arch"),
             Gate::Gate2 => Some("gate2"),
             Gate::Gate4 => Some("gate4"),
-            Gate::Stage | Gate::Replan | Gate::Delta => None,
+            Gate::Stage | Gate::Replan => None,
         }
     }
 
@@ -531,9 +528,7 @@ impl Gate {
             Gate::Gate1 | Gate::Arch | Gate::Epic => &[State::Open],
             // Re-approving gate2 resumes a run that died after it.
             Gate::Gate2 => &[State::Open, State::InProgress],
-            Gate::Stage | Gate::Replan | Gate::Delta | Gate::Gate4 => {
-                &[State::InProgress, State::InReview]
-            }
+            Gate::Stage | Gate::Replan | Gate::Gate4 => &[State::InProgress, State::InReview],
         }
     }
 }
@@ -557,7 +552,7 @@ fn missing(
         Gate::Gate1 | Gate::Arch => None,
         Gate::Epic => (field("kind")?.as_deref() != Some("epic")).then_some(("gate1", " --epic")),
         Gate::Gate2 => (!has(field("arch")?.as_deref())).then_some(("arch", "")),
-        Gate::Stage | Gate::Replan | Gate::Delta | Gate::Gate4 => {
+        Gate::Stage | Gate::Replan | Gate::Gate4 => {
             (!has(field("gate2")?.as_deref())).then_some(("gate2", ""))
         }
     })

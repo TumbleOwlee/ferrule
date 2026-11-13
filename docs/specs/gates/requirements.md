@@ -24,6 +24,10 @@
 
 **GA-R-130** — `ferrule prompt render` has no `--recommend` flag.
 
+**GA-R-132** — `ferrule gate approve` has no `delta` gate.
+
+**GA-R-133** — `ferrule prompt render` has no `delta` stop.
+
 **GA-R-121** — A run's card has no lane field.
 
 ## Stage gate
@@ -199,6 +203,8 @@
 **GA-R-068** — An interface sketch in the architecture binds only what the architecture's `## Public surface` lists.
 
 **GA-R-120** — `ferrule guide show` has no `--lane` flag.
+
+**GA-R-134** — No guide topic names a `delta` review scope, stop or gate.
 
 ## Plan gate
 

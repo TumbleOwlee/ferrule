@@ -1547,3 +1547,21 @@ fn it_guides_bind_only_the_public_surface_of_sketches() {
     let architect = rendered(root, "architect");
     assert!(architect.contains("Only what `## Public surface` lists binds the plan and the code; the rest of a sketch guides them"), "{architect}");
 }
+
+/// GA-R-134 — no guide topic names a `delta` review scope, stop or gate.
+#[test]
+fn it_no_guide_names_delta() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let list = ok(root, &["guide", "list"]);
+    let mut seen = 0;
+    for line in list.lines().filter(|l| l.starts_with("  ")) {
+        let topic = line.split_whitespace().next().unwrap();
+        let body = ok(root, &["guide", "show", topic])
+            .replace("spec-delta", "")
+            .replace("delta=", "");
+        assert!(!body.contains("delta"), "topic {topic} names delta");
+        seen += 1;
+    }
+    assert!(seen > 0, "{list}");
+}

@@ -267,9 +267,7 @@ pub const VOCABULARY: &[Event] = &[
     ev(
         Parent,
         "approved=",
-        V::OneOf(&[
-            "gate1", "arch", "epic", "gate2", "stage", "replan", "delta", "gate4",
-        ]),
+        V::OneOf(&["gate1", "arch", "epic", "gate2", "stage", "replan", "gate4"]),
         P::None,
         &[],
         Text::No,

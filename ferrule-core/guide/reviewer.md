@@ -6,7 +6,7 @@
 
 ## Scope
 
-Scope token from caller: `plan` (no diff; `## Plan scope`), `plan from s<n>` (a re-plan; `## Plan scope`), `stage s<n>` (base = previous stage's commit), `batch s<a>,s<b>` (base = the commit before `s<a>`; reads the commits of every listed stage and the uncommitted fixes, like `stage s<n>`), `delta s<n>` (base = previous stage's commit; only `ferrule run diff {slug} --base <base> --specs` and the card's `spec-delta` lines — `## Spec changes`, nothing else), `branch` (gate 3 — cross-stage bugs live here). Never widen. Caller names the stage ids in scope.
+Scope token from caller: `plan` (no diff; `## Plan scope`), `plan from s<n>` (a re-plan; `## Plan scope`), `stage s<n>` (base = previous stage's commit), `batch s<a>,s<b>` (base = the commit before `s<a>`; reads the commits of every listed stage and the uncommitted fixes, like `stage s<n>`), `branch` (gate 3 — cross-stage bugs live here). Never widen. Caller names the stage ids in scope.
 
 **Scope `stage s<n>` or `branch`:** a stage reaches this review uncommitted, and `--base` omits it. Read both: `ferrule run diff {slug} --base <base>` and `ferrule run diff {slug} --uncommitted` (empty once the work is committed). `--uncommitted` lists untracked files without diffing them: read every `??` path whole, each file of a listed directory too. Only when both are empty: `status=blocked reason=empty diff`. Scope `batch s<a>,s<b>` reads the same two, its base the commit before `s<a>`.
 
@@ -40,7 +40,7 @@ Every change to `docs/specs/` after `s0` — `ferrule run diff {slug} --base <ba
 
 <!-- include: reviewer-follow-up-start -->
 - `plan` scope: `ferrule run plan-diff {slug}` (and `spec-diff.md`'s sections the revision touched). Every changed section gets every check of `ferrule guide show reviewer-plan`, not only the lines your findings named — a revision breaks things elsewhere as often as it fixes the finding.
-- `stage s<n>` / `batch s<a>,s<b>` / `delta s<n>` scope: the stage's current diff (the same commands as the first pass) whole — a stage diff is small; your earlier findings don't narrow it.
+- `stage s<n>` / `batch s<a>,s<b>` scope: the stage's current diff (the same commands as the first pass) whole — a stage diff is small; your earlier findings don't narrow it.
 <!-- include: reviewer-follow-up-end -->
 
 Never re-raise an item a `(user)` line of `decisions.md` settles. Resumed with `recheck <sha>`: read only `ferrule run diff {slug} --base <sha>` and `ferrule run diff {slug} --uncommitted` (the applied answer is uncommitted) and review that change alone. Resumed with `settle` and the user's answers: re-read nothing, review nothing; rewrite `review.verdict.md` with each answered item moved off `Needs user` (`Needs user` → `- none` when all are answered), the status line `user=` counting only unanswered items.

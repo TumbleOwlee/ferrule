@@ -57,3 +57,9 @@
 **GA-E-021** — A `lane` value already on a saved card is ignored.
 
 **GA-E-022** — A `gate3` date already on a saved card is ignored.
+
+**GA-E-023** — `ferrule gate approve <slug> delta` is a usage error (exit 2).
+
+**GA-E-024** — An `approved=delta` or `stop kind=approval gate=delta` line already on a saved card imports and reads without error.
+
+**GA-E-025** — `ferrule prompt render <slug> delta` is a usage error (exit 2).

@@ -235,13 +235,22 @@ fn it_render_every_stop() {
         ],
     )
     .golden("prompt-render-blocked");
-    render(p, &["demo", "delta", "--stage", "s1"]).golden("prompt-render-delta");
     seed_log(p, "2026-10-05T09:00", "demo", &["pushed=bbb2222"]);
     render(p, &["demo", "auto", "--stage", "s1"]).golden("prompt-render-auto");
     render(p, &["demo", "gate2-notice", "--issue", "new"]).golden("prompt-render-gate2-notice");
     render(p, &["demo", "replan-notice", "--from", "s3"]).golden("prompt-render-replan-notice");
     render(p, &["lb", "epic"]).golden("prompt-render-epic");
     check("prompt-render-stops", &stops(p));
+}
+
+/// GA-R-133, GA-E-025 — `prompt render` has no `delta` stop.
+#[test]
+fn it_prompt_render_has_no_delta_stop() {
+    let p = project();
+    assert_eq!(
+        render(p.path(), &["demo", "delta", "--stage", "s1"]).text(),
+        "exit=2"
+    );
 }
 
 /// GW-R-015, GW-R-016, GW-R-017, GW-R-024, GW-R-027 — the diverged stop shows both heads, three options, no stage.
