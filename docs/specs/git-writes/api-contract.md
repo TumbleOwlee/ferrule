@@ -64,7 +64,7 @@
 - `rebase=<head> base=<base> from=<old head>` on the run card, logged only by `ferrule run rebase` (GW-R-042, GW-R-045, GW-R-050).
 - `test-red test=<test> [mutation=<text>]` on a stage card, logged only by `ferrule stage red` (GW-R-068, GW-R-073).
 - `test-pins test=<test> -- <text>` on a stage card, logged only by `ferrule stage pins` (GW-R-074).
-- `test-replaced old=<old> new=<new>`, one per `--replaced` pair, logged only by `ferrule stage commit` after `commit=` (GW-R-076).
+- `test-replaced old=<old> new=<new>`, one per `--replaced` pair, never cut or refused for its length, logged only by `ferrule stage commit` after `commit=` (GW-R-076, GW-R-092).
 - `files-outside=<path>`, one per path outside the card's `files` list, logged only by `ferrule stage commit` after `commit=` (GW-R-077).
 - `test-checks=skipped stack=<stack|none>` on a stage card of a project whose stack is not Rust, logged only by `ferrule stage commit` (GW-E-017).
 - `pushed=<sha>` on the run card, logged only by `ferrule pr push` (GA-R-075, GW-R-066)
