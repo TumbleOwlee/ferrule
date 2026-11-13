@@ -1,4 +1,4 @@
-//! The reviewer's guard: an allowlist. A command passes when every program
+//! The read-only agents' guard: an allowlist. A command passes when every program
 //! in it is one of the read-only programs below in a read-only form, or
 //! starts with a prefix the project allowed. Everything else is refused,
 //! including wrappers, `-c` scripts and anything the lexer cannot follow.
@@ -13,7 +13,32 @@ use crate::hook::guard::{self, ReadLimits, cat_over, opaque_reason};
 use crate::hook::paths::{cd_target, components, is_artifact, tee_targets};
 use crate::hook::shell::{self, RedirectKind};
 
-/// The reviewer guard's project settings.
+/// The run files a read-only agent may write, and the name its refusals carry.
+#[derive(Debug, Clone, Copy)]
+pub struct Writes {
+    /// Named in the refusal: "fe-reviewer", "fe-checker".
+    pub agent: &'static str,
+    /// Run files a `>` or `tee` may rewrite.
+    pub rewrite: &'static [&'static str],
+    /// Run files a `>>` or `tee -a` may append to.
+    pub append: &'static [&'static str],
+}
+
+/// The reviewer's writes: it appends to `review.md` and rewrites `review.verdict.md`.
+pub const REVIEWER: Writes = Writes {
+    agent: "fe-reviewer",
+    rewrite: &["review.verdict.md"],
+    append: &["review.md"],
+};
+
+/// The design checks' writes: each rewrites its own result file.
+pub const CHECKER: Writes = Writes {
+    agent: "fe-checker",
+    rewrite: &["check-comprehension.md", "check-zoom-out.md"],
+    append: &[],
+};
+
+/// The read-only guard's project settings.
 #[derive(Debug, Clone, Copy)]
 pub struct ReadonlyPolicy<'a> {
     /// `[hook.readonly] mutating`: word prefixes to refuse.
@@ -22,6 +47,8 @@ pub struct ReadonlyPolicy<'a> {
     pub allow: &'a [String],
     /// `[guard] cat_max_lines` and `cat_max_words`.
     pub limits: ReadLimits,
+    /// The agent named in refusals and the run files it may write.
+    pub writes: Writes,
 }
 
 /// Programs that read and never write, whatever their arguments; shell
@@ -229,30 +256,57 @@ fn temp_target(cwd: &Path, target: &str) -> bool {
         && path[..tmp.len()] == tmp[..]
 }
 
-fn writable(cwd: &Path, target: &str, append: bool) -> bool {
+fn writable(cwd: &Path, target: &str, append: bool, writes: Writes) -> bool {
     if target == "/dev/null" {
         return true;
     }
     let path = crate::hook::paths::resolve(cwd, target);
     let path = path.to_string_lossy();
-    is_artifact(&path, "review.verdict.md") || (append && is_artifact(&path, "review.md"))
+    writes.rewrite.iter().any(|f| is_artifact(&path, f))
+        || (append && writes.append.iter().any(|f| is_artifact(&path, f)))
 }
 
-/// The reviewer's guard: only the allowlisted read-only programs, and no
-/// write except appending to the run's `review.md` and rewriting its
-/// `review.verdict.md`. `mutating` adds word prefixes to refuse
+/// The sanctioned writes of an agent, as the refusal words them.
+fn sanctioned(w: Writes) -> String {
+    let list = |files: &[&str]| {
+        files
+            .iter()
+            .map(|f| format!(".ferrule/runs/<slug>/{f}"))
+            .collect::<Vec<_>>()
+            .join(" or ")
+    };
+    let mut parts = Vec::new();
+    if !w.append.is_empty() {
+        parts.push(format!(
+            "an append ('>>' or 'tee -a') onto {}",
+            list(w.append)
+        ));
+    }
+    if !w.rewrite.is_empty() {
+        parts.push(format!("a rewrite ('>' or 'tee') of {}", list(w.rewrite)));
+    }
+    parts.join(" and ")
+}
+
+/// The read-only guard: only the allowlisted read-only programs, and no
+/// write except those `policy.writes` names. `mutating` adds word prefixes to refuse
 /// (`cargo add`); `allow` adds word prefixes to let through (`make check`).
 #[must_use]
 pub fn readonly(command: &str, cwd: &Path, policy: ReadonlyPolicy) -> Option<String> {
     let ReadonlyPolicy {
-        mutating, allow, ..
+        mutating,
+        allow,
+        writes,
+        ..
     } = policy;
     let mut cwd = cwd.to_path_buf();
     for c in shell::parse(command) {
         let refuse = |why: &str| {
             Some(format!(
-                "fe-reviewer is read-only (hook-enforced): '{}' {why}. The only sanctioned writes are an append ('>>' or 'tee -a') onto .ferrule/runs/<slug>/review.md and a rewrite ('>' or 'tee') of .ferrule/runs/<slug>/review.verdict.md. Never run git checkout/stash/reset or anything that touches the worktree; record what you needed to probe as a finding for the implementer instead.",
-                c.words.join(" ")
+                "{} is read-only (hook-enforced): '{}' {why}. The only sanctioned writes are {}. Never run git checkout/stash/reset or anything that touches the worktree; record what you needed to probe as a finding instead.",
+                writes.agent,
+                c.words.join(" "),
+                sanctioned(writes)
             ))
         };
         if let Some(o) = c.opaque {
@@ -267,14 +321,15 @@ pub fn readonly(command: &str, cwd: &Path, policy: ReadonlyPolicy) -> Option<Str
         }
         if let Some((name, args)) = program {
             if shell::wrapped(&c.words) {
-                return refuse(
-                    "runs behind a wrapper or an assignment (env, timeout, nice, A=b …) the reviewer's guard does not follow; run the program itself",
-                );
+                return refuse(&format!(
+                    "runs behind a wrapper or an assignment (env, timeout, nice, A=b …) the {}'s guard does not follow; run the program itself",
+                    writes.agent
+                ));
             }
             let ok = match name {
                 "tee" => {
                     let (append, targets) = tee_targets(args);
-                    targets.iter().all(|t| writable(&cwd, t, append))
+                    targets.iter().all(|t| writable(&cwd, t, append, writes))
                 }
                 "rtk" => shell::rtk_bypass_rg(&c.words).is_some_and(|a| {
                     (allowed_program("rg", a) || has_prefix("rg", a, allow))
@@ -290,9 +345,10 @@ pub fn readonly(command: &str, cwd: &Path, policy: ReadonlyPolicy) -> Option<Str
                 }
             };
             if !ok {
-                return refuse(
-                    "is not a read-only command on the reviewer's allowlist (ls cat head tail wc grep rg find sed -n awk diff cmp file stat tree sort uniq cut tr nl jq date sha256sum, gh api graphql queries and gh <command> --help, git log|show|diff|status|blame|grep|rev-parse|ls-files|ls-tree|cat-file|merge-base|describe|shortlog, cargo test|check|clippy|tree|metadata|fmt --check, ferrule read commands and ci failed; `[hook.readonly] allow` in ferrule.toml adds more)",
-                );
+                return refuse(&format!(
+                    "is not a read-only command on the {}'s allowlist (ls cat head tail wc grep rg find sed -n awk diff cmp file stat tree sort uniq cut tr nl jq date sha256sum, gh api graphql queries and gh <command> --help, git log|show|diff|status|blame|grep|rev-parse|ls-files|ls-tree|cat-file|merge-base|describe|shortlog, cargo test|check|clippy|tree|metadata|fmt --check, ferrule read commands and ci failed; `[hook.readonly] allow` in ferrule.toml adds more)",
+                    writes.agent
+                ));
             }
             if name == "cat"
                 && !c.output_captured()
@@ -304,10 +360,12 @@ pub fn readonly(command: &str, cwd: &Path, policy: ReadonlyPolicy) -> Option<Str
         let reads_ferrule = matches!(program, Some(("ferrule", a)) if ferrule_reads(a));
         let redirects_ok = c.redirects.iter().all(|r| match r.kind {
             RedirectKind::Append => {
-                writable(&cwd, &r.target, true) || (reads_ferrule && temp_target(&cwd, &r.target))
+                writable(&cwd, &r.target, true, writes)
+                    || (reads_ferrule && temp_target(&cwd, &r.target))
             }
             RedirectKind::Write => {
-                writable(&cwd, &r.target, false) || (reads_ferrule && temp_target(&cwd, &r.target))
+                writable(&cwd, &r.target, false, writes)
+                    || (reads_ferrule && temp_target(&cwd, &r.target))
             }
             _ => true,
         });
@@ -330,12 +388,61 @@ mod tests {
                 mutating,
                 allow,
                 limits: ReadLimits::DEFAULT,
+                writes: REVIEWER,
             },
         )
     }
 
     fn check(cmd: &str) -> Option<String> {
         at(cmd, &[], &[])
+    }
+
+    fn as_checker(cmd: &str) -> Option<String> {
+        readonly(
+            cmd,
+            Path::new("/nonexistent-ferrule-guard"),
+            ReadonlyPolicy {
+                mutating: &[],
+                allow: &[],
+                limits: ReadLimits::DEFAULT,
+                writes: CHECKER,
+            },
+        )
+    }
+
+    /// GA-R-151 — the checker rewrites its two result files and writes nothing else.
+    #[test]
+    fn ut_checker_writes_only_its_result_files() {
+        for cmd in [
+            "cat > .ferrule/runs/demo/check-comprehension.md <<EOF\nx\nEOF",
+            "echo x > .ferrule/runs/demo/check-zoom-out.md",
+            "tee .ferrule/runs/demo/check-zoom-out.md",
+        ] {
+            assert!(as_checker(cmd).is_none(), "{cmd}");
+        }
+        for cmd in [
+            "echo x >> .ferrule/runs/demo/review.md",
+            "echo x > .ferrule/runs/demo/review.verdict.md",
+            "echo x > .ferrule/runs/demo/architecture.md",
+            "echo x > src/lib.rs",
+            "rm x",
+        ] {
+            assert!(as_checker(cmd).is_some(), "{cmd}");
+        }
+    }
+
+    /// A refusal names the agent and the files it may write.
+    #[test]
+    fn ut_refusal_names_the_agent_and_its_writes() {
+        let c = as_checker("rm x").unwrap();
+        assert!(c.starts_with("fe-checker is read-only"), "{c}");
+        assert!(c.contains("check-comprehension.md"), "{c}");
+        let r = check("rm x").unwrap();
+        assert!(r.starts_with("fe-reviewer is read-only"), "{r}");
+        assert!(
+            r.contains("an append ('>>' or 'tee -a') onto .ferrule/runs/<slug>/review.md and a rewrite ('>' or 'tee') of .ferrule/runs/<slug>/review.verdict.md"),
+            "{r}"
+        );
     }
 
     /// SG-R-001, SG-R-002, SG-R-003 — `cargo fmt --check` passes, also after `--`

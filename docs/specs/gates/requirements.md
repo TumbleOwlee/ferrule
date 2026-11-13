@@ -305,3 +305,43 @@
 **GA-R-113** — No stop is triggered by the number of lines a stage changed.
 
 **GA-R-114** — A missing `glow` does not stop the run; stops are shown as plain text instead.
+
+## Design checks
+
+**GA-R-143** — After the architect answers `ready`, a comprehension check runs before the architecture stop is shown.
+
+**GA-R-144** — The comprehension check reads only the run's `spec-diff.md` and `architecture.md`, with no project instruction file in its context.
+
+**GA-R-145** — The comprehension check states in its own words what the change proposes and how the existing system works.
+
+**GA-R-146** — The comprehension check reports a finding for each section it cannot paraphrase and each term the documents use without defining.
+
+**GA-R-147** — After the architect answers `ready`, a zoom-out check runs before the architecture stop is shown.
+
+**GA-R-148** — The zoom-out check reports a finding where the change is not needed, could be simpler, or is already covered by existing code or a dependency.
+
+**GA-R-149** — Each zoom-out finding names what could be removed or reused.
+
+**GA-R-150** — The zoom-out check may read the project's code.
+
+**GA-R-151** — Neither design check changes any file but its own result file.
+
+**GA-R-152** — The architecture stop shows every finding of both checks in full, numbered per check as C<n> for comprehension and Z<n> for zoom-out.
+
+**GA-R-153** — The architecture stop names the file paths of the comprehension paraphrase and the zoom-out reasoning.
+
+**GA-R-154** — The checks add no stop: the architecture stop is shown after them whatever their findings.
+
+**GA-R-155** — A run whose architecture is skipped at gate 1 runs neither check (GA-R-118).
+
+**GA-R-160** — A run whose brief is approved at gate 2's stop runs neither check (GA-R-123).
+
+**GA-R-156** — Each time the architecture stop is reached, both checks run on the current `spec-diff.md` and `architecture.md`.
+
+**GA-R-157** — A check that produces no result leaves the architecture stop shown as usual, with a line saying that check did not run.
+
+**GA-R-158** — The combined early stop counts as the architecture stop for every design-check entry (GA-R-116, GA-R-126).
+
+**GA-R-161** — An epic run's epic stop counts as the architecture stop for every design-check entry.
+
+**GA-R-159** — A check that produced a result without findings is shown at the architecture stop with a line saying it found none.
