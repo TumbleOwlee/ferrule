@@ -261,6 +261,55 @@ fn it_render_blocked_diverged() {
     assert!(shown.contains(" stop kind=blocked"), "{shown}");
 }
 
+/// GW-R-083, GW-R-085, GW-R-086, GW-R-087, GW-R-089 — the sha stop shows the mismatch, the stays-refused line and three options, no stage.
+#[test]
+fn it_render_blocked_sha() {
+    let p = project();
+    let p = p.path();
+    render(p, &["demo", "blocked", "--mismatch", "card"]).golden("prompt-render-blocked-sha");
+    let shown = ferrule(p, &["board", "show", "demo"]).text();
+    assert!(shown.contains(" stop kind=blocked"), "{shown}");
+}
+
+/// GW-R-084 — with every stage card committed the sha stop omits `a` and keeps the letters.
+#[test]
+fn it_render_blocked_sha_omits_continue_with_no_stage_left() {
+    let p = project();
+    let p = p.path();
+    let check = |slug: &str| {
+        let got = render(p, &[slug, "blocked", "--mismatch", "card"]).text();
+        assert!(!got.contains("a) continue"), "{got}");
+        assert!(
+            got.contains("- b) fixed outside ferrule, push again"),
+            "{got}"
+        );
+        assert!(got.contains("- c) stop"), "{got}");
+        assert!(got.contains("Answer: <1: b | c>"), "{got}");
+    };
+    check("mrcpr");
+    let at = "2026-10-05T09:00";
+    seed_log(p, at, "demo.s1", &["commit=abc1234"]);
+    seed_log(p, at, "demo.s2", &["commit=def5678"]);
+    check("demo");
+}
+
+/// GW-R-088 — `--mismatch` with `--local` or `--remote` is a usage error.
+#[test]
+fn it_render_blocked_sha_refuses_a_head() {
+    let p = project();
+    let p = p.path();
+    for heads in [
+        &["--local", "abc1234"][..],
+        &["--remote", "def5678"],
+        &["--local", "abc1234", "--remote", "def5678"],
+    ] {
+        let mut args = vec!["demo", "blocked", "--mismatch", "card"];
+        args.extend_from_slice(heads);
+        let got = render(p, &args).text();
+        assert!(got.ends_with("exit=2"), "{got}");
+    }
+}
+
 /// GW-R-066 — the auto-continue notice takes its commit from a push and its
 /// coverage from a pass, each logged after the run's last rebase.
 #[test]

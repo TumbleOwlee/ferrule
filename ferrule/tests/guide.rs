@@ -515,6 +515,62 @@ fn it_stages_guide_rebases_or_pushes_again_after_a_divergence() {
     assert!(bullet.contains("`1: c` → the run halts"), "{bullet}");
 }
 
+/// GW-R-082 — a sha push refusal goes to the sha stop with the refusal's `mismatch=`, never to a re-plan.
+#[test]
+fn it_stages_guide_sends_a_sha_refusal_to_the_sha_stop() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let text = ok(root, &["guide", "show", "stages", "--slug", "demo"]);
+    let line = text
+        .lines()
+        .find(|l| l.contains("reason=sha mismatch=<why>"))
+        .unwrap_or_else(|| panic!("{text}"));
+    assert!(line.contains("Question and blocked stage"), "{line}");
+    assert!(line.contains("never a re-plan"), "{line}");
+    assert!(!line.contains("guide show replan"), "{line}");
+    let bullet = text
+        .lines()
+        .find(|l| l.contains("--mismatch <why>") && l.starts_with("- A sha push refusal"))
+        .unwrap_or_else(|| panic!("{text}"));
+    assert!(
+        bullet.contains("ferrule prompt render demo blocked"),
+        "{bullet}"
+    );
+    assert!(!bullet.contains("guide show replan"), "{bullet}");
+}
+
+/// GW-R-090, GW-R-091, S4 — the sha stop's `1: a` continues with the first uncommitted stage and pushes after its commit, `1: b` pushes again, `1: c` halts the run.
+#[test]
+fn it_stages_guide_continues_or_pushes_again_after_a_sha_refusal() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    seed_card(root, "demo", "open", &["lane=full"]);
+    let text = ok(root, &["guide", "show", "stages", "--slug", "demo"]);
+    let bullet = text
+        .lines()
+        .find(|l| l.contains("--mismatch <why>") && l.starts_with("- A sha push refusal"))
+        .unwrap_or_else(|| panic!("{text}"));
+    assert!(bullet.contains("`1: a` →"), "{bullet}");
+    assert!(
+        bullet.contains("first stage in plan order whose card has no `commit=`"),
+        "{bullet}"
+    );
+    assert!(
+        bullet.contains("`ferrule pr push demo` after its commit"),
+        "{bullet}"
+    );
+    assert!(
+        bullet.contains("`1: b` → `ferrule pr push demo` again"),
+        "{bullet}"
+    );
+    assert!(
+        bullet.contains("the same refusal returning to the same stop"),
+        "{bullet}"
+    );
+    assert!(bullet.contains("`1: c` → the run halts"), "{bullet}");
+}
+
 /// GW-R-058 — a rebase conflict goes to the implementer of the newest committed stage.
 #[test]
 fn it_stages_guide_sends_a_rebase_conflict_to_the_implementer() {

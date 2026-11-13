@@ -299,6 +299,16 @@ impl Run<'_> {
     fn stages(&self) -> rusqlite::Result<Vec<(u32, String, State)>> {
         board::stages(self.conn, self.slug)
     }
+
+    /// Whether a stage card of the run has no `commit=` logged yet.
+    fn stage_left(&self) -> rusqlite::Result<bool> {
+        for (_, id, _) in self.stages()? {
+            if board::last_value(self.conn, &id, Name::Commit)?.is_none() {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
 }
 
 /// The run's state a stop's text depends on.
@@ -662,9 +672,38 @@ fn question(run: &mut Run, args: &[(String, String)]) -> Result<Vec<String>, Err
     Ok(out)
 }
 
+fn sha(run: &mut Run, mismatch: &str) -> Result<Vec<String>, Error> {
+    run.log("stop", &["kind=blocked"])?;
+    let mut out = vec![
+        format!("Question · {} · 1 decision", run.slug),
+        format!("## 1. the push is refused: mismatch={mismatch}"),
+        "The push stays refused until a stage commit lands on top of the current head.".to_owned(),
+        "Options:".to_owned(),
+    ];
+    let left = run.stage_left()?;
+    if left {
+        out.push("- a) continue with the next stage, push after its commit".to_owned());
+    }
+    out.push("- b) fixed outside ferrule, push again".to_owned());
+    out.push("- c) stop".to_owned());
+    out.push(
+        if left {
+            "Answer: <1: a | b | c>"
+        } else {
+            "Answer: <1: b | c>"
+        }
+        .to_owned(),
+    );
+    Ok(out)
+}
+
 fn blocked(run: &mut Run, args: &[(String, String)]) -> Result<Vec<String>, Error> {
-    match (arg(args, "local"), arg(args, "remote")) {
-        (Some(local), Some(remote)) => {
+    match (
+        arg(args, "local"),
+        arg(args, "remote"),
+        arg(args, "mismatch"),
+    ) {
+        (Some(local), Some(remote), None) => {
             run.log("stop", &["kind=blocked"])?;
             return Ok(vec![
                 format!("Question · {} · 1 decision", run.slug),
@@ -678,7 +717,8 @@ fn blocked(run: &mut Run, args: &[(String, String)]) -> Result<Vec<String>, Erro
                 "Answer: <1: a | b | c>".to_owned(),
             ]);
         }
-        (None, None) => {}
+        (None, None, Some(mismatch)) => return sha(run, mismatch),
+        (None, None, None) => {}
         _ => return Err(Error::Usage),
     }
     let sid = arg(args, "stage").unwrap_or("");
@@ -1152,6 +1192,34 @@ mod tests {
         };
         for key in ["local", "remote"] {
             let args = [(key.to_owned(), "abc1234".to_owned())];
+            assert!(matches!(blocked(&mut run, &args), Err(Error::Usage)));
+        }
+    }
+
+    /// GW-R-088 — a caller other than clap gets the usage error.
+    #[test]
+    fn ut_blocked_refuses_mismatch_with_a_head() {
+        let mut s = crate::store::Store::memory().unwrap();
+        board::create(&mut s.conn, "r", State::Open, &[], "t").unwrap();
+        let layout = Layout::new(PathBuf::from("."));
+        let mut run = Run {
+            conn: &mut s.conn,
+            layout: &layout,
+            slug: "r",
+            now: "t",
+            milestones: false,
+        };
+        let pair = |k: &str, v: &str| (k.to_owned(), v.to_owned());
+        let sets = [
+            vec![pair("mismatch", "card"), pair("local", "abc1234")],
+            vec![pair("mismatch", "card"), pair("remote", "abc1234")],
+            vec![
+                pair("mismatch", "card"),
+                pair("local", "abc1234"),
+                pair("remote", "abc1234"),
+            ],
+        ];
+        for args in sets {
             assert!(matches!(blocked(&mut run, &args), Err(Error::Usage)));
         }
     }

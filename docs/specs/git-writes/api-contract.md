@@ -44,6 +44,8 @@
 
 - `--local <sha> --remote <sha>` — each requires the other (GW-R-028).
 - The diverged stop offers three options (GW-R-017): `a) rebase through ferrule`, `b) resolved outside ferrule, push again` and `c) stop`.
+- `--mismatch <why>` — the refusal's `mismatch=`; renders the sha stop and shows it; a usage error with `--local` or `--remote` (GW-R-087, GW-R-088, GW-R-089).
+- The sha stop offers `a) continue with the next stage, push after its commit` (only while a stage is left), `b) fixed outside ferrule, push again` and `c) stop` (GW-R-083, GW-R-084).
 
 ## ferrule run reconcile rows
 

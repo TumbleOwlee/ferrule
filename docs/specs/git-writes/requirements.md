@@ -82,6 +82,28 @@
 
 **GW-R-028** — `ferrule prompt render blocked` given only one of `--local` and `--remote` is a usage error.
 
+## Sha routing
+
+**GW-R-082** — The stages guide sends a `reason=sha` push refusal to the sha stop and suggests no re-plan.
+
+**GW-R-083** — The sha stop offers only `a) continue with the next stage, push after its commit`, `b) fixed outside ferrule, push again` and `c) stop`.
+
+**GW-R-084** — The sha stop omits option `a`, keeping the letters `b` and `c`, when every stage card of the run has a `commit=` logged.
+
+**GW-R-085** — The sha stop says the push stays refused until a stage commit lands on top of the current head.
+
+**GW-R-086** — The sha stop names no stage.
+
+**GW-R-087** — `ferrule prompt render blocked` renders the sha stop when given `--mismatch`.
+
+**GW-R-088** — `ferrule prompt render blocked` given `--mismatch` together with `--local` or `--remote` is a usage error.
+
+**GW-R-089** — The sha stop shows the refusal's `mismatch=` reason.
+
+**GW-R-090** — The stages guide sends the sha stop's `1: a` to the first stage in plan order whose card has no `commit=`, with `ferrule pr push` after its commit.
+
+**GW-R-091** — The stages guide sends the sha stop's `1: b` to `ferrule pr push` again.
+
 ## Rebased branch
 
 **GW-R-039** — A ferrule command rebases the run's branch onto a named base, moving only the commits from the branch point with the base branch up to HEAD.
