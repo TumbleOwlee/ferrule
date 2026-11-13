@@ -372,7 +372,7 @@ fn it_render_states_the_minors_fixed() {
     assert!(!none.contains("minors fixed"), "{none}");
 }
 
-/// GA-R-134, GA-R-137, GA-E-017 — the gate 2 and re-plan stops and notices state the
+/// GA-R-142, GA-R-137, GA-E-017 — the gate 2 and re-plan stops and notices state the
 /// minors the newest plan review left, until a stop is logged after it.
 #[test]
 fn it_render_states_plan_minors_fixed() {
@@ -422,7 +422,7 @@ fn render_line(p: &Path, out: &str) -> String {
     render(p, &words).text()
 }
 
-/// GA-R-134, GA-R-137, S8, S101, S104 — a minors fix step, then the stop or
+/// GA-R-142, GA-R-137, S8, S101, S104 — a minors fix step, then the stop or
 /// notice, states how many minors were fixed.
 #[test]
 fn it_plan_minors_fix_then_stop_states_count() {

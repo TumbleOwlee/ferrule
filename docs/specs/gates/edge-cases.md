@@ -48,7 +48,7 @@
 
 **GA-E-017** — A stop or auto-continue notice states no minors fixed when a stop was already logged after the newest review.
 
-**GA-E-023** — A plan or re-plan review reporting `findings` with `count=0` ends the review with no revise round.
+**GA-E-026** — A plan or re-plan review reporting `findings` with `count=0` ends the review with no revise round.
 
 ## Stage stops
 

@@ -208,11 +208,11 @@
 
 **GA-R-066** — The implementer guide has a plan bookkeeping gap — a stage's ID→test table or the plan's stage table missing or misnaming a test, ID or file the stage has — logged as a `note` on the stage card, never as a reason to stop.
 
-**GA-R-132** — When a clean plan review, or one with `count=0` and a `Needs user` item, reports `minors=` above 0, `ferrule gate next <slug> gate2` answers a step that resumes the planner with the minors before gate 2's stop or notice.
+**GA-R-140** — When a clean plan review, or one with `count=0` and a `Needs user` item, reports `minors=` above 0, `ferrule gate next <slug> gate2` answers a step that resumes the planner with the minors before gate 2's stop or notice.
 
-**GA-R-133** — After the gate 2 minors fix step, the next step is gate 2's stop or notice, with no second plan review.
+**GA-R-141** — After the gate 2 minors fix step, the next step is gate 2's stop or notice, with no second plan review.
 
-**GA-R-134** — Gate 2's stop or notice that follows a minors fix step states how many minors were fixed.
+**GA-R-142** — Gate 2's stop or notice that follows a minors fix step states how many minors were fixed.
 
 **GA-R-135** — When a clean re-plan review, or one with `count=0` and a `Needs user` item, reports `minors=` above 0, `ferrule gate next <slug> replan` answers a step that resumes the planner with the minors before the re-plan stop or notice.
 

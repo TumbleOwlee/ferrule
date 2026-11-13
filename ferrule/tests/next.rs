@@ -130,7 +130,7 @@ fn summary(name: &str) -> String {
     format!("summary={R}/{name}")
 }
 
-/// GA-E-023 — plan review rounds; a findings line with count=0 ends the review.
+/// GA-E-026 — plan review rounds; a findings line with count=0 ends the review.
 #[test]
 fn it_next_plan_rounds() {
     let mut b = Board::new();
@@ -174,7 +174,7 @@ fn it_next_plan_rounds() {
     b.finish("run-next-plan");
 }
 
-/// GA-R-132, GA-R-133, GA-R-139, GA-E-023, S102 — plan review
+/// GA-R-140, GA-R-141, GA-R-139, GA-E-026, S102 — plan review
 /// minors go to the planner once, then gate 2 follows with no second review.
 #[test]
 fn it_next_plan_review_routes_minors() {
