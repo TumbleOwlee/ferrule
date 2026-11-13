@@ -178,6 +178,9 @@ pub fn parse_card_id(s: &str) -> Result<String, String> {
     }
 }
 
+/// Parent fields an older board may carry: import skips them.
+const RETIRED_FIELDS: &[&str] = &["gate3"];
+
 /// Frontmatter keys a parent card may carry; `id` is the card's own.
 pub const PARENT_FIELDS: &[&str] = &[
     "kind",
@@ -195,7 +198,6 @@ pub const PARENT_FIELDS: &[&str] = &[
     "arch",
     "no-arch",
     "gate2",
-    "gate3",
     "gate4",
     "split",
     "upstream",
@@ -229,7 +231,6 @@ pub const FERRULE_FIELDS: &[(&str, &str)] = &[
         "ferrule gate approve <slug> gate2 --live-repo <owner/name>",
     ),
     ("plan-stop", "ferrule gate approve <slug> arch --plan-stop"),
-    ("gate3", "ferrule gate approve <slug> gate3"),
     ("gate4", "ferrule gate approve <slug> gate4"),
     ("branch", "ferrule gate approve <slug> gate2"),
     ("worktree", "ferrule gate approve <slug> gate2"),
@@ -1475,6 +1476,7 @@ pub fn import(conn: &mut Connection, board: &Path, now: &str) -> Result<usize, I
                     return Err(bad(format!("state: {v} differs from the {st} directory")));
                 }
                 "id" | "parent" | "state" => {}
+                k if cid.stage.is_none() && RETIRED_FIELDS.contains(&k) => {}
                 _ => fields.push((k, v)),
             }
         }

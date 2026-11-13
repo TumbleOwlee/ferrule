@@ -210,7 +210,6 @@ fn it_render_every_stop() {
     )
     .golden("prompt-render-stage");
     render(p, &["demo", "replan", "--from", "s2"]).golden("prompt-render-replan");
-    render(p, &["demo", "gate3"]).golden("prompt-render-gate3");
     render(p, &["demo", "gate4"]).golden("prompt-render-gate4");
     render(
         p,
@@ -366,8 +365,8 @@ fn it_render_states_the_minors_fixed() {
     let after_stop = render(p, &["demo", "auto", "--stage", "s1"]).text();
     assert!(!after_stop.contains("minors fixed"), "{after_stop}");
     seed_log(p, at, "demo", &["review=clean", "minors=3"]);
-    let gate3 = render(p, &["demo", "gate3"]).text();
-    assert!(gate3.contains("Minors fixed after the review, not re-reviewed: 3"));
+    let gate4 = render(p, &["demo", "gate4"]).text();
+    assert!(gate4.contains("Minors fixed after the review, not re-reviewed: 3"));
     seed_log(p, at, "demo", &["review=clean", "scope=stage"]);
     let none = render(p, &["demo", "auto", "--stage", "s1"]).text();
     assert!(!none.contains("minors fixed"), "{none}");
@@ -462,6 +461,18 @@ fn it_render_approved_records_what_was_shown() {
     assert_eq!(render(p, &["demo", "gate2"]).text(), "exit=3");
 }
 
+/// GA-R-125, S505 — a Needs user item the branch review left is shown,
+/// lettered, on the gate 4 prompt.
+#[test]
+fn it_gate4_prompt_letters_needs_user() {
+    let p = project();
+    let p = p.path();
+    let out = render(p, &["demo", "gate4"]).text();
+    assert!(out.contains("Needs user:\n- MB-R-161"), "{out}");
+    assert!(out.contains("  - a) revert to retry forever"), "{out}");
+    assert!(out.contains("  - b) keep the 1 hour limit"), "{out}");
+}
+
 /// GA-R-129 — the combined early stop's architecture prompt offers a stop at
 /// the plan too; separate early stops do not.
 #[test]
@@ -508,7 +519,11 @@ fn it_render_without_a_viewer_names_the_files() {
     let p = project();
     let p = p.path();
     config(p, "");
-    let out = render(p, &["demo", "gate3"]).text();
+    let out = render(
+        p,
+        &["demo", "stage", "--stage", "s1", "--reason", "plan-marked"],
+    )
+    .text();
     let root = p.canonicalize().unwrap();
     let out = out.replace(root.to_str().unwrap(), "<P>");
     assert_eq!(
@@ -539,7 +554,11 @@ fn it_render_without_a_startable_viewer_names_the_files() {
     let p = project();
     let p = p.path();
     config(p, "[viewer]\ncommand = [\"ferrule-no-such-viewer\"]\n");
-    let out = render(p, &["demo", "gate3"]).text();
+    let out = render(
+        p,
+        &["demo", "stage", "--stage", "s1", "--reason", "plan-marked"],
+    )
+    .text();
     let root = p.canonicalize().unwrap();
     let out = out.replace(root.to_str().unwrap(), "<P>");
     assert_eq!(

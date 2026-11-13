@@ -20,7 +20,7 @@ const RENDER_AFTER_LONG_HELP: &str = "\
 Output:
   The whole message, line by line, to relay verbatim; compose nothing. By
   kind:
-  gate1 arch epic gate2 stage replan gate3 gate4
+  gate1 arch epic gate2 stage replan gate4
                        `<title> · <slug> · <files with rev>` header; a
                        `Viewer:` note when the files did not open; the quoted
                        lines (Goal:, Entries:, Plan:, Confirm: ...);
@@ -56,8 +56,8 @@ Flags each kind needs:
   usage error.
 
 Logged on the card:
-  stop kind=approval gate=<gate>   <gate> is gate1, arch, epic, gate2, replan
-                                   or gate3 for that kind
+  stop kind=approval gate=<gate>   <gate> is gate1, arch, epic, gate2 or
+                                   replan for that kind
   stop kind=approval gate=gate4    kind gate4
   stop kind=approval gate=delta    kind delta
   stop kind=stage                  stage
@@ -168,8 +168,6 @@ pub enum PromptKind {
     Stage,
     /// Approval: a re-plan.
     Replan,
-    /// Approval: the branch review.
-    Gate3,
     /// Approval: the pull request.
     Gate4,
     /// Question: an agent's decision batch.
@@ -401,7 +399,6 @@ fn kind(k: PromptKind) -> Kind {
         PromptKind::Gate2 => Kind::Gate2,
         PromptKind::Stage => Kind::Stage,
         PromptKind::Replan => Kind::Replan,
-        PromptKind::Gate3 => Kind::Gate3,
         PromptKind::Gate4 => Kind::Gate4,
         PromptKind::Question => Kind::Question,
         PromptKind::Blocked => Kind::Blocked,

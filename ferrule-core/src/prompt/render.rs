@@ -26,7 +26,6 @@ pub enum Kind {
     Gate2,
     Stage,
     Replan,
-    Gate3,
     Gate4,
     Question,
     Blocked,
@@ -47,7 +46,6 @@ impl Kind {
             "gate2" => Kind::Gate2,
             "stage" => Kind::Stage,
             "replan" => Kind::Replan,
-            "gate3" => Kind::Gate3,
             "gate4" => Kind::Gate4,
             "question" => Kind::Question,
             "blocked" => Kind::Blocked,
@@ -68,7 +66,6 @@ impl Kind {
             Kind::Epic => "epic",
             Kind::Gate2 => "gate2",
             Kind::Replan => "replan",
-            Kind::Gate3 => "gate3",
             _ => "gate4",
         }
     }
@@ -439,7 +436,7 @@ impl Run<'_> {
                     add(&mut quote, "split-issue.md");
                 }
             }
-            Kind::Stage | Kind::Gate3 => add(&mut show, "review.verdict.md"),
+            Kind::Stage => add(&mut show, "review.verdict.md"),
             Kind::Gate4 => {
                 add(&mut show, "pr.md");
                 show.extend(follow_ups(&self.layout.run_dir(self.slug)));
@@ -581,7 +578,7 @@ pub(crate) fn render_in(
     }
     let note = viewer_note(&mut run, view, &show)?;
     let approval = approval_text(&run, kind, args, &facts)?;
-    let minors = if matches!(kind, Kind::Stage | Kind::Gate3 | Kind::Gate4) {
+    let minors = if matches!(kind, Kind::Stage | Kind::Gate4) {
         run.minors_fixed()?
     } else {
         None
@@ -826,11 +823,6 @@ fn approval_text(
                 stop_options("<stages>"),
             )
         }
-        Kind::Gate3 => Approval::new(
-            "Gate 3",
-            strings(&["- hand the branch to fe-author for the PR body (gate 4)"]),
-            Vec::new(),
-        ),
         Kind::Gate4 => gate4(run, args)?,
         _ => return Err(Error::Usage),
     })

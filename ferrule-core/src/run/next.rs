@@ -657,7 +657,7 @@ fn replan_decision(c: &mut Ctx, events: &[Event]) -> Result<(), Error> {
 }
 
 /// A clean branch review: resolves the findings it followed up, then the
-/// next stage's stop decision, gate 3's stop, or the PR.
+/// next stage's stop decision, or the PR.
 fn branch_resolved(c: &mut Ctx, window: &[Event], minors: u64) -> Result<(), Error> {
     let mut first: Option<String> = None;
     let reviews = window
@@ -690,15 +690,9 @@ fn branch_resolved(c: &mut Ctx, window: &[Event], minors: u64) -> Result<(), Err
     }
     let words: Vec<&str> = line.iter().map(String::as_str).collect();
     c.log(&words)?;
-    let slug = c.slug;
     if let Some(n) = c.open_stage()? {
         announce(c, "stage-stop", None, minors);
         stage_stop_lines(c, Some(n));
-    } else if c.needs_user() && c.field("lane")?.as_deref() == Some("full") {
-        announce(c, "stop", None, minors);
-        c.run(&format!("ferrule prompt render {slug} gate3"));
-        c.act("show the gate 3 stop with the open Needs user item");
-        c.guide(Topic::Gate3);
     } else {
         let reason = c.needs_user().then_some("needs-user");
         announce(c, "pr", reason, minors);

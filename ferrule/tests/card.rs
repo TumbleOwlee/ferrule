@@ -483,7 +483,7 @@ fn it_new_and_set_validate_fields() {
     seed_set(p, "r", &["gate2=2026-10-03", "pr=7"]);
     assert_eq!(
         run(&["board", "set", "r", "lane=fast", "color=red"]),
-        "card-set=reject reason=key key=color hint=a parent card takes only kind, epic, slices, issue, pr, branch, lane, plan-stop, gate1, with-arch, with-plan, skipped, arch, no-arch, gate2, gate3, gate4, split, upstream, artifacts, worktree, named-issue, milestone, slice, live-repo\nexit=2"
+        "card-set=reject reason=key key=color hint=a parent card takes only kind, epic, slices, issue, pr, branch, lane, plan-stop, gate1, with-arch, with-plan, skipped, arch, no-arch, gate2, gate4, split, upstream, artifacts, worktree, named-issue, milestone, slice, live-repo\nexit=2"
     );
     assert_eq!(run(&["board", "field", "r", "issue"]), "exit=0");
     assert_eq!(run(&["board", "set", "r", "lane="]), "exit=0");
@@ -553,6 +553,34 @@ fn it_import_is_all_or_nothing() {
     )
     .text();
     assert!(got.contains("differs from the open directory"), "{got}");
+}
+
+/// GA-E-022 — a `gate3` date on a saved parent card is skipped by import, and
+/// `gate approve` has no gate3.
+#[test]
+fn it_saved_gate3_date_ignored() {
+    let board = tempfile::tempdir().unwrap();
+    std::fs::create_dir(board.path().join("inprogress")).unwrap();
+    std::fs::write(
+        board.path().join("inprogress/old.md"),
+        "---\nid: old\nbranch: feat/old\ngate2: 2026-10-02\ngate3: 2026-10-03\n---\n",
+    )
+    .unwrap();
+    let fresh = tempfile::tempdir().unwrap();
+    let got = ferrule(
+        fresh.path(),
+        &["board", "import", board.path().to_str().unwrap()],
+    )
+    .text();
+    assert_eq!(got, "import=ok cards=1\nexit=0");
+    assert_eq!(
+        ferrule(fresh.path(), &["board", "field", "old", "gate3"]).text(),
+        "exit=0"
+    );
+    assert_eq!(
+        ferrule(fresh.path(), &["gate", "approve", "old", "gate3"]).text(),
+        "exit=2"
+    );
 }
 
 #[test]

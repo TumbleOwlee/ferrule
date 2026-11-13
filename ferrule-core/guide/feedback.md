@@ -2,7 +2,7 @@
 
 ## PR feedback
 
-The user reviews on the draft PR, as inline comments on the diff. Once `pr` is on the parent card, **before every approval stop** (per-stage, gate 3, gate 4) and whenever the user says to check the PR:
+The user reviews on the draft PR, as inline comments on the diff. Once `pr` is on the parent card, **before every approval stop** (per-stage, gate 4) and whenever the user says to check the PR:
 
 ```sh
 ferrule pr feedback route {slug}

@@ -32,13 +32,12 @@ parent states each is approved in:
   stage    -       gate2                     inprogress, inreview
   replan   -       gate2                     inprogress, inreview
   delta    -       gate2                     inprogress, inreview
-  gate3    gate3   gate2                     inprogress, inreview
   gate4    gate4   gate2                     inprogress, inreview
   arch and epic also date gate1 while it is pending; gate2 does too.
   `--plan-stop` (arch only, else exit 2) records `plan-stop: yes`: gate 2
   keeps its own stop after the combined early stop.
   `--epic` records `kind: epic`. `stage replan start`
-  removes gate3 and gate4: the run is approved there anew.
+  removes gate4: the run is approved there anew.
   gate2 files the issue and adds the worktree first, then writes its
   fields, the parent's move and the stage cards in one transaction: a
   refused move leaves none of them.
@@ -232,8 +231,6 @@ pub enum GateName {
     Replan,
     /// A meaningful spec change.
     Delta,
-    /// The branch review.
-    Gate3,
     /// The pull request.
     Gate4,
 }
@@ -323,7 +320,6 @@ fn approve(args: &ApproveArgs, out: &mut impl Write) -> io::Result<u8> {
         GateName::Stage => Gate::Stage,
         GateName::Replan => Gate::Replan,
         GateName::Delta => Gate::Delta,
-        GateName::Gate3 => Gate::Gate3,
         GateName::Gate4 => Gate::Gate4,
     };
     let gate_name = g.as_str();

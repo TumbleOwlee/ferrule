@@ -493,7 +493,6 @@ pub enum Gate {
     Replan,
     /// A meaningful spec change: only what was shown is recorded.
     Delta,
-    Gate3,
     Gate4,
 }
 
@@ -508,7 +507,6 @@ impl Gate {
             Gate::Stage => "stage",
             Gate::Replan => "replan",
             Gate::Delta => "delta",
-            Gate::Gate3 => "gate3",
             Gate::Gate4 => "gate4",
         }
     }
@@ -521,7 +519,6 @@ impl Gate {
             Gate::Gate1 => Some("gate1"),
             Gate::Arch | Gate::Epic => Some("arch"),
             Gate::Gate2 => Some("gate2"),
-            Gate::Gate3 => Some("gate3"),
             Gate::Gate4 => Some("gate4"),
             Gate::Stage | Gate::Replan | Gate::Delta => None,
         }
@@ -534,7 +531,7 @@ impl Gate {
             Gate::Gate1 | Gate::Arch | Gate::Epic => &[State::Open],
             // Re-approving gate2 resumes a run that died after it.
             Gate::Gate2 => &[State::Open, State::InProgress],
-            Gate::Stage | Gate::Replan | Gate::Delta | Gate::Gate3 | Gate::Gate4 => {
+            Gate::Stage | Gate::Replan | Gate::Delta | Gate::Gate4 => {
                 &[State::InProgress, State::InReview]
             }
         }
@@ -560,7 +557,7 @@ fn missing(
         Gate::Gate1 | Gate::Arch => None,
         Gate::Epic => (field("kind")?.as_deref() != Some("epic")).then_some(("gate1", " --epic")),
         Gate::Gate2 => (!has(field("arch")?.as_deref())).then_some(("arch", "")),
-        Gate::Stage | Gate::Replan | Gate::Delta | Gate::Gate3 | Gate::Gate4 => {
+        Gate::Stage | Gate::Replan | Gate::Delta | Gate::Gate4 => {
             (!has(field("gate2")?.as_deref())).then_some(("gate2", ""))
         }
     })
@@ -983,11 +980,8 @@ pub fn replan_start(db: &mut Board, layout: &Layout, slug: &str, now: &str) -> R
             return Err(Error::Refused(GateRefusal::Card));
         };
         let from = replan_from(w.conn(), slug)?;
-        // The run rejoins at gate 3 and gate 4: both are approved anew.
-        let gates = [
-            ("gate3".to_owned(), String::new()),
-            ("gate4".to_owned(), String::new()),
-        ];
+        // The run rejoins at gate 4, which is approved anew.
+        let gates = [("gate4".to_owned(), String::new())];
         w.set_all(slug, &gates).map_err(|e| match e {
             board::CardError::Sql(e) => Error::Sql(e),
             _ => Error::Refused(GateRefusal::Card),

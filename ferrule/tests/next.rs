@@ -187,6 +187,25 @@ fn it_next_gate2_notice_after_combined_stop() {
     b.finish("run-next-gate2");
 }
 
+/// GA-R-125, S505 — a clean branch review with a Needs user item goes to the
+/// PR body, the item riding gate 4's stop; no gate 3 stop is rendered.
+#[test]
+fn it_needs_user_rides_gate4() {
+    let mut b = Board::new();
+    b.reset("-", "2026-10-02", 2, "needs-user");
+    // A card saved in the old full lane stops no more at gate 3.
+    b.ok(&["board", "set", "ns", "lane=full"]);
+    seed_card(b.root(), "ns.s1", "done", &[]);
+    seed_card(b.root(), "ns.s2", "done", &[]);
+    b.next(&["ns", "gate3", "status=clean", "minors=0"]);
+    let out = &b.transcript;
+    assert!(out.contains("next=pr reason=needs-user"), "{out}");
+    assert!(
+        !out.contains("gate3\n") && !out.contains("render ns gate3"),
+        "{out}"
+    );
+}
+
 /// GA-R-122 — after a brief of 3 entries gate 2 is a notice, unless the plan
 /// stop was asked for, a Needs user item is open or the run reuses an issue.
 #[test]
@@ -428,13 +447,11 @@ fn it_next_branch_review_rounds() {
     b.log_dump();
     // s2 reaches done: the same log on a board where it already is.
     b.reset("-", "2026-10-02", 2, "needs-user");
-    b.ok(&["board", "set", "ns", "lane=full"]);
     seed_card(b.root(), "ns.s1", "done", &[]);
     seed_card(b.root(), "ns.s2", "done", &[]);
     b.log(&["review=2-open", "scope=branch"]);
     b.log(&["review=2-resolved"]);
     b.next(&findings("count=0", "user=1"));
-    b.ok(&["board", "set", "ns", "lane=fast"]);
     b.next(&findings("count=0", "user=1"));
     b.log_dump();
     b.reset("-", "2026-10-02", 2, "clean");
@@ -503,7 +520,6 @@ fn it_next_branch_review_routes_minors() {
     b.reset("-", "2026-10-02", 2, "needs-user");
     seed_card(b.root(), "ns.s1", "done", &[]);
     seed_card(b.root(), "ns.s2", "done", &[]);
-    b.ok(&["board", "set", "ns", "lane=fast"]);
     b.next(&[
         "ns",
         "gate3",

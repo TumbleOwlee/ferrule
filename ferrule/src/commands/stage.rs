@@ -197,9 +197,8 @@ const REPLAN_AFTER_LONG_HELP: &str = "\
 Output:
   replan=started from=s<n>         Logged on the card, plan.md saved as
                                    plan.prev.md; <n> is the lowest stage
-                                   without a commit. The parent's gate3 and
-                                   gate4 dates are removed: both are
-                                   approved anew
+                                   without a commit. The parent's gate4
+                                   date is removed: it is approved anew
   replan=approved from=s<n> stages=<n>
                                    The uncommitted stage cards from s<n> on
                                    are replaced by the new plan's <n>
