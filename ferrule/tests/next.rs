@@ -7,7 +7,7 @@ mod golden;
 use std::fmt::Write as _;
 use std::path::Path;
 
-use golden::{Run, check, seed_card, seed_log};
+use golden::{Run, check, seed_card, seed_log, seed_set};
 
 const NOW: &str = "2026-10-05T09:00";
 const R: &str = ".claude/tasks/artifacts/ns";
@@ -185,6 +185,31 @@ fn it_next_gate2_notice_after_combined_stop() {
     b.reset("2", "2026-10-02", 2, "needs-user");
     b.next(&new);
     b.finish("run-next-gate2");
+}
+
+/// GA-R-122 — after a brief of 3 entries gate 2 is a notice, unless the plan
+/// stop was asked for, a Needs user item is open or the run reuses an issue.
+#[test]
+fn it_gate2_after_combined_stop_is_notice() {
+    let mut b = Board::new();
+    let new = ["ns", "gate2", "status=new"];
+    b.reset("3", "2026-10-02", 2, "clean");
+    b.next(&new);
+    b.next(&["ns", "gate2", "status=reuse", "issue=41"]);
+    b.verdict("needs-user");
+    b.next(&new);
+    b.verdict("clean");
+    seed_set(b.root(), "ns", &["plan-stop=yes"]);
+    b.next(&new);
+    let out = b.transcript.clone();
+    for line in [
+        "next=notice",
+        "next=stop reason=reuse",
+        "next=stop reason=needs-user",
+        "next=stop reason=plan-stop",
+    ] {
+        assert_eq!(out.matches(line).count(), 1, "{line}: {out}");
+    }
 }
 
 /// GA-R-123, GA-R-128 — a run without an architecture stop stops at gate 2.

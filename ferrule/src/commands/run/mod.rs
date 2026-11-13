@@ -354,7 +354,7 @@ See: ferrule guide show cleanup";
 /// Shown after `ferrule run status --help`.
 const STATUS_AFTER_LONG_HELP: &str = "\
 Output, local only (no host call):
-  run=<slug> state=<s> lane=<l> branch=<b> issue=<n> pr=<n> pr-state=<draft|ready> gates=<g,…>
+  run=<slug> state=<s> branch=<b> issue=<n> pr=<n> pr-state=<draft|ready> gates=<g,…>
                                  The parent card: `-` for a field not set;
                                  gates lists the set ones of gate1, arch,
                                  no-arch and gate2.

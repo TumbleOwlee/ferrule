@@ -253,7 +253,7 @@ pub struct Steps<'a> {
     /// The commit the stage's diff, and a review point's `{crates}`, start from.
     pub base: Option<&'a str>,
     pub stack: Option<&'a str>,
-    /// The stage commits before any review (batched, skipped, fast lane):
+    /// The stage commits before any review (batched or skipped):
     /// at push with `stage`, the review-level steps run too, `{crates}` as
     /// the crates the stage's diff since `base` touches; none when it
     /// touches no crate or the stack is not Rust.
@@ -452,8 +452,8 @@ pub fn base(
     })
 }
 
-/// Whether `stage` commits before any review: the run's lane is fast, or its
-/// effective tier is batched or skipped. The tier is read now; a later
+/// Whether `stage` commits before any review: its effective tier is batched
+/// or skipped. The tier is read now; a later
 /// promotion does not rerun the checks.
 ///
 /// # Errors
@@ -463,9 +463,8 @@ pub fn unreviewed(db: &Board, slug: &str, stage: u32) -> Result<bool, crate::sto
     db.read(|r| {
         let conn = r.conn();
         Ok(
-            crate::card::board::field(conn, slug, "lane")?.as_deref() == Some("fast")
-                || crate::run::tier::effective(conn, slug, stage)?.effective
-                    != crate::run::tier::Tier::Own,
+            crate::run::tier::effective(conn, slug, stage)?.effective
+                != crate::run::tier::Tier::Own,
         )
     })
 }
@@ -817,20 +816,18 @@ mod tests {
         ]
     }
 
-    /// GA-R-115 — a stage is unreviewed in the fast lane or at an effective
-    /// tier other than own; a promotion makes it own.
+    /// GA-R-115 — a stage is unreviewed at an effective tier other than own; a promotion makes it own.
     #[test]
-    fn ut_unreviewed_follows_lane_and_tier() {
+    fn ut_unreviewed_follows_tier() {
         const NOW: &str = "2026-11-10T12:00";
         let mut db = Board::memory().unwrap();
         let f = |k: &str, v: &str| vec![(k.to_owned(), v.to_owned())];
         db.write(|w| {
-            w.create("demo", State::Open, &f("lane", "full"), NOW)?;
-            for (n, t) in [(1, "own"), (2, "batched"), (3, "skipped"), (4, "batched")] {
+            w.create("demo", State::Open, &[], NOW)?;
+            for (n, t) in [(1, "own"), (2, "batched"), (3, "skipped")] {
                 w.create(&format!("demo.s{n}"), State::Open, &f("tier", t), NOW)?;
             }
-            w.create("fast", State::Open, &f("lane", "fast"), NOW)?;
-            w.create("fast.s1", State::Open, &f("tier", "own"), NOW)
+            w.create("demo.s4", State::Open, &f("tier", "batched"), NOW)
         })
         .unwrap();
         db.write(|w| {
@@ -846,7 +843,6 @@ mod tests {
             .map(|n| unreviewed(&db, "demo", n).unwrap())
             .collect();
         assert_eq!(got, [false, true, true, false]);
-        assert!(unreviewed(&db, "fast", 1).unwrap());
     }
 
     /// GA-R-115, GA-E-011 — an unreviewed stage's checks add the review steps

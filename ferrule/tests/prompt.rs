@@ -454,13 +454,53 @@ fn it_render_approved_records_what_was_shown() {
     render(p, &["demo", "arch"]).golden("prompt-render-since-rev");
     let set = |kv: &str| assert_eq!(ferrule(p, &["board", "set", "demo", kv]).text(), "exit=0");
     set("gate1=");
-    set("lane=fast");
-    render(p, &["demo", "arch"]).golden("prompt-render-arch-fast");
+    render(p, &["demo", "arch"]).golden("prompt-render-arch-combined");
     let plan = art(p, "demo", "plan.summary.md");
     let mut text = std::fs::read_to_string(&plan).unwrap();
     text.extend((1..=40).map(|i| format!("- line {i}\n")));
     std::fs::write(&plan, text).unwrap();
     assert_eq!(render(p, &["demo", "gate2"]).text(), "exit=3");
+}
+
+/// GA-R-129 — the combined early stop's architecture prompt offers a stop at
+/// the plan too; separate early stops do not.
+#[test]
+fn it_arch_prompt_offers_plan_stop() {
+    let p = project();
+    let p = p.path();
+    let set = |kv: &str| assert_eq!(ferrule(p, &["board", "set", "demo", kv]).text(), "exit=0");
+    set("gate1=");
+    let brief = |n: usize| {
+        let text = "## R1 — new · requirements\nEntry.\n\n".repeat(n);
+        std::fs::write(
+            art(p, "demo", "spec-diff.md"),
+            format!("# demo — spec diff (rev 1)\n\n{text}"),
+        )
+        .unwrap();
+    };
+    brief(3);
+    assert!(
+        render(p, &["demo", "arch"])
+            .text()
+            .contains("stop at the plan too")
+    );
+    brief(4);
+    assert!(
+        !render(p, &["demo", "arch"])
+            .text()
+            .contains("stop at the plan too")
+    );
+}
+
+/// GA-R-130 — `prompt render` has no `--recommend` flag.
+#[test]
+fn it_prompt_render_has_no_recommend_flag() {
+    let p = project();
+    let p = p.path();
+    assert_eq!(
+        render(p, &["demo", "gate1", "--recommend", "full"]).text(),
+        "exit=2"
+    );
 }
 
 #[test]

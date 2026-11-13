@@ -77,9 +77,8 @@ pub(super) fn status(slug: &str, out: &mut impl Write) -> io::Result<u8> {
     let p = &st.parent;
     writeln!(
         out,
-        "run={slug} state={} lane={} branch={} issue={} pr={} pr-state={} gates={}",
+        "run={slug} state={} branch={} issue={} pr={} pr-state={} gates={}",
         p.state.as_str(),
-        or_dash(p.lane.as_deref()),
         or_dash(p.branch.as_deref()),
         or_dash(p.issue.as_deref()),
         or_dash(p.pr.as_deref()),

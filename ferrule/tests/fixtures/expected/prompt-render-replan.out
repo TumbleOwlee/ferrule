@@ -36,6 +36,5 @@ Approving will:
 - spawn a fresh implementer at s2
 Options:
 1. also stop after: <stages>
-2. switch to the fast lane
 Answer: approve [<n>[: <value>] …] · change <what> · stop
 exit=0

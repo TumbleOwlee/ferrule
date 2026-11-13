@@ -180,9 +180,9 @@ pub enum PromptKind {
     Delta,
     /// Notice: a stage continued on its own.
     Auto,
-    /// Notice: the fast lane's gate 2.
+    /// Notice: gate 2 after the combined stop.
     Gate2Notice,
-    /// Notice: the fast lane's re-plan.
+    /// Notice: a re-plan that needs no stop.
     ReplanNotice,
     /// The record of the last approval.
     Approved,
@@ -209,9 +209,6 @@ pub struct PromptRenderArgs {
     /// gate1: the brief proposes an epic.
     #[arg(long)]
     pub epic: bool,
-    /// gate1, arch: the recommended lane.
-    #[arg(long, value_parser = ["fast", "full"])]
-    pub recommend: Option<String>,
     /// gate2, epic: `new`, or the number of an issue the run reuses.
     #[arg(long)]
     pub issue: Option<String>,
@@ -428,7 +425,6 @@ fn pairs(args: &PromptRenderArgs) -> Vec<(String, String)> {
     let texts = [
         ("reason", &args.reason),
         ("detail", &args.detail),
-        ("recommend", &args.recommend),
         ("issue", &args.issue),
         ("pr", &args.pr),
         ("where", &args.at),

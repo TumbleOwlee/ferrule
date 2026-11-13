@@ -288,6 +288,29 @@ fn it_stage_tier_batch_closes_at_the_last_stage() {
     assert_eq!(tier_of(&s, 2), "tier=batched review=batch stages=s1,s2");
 }
 
+/// GA-R-124 — a stage's tier alone decides its review, whatever the brief's size.
+#[test]
+fn it_stage_tier_ignores_brief_size() {
+    for entries in [2, 5] {
+        let brief = "## R1 — new · requirements\nEntry.\n\n".repeat(entries);
+        let own = tiered(&["own"]);
+        let run = own.root.join(".ferrule/runs/ss");
+        std::fs::create_dir_all(&run).unwrap();
+        std::fs::write(run.join("spec-diff.md"), &brief).unwrap();
+        assert_eq!(tier_of(&own, 1), "tier=own review=stage", "{entries}");
+        let batched = tiered(&["batched"]);
+        let run = batched.root.join(".ferrule/runs/ss");
+        std::fs::create_dir_all(&run).unwrap();
+        std::fs::write(run.join("spec-diff.md"), &brief).unwrap();
+        std::fs::write(batched.wt.join("f1.txt"), "a\n").unwrap();
+        assert_eq!(
+            tier_of(&batched, 1),
+            "tier=batched review=batch stages=s1",
+            "{entries}"
+        );
+    }
+}
+
 /// GA-R-072 — a planned batched stage that changes the spec is promoted to
 /// its own review, logged on its card.
 #[test]
@@ -1057,14 +1080,16 @@ fn it_gauntlet_batched_stage_checks_run_review_steps() {
     assert!(!log.contains("### plain:"), "{log}");
 }
 
-/// GA-R-115 — a fast-lane stage's checks also run the review-level steps.
+/// GA-R-115 — a batched or skipped stage's checks also run the review-level steps.
 #[test]
-fn it_gauntlet_fast_lane_stage_checks_run_review_steps() {
-    let s = crate_scratch("stack = \"rust\"\n");
-    seed_set(&s.root, "ss", &["lane=fast"]);
-    let (out, log) = stage_checks(&s);
-    assert!(out.starts_with("gauntlet=pass cov=? sha="), "{out}");
-    assert!(log.contains("### reviewed:"), "{log}");
+fn it_gauntlet_unreviewed_stage_checks_run_review_steps() {
+    for tier in ["batched", "skipped"] {
+        let s = crate_scratch("stack = \"rust\"\n");
+        seed_set(&s.root, "ss.s1", &[&format!("tier={tier}")]);
+        let (out, log) = stage_checks(&s);
+        assert!(out.starts_with("gauntlet=pass cov=? sha="), "{out}");
+        assert!(log.contains("### reviewed:"), "{tier}: {log}");
+    }
 }
 
 /// GA-R-082, GA-R-115 — an own-tier stage's checks stay the push steps.
@@ -1464,7 +1489,7 @@ fn it_run_status_summarises_cards_and_worktree() {
     let lines: Vec<&str> = got.lines().collect();
     assert_eq!(
         lines[0],
-        "run=ss state=inprogress lane=full branch=feat/ss issue=- pr=- pr-state=- gates=gate1,arch,gate2"
+        "run=ss state=inprogress branch=feat/ss issue=- pr=- pr-state=- gates=gate1,arch,gate2"
     );
     assert_eq!(lines[1], "stage=s0 state=done commit=- title=Stage 0");
     assert_eq!(lines[2], "stage=s1 state=open commit=- title=Stage 1");

@@ -35,7 +35,9 @@ parent states each is approved in:
   gate3    gate3   gate2                     inprogress, inreview
   gate4    gate4   gate2                     inprogress, inreview
   arch and epic also date gate1 while it is pending; gate2 does too.
-  `--epic` records `kind: epic` and removes `lane`. `stage replan start`
+  `--plan-stop` (arch only, else exit 2) records `plan-stop: yes`: gate 2
+  keeps its own stop after the combined early stop.
+  `--epic` records `kind: epic`. `stage replan start`
   removes gate3 and gate4: the run is approved there anew.
   gate2 files the issue and adds the worktree first, then writes its
   fields, the parent's move and the stage cards in one transaction: a
@@ -151,8 +153,9 @@ Output, in order:
                                    `minors` carries the reason of the step it
                                    precedes.
                                    gate2 stops for: size (a brief of more
-                                   than 3 entries), no-arch-stop, needs-user
-                                   and reuse. A re-plan stops for: not-gate4,
+                                   than 3 entries), no-arch-stop, plan-stop
+                                   (asked for at the architecture stop),
+                                   needs-user and reuse. A re-plan stops for: not-gate4,
                                    needs-user and arch-moved; otherwise it
                                    logs
                                    replan=pre-authorized and gives `notice`.
@@ -213,7 +216,7 @@ pub enum GateCommand {
     },
 }
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum GateName {
     /// The brief.
     Gate1,
@@ -241,12 +244,12 @@ pub struct ApproveArgs {
     pub slug: Slug,
     /// The gate the user approved.
     pub gate: GateName,
-    /// The lane the user settled on, recorded on the card.
-    #[arg(long, value_parser = ["fast", "full"])]
-    pub lane: Option<String>,
-    /// gate1: the run is an epic; records `kind: epic` and removes `lane`.
-    #[arg(long, conflicts_with = "lane")]
+    /// gate1: the run is an epic; records `kind: epic`.
+    #[arg(long)]
     pub epic: bool,
+    /// arch: gate 2 keeps its own stop; records `plan-stop: yes`.
+    #[arg(long)]
+    pub plan_stop: bool,
     /// gate2: `new`, or the number of an issue the run reuses.
     #[arg(long)]
     pub issue: Option<String>,
@@ -331,7 +334,6 @@ fn approve(args: &ApproveArgs, out: &mut impl Write) -> io::Result<u8> {
             pairs.push((k.to_owned(), v.clone()));
         }
     };
-    pair("lane", args.lane.as_ref());
     pair("issue", args.issue.as_ref());
     pair("branch", args.branch.as_ref());
     pair("stops", args.stops.as_ref());
@@ -339,6 +341,13 @@ fn approve(args: &ApproveArgs, out: &mut impl Write) -> io::Result<u8> {
     pair("live-repo", args.live_repo.as_ref());
     if args.epic {
         pairs.push(("kind".to_owned(), "epic".to_owned()));
+    }
+    if args.plan_stop {
+        if args.gate != GateName::Arch {
+            eprintln!("approve: --plan-stop is taken by the arch gate only");
+            return Ok(exit::USAGE);
+        }
+        pairs.push(("plan-stop".to_owned(), "yes".to_owned()));
     }
     let layout = layout();
     let config = super::config()?;

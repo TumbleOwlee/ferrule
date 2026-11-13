@@ -3,7 +3,6 @@
 id: rb
 state: inprogress
 branch: docs/rb
-lane: full
 issue: 21
 pr: 22
 gate1: 2026-10-05

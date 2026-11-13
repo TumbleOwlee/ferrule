@@ -773,7 +773,7 @@ fn arg<'a>(args: &'a [(String, String)], key: &str) -> Option<&'a str> {
 
 /// Gate 2's work, in order: the issue filed or rewritten and the worktree
 /// and branch (both idempotent), then one board transaction: the dates,
-/// branch and lane, the parent moved, the stage cards created. A refused
+/// branch, the parent moved, the stage cards created. A refused
 /// move leaves no gate 2 field and no stage card.
 #[allow(clippy::too_many_arguments)]
 fn approve_gate2(
@@ -843,9 +843,6 @@ fn approve_gate2(
     if !out.recorded {
         fields.push(("gate2".to_owned(), today.to_owned()));
     }
-    if let Some(lane) = arg(args, "lane") {
-        fields.push(("lane".to_owned(), lane.to_owned()));
-    }
     if let Some(repo) = arg(args, "live-repo") {
         fields.push(("live-repo".to_owned(), repo.to_owned()));
     }
@@ -865,7 +862,7 @@ fn approve_gate2(
     Ok(())
 }
 
-/// Records the approval of `gate`: its date and lane, what was shown, and
+/// Records the approval of `gate`: its date, what was shown, and
 /// at gate 2 the issue, the worktree, the parent's move and the stage
 /// cards. Refused before anything is written when a gate it follows is
 /// not approved or the parent card is in a state the gate is not approved
@@ -919,7 +916,6 @@ pub fn approve(
             return Err(Error::Refused(GateRefusal::Epic));
         }
         fields.push(("kind".to_owned(), "epic".to_owned()));
-        fields.push(("lane".to_owned(), String::new()));
     }
     let seen = prompt::render::seen(conn, layout, slug)?;
     if gate == Gate::Gate2 {
@@ -936,8 +932,8 @@ pub fn approve(
             &mut out,
         )?;
         fields.clear();
-    } else if let Some(lane) = arg(args, "lane") {
-        fields.push(("lane".to_owned(), lane.to_owned()));
+    } else if gate == Gate::Arch && arg(args, "plan-stop") == Some("yes") {
+        fields.push(("plan-stop".to_owned(), "yes".to_owned()));
     }
     // The fields and what was shown in one transaction, the log lines
     // last: a refused line leaves the gate unapproved.

@@ -26,8 +26,8 @@ with no `at` runs only at full. `{crates}` in a step's `cmd` expands to
 review point's base touches, at push with --stage to `-p <crate>` for each
 crate the stage's diff touches, and is dropped when `stack` is not rust.
 --stage s<n> also runs the tests the stage's diff adds or rewrites (`stack =
-\"rust\"` only); for a stage that commits before any review (batched, skipped,
-fast lane) also the review-level steps, when its diff touches a crate
+\"rust\"` only); for a stage that commits before any review (batched or
+skipped) also the review-level steps, when its diff touches a crate
 (`stack = \"rust\"` only).
 Output (the steps' own output goes to .ferrule/runs/<slug>/gauntlet.log):
   gauntlet=pass cov=<pct> sha=<sha> [cached] [dirty]

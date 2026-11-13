@@ -35,6 +35,5 @@ Approving will:
 - next stop: per the stage-stop rules
 Options:
 1. also stop after: <stages, e.g. s1,s3>
-2. switch to the fast lane
 Answer: approve [<n>[: <value>] …] · change <what> · stop
 exit=0

@@ -569,7 +569,7 @@ fn gate1_decision(c: &mut Ctx, status: &Status) {
 }
 
 /// Gate 2 stops when the brief asks for separate early stops, when no
-/// architecture stop was approved, when a Needs user item is open or when
+/// architecture stop was approved, when the plan stop was asked for, when a Needs user item is open or when
 /// the run reuses an issue; else it is a notice.
 fn gate2_decision(c: &mut Ctx, word: &str, status: &Status) -> rusqlite::Result<()> {
     let issue = status.issue.as_deref().unwrap_or("new");
@@ -577,6 +577,8 @@ fn gate2_decision(c: &mut Ctx, word: &str, status: &Status) -> rusqlite::Result<
         Some("size")
     } else if !board::is_date(c.field("arch")?.as_deref()) {
         Some("no-arch-stop")
+    } else if c.field("plan-stop")?.as_deref() == Some("yes") {
+        Some("plan-stop")
     } else if c.needs_user() {
         Some("needs-user")
     } else if word == "reuse" {

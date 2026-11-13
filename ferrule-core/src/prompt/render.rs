@@ -15,6 +15,7 @@ use crate::config::Config;
 use crate::project::Layout;
 use crate::prompt::{approval, lines};
 use crate::remote;
+use crate::run::stops::{self, EarlyStops};
 use crate::store::Board;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -313,7 +314,10 @@ impl Run<'_> {
 
 /// The run's state a stop's text depends on.
 struct Facts {
-    lane: String,
+    /// The early stops the run's brief or architecture size calls for.
+    stops: EarlyStops,
+    /// The run has a brief.
+    has_brief: bool,
     /// `gate1:` carries no date yet while a spec-diff.md exists.
     brief_pending: bool,
     /// spec-diff.md is shown: the brief is pending or its rev moved past
@@ -361,7 +365,8 @@ impl Run<'_> {
         let summary = std::fs::read_to_string(self.art("plan.summary.md")).unwrap_or_default();
         let rows = artifacts::rows(&summary);
         Ok(Facts {
-            lane: self.field("lane")?.unwrap_or_default(),
+            stops: stops::early_stops(self.layout, self.slug),
+            has_brief: spec.is_file(),
             brief_pending,
             want_spec: spec.is_file()
                 && (brief_pending || rev_of(&spec).is_some_and(|r| r > since)),
@@ -587,14 +592,7 @@ pub(crate) fn render_in(
         let gate = format!("gate={}", kind.gate());
         run.log("stop", &["kind=approval", &gate])?;
     }
-    let mut out = vec![header(
-        &approval.title,
-        slug,
-        &show,
-        &facts.lane,
-        kind,
-        args,
-    )];
+    let mut out = vec![header(&approval.title, slug, &show, kind, args)];
     out.extend(note);
     out.extend(quoted(&show, &quote, facts.seen, kind, args));
     if let Some(n) = minors {
@@ -612,12 +610,11 @@ pub(crate) fn render_in(
     Ok(out)
 }
 
-/// `<title> · <slug>[ · <files with rev>][ · <lane> lane][ · stop: …]`.
+/// `<title> · <slug>[ · <files with rev>][ · stop: …]`.
 fn header(
     title: &str,
     slug: &str,
     show: &[PathBuf],
-    lane: &str,
     kind: Kind,
     args: &[(String, String)],
 ) -> String {
@@ -638,9 +635,6 @@ fn header(
             })
             .collect();
         let _ = write!(h, " · {}", files.join(", "));
-    }
-    if !lane.is_empty() && lane != "full" {
-        let _ = write!(h, " · {lane} lane");
     }
     if kind == Kind::Stage {
         let _ = write!(h, " · stop: {}", arg(args, "reason").unwrap_or(""));
@@ -794,20 +788,9 @@ fn strings(v: &[&str]) -> Vec<String> {
     v.iter().map(|&x| x.to_owned()).collect()
 }
 
-fn other_lane(lane: &str) -> &'static str {
-    if lane == "full" { "fast" } else { "full" }
-}
-
-/// Gate 2 and re-plan offer extra stops in the full lane, else a switch.
-fn lane_options(lane: &str, example: &str) -> Vec<String> {
-    if lane == "full" {
-        vec![
-            format!("1. also stop after: {example}"),
-            "2. switch to the fast lane".to_owned(),
-        ]
-    } else {
-        vec![format!("1. switch to the {} lane", other_lane(lane))]
-    }
+/// Gate 2 and re-plan offer extra stops.
+fn stop_options(example: &str) -> Vec<String> {
+    vec![format!("1. also stop after: {example}")]
 }
 
 /// `- approve the brief` while the brief is pending.
@@ -840,7 +823,7 @@ fn approval_text(
                     "- update the draft PR".to_owned(),
                     format!("- spawn a fresh implementer at {from}"),
                 ],
-                lane_options(&facts.lane, "<stages>"),
+                stop_options("<stages>"),
             )
         }
         Kind::Gate3 => Approval::new(
@@ -903,54 +886,39 @@ fn gate1(args: &[(String, String)]) -> Approval {
         return Approval::new(
             "Gate 1",
             strings(&[
-                "- record the run as an epic (option 1) or a single run in the lane chosen",
+                "- record the run as an epic (option 1) or a single run",
                 "- hand the brief to the architect",
             ]),
             strings(&[
                 "1. epic — a shared skeleton, one issue per slice (recommended)",
-                "2. single run, full lane",
-                "3. single run, fast lane",
+                "2. single run",
             ]),
         );
     }
-    let rec = arg(args, "recommend")
-        .filter(|r| !r.is_empty())
-        .unwrap_or("full");
-    let opts = ["full", "fast"]
-        .iter()
-        .enumerate()
-        .map(|(i, l)| {
-            let tag = if *l == rec { " (recommended)" } else { "" };
-            format!("{}. {l} lane{tag}", i + 1)
-        })
-        .collect();
     Approval::new(
         "Gate 1",
-        strings(&["- settle the lane", "- hand the brief to the architect"]),
-        opts,
+        strings(&["- hand the brief to the architect"]),
+        Vec::new(),
     )
 }
 
+/// The architecture stop: the combined early stop also approves the brief
+/// and lets gate 2 pass as a notice, and offers a stop at the plan too.
 fn arch(facts: &Facts) -> Approval {
-    let (will, opts) = match facts.lane.as_str() {
-        "fast" => {
-            let mut w = brief(facts);
-            w.extend(strings(&[
-                "- hand brief and architecture to the planner",
-                "- run gate 2 without a stop once the plan review is clean",
-                "- next stop: gate 4",
-            ]));
-            (w, strings(&["1. switch to the full lane"]))
+    let mut will = brief(facts);
+    will.push(
+        if facts.has_brief {
+            "- hand brief and architecture to the planner"
+        } else {
+            "- hand the architecture to the planner"
         }
-        "" => (
-            strings(&["- hand the architecture to the planner"]),
-            strings(&["1. full lane", "2. fast lane"]),
-        ),
-        _ => (
-            strings(&["- hand brief and architecture to the planner"]),
-            Vec::new(),
-        ),
-    };
+        .to_owned(),
+    );
+    let mut opts = Vec::new();
+    if facts.stops == EarlyStops::Combined {
+        will.push("- run gate 2 without a stop once the plan review is clean".to_owned());
+        opts.push("1. stop at the plan too".to_owned());
+    }
     Approval::new("Architecture", will, opts)
 }
 
@@ -989,7 +957,6 @@ fn epic(run: &Run, args: &[(String, String)], facts: &Facts) -> Approval {
 }
 
 fn gate2(run: &Run, args: &[(String, String)], facts: &Facts) -> Result<Approval, Error> {
-    let fast = facts.lane == "fast";
     let iw = match arg(args, "issue") {
         None | Some("" | "new") => "file the issue".to_owned(),
         Some(i) => format!("rewrite issue #{i}"),
@@ -1004,27 +971,15 @@ fn gate2(run: &Run, args: &[(String, String)], facts: &Facts) -> Result<Approval
         "- create worktree .ferrule/worktrees/{slug} on branch {branch}"
     ));
     w.push(format!(
-        "- create {} stage cards and spawn the implementer at {}{}",
+        "- create {} stage cards and spawn the implementer at {}",
         facts.stages,
         facts.first.as_deref().unwrap_or("s1"),
-        if fast {
-            " (commits and pushes on green, no per-stage stop)"
-        } else {
-            ""
-        }
     ));
-    w.push(format!(
-        "- next stop: {}",
-        if fast {
-            "gate 4"
-        } else {
-            "per the stage-stop rules"
-        }
-    ));
+    w.push("- next stop: per the stage-stop rules".to_owned());
     Ok(Approval::new(
         "Gate 2",
         w,
-        lane_options(&facts.lane, "<stages, e.g. s1,s3>"),
+        stop_options("<stages, e.g. s1,s3>"),
     ))
 }
 

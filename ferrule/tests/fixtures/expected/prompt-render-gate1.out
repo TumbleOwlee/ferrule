@@ -11,10 +11,6 @@ Confirm:
 - MB-R-161 — retry forever, no cap — the user never wants a dead tab (planner)
 - legacy line without a tag — skipped by every renderer (planner)
 Approving will:
-- settle the lane
 - hand the brief to the architect
-Options:
-1. full lane (recommended)
-2. fast lane
-Answer: approve [<n>[: <value>] …] · change <what> · stop
+Answer: approve · change <what> · stop
 exit=0

@@ -703,9 +703,6 @@ fn draft(
     let diff = c.spec();
     let mut out = format!("{}\n\n", first_line(issue));
     let mut status = "Draft".to_owned();
-    if let Some(lane) = c.field("lane")? {
-        let _ = write!(status, " · lane {lane}");
-    }
     match spec_rev(c) {
         Some(r) => {
             let _ = write!(status, " · spec rev {r}");
@@ -860,11 +857,7 @@ fn review_here(c: &Ctx, summary: &str, out: &mut String) -> Result<(), Error> {
             landed.join(", ")
         );
     }
-    if c.field("lane")?.as_deref() == Some("fast") {
-        out.push_str("- later stages land on green, no stop until gate 4\n");
-    } else {
-        out.push_str("- later stages land after their review and the user's approval\n");
-    }
+    out.push_str("- later stages land per their tier\n");
     out.push('\n');
     Ok(())
 }

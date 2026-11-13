@@ -1,6 +1,6 @@
 # Reconnect dropped Modbus clients
 
-Draft · lane full · spec rev 5 · gauntlet green at bbb2222
+Draft · spec rev 5 · gauntlet green at bbb2222
 
 ## Why
 A client tab reconnects on its own after the server drops the connection.
@@ -18,7 +18,7 @@ The 1 scenarios of #12: S1 Server restarts during polling
 
 ## Review here
 - on the branch: Land spec — inline comments on their files are answered before the next stop
-- later stages land after their review and the user's approval
+- later stages land per their tier
 
 ## Requirements
 | ID | Issue | Kind | Requirement |
