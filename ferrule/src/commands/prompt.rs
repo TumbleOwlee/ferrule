@@ -33,7 +33,12 @@ Output:
                        stage, saying to rebase through ferrule or resolve it
                        outside ferrule and never force-push by hand:
                        a) rebase through ferrule, b) resolved outside
-                       ferrule, push again, c) stop
+                       ferrule, push again, c) stop; with `--mismatch <why>`
+                       (a sha push refusal's `mismatch=`) a question naming no
+                       stage, saying the push stays refused until a stage
+                       commit lands on top: a) continue with the next stage,
+                       push after its commit (only while a stage is left),
+                       b) fixed outside ferrule, push again, c) stop
   delta                a question with one decision per `Needs user` item of
                        review.verdict.md
   auto                 `Landed <stage> · ... · next: <s<n>|gate 4>`; no log
@@ -219,6 +224,9 @@ pub struct PromptRenderArgs {
     /// blocked: the remote head of a diverged branch; needs `--local`.
     #[arg(long, requires = "local", value_name = "SHA")]
     pub remote: Option<String>,
+    /// blocked: a sha push refusal's `mismatch=`; renders the sha stop.
+    #[arg(long, conflicts_with_all = ["local", "remote"], value_name = "WHY")]
+    pub mismatch: Option<String>,
     /// question: where the run is, a gate or `s<n>`.
     #[arg(long = "where", value_name = "WHERE")]
     pub at: Option<String>,
@@ -427,6 +435,7 @@ fn pairs(args: &PromptRenderArgs) -> Vec<(String, String)> {
         ("agent", &args.agent),
         ("local", &args.local),
         ("remote", &args.remote),
+        ("mismatch", &args.mismatch),
     ];
     for (k, v) in texts {
         if let Some(v) = v {

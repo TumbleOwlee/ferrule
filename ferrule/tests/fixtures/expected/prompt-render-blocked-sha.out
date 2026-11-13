@@ -1,0 +1,9 @@
+Question · demo · 1 decision
+## 1. the push is refused: mismatch=card
+The push stays refused until a stage commit lands on top of the current head.
+Options:
+- a) continue with the next stage, push after its commit
+- b) fixed outside ferrule, push again
+- c) stop
+Answer: <1: a | b | c>
+exit=0

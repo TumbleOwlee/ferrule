@@ -2696,6 +2696,88 @@ fn it_outside_merge_refuses_until_the_next_stage_commit() {
     assert!(pushed.starts_with("push=done sha="), "{pushed}");
 }
 
+/// The refusal line's `mismatch=` field: the text up to ` hint=`.
+fn mismatch_of(got: &str) -> String {
+    let at = got.find("mismatch=").unwrap() + "mismatch=".len();
+    got[at..].split(" hint=").next().unwrap().to_owned()
+}
+
+/// The sha stop rendered for `why`.
+fn sha_stop(p: &Project, why: &str) -> String {
+    p.ferrule(&["prompt", "render", "demo", "blocked", "--mismatch", why])
+        .text()
+}
+
+/// GW-R-083, GW-R-084, GW-R-087, GW-R-089, S1 — after an outside merge with a stage left the sha stop offers continue, and that stage's commit pushes.
+#[test]
+fn it_sha_refusal_after_an_outside_merge_offers_continue() {
+    let (p, _, _) = diverged_run();
+    merge_outside(&p);
+    let got = push_text(&p);
+    assert!(got.starts_with("push=refused reason=sha "), "{got}");
+    let why = mismatch_of(&got);
+    let stop = sha_stop(&p, &why);
+    assert!(stop.contains(&format!("mismatch={why}")), "{stop}");
+    assert!(stop.contains("a) continue with the next stage"), "{stop}");
+    assert!(
+        stop.contains("b) fixed outside ferrule, push again"),
+        "{stop}"
+    );
+    assert!(stop.contains("c) stop"), "{stop}");
+    assert!(!stop.contains("re-plan"), "{stop}");
+    assert_eq!(push_text(&p), got);
+    std::fs::write(p.worktree().join("src/tab.rs"), "tab\n").unwrap();
+    git(&p.worktree(), &["add", "src/tab.rs"]);
+    let done = p.in_wt(&["stage", "commit", "demo.s1", "-m", "tab"]);
+    assert!(done.starts_with("commit=done sha="), "{done}");
+    let pushed = push_text(&p);
+    assert!(pushed.starts_with("push=done sha="), "{pushed}");
+}
+
+/// GW-R-084, GW-R-085, GW-E-025, S2 — with no stage left the sha stop offers push again and stop, and push again returns the same refusal.
+#[test]
+fn it_sha_stop_with_no_stage_left_offers_push_again_and_stop() {
+    let (p, _, _) = diverged_run();
+    merge_outside(&p);
+    let got = push_text(&p);
+    assert!(got.starts_with("push=refused reason=sha "), "{got}");
+    seed_log(&p.root, "2026-10-05T09:00", "demo.s2", &["commit=abc1234"]);
+    let why = mismatch_of(&got);
+    let stop = sha_stop(&p, &why);
+    assert!(!stop.contains("a)"), "{stop}");
+    assert!(
+        stop.contains("b) fixed outside ferrule, push again"),
+        "{stop}"
+    );
+    assert!(stop.contains("c) stop"), "{stop}");
+    assert!(
+        stop.contains("stays refused until a stage commit"),
+        "{stop}"
+    );
+    let again = push_text(&p);
+    assert!(again.starts_with("push=refused reason=sha "), "{again}");
+    assert_eq!(sha_stop(&p, &mismatch_of(&again)), stop);
+}
+
+/// S3 — a hand commit on a stage commit refuses with `reason=sha` and feeds the sha stop, which offers no re-plan.
+#[test]
+fn it_hand_commit_refusal_feeds_the_sha_stop() {
+    let (p, _) = pushed_run();
+    p.land("s1", "src/client.rs");
+    let wt = p.worktree();
+    std::fs::write(wt.join("hand.txt"), "x\n").unwrap();
+    git(&wt, &["add", "."]);
+    git(&wt, &["commit", "-qm", "outside"]);
+    let got = push_text(&p);
+    assert!(got.starts_with("push=refused reason=sha "), "{got}");
+    let stop = sha_stop(&p, &mismatch_of(&got));
+    assert!(
+        stop.contains("b) fixed outside ferrule, push again"),
+        "{stop}"
+    );
+    assert!(!stop.contains("re-plan"), "{stop}");
+}
+
 /// GW-E-005 — with nothing left to commit the run stays refused.
 #[test]
 fn it_outside_merge_with_nothing_left_stays_refused() {
