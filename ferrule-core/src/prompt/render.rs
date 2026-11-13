@@ -271,12 +271,13 @@ impl Run<'_> {
         })
     }
 
-    /// The minors the newest review left, when no stop was logged since.
-    fn minors_fixed(&self) -> rusqlite::Result<Option<u64>> {
-        let events = board::events(self.conn, self.slug, &[Name::Review, Name::Stop])?;
+    /// The minors the newest review of kind `review` left, when no stop was
+    /// logged since.
+    fn minors_fixed(&self, review: Name) -> rusqlite::Result<Option<u64>> {
+        let events = board::events(self.conn, self.slug, &[review, Name::Stop])?;
         let Some(at) = events
             .iter()
-            .rposition(|e| matches!(e.typed(), Typed::Review(_)))
+            .rposition(|e| !matches!(e.typed(), Typed::Stop { .. }))
         else {
             return Ok(None);
         };
@@ -554,8 +555,11 @@ pub(crate) fn render_in(
     let first = facts.first.as_deref().unwrap_or("s1");
     match kind {
         Kind::Gate2Notice => {
+            let m = run
+                .minors_fixed(Name::PlanReview)?
+                .map_or_else(String::new, |n| format!(" · minors fixed {n}"));
             let mut out = vec![format!(
-                "Gate 2 · {slug} · {} · issue {} · starting {first} (pre-authorized — say stop to hold)",
+                "Gate 2 · {slug} · {} · issue {}{m} · starting {first} (pre-authorized — say stop to hold)",
                 facts.decide,
                 issue_word(args)
             )];
@@ -564,8 +568,11 @@ pub(crate) fn render_in(
         }
         Kind::ReplanNotice => {
             let from = arg(args, "from").ok_or(Error::Usage)?;
+            let m = run
+                .minors_fixed(Name::PlanReview)?
+                .map_or_else(String::new, |n| format!(" · minors fixed {n}"));
             let mut out = vec![format!(
-                "Re-plan from {from} · {slug} · {} · starting {from} (pre-authorized at gate 4 — say stop to hold)",
+                "Re-plan from {from} · {slug} · {}{m} · starting {from} (pre-authorized at gate 4 — say stop to hold)",
                 facts.decide
             )];
             out.extend(confirm_only(&quoted(&show, &quote, facts.seen, kind, args)));
@@ -575,10 +582,10 @@ pub(crate) fn render_in(
     }
     let note = viewer_note(&mut run, view, &show)?;
     let approval = approval_text(&run, kind, args, &facts)?;
-    let minors = if matches!(kind, Kind::Stage | Kind::Gate4) {
-        run.minors_fixed()?
-    } else {
-        None
+    let minors = match kind {
+        Kind::Stage | Kind::Gate4 => run.minors_fixed(Name::Review)?,
+        Kind::Gate2 | Kind::Replan => run.minors_fixed(Name::PlanReview)?,
+        _ => None,
     };
     if kind == Kind::Stage {
         run.log("stop", &["kind=stage"])?;
@@ -1079,7 +1086,7 @@ fn auto(run: &Run, args: &[(String, String)]) -> Result<Vec<String>, Error> {
         })
         .unwrap_or_else(|| "none".to_owned());
     let minors = run
-        .minors_fixed()?
+        .minors_fixed(Name::Review)?
         .map_or_else(String::new, |n| format!(" · minors fixed {n}"));
     Ok(vec![format!(
         "Landed {sid} · {} · review clean · gauntlet pass {} · pushed {} · spec detail: {detail}{minors} · next: {next} (auto-continue — say stop to hold)",

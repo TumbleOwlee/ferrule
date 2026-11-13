@@ -130,6 +130,7 @@ fn summary(name: &str) -> String {
     format!("summary={R}/{name}")
 }
 
+/// GA-E-026 — plan review rounds; a findings line with count=0 ends the review.
 #[test]
 fn it_next_plan_rounds() {
     let mut b = Board::new();
@@ -163,13 +164,123 @@ fn it_next_plan_rounds() {
         &verdict,
         "count=0",
         "user=0",
+        "minors=0",
     ]);
-    b.next(&["ns", "gate2", "status=clean", &review, &verdict]);
+    b.next(&["ns", "gate2", "status=clean", &review, &verdict, "minors=0"]);
     for t in ["question", "arch-gap", "split", "behavior-change"] {
         b.next(&["ns", "gate2", &format!("status={t}")]);
     }
     b.log_dump();
     b.finish("run-next-plan");
+}
+
+/// GA-R-140, GA-R-141, GA-R-139, GA-E-026, S102 — plan review
+/// minors go to the planner once, then gate 2 follows with no second review.
+#[test]
+fn it_next_plan_review_routes_minors() {
+    let mut b = Board::new();
+    let (plan, ps) = (file("plan.md"), summary("plan.summary.md"));
+    let (review, verdict) = (file("review.md"), summary("review.verdict.md"));
+    let issue = file("issue.md");
+    let ready = ["ns", "gate2", "status=ready", plan.as_str(), ps.as_str()];
+    let clean = |m: &str| {
+        [
+            "ns".to_owned(),
+            "gate2".to_owned(),
+            "status=clean".to_owned(),
+            review.clone(),
+            verdict.clone(),
+            m.to_owned(),
+        ]
+    };
+    let run = |b: &mut Board, a: &[String]| {
+        let a: Vec<&str> = a.iter().map(String::as_str).collect();
+        b.next(&a);
+    };
+    b.reset("2", "2026-10-02", 2, "clean");
+    run(&mut b, &clean("minors=2"));
+    b.next(&ready);
+    b.next(&ready);
+    b.next(&["ns", "gate2", "status=new", issue.as_str()]);
+    b.log_dump();
+    b.reset("2", "2026-10-02", 2, "clean");
+    run(&mut b, &clean("minors=0"));
+    b.reset("2", "2026-10-02", 2, "clean");
+    run(&mut b, &clean("minors=1"));
+    b.log(&["stop", "kind=question"]);
+    b.next(&ready);
+    b.log_dump();
+    b.reset("2", "2026-10-02", 2, "needs-user");
+    b.next(&[
+        "ns",
+        "gate2",
+        "status=findings",
+        &review,
+        &verdict,
+        "count=0",
+        "user=1",
+        "minors=2",
+    ]);
+    b.next(&ready);
+    b.next(&["ns", "gate2", "status=new", issue.as_str()]);
+    b.log_dump();
+    b.reset("-", "2026-10-02", 2, "clean");
+    b.next(&[
+        "ns",
+        "gate2",
+        "status=findings",
+        &review,
+        &verdict,
+        "count=0",
+        "user=0",
+        "minors=0",
+    ]);
+    b.reset("-", "2026-10-02", 2, "clean");
+    for count in ["count=2", "count=1", "count=1"] {
+        b.next(&ready);
+        b.next(&[
+            "ns",
+            "gate2",
+            "status=findings",
+            &review,
+            &verdict,
+            count,
+            "user=0",
+            "minors=2",
+        ]);
+    }
+    b.log_dump();
+    b.finish("run-next-plan-minors");
+}
+
+/// GA-R-135, GA-R-136 — re-plan review minors go to the planner once, and a
+/// retried `ready` answers the same notice without a second review.
+#[test]
+fn it_next_replan_review_routes_minors() {
+    let mut b = Board::new();
+    let ready = [
+        "ns".to_owned(),
+        "replan".to_owned(),
+        "status=ready".to_owned(),
+        file("plan.md"),
+        summary("plan.summary.md"),
+    ];
+    let ready: Vec<&str> = ready.iter().map(String::as_str).collect();
+    b.reset("-", "2026-10-02", 2, "clean");
+    b.log(&["stop", "kind=approval", "gate=gate4"]);
+    b.log(&["replan", "from=s3"]);
+    b.next(&[
+        "ns",
+        "replan",
+        "status=clean",
+        &file("review.md"),
+        &summary("review.verdict.md"),
+        "minors=1",
+    ]);
+    b.next(&ready);
+    b.next(&ready);
+    b.log_dump();
+    b.finish("run-next-replan-minors");
 }
 
 /// GA-R-122 — gate 2 after the combined early stop is a notice unless a
@@ -363,7 +474,7 @@ fn it_gate1_one_entry_brief_skips_arch() {
 fn it_next_replan_is_pre_authorized_only_after_gate4() {
     let mut b = Board::new();
     let review = file("review.md");
-    let clean = ["ns", "replan", "status=clean", review.as_str()];
+    let clean = ["ns", "replan", "status=clean", review.as_str(), "minors=0"];
     b.reset("-", "2026-10-02", 2, "clean");
     b.log(&["plan-review=findings", "count=2", "round=1"]);
     b.log(&["stop", "kind=approval", "gate=gate4"]);
@@ -381,6 +492,7 @@ fn it_next_replan_is_pre_authorized_only_after_gate4() {
         "status=clean",
         &review,
         &summary("review.verdict.md"),
+        "minors=0",
     ]);
     b.log_dump();
     b.reset("-", "2026-10-02", 2, "clean");
@@ -633,7 +745,7 @@ fn it_next_pr_and_ci() {
 }
 
 #[test]
-/// GA-R-100 — a clean line at `stage` and `gate3` without a numeric `minors=` is a usage error.
+/// GA-R-100, S103 — a clean line at `stage`, `gate3`, `gate2` and `replan` without a numeric `minors=` is a usage error.
 fn it_next_usage() {
     let mut b = Board::new();
     b.reset("-", "2026-10-02", 2, "clean");
@@ -650,6 +762,9 @@ fn it_next_usage() {
     b.next(&["ns", "gate3", "status=clean"]);
     b.next(&["ns", "gate3", "status=findings", "count=0"]);
     b.next(&["ns", "stage", "status=clean", "minors=x"]);
+    b.next(&["ns", "gate2", "status=clean"]);
+    b.next(&["ns", "replan", "status=findings", "count=0"]);
+    b.next(&["ns", "gate2", "status=clean", "minors=x"]);
     b.finish("run-next-usage");
 }
 

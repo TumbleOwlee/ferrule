@@ -97,8 +97,10 @@ Statuses each position takes:
   gate1    ready, no-diff, question; size=epic marks a brief too big for one
            run
   gate2    ready, findings, clean, question, arch-gap, split, behavior-change,
-           new, reuse (with issue=<n>)
-  replan   ready, findings, clean, question, arch-gap, split, behavior-change
+           new, reuse (with issue=<n>); clean and findings count=0 need
+           minors=<n>
+  replan   ready, findings, clean, question, arch-gap, split, behavior-change;
+           clean and findings count=0 need minors=<n>
   stage    findings (with count=<n>), clean; clean and findings count=0 need
            minors=<n>
   gate3    findings (with count=<n>), clean; clean and findings count=0 need
@@ -108,8 +110,8 @@ Statuses each position takes:
 
 Output, in order:
   logged: <event>                  An event logged on the card:
-                                   `plan-review=findings count=<n> round=<r>`,
-                                   `plan-review=clean round=<r>`,
+                                   `plan-review=findings count=<n> round=<r> [minors=<n>]`,
+                                   `plan-review=clean round=<r> [minors=<n>]`,
                                    `review=<n>-open scope=branch`,
                                    `review=<n>-open scope=<stage|batch> round=<k>`,
                                    `review=clean scope=<stage|batch> [minors=<n>]`,
@@ -135,15 +137,16 @@ Output, in order:
     follow-up        spawn the plan reviewer again after findings
     revise           plan review found issues (rounds 1 and 2): resume the
                      planner with the review file
-    issue            plan review is done (clean, or findings in round 3): ask
-                     the spec author for the tracking issue
+    issue            plan review is done (clean, findings count=0, or findings
+                     in round 3): ask the spec author for the tracking issue
     stop             show the stop and wait for the user's approval (gate1: a
                      brief of more than 3 entries, or size=epic)
     notice           show the notice, then go on as if approved
     fix              stage: findings are open; gate3: findings are open;
                      ci: CI is red
     minors           a clean review left minors (`next=minors then=<word>`):
-                     resume the implementer to fix them, no re-review; then=
+                     resume the implementer (stage, gate3) or the planner
+                     (gate2, replan) to fix them, no re-review; then=
                      names the step whose run:/do:/guide: lines follow
     stage-stop       stage clean, or gate3 clean with a stage not done:
                      decide its stop

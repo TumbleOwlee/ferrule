@@ -272,7 +272,7 @@ pub const VOCABULARY: &[Event] = &[
         "plan-review=",
         V::Any,
         P::None,
-        &["count", "round"],
+        &["count", "round", "minors"],
         Text::No,
     )
     .by("ferrule gate next <slug> <gate> <status line>"),

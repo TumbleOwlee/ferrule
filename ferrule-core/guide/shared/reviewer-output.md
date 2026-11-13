@@ -27,7 +27,7 @@ Needs user
 - none
 ```
 
-Minors are information, never asked: always `fixed before commit`, by that stage's implementer. Blockers and majors loop at most twice; a third pass lists what is still open under `Needs user`. Every `Needs user` item carries your recommendation. A clean axis has no line: `Spec — 11 of 11 pinned` and `Not checked` are the evidence, a clean pass is those two lines under its `Verdict:`. `Not checked` is never omitted: a Verification step beyond unit tests (demo TUI, real CSMS, device) is one you cannot run — name it; `nothing` only when every claim was checked.
+Minors are information, never asked: always `fixed before commit`, by that stage's implementer. At `plan` scope, by the planner before the stop. Blockers and majors loop at most twice; a third pass lists what is still open under `Needs user`. Every `Needs user` item carries your recommendation. A clean axis has no line: `Spec — 11 of 11 pinned` and `Not checked` are the evidence, a clean pass is those two lines under its `Verdict:`. `Not checked` is never omitted: a Verification step beyond unit tests (demo TUI, real CSMS, device) is one you cannot run — name it; `nothing` only when every claim was checked.
 
 Final message one line:
 
@@ -38,5 +38,7 @@ status=blocked reason=<empty diff | unresolvable base ref | …>
 ```
 
 `blockers=<n>` (the blockers alone) goes on the status line of `stage` and `batch` scopes; `minors=<n>` (the lines under `Minors`, 0 for none) on `stage`, `batch` and `branch` scopes.
+
+The `plan` and `plan from s<n>` scopes put `minors=<n>` on their `clean` and `count=0` status lines too.
 
 Findings needing a user decision (scope question, spec ambiguity, semver call, a meaningful spec change, an architecture deviation) are flagged as `Needs user` with `user=<n>` on the status line, not resolved; with only those, `status=findings count=0 user=<n>`.

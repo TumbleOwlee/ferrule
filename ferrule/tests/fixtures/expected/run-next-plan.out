@@ -43,14 +43,13 @@ log:
 2026-10-05T09:00 plan-review=findings count=1 round=2
 2026-10-05T09:00 spawn agent=plan-reviewer
 2026-10-05T09:00 plan-review=findings count=1 round=3
-$ gate next ns gate2 status=findings file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md count=0 user=0
+$ gate next ns gate2 status=findings file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md count=0 user=0 minors=0
 logged: plan-review=findings count=0 round=1
-next=revise
-run: cp .ferrule/runs/ns/plan.md .ferrule/runs/ns/plan.prev.md
-do: resume the planner with the review file
+next=issue
+do: ask the spec author for the tracking issue
 guide: ferrule guide show gate2 --slug ns
 exit=0
-$ gate next ns gate2 status=clean file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md
+$ gate next ns gate2 status=clean file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md minors=0
 logged: plan-review=clean round=2
 next=issue
 do: ask the spec author for the tracking issue

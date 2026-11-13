@@ -434,6 +434,17 @@ fn it_reviewer_branch_status_line_reports_minors() {
     );
 }
 
+/// GA-R-138 — the plan scopes' clean and count=0 status lines carry the minor count.
+#[test]
+fn it_reviewer_plan_status_line_reports_minors() {
+    says(
+        "reviewer-plan",
+        &[
+            "The `plan` and `plan from s<n>` scopes put `minors=<n>` on their `clean` and `count=0` status lines too",
+        ],
+    );
+}
+
 /// GA-R-082, GA-R-083, GA-R-084 — the guides call each check level where it applies.
 #[test]
 fn it_guides_call_each_check_level() {
