@@ -326,14 +326,23 @@ const METRICS_AFTER_LONG_HELP: &str = "\
 Output, one line (recorded; a rerun replaces the run's line):
   <slug> start=<t> end=<t> first-red=<t|-> stages=<n> stops=<n> question=<n>
   approval=<n> stage=<n> blocked=<n> replans=<n> overturned=<n> reads=<n>
-  lane=<lane> ci=<code>
+  kind=<plain|epic|slice|request> reviews=plan:<n>,stage:<n>,batch:<n>,branch:<n>
+  time=brief:<m>,arch:<m>,plan:<m>,stages:<m>,branch:<m>,pr:<m> ci=<code>
     start, end       First logged event and now; first-red the first test-red
     stops            `stop kind=` lines on the parent; question, approval,
                      stage and blocked count them by kind
     replans          `replan from=` lines; overturned sums `count=` of the
                      `overturned` lines; reads counts `read path=` lines
-    lane, ci         lane is `epic` for an epic; ci is 0, `waived`, or `-`
-                     for an epic, a request run, a run with no PR and no
+    kind             the card's `kind`, `plain` when it has none
+    reviews          `plan-review=` lines, and `review=` lines by scope:
+                     stage, batch, anything else counts as branch
+    time             whole minutes each phase took, from the end of the
+                     previous phase (the run's start for the first), `-` for
+                     a phase the run did not have; ends: brief approved or
+                     architect/planner spawned, arch approved, gate 2
+                     approved, last stage commit, branch review clean or
+                     resolved, last ci=
+    ci               0, `waived`, or `-` for an epic, a request run, a run with no PR and no
                      open issue, a run with no PR and an issue-waived line,
                      an abandoned run, or a waiver with no ci=
 Without a slug: every recorded line, oldest run first (nothing if none);

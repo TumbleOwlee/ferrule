@@ -348,6 +348,25 @@ fn civil(days: i64) -> (i64, i64, i64) {
     (yoe + era * 400 + i64::from(m <= 2), m, d)
 }
 
+/// Minutes since 1970-01-01T00:00 of a `YYYY-MM-DDTHH:MM` stamp (Howard
+/// Hinnant's `days_from_civil`, the inverse of `civil`); `None` unless the
+/// stamp is valid.
+#[must_use]
+pub fn stamp_minutes(s: &str) -> Option<i64> {
+    if !valid_stamp(s) {
+        return None;
+    }
+    let num = |from: usize, to: usize| s[from..to].parse::<i64>().ok();
+    let (year, month, day) = (num(0, 4)?, num(5, 7)?, num(8, 10)?);
+    let year = year - i64::from(month <= 2);
+    let era = year.div_euclid(400);
+    let yoe = year.rem_euclid(400);
+    let doy = (153 * (if month > 2 { month - 3 } else { month + 9 }) + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    Some(days * 1440 + num(11, 13)? * 60 + num(14, 16)?)
+}
+
 pub fn state(conn: &Connection, id: &str) -> rusqlite::Result<Option<State>> {
     let s: Option<String> = conn
         .query_row("SELECT state FROM cards WHERE id = ?1", [id], |r| r.get(0))
@@ -1651,6 +1670,18 @@ mod tests {
 
     fn raw(s: &Store, card: &str, at: &str, body: &str) {
         insert_body(&s.conn, card, at, body);
+    }
+
+    #[test]
+    fn ut_stamp_minutes() {
+        assert_eq!(stamp_minutes("1970-01-01T00:00"), Some(0));
+        assert_eq!(stamp_minutes("2026-10-17T00:00"), Some(20_743 * 1440));
+        assert_eq!(stamp_minutes("2026-10-17T01:02"), Some(20_743 * 1440 + 62));
+        assert_eq!(stamp_minutes("not a stamp"), None);
+        for (y, m, d) in [(2024, 2, 29), (2000, 3, 1), (1999, 12, 31), (2026, 1, 1)] {
+            let days = stamp_minutes(&format!("{y:04}-{m:02}-{d:02}T00:00")).unwrap() / 1440;
+            assert_eq!(civil(days), (y, m, d));
+        }
     }
 
     #[test]

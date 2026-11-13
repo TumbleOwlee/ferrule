@@ -843,13 +843,102 @@ fn it_metrics_count_the_runs_events_and_need_green_ci() {
     );
     assert!(metrics(p, "demo").ends_with(" ci=waived\nexit=0"));
     assert_eq!(all().lines().count(), 2, "a rerun replaces its line");
-    assert!(metrics(p, "lb").ends_with(" lane=epic ci=-\nexit=0"));
+    assert!(metrics(p, "lb").ends_with(" ci=-\nexit=0"));
+    assert!(metrics(p, "lb").contains(" kind=epic "));
     let none = metrics(p, "mrc");
     assert!(
         none.starts_with("metrics=refused reason=no-ci hint=") && none.ends_with("\nexit=1"),
         "{none}"
     );
     check("metrics-no-card", &metrics(p, "nosuch"));
+}
+
+/// A run `mt` with a parent and one stage card, for the metrics tests.
+fn metrics_run(kind: &[&str]) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    seed_card(dir.path(), "mt", "inprogress", kind);
+    seed_card(dir.path(), "mt.s1", "done", &[]);
+    dir
+}
+
+/// RU-R-074 — the metrics line counts the plan reviews and the stage,
+/// batch and branch reviews.
+#[test]
+fn it_metrics_count_review_passes() {
+    let dir = metrics_run(&[]);
+    let p = dir.path();
+    for (at, line) in [
+        ("2026-10-03T08:00", "plan-review=findings count=1 round=1"),
+        ("2026-10-03T08:05", "plan-review=clean round=2"),
+        ("2026-10-03T09:00", "review=1-open scope=stage round=1"),
+        ("2026-10-03T09:10", "review=clean scope=stage"),
+        ("2026-10-03T09:20", "review=clean scope=batch"),
+        ("2026-10-03T10:00", "review=1-open scope=branch"),
+        ("2026-10-03T10:10", "review=1-resolved"),
+        ("2026-10-03T10:20", "ci=0"),
+    ] {
+        let mut words = vec!["mt"];
+        words.extend(line.split(' '));
+        log_at(p, at, &words);
+    }
+    let out = metrics(p, "mt");
+    assert!(
+        out.contains(" reviews=plan:2,stage:2,batch:1,branch:2 "),
+        "{out}"
+    );
+}
+
+/// RU-R-075 — the metrics line holds the whole minutes each phase took,
+/// `-` for one the run did not have.
+#[test]
+fn it_metrics_time_per_phase() {
+    let dir = metrics_run(&[]);
+    let p = dir.path();
+    log_at(p, "2026-10-03T08:00", &["mt", "spawn", "agent=architect"]);
+    log_at(p, "2026-10-03T08:10", &["mt", "approved=arch"]);
+    log_at(p, "2026-10-03T08:30", &["mt", "approved=gate2"]);
+    log_at(p, "2026-10-03T09:30", &["mt.s1", "commit=abc1234"]);
+    log_at(p, "2026-10-03T10:00", &["mt", "review=clean"]);
+    log_at(p, "2026-10-03T10:05", &["mt", "ci=0"]);
+    let out = metrics(p, "mt");
+    assert!(
+        out.contains(" time=brief:0,arch:10,plan:20,stages:60,branch:30,pr:5 "),
+        "{out}"
+    );
+
+    let dir = metrics_run(&[]);
+    let p = dir.path();
+    log_at(p, "2026-10-03T08:00", &["mt", "spawn", "agent=planner"]);
+    log_at(p, "2026-10-03T08:30", &["mt", "approved=gate2"]);
+    log_at(p, "2026-10-03T09:30", &["mt.s1", "commit=abc1234"]);
+    log_at(p, "2026-10-03T10:05", &["mt", "ci=0"]);
+    let out = metrics(p, "mt");
+    assert!(
+        out.contains(" time=brief:0,arch:-,plan:30,stages:60,branch:-,pr:35 "),
+        "{out}"
+    );
+}
+
+/// RU-R-076 — the metrics line records the run's kind in place of `lane=`.
+#[test]
+fn it_metrics_kind() {
+    let dir = metrics_run(&[]);
+    let p = dir.path();
+    log_at(p, "2026-10-03T10:05", &["mt", "ci=0"]);
+    let out = metrics(p, "mt");
+    assert!(
+        out.contains(" kind=plain ") && !out.contains("lane="),
+        "{out}"
+    );
+
+    let dir = metrics_run(&["kind=request"]);
+    let p = dir.path();
+    log_at(p, "2026-10-03T10:05", &["mt", "ci=0"]);
+    let out = metrics(p, "mt");
+    assert!(
+        out.contains(" kind=request ") && !out.contains("lane="),
+        "{out}"
+    );
 }
 
 #[test]

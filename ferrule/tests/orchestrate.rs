@@ -4451,6 +4451,21 @@ fn it_arch_plan_stop_records_field() {
     assert_eq!(p.field("demo", "plan-stop"), "yes");
 }
 
+/// RU-R-075 — an approval logs `approved=<gate>` on the parent card, a
+/// repeated one too.
+#[test]
+fn it_gate_approve_logs_approved() {
+    let p = Project::new();
+    p.ok(&["run", "init", "demo"]);
+    p.artifacts();
+    p.ok(&["gate", "approve", "demo", "gate1"]);
+    p.ok(&["gate", "approve", "demo", "arch"]);
+    p.ok(&["gate", "approve", "demo", "arch"]);
+    let shown = p.ok(&["board", "show", "demo"]);
+    assert!(shown.contains(" approved=gate1\n"), "{shown}");
+    assert_eq!(shown.matches(" approved=arch").count(), 2, "{shown}");
+}
+
 /// S12 — a brief of 2 entries has one combined early stop: gate 1 goes to
 /// the architect, the architecture stop approves the brief, gate 2 is a notice.
 #[test]

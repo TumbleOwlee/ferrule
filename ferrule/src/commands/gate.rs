@@ -20,6 +20,7 @@ Output:
       The approval is recorded. `<record>` is what the last stop showed:
       `spec-rev=<n>`, `arch-rev=<n>` and `decisions-seen=<lines>`, also logged
       on the card. `issue=`, `worktree=` and `stages=` appear for gate2 only.
+      Every approval, a repeated one too, logs `approved=<gate>` on the card.
       `action=recorded`: the gate was approved already; its date is kept
       (gate2 still does whatever is missing: worktree, stage cards).
 Gates, the parent card field each dates, what must come first and the
@@ -111,12 +112,14 @@ Output, in order:
                                    `plan-review=findings count=<n> round=<r>`,
                                    `plan-review=clean round=<r>`,
                                    `review=<n>-open scope=branch`,
-                                   `review=clean scope=stage [minors=<n>]`,
+                                   `review=<n>-open scope=<stage|batch> round=<k>`,
+                                   `review=clean scope=<stage|batch> [minors=<n>]`,
                                    `review=<n>-resolved [minors=<n>]`,
                                    `review=clean [minors=<n>]`,
-                                   `replan=pre-authorized`, `ci=<code>` or
+                                   `replan=pre-authorized`, `ci=<code>`,
                                    `spawn agent=plan-reviewer` (gate2, replan:
-                                   ready). A status line that repeats the
+                                   ready), `spawn agent=architect` or
+                                   `spawn agent=planner` (gate1). A status line that repeats the
                                    newest event of the run's review cycle is a
                                    retry: nothing is logged again, no round is
                                    used up and `next=` is the same.

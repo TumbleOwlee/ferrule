@@ -498,6 +498,84 @@ fn it_next_stage_review_routes_minors() {
     b.finish("run-next-stage");
 }
 
+/// The parent card's log lines starting `review=`.
+fn review_lines(b: &Board) -> Vec<String> {
+    let shown = b.ferrule(&["board", "show", "ns"]).output();
+    String::from_utf8_lossy(&shown.stdout)
+        .lines()
+        .filter_map(|l| l.split_once(' ').map(|(_, rest)| rest.to_owned()))
+        .filter(|l| l.starts_with("review="))
+        .collect()
+}
+
+/// GA-R-103, RU-R-074 — a stage review logs its scope and a round: findings
+/// open round 1, 2, … until clean, and a repeated status line adds nothing.
+#[test]
+fn it_stage_review_logs_scope_and_round() {
+    let mut b = Board::new();
+    b.reset("-", "2026-10-02", 3, "clean");
+    seed_card(b.root(), "ns.s1", "done", &[]);
+    b.ok(&["board", "new", "ns.s2", "--state", "inreview"]);
+    b.next(&["ns", "stage", "status=findings", "count=3", "minors=0"]);
+    b.next(&["ns", "stage", "status=findings", "count=1", "minors=0"]);
+    b.next(&["ns", "stage", "status=findings", "count=1", "minors=0"]);
+    assert_eq!(
+        review_lines(&b),
+        [
+            "review=3-open scope=stage round=1",
+            "review=1-open scope=stage round=2"
+        ]
+    );
+    b.next(&["ns", "stage", "status=clean", "minors=0"]);
+    assert_eq!(
+        review_lines(&b).last().map(String::as_str),
+        Some("review=clean scope=stage")
+    );
+}
+
+/// GA-R-103 — a clean review of a batch's closing stage logs `scope=batch`.
+#[test]
+fn it_batch_review_logs_scope_batch() {
+    let mut b = Board::new();
+    b.reset("-", "2026-10-02", 3, "clean");
+    seed_card(b.root(), "ns.s1", "inreview", &["tier=batched"]);
+    b.next(&["ns", "stage", "status=clean", "minors=0"]);
+    assert_eq!(review_lines(&b), ["review=clean scope=batch"]);
+}
+
+/// RU-E-039 — the same findings count again, with nothing in between, is
+/// one round.
+#[test]
+fn it_stage_review_same_count_counted_once() {
+    let mut b = Board::new();
+    b.reset("-", "2026-10-02", 3, "clean");
+    seed_card(b.root(), "ns.s1", "done", &[]);
+    b.ok(&["board", "new", "ns.s2", "--state", "inreview"]);
+    b.next(&["ns", "stage", "status=findings", "count=2", "minors=0"]);
+    b.next(&["ns", "stage", "status=findings", "count=2", "minors=0"]);
+    assert_eq!(review_lines(&b), ["review=2-open scope=stage round=1"]);
+}
+
+/// RU-R-075 — gate 1 logs the spawn of the agent it sends the brief to.
+#[test]
+fn it_gate1_logs_spawn() {
+    let mut b = Board::new();
+    b.reset("2", "-", 2, "clean");
+    b.next(&["ns", "gate1", "status=ready"]);
+    assert!(
+        b.transcript.contains("logged: spawn agent=architect"),
+        "{}",
+        b.transcript
+    );
+    b.reset("1", "-", 2, "clean");
+    b.next(&["ns", "gate1", "status=ready"]);
+    assert!(
+        b.transcript.contains("logged: spawn agent=planner"),
+        "{}",
+        b.transcript
+    );
+}
+
 /// GA-R-096, GA-R-097, GA-R-101 — a branch review routes its minors to a fix step before the
 /// stop or the PR, and a stage review never resets an open branch count.
 #[test]

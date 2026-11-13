@@ -947,6 +947,11 @@ pub fn approve(
                 e => Error::Board(board::BatchError::Log(slug.to_owned(), e)),
             })?;
         }
+        let approved = format!("approved={}", gate.as_str());
+        w.log(slug, &approved, &[], now).map_err(|e| match e {
+            board::LogError::Sql(e) => Error::Sql(e),
+            e => Error::Board(board::BatchError::Log(slug.to_owned(), e)),
+        })?;
         Ok::<_, Error>(())
     })?;
     out.record = seen.join(" ");

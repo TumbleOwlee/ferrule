@@ -518,7 +518,7 @@ fn it_stages_guide_rebases_or_pushes_again_after_a_divergence() {
 fn it_stages_guide_sends_a_sha_refusal_to_the_sha_stop() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let text = ok(root, &["guide", "show", "stages", "--slug", "demo"]);
     let line = text
         .lines()
@@ -543,7 +543,7 @@ fn it_stages_guide_sends_a_sha_refusal_to_the_sha_stop() {
 fn it_stages_guide_continues_or_pushes_again_after_a_sha_refusal() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let text = ok(root, &["guide", "show", "stages", "--slug", "demo"]);
     let bullet = text
         .lines()

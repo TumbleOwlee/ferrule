@@ -8,10 +8,12 @@ use crate::artifacts;
 use crate::card::board::{self, Event, State};
 use crate::card::typed::{Name, Typed};
 use crate::card::vocab;
+use crate::config::Config;
 use crate::guide::Topic;
 use crate::project::Layout;
 use crate::refusal::{Exit, Refusal};
 use crate::run::stops::{self, EarlyStops};
+use crate::run::tier::ReviewPoint;
 use crate::store::Board;
 
 /// Where in the run the status line comes from.
@@ -354,7 +356,7 @@ pub fn next(
     };
     let mut branch_clean = false;
     match (at, word.as_str()) {
-        (At::Gate1, "ready" | "no-diff") => gate1_decision(&mut c, status),
+        (At::Gate1, "ready" | "no-diff") => gate1_decision(&mut c, status)?,
         (At::Gate1 | At::Gate2 | At::Replan | At::Gate4, "question") => {
             c.next("relay", None);
             c.act("relay the question file to the user and resume the agent with the answers");
@@ -392,7 +394,7 @@ pub fn next(
             plan_review(&mut c, &word, round, count, &events)?;
         }
         (At::Gate2, "new" | "reuse") => gate2_decision(&mut c, &word, status)?,
-        (At::Stage, "findings") if count > 0 => stage_findings(&mut c),
+        (At::Stage, "findings") if count > 0 => stage_findings(&mut c, count)?,
         (At::Stage, "findings" | "clean") => stage_clean(&mut c, minors)?,
         (At::Gate3, "findings") if count > 0 => branch_findings(&mut c, count)?,
         (At::Gate3, "findings" | "clean") => branch_clean = true,
@@ -443,20 +445,69 @@ fn plan_review(
     }
 }
 
-/// A stage or batch review with open findings: nothing is logged.
-fn stage_findings(c: &mut Ctx) {
+/// Whether the open stage's review point is a batch: the scope a stage
+/// review's events carry, `stage` when no stage is open.
+fn review_scope(c: &Ctx) -> rusqlite::Result<&'static str> {
+    let Some(n) = c.open_stage()? else {
+        return Ok("stage");
+    };
+    let main = Config::load(&c.layout.root).map_or_else(|_| "main".to_owned(), |c| c.main_branch);
+    let wt = board::worktree(c.conn, c.layout, c.slug, c.slug)?;
+    Ok(
+        match crate::run::tier::review_point(c.conn, &wt, c.slug, n, &main)? {
+            ReviewPoint::Batch(_) => "batch",
+            _ => "stage",
+        },
+    )
+}
+
+/// Whether `e` is a stage or batch review line.
+fn is_stage_review(e: &Event) -> bool {
+    matches!(e.typed(), Typed::Review(_)) && matches!(e.arg("scope"), Some("stage" | "batch"))
+}
+
+/// A stage or batch review with open findings: logged with its scope and
+/// round. A retry (the newest cycle event is the same open line) keeps its
+/// round and logs nothing again.
+fn stage_findings(c: &mut Ctx, count: u64) -> Result<(), Error> {
+    let scope = review_scope(c)?;
+    let events = board::events(c.conn, c.slug, &[])?;
+    let retry = events.iter().rfind(|e| marks(e)).filter(|e| {
+        is_stage_review(e)
+            && e.arg("scope") == Some(scope)
+            && matches!(e.typed(), Typed::Review(v) if v == format!("{count}-open"))
+    });
+    let round = if let Some(r) = retry
+        .and_then(|e| e.arg("round"))
+        .and_then(|r| r.parse().ok())
+    {
+        r
+    } else {
+        let since = events
+            .iter()
+            .rposition(|e| is_stage_review(e) && matches!(e.typed(), Typed::Review("clean")))
+            .map_or(0, |i| i + 1);
+        1 + events[since..]
+            .iter()
+            .filter(|e| is_stage_review(e))
+            .count()
+    };
+    let open = format!("review={count}-open");
+    c.log(&[&open, &format!("scope={scope}"), &format!("round={round}")])?;
     c.next("fix", None);
     c.act("move the stage card to inprogress, resume its implementer with the review file, then the gauntlet and the same reviewer's follow-up");
     c.guide(Topic::StageReview);
+    Ok(())
 }
 
 /// A clean stage or batch review: logged, then its stop, after the minors
 /// fix when it left any.
 fn stage_clean(c: &mut Ctx, minors: u64) -> Result<(), Error> {
+    let scope = format!("scope={}", review_scope(c)?);
     if minors > 0 {
-        c.log(&["review=clean", "scope=stage", &format!("minors={minors}")])?;
+        c.log(&["review=clean", &scope, &format!("minors={minors}")])?;
     } else {
-        c.log(&["review=clean", "scope=stage"])?;
+        c.log(&["review=clean", &scope])?;
     }
     announce(c, "stage-stop", None, minors);
     let n = c.open_stage()?;
@@ -536,7 +587,7 @@ fn ask_issue(c: &mut Ctx) {
 /// The spec author's brief: an epic-sized one, or one whose size asks for
 /// separate early stops, stops; a small one goes to the architect, a
 /// one-entry one to the planner.
-fn gate1_decision(c: &mut Ctx, status: &Status) {
+fn gate1_decision(c: &mut Ctx, status: &Status) -> Result<(), Error> {
     let slug = c.slug;
     if status.size.as_deref() == Some("epic") {
         c.next("stop", None);
@@ -545,7 +596,7 @@ fn gate1_decision(c: &mut Ctx, status: &Status) {
         ));
         c.act("show the gate 1 stop and wait for the user's approval");
         c.guide(Topic::Gate1);
-        return;
+        return Ok(());
     }
     match stops::early_stops(c.layout, slug) {
         EarlyStops::Separate => {
@@ -555,17 +606,20 @@ fn gate1_decision(c: &mut Ctx, status: &Status) {
             c.guide(Topic::Gate1);
         }
         EarlyStops::Combined => {
+            c.log(&["spawn", "agent=architect"])?;
             c.next("arch", None);
             c.act("spawn the architect; the brief is approved at the architecture stop");
             c.guide(Topic::Architecture);
         }
         EarlyStops::Gate2Only => {
+            c.log(&["spawn", "agent=planner"])?;
             c.next("plan", None);
             c.run(&format!("ferrule board set {slug} arch=skipped"));
             c.act("spawn the planner; the brief is approved at gate 2's stop");
             c.guide(Topic::Gate2);
         }
     }
+    Ok(())
 }
 
 /// Gate 2 stops when the brief asks for separate early stops, when no
@@ -662,7 +716,7 @@ fn branch_resolved(c: &mut Ctx, window: &[Event], minors: u64) -> Result<(), Err
     let mut first: Option<String> = None;
     let reviews = window
         .iter()
-        .filter(|e| e.arg("scope") != Some("stage"))
+        .filter(|e| !matches!(e.arg("scope"), Some("stage" | "batch")))
         .filter_map(|e| match e.typed() {
             Typed::Review(v) => Some(v),
             _ => None,
