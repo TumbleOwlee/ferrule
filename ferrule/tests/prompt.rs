@@ -372,6 +372,109 @@ fn it_render_states_the_minors_fixed() {
     assert!(!none.contains("minors fixed"), "{none}");
 }
 
+/// GA-R-134, GA-R-137, GA-E-017 — the gate 2 and re-plan stops and notices state the
+/// minors the newest plan review left, until a stop is logged after it.
+#[test]
+fn it_render_states_plan_minors_fixed() {
+    let p = project();
+    let p = p.path();
+    let at = "2026-10-05T09:00";
+    seed_log(p, at, "demo", &["plan-review=clean", "round=1", "minors=2"]);
+    let notice = render(p, &["demo", "gate2-notice", "--issue", "new"]).text();
+    assert!(notice.contains(" · minors fixed 2 · starting"), "{notice}");
+    let replan = render(p, &["demo", "replan-notice", "--from", "s3"]).text();
+    assert!(replan.contains(" · minors fixed 2 · starting"), "{replan}");
+    let stop = render(p, &["demo", "gate2", "--issue", "new"]).text();
+    assert!(
+        stop.contains("Minors fixed after the review, not re-reviewed: 2"),
+        "{stop}"
+    );
+    let again = render(p, &["demo", "gate2", "--issue", "new"]).text();
+    assert!(!again.contains("Minors fixed"), "{again}");
+    let replan_stop = render(p, &["demo", "replan", "--from", "s3"]).text();
+    assert!(!replan_stop.contains("Minors fixed"), "{replan_stop}");
+    seed_log(p, at, "demo", &["plan-review=clean", "round=2"]);
+    let none = render(p, &["demo", "gate2-notice", "--issue", "new"]).text();
+    assert!(!none.contains("minors fixed"), "{none}");
+    seed_log(p, at, "demo", &["review=clean", "scope=stage", "minors=3"]);
+    let other = render(p, &["demo", "gate2-notice", "--issue", "new"]).text();
+    assert!(!other.contains("minors fixed"), "{other}");
+}
+
+/// The words of a `run: ferrule prompt render …` line in `out`, after `render`.
+fn render_words(out: &str) -> Vec<String> {
+    let line = out
+        .lines()
+        .find_map(|l| l.strip_prefix("run: ferrule prompt render "))
+        .unwrap_or_else(|| panic!("no render line: {out}"));
+    line.split_whitespace().map(str::to_owned).collect()
+}
+
+fn next(p: &Path, words: &[&str]) -> String {
+    let mut args = vec!["gate", "next", "demo"];
+    args.extend_from_slice(words);
+    ferrule(p, &args).text()
+}
+
+fn render_line(p: &Path, out: &str) -> String {
+    let words = render_words(out);
+    let words: Vec<&str> = words.iter().map(String::as_str).collect();
+    render(p, &words).text()
+}
+
+/// GA-R-134, GA-R-137, S8, S101, S104 — a minors fix step, then the stop or
+/// notice, states how many minors were fixed.
+#[test]
+fn it_plan_minors_fix_then_stop_states_count() {
+    // S8
+    let d = project();
+    let p = d.path();
+    let out = next(p, &["gate2", "status=clean", "minors=2"]);
+    assert!(out.contains("next=minors then=issue"), "{out}");
+    let out = next(p, &["gate2", "status=ready"]);
+    assert!(out.contains("next=issue"), "{out}");
+    assert!(!board_log(p).contains("spawn agent=plan-reviewer"));
+    let out = next(p, &["gate2", "status=new"]);
+    let shown = render_line(p, &out);
+    assert!(
+        shown.contains("· minors fixed 2 ·") || shown.contains("not re-reviewed: 2"),
+        "{out}\n{shown}"
+    );
+    // S101
+    let d = project();
+    let p = d.path();
+    seed_log(p, NOW, "demo", &["stop", "kind=approval", "gate=gate4"]);
+    seed_log(p, NOW, "demo", &["replan", "from=s3"]);
+    let out = next(p, &["replan", "status=clean", "minors=1"]);
+    assert!(out.contains("next=minors then=replan"), "{out}");
+    let out = next(p, &["replan", "status=ready"]);
+    let shown = render_line(p, &out);
+    assert!(
+        shown.contains("· minors fixed 1 ·") || shown.contains("not re-reviewed: 1"),
+        "{out}\n{shown}"
+    );
+    // S104
+    let d = project();
+    let p = d.path();
+    let out = next(
+        p,
+        &["gate2", "status=findings", "count=0", "user=1", "minors=2"],
+    );
+    assert!(out.contains("next=minors"), "{out}");
+    let out = next(p, &["gate2", "status=ready"]);
+    assert!(out.contains("next=issue"), "{out}");
+    let out = next(p, &["gate2", "status=new"]);
+    assert!(out.contains("next=stop"), "{out}");
+    let shown = render(p, &["demo", "gate2", "--issue", "new"]).text();
+    assert!(shown.contains("MB-R-161"), "{shown}");
+    assert!(shown.contains("not re-reviewed: 2"), "{shown}");
+}
+
+fn board_log(p: &Path) -> String {
+    let shown = ferrule(p, &["board", "show", "demo"]).output();
+    String::from_utf8_lossy(&shown.stdout).into_owned()
+}
+
 /// GW-R-028 — one head alone is a usage error; both or neither render.
 #[test]
 fn it_render_blocked_takes_both_heads_or_neither() {
