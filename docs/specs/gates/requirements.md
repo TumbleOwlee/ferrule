@@ -28,6 +28,10 @@
 
 **GA-R-133** — `ferrule prompt render` has no `delta` stop.
 
+**GA-R-143** — `ferrule gate approve` has no `gate3` gate.
+
+**GA-R-144** — `ferrule prompt render` has no `gate3` stop.
+
 **GA-R-121** — A run's card has no lane field.
 
 ## Stage gate

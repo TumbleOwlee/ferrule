@@ -587,7 +587,7 @@ fn it_import_is_all_or_nothing() {
     assert!(got.contains("differs from the open directory"), "{got}");
 }
 
-/// GA-E-022 — a `gate3` date on a saved parent card is skipped by import, and
+/// GA-E-022, GA-R-143 — a `gate3` date on a saved parent card is skipped by import, and
 /// `gate approve` has no gate3.
 #[test]
 fn it_saved_gate3_date_ignored() {

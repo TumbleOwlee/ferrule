@@ -4463,6 +4463,19 @@ fn it_gate_approve_has_no_delta_gate() {
     );
 }
 
+/// GA-R-143 — `gate approve` has no `gate3` gate; the card is unchanged.
+#[test]
+fn it_gate_approve_has_no_gate3_gate() {
+    let p = Project::new();
+    p.ok(&["run", "init", "demo"]);
+    let before = p.ferrule(&["board", "show", "demo"]).text();
+    assert_eq!(
+        p.ferrule(&["gate", "approve", "demo", "gate3"]).text(),
+        "exit=2"
+    );
+    assert_eq!(p.ferrule(&["board", "show", "demo"]).text(), before);
+}
+
 /// GA-R-129 — `arch --plan-stop` records `plan-stop: yes`; any other gate
 /// takes it as a usage error.
 #[test]

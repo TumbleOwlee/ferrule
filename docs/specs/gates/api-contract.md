@@ -8,7 +8,7 @@
 - `approve=refused reason=tier stage=s<n> risk=<word> hint=<fix>` — a plan Risk word that names no risk; nothing is written (GA-E-014)
 - `arch --plan-stop` asks for gate 2's own stop (GA-R-129)
 - no `--lane` flag (GA-R-119)
-- no `gate3` gate; `ferrule prompt render` has no `gate3` kind (GA-R-125)
+- no `gate3` gate; `ferrule prompt render` has no `gate3` kind (GA-R-143, GA-R-144)
 - no `delta` gate; `gate approve <slug> delta` is a usage error (exit 2) (GA-R-132, GA-E-023)
 
 ## ferrule stage tier

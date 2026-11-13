@@ -253,6 +253,15 @@ fn it_prompt_render_has_no_delta_stop() {
     );
 }
 
+/// GA-R-144 — `prompt render` has no `gate3` stop; nothing is logged.
+#[test]
+fn it_prompt_render_has_no_gate3_stop() {
+    let p = project();
+    let before = ferrule(p.path(), &["board", "show", "demo"]).text();
+    assert_eq!(render(p.path(), &["demo", "gate3"]).text(), "exit=2");
+    assert_eq!(ferrule(p.path(), &["board", "show", "demo"]).text(), before);
+}
+
 /// GW-R-015, GW-R-016, GW-R-017, GW-R-024, GW-R-027 — the diverged stop shows both heads, three options, no stage.
 #[test]
 fn it_render_blocked_diverged() {
