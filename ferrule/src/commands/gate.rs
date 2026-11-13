@@ -32,7 +32,6 @@ parent states each is approved in:
                    skipped)
   stage    -       gate2                     inprogress, inreview
   replan   -       gate2                     inprogress, inreview
-  delta    -       gate2                     inprogress, inreview
   gate4    gate4   gate2                     inprogress, inreview
   arch and epic also date gate1 while it is pending; gate2 does too.
   `--plan-stop` (arch only, else exit 2) records `plan-stop: yes`: gate 2
@@ -235,8 +234,6 @@ pub enum GateName {
     Stage,
     /// A re-plan.
     Replan,
-    /// A meaningful spec change.
-    Delta,
     /// The pull request.
     Gate4,
 }
@@ -325,7 +322,6 @@ fn approve(args: &ApproveArgs, out: &mut impl Write) -> io::Result<u8> {
         GateName::Gate2 => Gate::Gate2,
         GateName::Stage => Gate::Stage,
         GateName::Replan => Gate::Replan,
-        GateName::Delta => Gate::Delta,
         GateName::Gate4 => Gate::Gate4,
     };
     let gate_name = g.as_str();

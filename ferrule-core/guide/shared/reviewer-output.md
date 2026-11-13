@@ -27,7 +27,7 @@ Needs user
 - none
 ```
 
-Minors are information, never asked: always `fixed before commit`, by that stage's implementer. At `plan` scope, by the planner before the stop. Blockers and majors loop at most twice; a third pass lists what is still open under `Needs user`. Every `Needs user` item carries your recommendation. A clean axis has no line: `Spec — 11 of 11 pinned` and `Not checked` are the evidence, a clean pass is those two lines under its `Verdict:`. `Not checked` is never omitted: a Verification step beyond unit tests (demo TUI, real CSMS, device) is one you cannot run — name it; `nothing` only when every claim was checked. A `delta` scope verdict carries only `Verdict:`, `Spec changes`, `Needs user`.
+Minors are information, never asked: always `fixed before commit`, by that stage's implementer. At `plan` scope, by the planner before the stop. Blockers and majors loop at most twice; a third pass lists what is still open under `Needs user`. Every `Needs user` item carries your recommendation. A clean axis has no line: `Spec — 11 of 11 pinned` and `Not checked` are the evidence, a clean pass is those two lines under its `Verdict:`. `Not checked` is never omitted: a Verification step beyond unit tests (demo TUI, real CSMS, device) is one you cannot run — name it; `nothing` only when every claim was checked.
 
 Final message one line:
 

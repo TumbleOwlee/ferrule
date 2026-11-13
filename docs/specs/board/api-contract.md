@@ -6,7 +6,7 @@
 
 ## Stdout
 
-- `card-log=reject reason=<r> event=<e> [<field>=<v>…] hint=<fix>` — the line is not appended; exit 2 (BO-R-008)
+- `card-log=reject reason=<r> event=<e> [<field>=<v>…] hint=<fix>` — the line is not appended; exit 2; `reason=length` for a line over 160 characters (BO-R-008, BO-R-010)
 
 ## Stderr
 

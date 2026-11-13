@@ -9,6 +9,7 @@
 - `arch --plan-stop` asks for gate 2's own stop (GA-R-129)
 - no `--lane` flag (GA-R-119)
 - no `gate3` gate; `ferrule prompt render` has no `gate3` kind (GA-R-125)
+- no `delta` gate; `gate approve <slug> delta` is a usage error (exit 2) (GA-R-132, GA-E-023)
 
 ## ferrule stage tier
 
@@ -35,6 +36,7 @@
 
 - no `--recommend` flag; the gate 1 stop offers no lane (GA-R-130)
 - `Minors fixed after the review, not re-reviewed: <n>` on the gate 2 and re-plan stops, ` · minors fixed <n>` in the gate 2 and re-plan notice headers (GA-R-142, GA-R-137)
+- no `delta` kind; `prompt render <slug> delta` is a usage error (exit 2) (GA-R-133, GA-E-025)
 
 ## Run files
 
