@@ -253,7 +253,7 @@ fn it_prompt_render_has_no_delta_stop() {
     );
 }
 
-/// GA-R-136 — `prompt render` has no `gate3` stop; nothing is logged.
+/// GA-R-144 — `prompt render` has no `gate3` stop; nothing is logged.
 #[test]
 fn it_prompt_render_has_no_gate3_stop() {
     let p = project();

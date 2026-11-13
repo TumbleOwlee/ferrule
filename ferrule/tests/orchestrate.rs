@@ -4463,7 +4463,7 @@ fn it_gate_approve_has_no_delta_gate() {
     );
 }
 
-/// GA-R-135 — `gate approve` has no `gate3` gate; the card is unchanged.
+/// GA-R-143 — `gate approve` has no `gate3` gate; the card is unchanged.
 #[test]
 fn it_gate_approve_has_no_gate3_gate() {
     let p = Project::new();
