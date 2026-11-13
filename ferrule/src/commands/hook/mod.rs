@@ -127,11 +127,54 @@ Refuses:
                        goes into the system temp directory
   the `[hook.readonly] allow` prefixes of ferrule.toml extend the allowlist
                        (`make check`); `mutating` prefixes are refused even
-                       then; record what you needed to probe as a finding for
-                       the implementer instead
+                       then; record what you needed to probe as a finding
+                       instead
   every call but `ferrule setup install` while the binary and the project's pin
                        or lock disagree: `ferrule=refused reason=version ... hint=<fix>`
   deny when ferrule.toml cannot be read: ferrule hook reviewer: <error>
+Errors (stderr):
+  ferrule hook: unreadable PreToolUse payload (...); refusing the call
+                       exit 2, which blocks the call
+Exit codes: 0 ok, 2 blocked, unreadable payload or internal error (a
+failing guard refuses the call).";
+
+/// Shown after `ferrule hook checker --help`.
+const CHECKER_AFTER_LONG_HELP: &str = "\
+Called by Claude Code's settings (a `PreToolUse` hook on Bash for the
+fe-checker agent), not by hand.
+Reads the hook payload as JSON on stdin: tool_name, tool_input.command, cwd.
+Output:
+  (nothing)            exit 0; the call is read-only, or only rewrites
+                       check-comprehension.md or check-zoom-out.md
+  one JSON line        exit 0; permissionDecision \"deny\" with the reason
+Refuses:
+  any command off the read-only allowlist: ls cat head tail wc grep rg find
+                       (no -exec/-delete/-fprint) sed -n (no w/e commands)
+                       awk (no redirection, system, pipes) diff cmp file stat
+                       tree pwd echo printf sort uniq cut tr nl basename
+                       dirname realpath jq date (no -s/--set) sha256sum;
+                       rtk bypass rg; gh api graphql (queries only) and
+                       gh <command> --help; git log|show|diff (no --output,
+                       --ext-diff)|status|blame|grep|rev-parse|ls-files|
+                       ls-tree|cat-file|merge-base|describe|shortlog, branch
+                       and tag only to list; cargo test|check|clippy|tree|
+                       metadata, fmt --check (no --print-config,
+                       --config); ferrule's read-only commands (board
+                       show|list|field|events|vocab, run status|diff|log|
+                       plan-diff, stage verify, file, spec, issue view|
+                       search|request|body|milestones, pr view|body,
+                       guide, prompt lines, ci failed). Wrappers (env, timeout, A=b cmd),
+                       sh -c, eval and $'...' are refused. Output goes to
+                       /dev/null, rewrites check-comprehension.md or
+                       check-zoom-out.md, or, for a ferrule read command,
+                       goes into the system temp directory
+  the `[hook.readonly] allow` prefixes of ferrule.toml extend the allowlist
+                       (`make check`); `mutating` prefixes are refused even
+                       then; record what you needed to probe as a finding
+                       instead
+  every call but `ferrule setup install` while the binary and the project's pin
+                       or lock disagree: `ferrule=refused reason=version ... hint=<fix>`
+  deny when ferrule.toml cannot be read: ferrule hook checker: <error>
 Errors (stderr):
   ferrule hook: unreadable PreToolUse payload (...); refusing the call
                        exit 2, which blocks the call
@@ -174,6 +217,12 @@ pub enum HookCommand {
     /// review.verdict.md.
     #[command(after_long_help = REVIEWER_AFTER_LONG_HELP)]
     Reviewer,
+    /// Keep the design checks read-only (`PreToolUse`).
+    ///
+    /// Refuses every write except the run's check-comprehension.md and
+    /// check-zoom-out.md.
+    #[command(after_long_help = CHECKER_AFTER_LONG_HELP)]
+    Checker,
     /// Name the runs an interrupted session left (`SessionStart`).
     #[command(after_long_help = SESSION_START_AFTER_LONG_HELP)]
     SessionStart,
@@ -247,7 +296,10 @@ fn pre_tool_use(
     };
     let cwd = payload.cwd.clone().unwrap_or_else(|| PathBuf::from("."));
     // A version mismatch refuses every call but the update it asks for.
-    let guards = matches!(command, HookCommand::Shell | HookCommand::Reviewer);
+    let guards = matches!(
+        command,
+        HookCommand::Shell | HookCommand::Reviewer | HookCommand::Checker
+    );
     let mismatch = (guards && !install::is_update(cmd))
         .then(|| install::version_mismatch(&project::toplevel()))
         .flatten();
@@ -255,7 +307,8 @@ fn pre_tool_use(
         _ if let Some(m) = &mismatch => Some(Verdict::Deny(m.message())),
         HookCommand::Shell => shell(cmd, &cwd),
         HookCommand::Attribution => attribution(cmd, &cwd, &payload.tool_input),
-        HookCommand::Reviewer => reviewer(cmd, &cwd),
+        HookCommand::Reviewer => read_only(cmd, &cwd, "reviewer", readonly::REVIEWER),
+        HookCommand::Checker => read_only(cmd, &cwd, "checker", readonly::CHECKER),
         HookCommand::SessionStart | HookCommand::Git { .. } => None,
     };
     let output = match verdict {
@@ -285,9 +338,9 @@ enum Verdict {
     Rewrite(Value),
 }
 
-/// The reviewer's guard with the project's extra mutating commands; a
-/// config it cannot read refuses the call rather than guess.
-fn reviewer(cmd: &str, cwd: &Path) -> Option<Verdict> {
+/// The read-only guard of `hook` with the project's extra mutating commands;
+/// a config it cannot read refuses the call rather than guess.
+fn read_only(cmd: &str, cwd: &Path, hook: &str, writes: readonly::Writes) -> Option<Verdict> {
     match Config::load(&project::main_checkout()) {
         Ok(config) => readonly::readonly(
             cmd,
@@ -296,10 +349,11 @@ fn reviewer(cmd: &str, cwd: &Path) -> Option<Verdict> {
                 mutating: &config.hook.readonly.mutating,
                 allow: &config.hook.readonly.allow,
                 limits: limits(&config),
+                writes,
             },
         )
         .map(Verdict::Deny),
-        Err(e) => Some(Verdict::Deny(format!("ferrule hook reviewer: {e}"))),
+        Err(e) => Some(Verdict::Deny(format!("ferrule hook {hook}: {e}"))),
     }
 }
 
