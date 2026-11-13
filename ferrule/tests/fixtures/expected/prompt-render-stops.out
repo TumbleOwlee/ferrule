@@ -7,5 +7,4 @@ stop kind=approval gate=replan
 stop kind=approval gate=gate4
 stop kind=question
 stop kind=blocked
-stop kind=approval gate=delta
 exit=0

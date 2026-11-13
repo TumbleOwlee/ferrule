@@ -615,6 +615,30 @@ fn it_saved_gate3_date_ignored() {
     );
 }
 
+/// GA-E-024 — saved `approved=delta` and `stop gate=delta` lines import and
+/// read.
+#[test]
+fn it_saved_delta_lines_read() {
+    let board = tempfile::tempdir().unwrap();
+    std::fs::create_dir(board.path().join("inprogress")).unwrap();
+    std::fs::write(
+        board.path().join("inprogress/old.md"),
+        "---\nid: old\nbranch: feat/old\n---\n2026-10-03T10:00 approved=delta\n2026-10-03T10:01 stop kind=approval gate=delta\n",
+    )
+    .unwrap();
+    let fresh = tempfile::tempdir().unwrap();
+    let got = ferrule(
+        fresh.path(),
+        &["board", "import", board.path().to_str().unwrap()],
+    )
+    .text();
+    assert_eq!(got, "import=ok cards=1\nexit=0");
+    let shown = ferrule(fresh.path(), &["board", "show", "old"]).text();
+    assert!(shown.ends_with("exit=0"), "{shown}");
+    assert!(shown.contains("approved=delta"), "{shown}");
+    assert!(shown.contains("stop kind=approval gate=delta"), "{shown}");
+}
+
 #[test]
 fn it_board_lists_every_card_in_run_order() {
     let p = project();

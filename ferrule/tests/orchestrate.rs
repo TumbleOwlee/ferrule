@@ -4434,6 +4434,17 @@ fn it_gate_approve_has_no_lane_flag() {
     );
 }
 
+/// GA-R-132, GA-E-023 — `gate approve` has no `delta` gate.
+#[test]
+fn it_gate_approve_has_no_delta_gate() {
+    let p = Project::new();
+    p.ok(&["run", "init", "demo"]);
+    assert_eq!(
+        p.ferrule(&["gate", "approve", "demo", "delta"]).text(),
+        "exit=2"
+    );
+}
+
 /// GA-R-129 — `arch --plan-stop` records `plan-stop: yes`; any other gate
 /// takes it as a usage error.
 #[test]

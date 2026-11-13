@@ -39,8 +39,6 @@ Output:
                        commit lands on top: a) continue with the next stage,
                        push after its commit (only while a stage is left),
                        b) fixed outside ferrule, push again, c) stop
-  delta                a question with one decision per `Needs user` item of
-                       review.verdict.md
   auto                 `Landed <stage> · ... · next: <s<n>|gate 4>`; no log
   gate2-notice, replan-notice
                        one header line, then the Confirm: block; no log
@@ -59,7 +57,6 @@ Logged on the card:
   stop kind=approval gate=<gate>   <gate> is gate1, arch, epic, gate2 or
                                    replan for that kind
   stop kind=approval gate=gate4    kind gate4
-  stop kind=approval gate=delta    kind delta
   stop kind=stage                  stage
   stop kind=question               question
   stop kind=blocked                blocked
@@ -174,8 +171,6 @@ pub enum PromptKind {
     Question,
     /// Question: a blocked stage.
     Blocked,
-    /// Question: a meaningful spec change.
-    Delta,
     /// Notice: a stage continued on its own.
     Auto,
     /// Notice: gate 2 after the combined stop.
@@ -192,7 +187,7 @@ pub struct PromptRenderArgs {
     pub slug: Slug,
     /// The stop to render; each flag below names the kinds it applies to.
     pub kind: PromptKind,
-    /// stage, auto, blocked, delta: the stage, `s<n>`.
+    /// stage, auto, blocked: the stage, `s<n>`.
     #[arg(long, value_parser = stage_id, value_name = "STAGE")]
     pub stage: Option<u32>,
     /// replan, replan-notice: the first stage re-planned, `s<n>`.
@@ -402,7 +397,6 @@ fn kind(k: PromptKind) -> Kind {
         PromptKind::Gate4 => Kind::Gate4,
         PromptKind::Question => Kind::Question,
         PromptKind::Blocked => Kind::Blocked,
-        PromptKind::Delta => Kind::Delta,
         PromptKind::Auto => Kind::Auto,
         PromptKind::Gate2Notice => Kind::Gate2Notice,
         PromptKind::ReplanNotice => Kind::ReplanNotice,

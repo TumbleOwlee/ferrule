@@ -29,7 +29,6 @@ pub enum Kind {
     Gate4,
     Question,
     Blocked,
-    Delta,
     Auto,
     Gate2Notice,
     ReplanNotice,
@@ -49,7 +48,6 @@ impl Kind {
             "gate4" => Kind::Gate4,
             "question" => Kind::Question,
             "blocked" => Kind::Blocked,
-            "delta" => Kind::Delta,
             "auto" => Kind::Auto,
             "gate2-notice" => Kind::Gate2Notice,
             "replan-notice" => Kind::ReplanNotice,
@@ -447,7 +445,7 @@ impl Run<'_> {
             }
             Kind::ReplanNotice => add(&mut show, "plan.summary.md"),
             Kind::Question => add(&mut quote, "question.md"),
-            Kind::Blocked | Kind::Delta | Kind::Auto | Kind::Approved => {}
+            Kind::Blocked | Kind::Auto | Kind::Approved => {}
         }
         Ok((show, quote))
     }
@@ -549,7 +547,6 @@ pub(crate) fn render_in(
         Kind::Auto => return auto(&run, args),
         Kind::Question => return question(&mut run, args),
         Kind::Blocked => return blocked(&mut run, args),
-        Kind::Delta => return delta(&mut run, args),
         _ => {}
     }
     let facts = run.facts()?;
@@ -727,34 +724,6 @@ fn blocked(run: &mut Run, args: &[(String, String)]) -> Result<Vec<String>, Erro
         "- c) stop — the run halts, the board stays for a resume".to_owned(),
         "Answer: <1: a <text> | b | c>".to_owned(),
     ])
-}
-
-/// The verdict's Needs user items, one decision each.
-fn delta(run: &mut Run, args: &[(String, String)]) -> Result<Vec<String>, Error> {
-    let sid = arg(args, "stage").unwrap_or("");
-    run.log("stop", &["kind=approval", "gate=delta"])?;
-    let verdict = std::fs::read_to_string(run.art("review.verdict.md")).unwrap_or_default();
-    let mut items = Vec::new();
-    let mut n = 0;
-    for it in artifacts::list(&verdict, "Needs user") {
-        n += 1;
-        items.push(format!("## {n}. {}", it.text));
-        items.push("Options:".to_owned());
-        items.extend(it.nested.iter().map(|t| format!("- {t}")));
-    }
-    let mut out = vec![format!(
-        "Question · {} · delta {sid} · fe-reviewer · {n} decision{}",
-        run.slug,
-        plural(n)
-    )];
-    if items.is_empty() {
-        out.push(String::new());
-    }
-    out.extend(items);
-    out.push(
-        "Answer: <1: a · 2: b · …> · other <text> — keep, revert or split each change".to_owned(),
-    );
-    Ok(out)
 }
 
 struct Approval {
