@@ -12,7 +12,7 @@ The spec is drafted best effort and settles as the run learns:
 
 Before `s0` the agents ask the user through their question batches; what they decided alone shows in the next stop's `Confirm:` block.
 
-**After `s0`.** The implementer logs `spec-delta` on its card and reports `delta=<n>`. The stage's reviewer (the per-stage review) classifies each change:
+**After `s0`.** The implementer logs `spec-delta` on its card and reports `delta=<n>`. The stage's reviewer (its own review, or the batch review that covers it) classifies each change; a stage that changes the spec always gets one: `ferrule stage tier {slug} s<n>` promotes it, and a stage whose question answers come after its tier decision runs the tier again before its commit (`ferrule guide show stages --section 'Per stage'`):
 - **origin=user** → kept: the user asked for it; no `Needs user` item.
 - **detail** → listed on the verdict and the auto-continue line; no decision. Kept: `fe-author` writes `issue-comment.md`, posted with `ferrule issue post {slug} --comment` (`ferrule guide show issue`).
 - **meaningful** → a `Needs user` item: keep, revert, or split. Stage-stop rule 1 fires. The answer goes to the implementer.

@@ -277,6 +277,21 @@ fn it_stages_guide_asks_before_a_batched_or_skipped_commit() {
     );
 }
 
+/// GA-R-131 — the stages guide reruns the tier after question answers.
+#[test]
+fn it_stages_guide_retiers_after_answers() {
+    says("stages", &["again, then `ferrule stage tier"]);
+}
+
+/// The spec-changes guide names the review a spec change promotes a stage to.
+#[test]
+fn it_spec_changes_guide_names_the_promoted_review() {
+    says(
+        "spec-changes",
+        &["its own review, or the batch review that covers it"],
+    );
+}
+
 /// GA-R-106, GA-R-110 — first-pass `Needs user` items reach the user before any fix round.
 #[test]
 fn it_stage_review_guide_relays_needs_user_after_the_first_pass() {

@@ -236,6 +236,8 @@
 
 **GA-R-124** — A stage's tier alone decides its review, whatever the brief's size.
 
+**GA-R-131** — The stages guide directs a batched or skipped stage whose question answers come after its tier decision to run `ferrule stage tier` again before its commit.
+
 ## Checks
 
 **GA-R-082** — Every stage runs the format check and its new tests.
