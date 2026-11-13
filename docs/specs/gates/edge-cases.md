@@ -65,3 +65,11 @@
 **GA-E-024** — An `approved=delta` or `stop kind=approval gate=delta` line already on a saved card imports and reads without error.
 
 **GA-E-025** — `ferrule prompt render <slug> delta` is a usage error (exit 2).
+
+## Design checks
+
+**GA-E-027** — On a Claude Code release older than 2.1.271 the comprehension check runs with the project's instruction files in its context, since such a release ignores the setting that leaves them out.
+
+**GA-E-028** — In a run without `spec-diff.md` (a non-behavior change), the comprehension check reads `architecture.md` alone.
+
+**GA-E-029** — A check result written for other revisions of `spec-diff.md` or `architecture.md` than the current ones counts as no result.
