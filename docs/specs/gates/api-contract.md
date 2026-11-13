@@ -34,6 +34,7 @@
 ## ferrule prompt render
 
 - no `--recommend` flag; the gate 1 stop offers no lane (GA-R-130)
+- `Minors fixed after the review, not re-reviewed: <n>` on the gate 2 and re-plan stops, ` · minors fixed <n>` in the gate 2 and re-plan notice headers (GA-R-134, GA-R-137)
 
 ## Run files
 
@@ -42,12 +43,15 @@
 ## Reviewer status line
 
 - `blockers=<n>` and `minors=<n>` on the stage and batch status line, `minors=<n>` on the branch status line (GA-R-092, GA-R-094)
+- `minors=<n>` on the plan review status line (GA-R-138)
 
 ## ferrule gate next
 
 - `ferrule gate next <slug> stage <status line>` takes `clean` and `findings count=<n>` (GA-R-099, GA-R-095)
 - `next=minors then=<stage-stop|stop|pr> [reason=<why>]`, followed by the `run:`/`do:`/`guide:` lines of the step after the fix (GA-R-095, GA-R-096, GA-R-097)
-- `usage: ferrule gate next <slug> <stage|gate3> status=<word>…` (exit 2) for a clean line without `minors=` (GA-R-100)
+- `usage: ferrule gate next <slug> <stage|gate3|gate2|replan> status=<word>…` (exit 2) for a clean line without `minors=` (GA-R-100)
+- `next=minors then=issue|replan` at the `gate2` and `replan` positions, followed by the gate's `guide:` line (GA-R-132, GA-R-135)
+- `findings count=0` at `gate2` answers `next=issue`, at `replan` the re-plan stop or notice, in any round (GA-E-023)
 - position `gate1` takes the spec author's status line and prints `next=stop` (gate 1 stop), `next=arch` (architecture, no stop) or `next=plan` (architecture skipped, no stop) (GA-R-116, GA-R-117, GA-R-118)
 - gate 2's stop for a brief of more than 3 entries carries `reason=size` (GA-R-117)
 - gate 2's stop carries `reason=plan-stop` when the combined stop asked for it (GA-R-129)
@@ -57,5 +61,6 @@
 - `tier=<tier> [promoted=<why>]` on a stage card, logged only by `ferrule stage tier` (GA-R-072, GA-R-073)
 - `gauntlet=pass|fail` on the run card, logged by `ferrule ci gauntlet` at level full (GA-R-090)
 - `review=clean scope=<stage|batch> [minors=<n>]`, `review=clean [minors=<n>]` and `review=<n>-resolved [minors=<n>]` on the run card, logged by `ferrule gate next` (GA-R-101, GA-R-103)
+- `plan-review=clean round=<k> [minors=<n>]` and `plan-review=findings count=0 round=<k> [minors=<n>]` on the run card, logged by `ferrule gate next` (GA-R-132, GA-R-135)
 - `review=<n>-open scope=<stage|batch> round=<k>` on the run card, logged by `ferrule gate next` (RU-R-074)
 - `spawn agent=architect|planner` on the run card, logged by `ferrule gate next <slug> gate1` when gate 1 passes without a stop; the brief phase ends there (RU-R-075)

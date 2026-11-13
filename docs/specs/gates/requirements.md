@@ -106,9 +106,11 @@
 
 **GA-R-092** — The reviewer's stage and batch status line reports its blocker count as `blockers=<n>` and its minor count as `minors=<n>`.
 
-**GA-R-100** — At the `stage` and `gate3` positions, a `clean` status line, or `findings` with `count=0`, that lacks a numeric `minors=` is a usage error (exit 2).
+**GA-R-100** — At the `stage`, `gate3`, `gate2` and `replan` positions, a `clean` status line, or `findings` with `count=0`, that lacks a numeric `minors=` is a usage error (exit 2).
 
 **GA-R-101** — `ferrule gate next` logs a clean review's minor count above 0 as `minors=<n>` on its `review=` card event.
+
+**GA-R-138** — The reviewer's plan review status line reports its minor count as `minors=<n>`.
 
 ## Guide rules
 
@@ -205,6 +207,20 @@
 **GA-R-062** — The repository for a live check is named at gate 2.
 
 **GA-R-066** — The implementer guide has a plan bookkeeping gap — a stage's ID→test table or the plan's stage table missing or misnaming a test, ID or file the stage has — logged as a `note` on the stage card, never as a reason to stop.
+
+**GA-R-132** — When a clean plan review, or one with `count=0` and a `Needs user` item, reports `minors=` above 0, `ferrule gate next <slug> gate2` answers a step that resumes the planner with the minors before gate 2's stop or notice.
+
+**GA-R-133** — After the gate 2 minors fix step, the next step is gate 2's stop or notice, with no second plan review.
+
+**GA-R-134** — Gate 2's stop or notice that follows a minors fix step states how many minors were fixed.
+
+**GA-R-135** — When a clean re-plan review, or one with `count=0` and a `Needs user` item, reports `minors=` above 0, `ferrule gate next <slug> replan` answers a step that resumes the planner with the minors before the re-plan stop or notice.
+
+**GA-R-136** — After the re-plan minors fix step, the next step is the re-plan stop or notice, with no second plan review.
+
+**GA-R-137** — The re-plan stop or notice that follows a minors fix step states how many minors were fixed.
+
+**GA-R-139** — A gate 2 minors fix step leaves gate 2 a notice when it would have been one without minors (GA-R-122).
 
 ## Stage tiers
 
