@@ -493,7 +493,6 @@ pub enum Gate {
     Replan,
     /// A meaningful spec change: only what was shown is recorded.
     Delta,
-    Gate3,
     Gate4,
 }
 
@@ -508,7 +507,6 @@ impl Gate {
             Gate::Stage => "stage",
             Gate::Replan => "replan",
             Gate::Delta => "delta",
-            Gate::Gate3 => "gate3",
             Gate::Gate4 => "gate4",
         }
     }
@@ -521,7 +519,6 @@ impl Gate {
             Gate::Gate1 => Some("gate1"),
             Gate::Arch | Gate::Epic => Some("arch"),
             Gate::Gate2 => Some("gate2"),
-            Gate::Gate3 => Some("gate3"),
             Gate::Gate4 => Some("gate4"),
             Gate::Stage | Gate::Replan | Gate::Delta => None,
         }
@@ -534,7 +531,7 @@ impl Gate {
             Gate::Gate1 | Gate::Arch | Gate::Epic => &[State::Open],
             // Re-approving gate2 resumes a run that died after it.
             Gate::Gate2 => &[State::Open, State::InProgress],
-            Gate::Stage | Gate::Replan | Gate::Delta | Gate::Gate3 | Gate::Gate4 => {
+            Gate::Stage | Gate::Replan | Gate::Delta | Gate::Gate4 => {
                 &[State::InProgress, State::InReview]
             }
         }
@@ -560,7 +557,7 @@ fn missing(
         Gate::Gate1 | Gate::Arch => None,
         Gate::Epic => (field("kind")?.as_deref() != Some("epic")).then_some(("gate1", " --epic")),
         Gate::Gate2 => (!has(field("arch")?.as_deref())).then_some(("arch", "")),
-        Gate::Stage | Gate::Replan | Gate::Delta | Gate::Gate3 | Gate::Gate4 => {
+        Gate::Stage | Gate::Replan | Gate::Delta | Gate::Gate4 => {
             (!has(field("gate2")?.as_deref())).then_some(("gate2", ""))
         }
     })
@@ -773,7 +770,7 @@ fn arg<'a>(args: &'a [(String, String)], key: &str) -> Option<&'a str> {
 
 /// Gate 2's work, in order: the issue filed or rewritten and the worktree
 /// and branch (both idempotent), then one board transaction: the dates,
-/// branch and lane, the parent moved, the stage cards created. A refused
+/// branch, the parent moved, the stage cards created. A refused
 /// move leaves no gate 2 field and no stage card.
 #[allow(clippy::too_many_arguments)]
 fn approve_gate2(
@@ -843,9 +840,6 @@ fn approve_gate2(
     if !out.recorded {
         fields.push(("gate2".to_owned(), today.to_owned()));
     }
-    if let Some(lane) = arg(args, "lane") {
-        fields.push(("lane".to_owned(), lane.to_owned()));
-    }
     if let Some(repo) = arg(args, "live-repo") {
         fields.push(("live-repo".to_owned(), repo.to_owned()));
     }
@@ -865,7 +859,7 @@ fn approve_gate2(
     Ok(())
 }
 
-/// Records the approval of `gate`: its date and lane, what was shown, and
+/// Records the approval of `gate`: its date, what was shown, and
 /// at gate 2 the issue, the worktree, the parent's move and the stage
 /// cards. Refused before anything is written when a gate it follows is
 /// not approved or the parent card is in a state the gate is not approved
@@ -919,7 +913,6 @@ pub fn approve(
             return Err(Error::Refused(GateRefusal::Epic));
         }
         fields.push(("kind".to_owned(), "epic".to_owned()));
-        fields.push(("lane".to_owned(), String::new()));
     }
     let seen = prompt::render::seen(conn, layout, slug)?;
     if gate == Gate::Gate2 {
@@ -936,8 +929,8 @@ pub fn approve(
             &mut out,
         )?;
         fields.clear();
-    } else if let Some(lane) = arg(args, "lane") {
-        fields.push(("lane".to_owned(), lane.to_owned()));
+    } else if gate == Gate::Arch && arg(args, "plan-stop") == Some("yes") {
+        fields.push(("plan-stop".to_owned(), "yes".to_owned()));
     }
     // The fields and what was shown in one transaction, the log lines
     // last: a refused line leaves the gate unapproved.
@@ -954,6 +947,11 @@ pub fn approve(
                 e => Error::Board(board::BatchError::Log(slug.to_owned(), e)),
             })?;
         }
+        let approved = format!("approved={}", gate.as_str());
+        w.log(slug, &approved, &[], now).map_err(|e| match e {
+            board::LogError::Sql(e) => Error::Sql(e),
+            e => Error::Board(board::BatchError::Log(slug.to_owned(), e)),
+        })?;
         Ok::<_, Error>(())
     })?;
     out.record = seen.join(" ");
@@ -987,11 +985,8 @@ pub fn replan_start(db: &mut Board, layout: &Layout, slug: &str, now: &str) -> R
             return Err(Error::Refused(GateRefusal::Card));
         };
         let from = replan_from(w.conn(), slug)?;
-        // The run rejoins at gate 3 and gate 4: both are approved anew.
-        let gates = [
-            ("gate3".to_owned(), String::new()),
-            ("gate4".to_owned(), String::new()),
-        ];
+        // The run rejoins at gate 4, which is approved anew.
+        let gates = [("gate4".to_owned(), String::new())];
         w.set_all(slug, &gates).map_err(|e| match e {
             board::CardError::Sql(e) => Error::Sql(e),
             _ => Error::Refused(GateRefusal::Card),

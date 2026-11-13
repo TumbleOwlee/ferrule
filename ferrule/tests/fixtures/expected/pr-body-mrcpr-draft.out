@@ -1,6 +1,6 @@
 # Edit Modbus read ranges in their own module settings dialog
 
-Draft · lane full · spec rev 6 · gauntlet green at 40b290a
+Draft · spec rev 6 · gauntlet green at 40b290a
 
 ## Why
 Modbus read ranges are edited in a separate module settings dialog (`:module`), so loading a module from a device-config file keeps that file's ranges.
@@ -16,7 +16,7 @@ The 6 scenarios of #398: S1 Change read ranges on a running client · S2 A malfo
 
 ## Review here
 - on the branch: Land spec, Module settings dialog, Apply read ranges at runtime, Setup dialog without ranges — inline comments on their files are answered before the next stop
-- later stages land after their review and the user's approval
+- later stages land per their tier
 
 ## Requirements
 | ID | Issue | Kind | Requirement |

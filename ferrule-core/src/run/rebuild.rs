@@ -441,18 +441,8 @@ pub fn rebuild(
             return Err(Refused::Sha(sha).into());
         }
     }
-    let lane = pr
-        .body
-        .lines()
-        .find(|l| !l.is_empty())
-        .and_then(|l| l.split(" · ").find_map(|w| w.strip_prefix("lane ")))
-        .map_or("", |l| if l == "light" { "fast" } else { l })
-        .to_owned();
     let today = now.get(..10).unwrap_or(now).to_owned();
     let mut fields = vec![("branch".to_owned(), branch.clone())];
-    if !lane.is_empty() {
-        fields.push(("lane".to_owned(), lane));
-    }
     for (k, v) in [
         ("issue", issue_no),
         ("pr", pr_no),

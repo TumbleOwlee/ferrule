@@ -3,7 +3,7 @@ use std::io::{self, Write};
 use std::path::Path;
 
 use clap::{Args, Subcommand};
-use ferrule_core::guide::{self, Context, Lane};
+use ferrule_core::guide::{self, Context};
 use ferrule_core::project::{self, Layout};
 use ferrule_core::refusal::Refusal;
 use ferrule_core::term::{self, Style};
@@ -16,9 +16,8 @@ use crate::cli::stage_name;
 /// Shown after `ferrule guide show --help`.
 const SHOW_AFTER_LONG_HELP: &str = "\
 Output:
-  The topic's markdown, cut to the run's lane (a `<!-- lane: … -->` part
-  for the other lane is left out), finished steps marked, placeholders such
-  as {slug} and {run_dir} filled. With --section, only those sections.
+  The topic's markdown, finished steps marked, placeholders such as {slug}
+  and {run_dir} filled. With --section, only those sections.
 Refusals (stdout, exit 1):
   guide=refused reason=unknown topic=<name> hint=`ferrule guide list` names the topics
                                  No such topic.
@@ -53,8 +52,7 @@ Refusals (stdout, exit 1), one line per problem:
                                  topic or fix the reference).
   guide-check=fail topic=<name> bad-tag=<line>
                                  A malformed tag comment. Last key hint=a tag
-                                 is <!-- lane: fast|full --> or <!-- done:
-                                 pr=ready -->.
+                                 is <!-- done: pr=ready -->.
   guide-check=fail topic=<name> no-summary-line
                                  A project topic must start with
                                  `# <name> — <summary>`. Last key hint=start
@@ -63,7 +61,7 @@ Exit codes: 0 ok, 1 refused, 4 internal error.";
 
 #[derive(Debug, Subcommand)]
 pub enum GuideCommand {
-    /// Print one topic, cut to the run's lane.
+    /// Print one topic.
     ///
     /// Its finished steps are marked, and `{slug}`, `{run_dir}` and the
     /// other placeholders are filled from the run's card.
@@ -93,9 +91,6 @@ pub struct ShowArgs {
     /// The stage the topic is read for, `s<n>`.
     #[arg(long, value_parser = stage_name)]
     pub stage: Option<String>,
-    /// Cut to this lane instead of the run's.
-    #[arg(long, value_parser = ["fast", "full"])]
-    pub lane: Option<String>,
 }
 
 pub fn run(command: &GuideCommand, style: Option<Style>, out: &mut impl Write) -> io::Result<u8> {
@@ -220,7 +215,6 @@ fn context(layout: &Layout, args: &ShowArgs) -> io::Result<Context> {
         if let Some((fields, events)) = held {
             for (k, v) in fields {
                 match k.as_str() {
-                    "lane" => ctx.lane = Lane::parse(&v),
                     "branch" => ctx.vars.push(("branch", v.clone())),
                     "issue" => ctx.vars.push(("issue", v.clone())),
                     "pr" => ctx.vars.push(("pr", v.clone())),
@@ -240,9 +234,6 @@ fn context(layout: &Layout, args: &ShowArgs) -> io::Result<Context> {
             }
         }
         ctx.vars.push(("slug", slug.to_string()));
-    }
-    if let Some(l) = args.lane.as_deref().and_then(Lane::parse) {
-        ctx.lane = Some(l);
     }
     Ok(ctx)
 }

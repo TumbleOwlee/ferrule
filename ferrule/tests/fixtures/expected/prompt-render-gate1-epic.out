@@ -12,11 +12,10 @@ Confirm:
 - MB-R-161 — retry forever, no cap — the user never wants a dead tab (planner)
 - legacy line without a tag — skipped by every renderer (planner)
 Approving will:
-- record the run as an epic (option 1) or a single run in the lane chosen
+- record the run as an epic (option 1) or a single run
 - hand the brief to the architect
 Options:
 1. epic — a shared skeleton, one issue per slice (recommended)
-2. single run, full lane
-3. single run, fast lane
+2. single run
 Answer: approve [<n>[: <value>] …] · change <what> · stop
 exit=0

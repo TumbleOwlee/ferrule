@@ -137,7 +137,7 @@ Fields:
   pass-sha                   The `sha=` of the last `gauntlet=pass` line
 
 Examples:
-  ferrule board field <slug> lane
+  ferrule board field <slug> branch
   ferrule board field <slug>.s1 log:commit
   ferrule board field <slug>.s1 pass-sha
 Exit codes: 0 ok, 4 internal error.
@@ -158,7 +158,7 @@ Refusals:
                                  A field argument without `=`; write key=value
   card-new=reject reason=owned key=<k>
                                  Only a ferrule command sets <k> (gate2,
-                                 gate3, gate4, branch, worktree, issue, pr);
+                                 gate4, branch, worktree, issue, pr);
                                  the hint names it
   card-new=reject reason=state state=done
                                  A stage card cannot start done; create it
@@ -169,13 +169,12 @@ Fields (`ferrule board set` takes the same):
                                  stop. `ferrule gate approve <slug> gate2`
                                  creates the stage cards and sets title,
                                  blocked-by, files, branch and stop itself.
-  parent card <slug>             kind, epic, slices, issue, pr, branch, lane,
-                                 gate1, with-arch, with-plan, skipped, arch,
-                                 no-arch, gate2, gate3, gate4, split,
-                                 upstream, artifacts, worktree. The workflow
+  parent card <slug>             kind, epic, slices, issue, pr, branch,
+                                 gate1, skipped, arch, no-arch, gate2, gate4,
+                                 split, upstream, artifacts, worktree. The workflow
                                  sets these itself, so do not set them by
-                                 hand: gate1, arch, gate2, gate3, gate4 and
-                                 lane (`ferrule gate approve`), branch
+                                 hand: gate1, arch, gate2 and
+                                 gate4 (`ferrule gate approve`), branch
                                  (approve gate2), kind and epic (`run init`
                                  of a slice, `gate approve gate1 --epic`),
                                  issue, slices and split (`ferrule issue
@@ -198,8 +197,8 @@ Refusals:
                                  hint lists the allowed ones, also under
                                  Fields in `ferrule board new --help` (do not
                                  hand-set the ones the workflow commands
-                                 write: gate1, arch, gate2, gate3, gate4,
-                                 lane, branch, issue, pr, slices, split);
+                                 write: gate1, arch, gate2, gate4,
+                                 branch, issue, pr, slices, split);
                                  every key is checked first, so nothing is
                                  written
   card-set=reject reason=arg arg=<a>
@@ -207,7 +206,7 @@ Refusals:
                                  nothing is written
   card-set=reject reason=owned key=<k>
                                  Only a ferrule command gives <k> a value
-                                 (gate2, gate3, gate4, branch, worktree,
+                                 (gate2, gate4, branch, worktree,
                                  issue, pr); the hint names it. `<k>=`
                                  clears one; nothing is written
 Every refusal ends in `hint=<fix>`.

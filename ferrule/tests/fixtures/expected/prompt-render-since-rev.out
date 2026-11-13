@@ -6,5 +6,8 @@ Surface:
 Confirm: nothing flagged
 Approving will:
 - hand brief and architecture to the planner
-Answer: approve · change <what> · stop
+- run gate 2 without a stop once the plan review is clean
+Options:
+1. stop at the plan too
+Answer: approve [<n>[: <value>] …] · change <what> · stop
 exit=0

@@ -266,10 +266,21 @@ pub const VOCABULARY: &[Event] = &[
     .by("ferrule gate next <slug> <gate> <status line>"),
     ev(
         Parent,
+        "approved=",
+        V::OneOf(&[
+            "gate1", "arch", "epic", "gate2", "stage", "replan", "delta", "gate4",
+        ]),
+        P::None,
+        &[],
+        Text::No,
+    )
+    .by("ferrule gate approve <slug> <gate>"),
+    ev(
+        Parent,
         "review=",
         V::Any,
         P::None,
-        &["scope", "minors"],
+        &["scope", "minors", "round"],
         Text::No,
     )
     .by("ferrule gate next <slug> <stage|gate3> <status line>"),

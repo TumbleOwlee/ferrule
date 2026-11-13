@@ -1,4 +1,5 @@
 $ gate next ns stage status=findings count=1 minors=1
+logged: review=1-open scope=stage round=1
 next=fix
 do: move the stage card to inprogress, resume its implementer with the review file, then the gauntlet and the same reviewer's follow-up
 guide: ferrule guide show stage-review --slug ns
@@ -12,6 +13,7 @@ do: run the stage stop decision with the PR thread count
 guide: ferrule guide show stage-review --slug ns
 exit=0
 log:
+2026-10-05T09:00 review=1-open scope=stage round=1
 2026-10-05T09:00 review=clean scope=stage minors=2
 $ gate next ns stage status=clean minors=0
 logged: review=clean scope=stage

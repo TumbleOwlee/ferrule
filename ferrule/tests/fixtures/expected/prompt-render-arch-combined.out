@@ -1,4 +1,4 @@
-Architecture · demo · spec-diff.md rev 5, architecture.summary.md rev 1, architecture.md rev 1 · fast lane
+Architecture · demo · spec-diff.md rev 5, architecture.summary.md rev 1, architecture.md rev 1
 Goal: A client tab reconnects on its own after the server drops the connection.
 Scenarios: 1 — S1
 Entries: 2 new — MB-R-161, MB-E-031 · 1 changed — MB-R-042 · 1 dropped — MB-E-007
@@ -12,8 +12,7 @@ Approving will:
 - approve the brief
 - hand brief and architecture to the planner
 - run gate 2 without a stop once the plan review is clean
-- next stop: gate 4
 Options:
-1. switch to the full lane
+1. stop at the plan too
 Answer: approve [<n>[: <value>] …] · change <what> · stop
 exit=0

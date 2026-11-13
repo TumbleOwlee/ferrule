@@ -16,10 +16,9 @@ log:
 2026-10-05T09:00 review=2-resolved
 $ gate next ns gate3 status=findings file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md count=0 user=1 minors=0
 logged: review=clean
-next=stop
-run: ferrule prompt render ns gate3
-do: show the gate 3 stop with the open Needs user item
-guide: ferrule guide show gate3 --slug ns
+next=pr reason=needs-user
+do: spawn the spec author for the PR body
+guide: ferrule guide show gate4 --slug ns
 exit=0
 $ gate next ns gate3 status=findings file=.claude/tasks/artifacts/ns/review.md summary=.claude/tasks/artifacts/ns/review.verdict.md count=0 user=1 minors=0
 next=pr reason=needs-user

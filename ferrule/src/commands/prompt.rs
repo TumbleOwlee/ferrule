@@ -20,7 +20,7 @@ const RENDER_AFTER_LONG_HELP: &str = "\
 Output:
   The whole message, line by line, to relay verbatim; compose nothing. By
   kind:
-  gate1 arch epic gate2 stage replan gate3 gate4
+  gate1 arch epic gate2 stage replan gate4
                        `<title> · <slug> · <files with rev>` header; a
                        `Viewer:` note when the files did not open; the quoted
                        lines (Goal:, Entries:, Plan:, Confirm: ...);
@@ -56,8 +56,8 @@ Flags each kind needs:
   usage error.
 
 Logged on the card:
-  stop kind=approval gate=<gate>   <gate> is gate1, arch, epic, gate2, replan
-                                   or gate3 for that kind
+  stop kind=approval gate=<gate>   <gate> is gate1, arch, epic, gate2 or
+                                   replan for that kind
   stop kind=approval gate=gate4    kind gate4
   stop kind=approval gate=delta    kind delta
   stop kind=stage                  stage
@@ -168,8 +168,6 @@ pub enum PromptKind {
     Stage,
     /// Approval: a re-plan.
     Replan,
-    /// Approval: the branch review.
-    Gate3,
     /// Approval: the pull request.
     Gate4,
     /// Question: an agent's decision batch.
@@ -180,9 +178,9 @@ pub enum PromptKind {
     Delta,
     /// Notice: a stage continued on its own.
     Auto,
-    /// Notice: the fast lane's gate 2.
+    /// Notice: gate 2 after the combined stop.
     Gate2Notice,
-    /// Notice: the fast lane's re-plan.
+    /// Notice: a re-plan that needs no stop.
     ReplanNotice,
     /// The record of the last approval.
     Approved,
@@ -209,9 +207,6 @@ pub struct PromptRenderArgs {
     /// gate1: the brief proposes an epic.
     #[arg(long)]
     pub epic: bool,
-    /// gate1, arch: the recommended lane.
-    #[arg(long, value_parser = ["fast", "full"])]
-    pub recommend: Option<String>,
     /// gate2, epic: `new`, or the number of an issue the run reuses.
     #[arg(long)]
     pub issue: Option<String>,
@@ -404,7 +399,6 @@ fn kind(k: PromptKind) -> Kind {
         PromptKind::Gate2 => Kind::Gate2,
         PromptKind::Stage => Kind::Stage,
         PromptKind::Replan => Kind::Replan,
-        PromptKind::Gate3 => Kind::Gate3,
         PromptKind::Gate4 => Kind::Gate4,
         PromptKind::Question => Kind::Question,
         PromptKind::Blocked => Kind::Blocked,
@@ -428,7 +422,6 @@ fn pairs(args: &PromptRenderArgs) -> Vec<(String, String)> {
     let texts = [
         ("reason", &args.reason),
         ("detail", &args.detail),
-        ("recommend", &args.recommend),
         ("issue", &args.issue),
         ("pr", &args.pr),
         ("where", &args.at),

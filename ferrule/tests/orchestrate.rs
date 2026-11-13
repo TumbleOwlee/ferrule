@@ -409,13 +409,12 @@ fn through_gate2(p: &Project) {
     out_of_order(p);
 
     p.ok(&["prompt", "render", "demo", "gate1"]);
-    let gate1 = p.ok(&["gate", "approve", "demo", "gate1", "--lane", "full"]);
+    let gate1 = p.ok(&["gate", "approve", "demo", "gate1"]);
     assert!(
         gate1.starts_with("approve=done gate=gate1 spec-rev=5"),
         "{gate1}"
     );
     assert_eq!(p.field("demo", "gate1"), "2026-10-05");
-    assert_eq!(p.field("demo", "lane"), "full");
     // Approved again a day later: the date stands.
     let again = p.at("2026-10-06T09:00", &["gate", "approve", "demo", "gate1"]);
     assert!(
@@ -431,7 +430,6 @@ fn through_gate2(p: &Project) {
          recorded, or stage cards exist); an epic is chosen at gate 1 only; see \
          `ferrule run status demo`\nexit=1"
     );
-    assert_eq!(p.field("demo", "lane"), "full");
 
     serve(gh, &find("Reconnect dropped Modbus clients"), "[]");
     gh.serve(
@@ -514,7 +512,6 @@ fn gate2_again(p: &Project) {
          while the parent card is open; see `ferrule run status demo`\nexit=1"
     );
     assert_eq!(p.field("demo", "kind"), "");
-    assert_eq!(p.field("demo", "lane"), "full");
 }
 
 /// s0 lands: the first push opens the draft PR, a move re-renders it, a
@@ -918,7 +915,7 @@ fn it_replan_swaps_the_uncommitted_stages() {
     let p = Project::new();
     p.ok(&["run", "init", "demo"]);
     p.artifacts();
-    p.ok(&["board", "set", "demo", "lane=fast", "arch=skipped"]);
+    p.ok(&["board", "set", "demo", "arch=skipped"]);
     serve(
         &p.gh,
         &find("Reconnect dropped Modbus clients"),
@@ -993,7 +990,7 @@ fn it_replan_keeps_a_stage_committed_past_an_uncommitted_one() {
     let p = Project::new();
     p.ok(&["run", "init", "demo"]);
     p.artifacts();
-    p.ok(&["board", "set", "demo", "lane=fast", "arch=skipped"]);
+    p.ok(&["board", "set", "demo", "arch=skipped"]);
     serve(
         &p.gh,
         &find("Reconnect dropped Modbus clients"),
@@ -1038,7 +1035,7 @@ fn it_replan_approve_is_refused_twice() {
     let p = Project::new();
     p.ok(&["run", "init", "demo"]);
     p.artifacts();
-    p.ok(&["board", "set", "demo", "lane=fast", "arch=skipped"]);
+    p.ok(&["board", "set", "demo", "arch=skipped"]);
     serve(
         &p.gh,
         &find("Reconnect dropped Modbus clients"),
@@ -2286,7 +2283,7 @@ fn pushed_run() -> (Project, String) {
     let p = Project::new();
     p.ok(&["run", "init", "demo"]);
     p.artifacts();
-    p.ok(&["board", "set", "demo", "lane=fast", "arch=skipped"]);
+    p.ok(&["board", "set", "demo", "arch=skipped"]);
     serve(
         &p.gh,
         &find("Reconnect dropped Modbus clients"),
@@ -4142,7 +4139,7 @@ fn gate2_ready(p: &Project, plan: &str) {
     p.artifacts();
     std::fs::remove_file(p.run_dir().join("plan.summary.md")).unwrap();
     std::fs::write(p.run_dir().join("plan.md"), plan).unwrap();
-    p.ok(&["board", "set", "demo", "lane=fast", "arch=skipped"]);
+    p.ok(&["board", "set", "demo", "arch=skipped"]);
     serve(
         &p.gh,
         &find("Reconnect dropped Modbus clients"),
@@ -4413,4 +4410,123 @@ fn it_live_check_start_refuses_an_open_stage() {
         "{got}"
     );
     assert_eq!(shell_hook(&p, "gh api -X POST repos/o/r/issues"), "deny");
+}
+
+/// A brief of `n` new entries, replacing the fixture's.
+fn brief(p: &Project, n: usize) {
+    let text = "## R1 — new · requirements\nEntry.\n\n".repeat(n);
+    std::fs::write(
+        p.run_dir().join("spec-diff.md"),
+        format!("# demo — spec diff (rev 5)\n\n{text}"),
+    )
+    .unwrap();
+}
+
+/// GA-R-119 — `gate approve` has no `--lane` flag.
+#[test]
+fn it_gate_approve_has_no_lane_flag() {
+    let p = Project::new();
+    p.ok(&["run", "init", "demo"]);
+    assert_eq!(
+        p.ferrule(&["gate", "approve", "demo", "gate1", "--lane", "full"])
+            .text(),
+        "exit=2"
+    );
+}
+
+/// GA-R-129 — `arch --plan-stop` records `plan-stop: yes`; any other gate
+/// takes it as a usage error.
+#[test]
+fn it_arch_plan_stop_records_field() {
+    let p = Project::new();
+    p.ok(&["run", "init", "demo"]);
+    p.artifacts();
+    assert_eq!(
+        p.ferrule(&["gate", "approve", "demo", "gate1", "--plan-stop"])
+            .text(),
+        "exit=2"
+    );
+    assert_eq!(p.field("demo", "plan-stop"), "");
+    p.ok(&["gate", "approve", "demo", "arch", "--plan-stop"]);
+    assert_eq!(p.field("demo", "plan-stop"), "yes");
+}
+
+/// RU-R-075 — an approval logs `approved=<gate>` on the parent card, a
+/// repeated one too.
+#[test]
+fn it_gate_approve_logs_approved() {
+    let p = Project::new();
+    p.ok(&["run", "init", "demo"]);
+    p.artifacts();
+    p.ok(&["gate", "approve", "demo", "gate1"]);
+    p.ok(&["gate", "approve", "demo", "arch"]);
+    p.ok(&["gate", "approve", "demo", "arch"]);
+    let shown = p.ok(&["board", "show", "demo"]);
+    assert!(shown.contains(" approved=gate1\n"), "{shown}");
+    assert_eq!(shown.matches(" approved=arch").count(), 2, "{shown}");
+}
+
+/// S12 — a brief of 2 entries has one combined early stop: gate 1 goes to
+/// the architect, the architecture stop approves the brief, gate 2 is a notice.
+#[test]
+fn it_small_brief_one_combined_stop() {
+    let p = Project::new();
+    p.ok(&["run", "init", "demo"]);
+    p.artifacts();
+    brief(&p, 2);
+    std::fs::write(
+        p.run_dir().join("review.verdict.md"),
+        "Verdict: clean — ready for approval\n",
+    )
+    .unwrap();
+    let gate1 = p.ok(&["gate", "next", "demo", "gate1", "status=ready"]);
+    assert!(gate1.contains("next=arch"), "{gate1}");
+    let arch = p.ok(&["prompt", "render", "demo", "arch"]);
+    assert!(arch.contains("- approve the brief"), "{arch}");
+    p.ok(&["gate", "approve", "demo", "arch"]);
+    assert_eq!(p.field("demo", "gate1"), "2026-10-05");
+    assert_eq!(p.field("demo", "arch"), "2026-10-05");
+    let gate2 = p.ok(&["gate", "next", "demo", "gate2", "status=new"]);
+    assert!(gate2.contains("next=notice"), "{gate2}");
+}
+
+/// S502 — a card saved with `lane: fast` resumes by the brief's size, and no
+/// stop names a lane.
+#[test]
+fn it_saved_lane_resumes_by_size() {
+    let p = Project::new();
+    let saved = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(saved.path().join("open")).unwrap();
+    std::fs::write(
+        saved.path().join("open/demo.md"),
+        "---\nid: demo\nlane: fast\n---\n",
+    )
+    .unwrap();
+    p.ok(&["board", "import", saved.path().to_str().unwrap()]);
+    assert_eq!(p.field("demo", "lane"), "");
+    std::fs::create_dir_all(p.run_dir()).unwrap();
+    p.artifacts();
+    brief(&p, 4);
+    let arch = p.ok(&["prompt", "render", "demo", "arch"]);
+    p.ok(&["gate", "approve", "demo", "arch"]);
+    let gate2 = p.ok(&["gate", "next", "demo", "gate2", "status=new"]);
+    assert!(gate2.contains("next=stop reason=size"), "{gate2}");
+    let prompt = p.ok(&["prompt", "render", "demo", "gate2"]);
+    assert!(
+        !arch.contains("lane") && !prompt.contains("lane"),
+        "{arch}{prompt}"
+    );
+}
+
+/// GA-R-129, S504 — a brief of 3 entries with the plan stop asked for keeps
+/// gate 2's stop.
+#[test]
+fn it_small_brief_plan_stop() {
+    let p = Project::new();
+    p.ok(&["run", "init", "demo"]);
+    p.artifacts();
+    brief(&p, 3);
+    p.ok(&["gate", "approve", "demo", "arch", "--plan-stop"]);
+    let gate2 = p.ok(&["gate", "next", "demo", "gate2", "status=new"]);
+    assert!(gate2.contains("next=stop reason=plan-stop"), "{gate2}");
 }

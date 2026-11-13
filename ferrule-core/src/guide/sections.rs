@@ -28,14 +28,11 @@ pub(super) fn sections(text: &str) -> Vec<(String, usize, usize)> {
 }
 
 /// A heading's text without its `#`s and without the marks `render` adds,
-/// `(fast lane)`, `(full lane)`, `(done)`.
+/// `(done)`.
 fn heading_text(line: &str) -> &str {
     let text = line.trim_start_matches('#').trim();
     if let Some((bare, mark)) = text.rsplit_once(" (")
-        && let Some(mark) = mark.strip_suffix(')')
-        && mark
-            .split(", ")
-            .all(|m| matches!(m, "fast lane" | "full lane" | "done"))
+        && mark == "done)"
     {
         return bare;
     }

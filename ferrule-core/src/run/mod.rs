@@ -17,6 +17,7 @@ pub mod preflight;
 pub mod push;
 pub mod rebase;
 pub mod rebuild;
+pub mod stops;
 pub mod testproof;
 pub mod tier;
 
@@ -339,7 +340,7 @@ pub fn stage_base(
     Ok(base.filter(|b| git::commit(wt, b).is_some()))
 }
 
-/// Whether a green, clean-reviewed full-lane stage stops for approval;
+/// Whether a green stage reviewed on its own, once clean, stops for approval;
 /// `None` means it auto-continues. s0 never stops.
 fn decide(
     conn: &Connection,

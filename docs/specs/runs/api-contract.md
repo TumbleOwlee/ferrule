@@ -50,6 +50,10 @@
 - `abandon=refused reason=card` (RU-E-029), `reason=merged pr=<n> hint=…ferrule run cleanup…` (RU-E-023), `reason=epic` (RU-E-024), `reason=pr-unreadable detail="<host error>"` (RU-E-027), `reason=remote-unreadable branch=<branch>` (RU-E-028)
 - `abandon=refused reason=close-pr-failed`, `reason=remote-delete-failed`, `reason=worktree-remove-failed`, `reason=branch-delete-failed`, each with ` detail="<error>"`; a rerun performs only the steps still missing (RU-E-021)
 
+## ferrule run metrics output
+
+- `kind=<plain|epic|slice|request>` in place of `lane=`, `reviews=plan:<n>,stage:<n>,batch:<n>,branch:<n>` and `time=brief:<m>,arch:<m>,plan:<m>,stages:<m>,branch:<m>,pr:<m>` in whole minutes, `-` for a phase the run did not have (RU-R-076, RU-R-074, RU-R-075)
+
 ## Card fields
 
 - `named-issue` — the issue `ferrule run init --issue` named; set only by ferrule, `ferrule board set` refuses it (RU-R-006)
@@ -57,6 +61,7 @@
 - `milestone` — the number of the run's milestone; set only by ferrule (RU-R-016)
 - `slice` — a slice run's rank in its milestone; set only by ferrule (RU-R-017)
 - `live-repo` — the repository named at gate 2; set only by ferrule, `ferrule board set` refuses a value (GA-R-062, RU-E-018)
+- `plan-stop: yes` — set by `ferrule gate approve <slug> arch --plan-stop`; only ferrule sets it (GA-R-129)
 
 ## Card events
 
@@ -65,6 +70,7 @@
 - `blocked-start` — parent-card event naming the open blockers the user approved starting with (RU-R-034)
 - `live-check=open` and `live-check=closed` — parent-card events only ferrule logs (RU-R-043, RU-R-044)
 - `abandoned` — parent-card event only ferrule logs (RU-R-047)
+- `approved=<gate>` — run-card event logged by `ferrule gate approve` (RU-R-075)
 
 ## ferrule issue post output
 

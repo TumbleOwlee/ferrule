@@ -95,3 +95,7 @@
 **RU-E-031** — The abandon command's plan lists an untracked directory as one `uncommitted <dir>/` line, not one line per file in it.
 
 **RU-E-032** — The abandon command's plan lists a move the index does not hold as two `uncommitted` lines, the old path and the new path.
+
+## Metrics
+
+**RU-E-039** — A stage or batch review's open line whose count equals the previous open line of the same scope, with no review-cycle event between, counts as one pass with it.

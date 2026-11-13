@@ -41,7 +41,7 @@ fn it_field_reads_frontmatter_log_and_pass_sha() {
     let p = project();
     let mut got = String::new();
     for f in [
-        "lane",
+        "branch",
         "issue",
         "split",
         "log:cov",
@@ -55,9 +55,41 @@ fn it_field_reads_frontmatter_log_and_pass_sha() {
         got.push_str(&String::from_utf8_lossy(&out.stdout));
         got.push('\n');
     }
-    let none = ferrule(p.path(), &["board", "field", "nosuch", "lane"]).text();
+    let none = ferrule(p.path(), &["board", "field", "nosuch", "branch"]).text();
     got.push_str(&none);
     check("card-field", &got);
+}
+
+/// GA-R-121 — `board set` refuses a `lane` key, and its hint lists none.
+#[test]
+fn it_board_set_refuses_lane() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path();
+    new(p, &["r"]);
+    let out = ferrule(p, &["board", "set", "r", "lane=fast"]).text();
+    assert!(
+        out.starts_with("card-set=reject reason=key key=lane hint=a parent card takes only kind,"),
+        "{out}"
+    );
+    assert!(out.ends_with("\nexit=2"), "{out}");
+    let hint = out.split(" hint=").nth(1).unwrap();
+    assert!(!hint.contains("lane"), "{hint}");
+}
+
+/// GA-E-021 — a `lane` value on a saved card is ignored on import.
+#[test]
+fn it_saved_lane_ignored() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path();
+    let board = fixtures().join("board");
+    let saved = std::fs::read_to_string(board.join("inprogress/demo.md")).unwrap();
+    assert!(saved.contains("lane: full"), "fixture carries the lane");
+    let got = ferrule(p, &["board", "import", board.to_str().unwrap()]).text();
+    assert_eq!(got, "import=ok cards=13\nexit=0");
+    assert_eq!(
+        ferrule(p, &["board", "field", "demo", "lane"]).text(),
+        "exit=0"
+    );
 }
 
 /// SP-R-002 — `board log spec-delta` takes a three-letter prefix.
@@ -378,7 +410,7 @@ fn it_move_follows_the_board_rules() {
         p,
         "ss",
         "inprogress",
-        &["branch=feat/ss", "lane=full", "gate2=2026-10-03"],
+        &["branch=feat/ss", "gate2=2026-10-03"],
     );
     new(p, &["ss.s0", "title=Spec", "blocked-by=[]"]);
     new(p, &["ss.s1", "title=One", "blocked-by=[ss.s0]"]);
@@ -457,18 +489,18 @@ fn it_move_follows_the_board_rules() {
 fn it_new_and_set_validate_fields() {
     let dir = tempfile::tempdir().unwrap();
     let p = dir.path();
-    new(p, &["r", "lane=fast"]);
+    new(p, &["r", "split=[5]"]);
     let run = |args: &[&str]| ferrule(p, args).text();
     assert_eq!(
         run(&["board", "new", "r"]),
         "card-new=refused reason=exists hint=pick another id, or change the card with `ferrule board set`\nexit=1"
     );
     assert_eq!(
-        run(&["board", "new", "r.s1", "lane=fast"]),
-        "card-new=reject reason=key key=lane hint=a stage card takes only title, blocked-by, files, branch, worktree, stop, tier\nexit=2"
+        run(&["board", "new", "r.s1", "split=[5]"]),
+        "card-new=reject reason=key key=split hint=a stage card takes only title, blocked-by, files, branch, worktree, stop, tier\nexit=2"
     );
     assert_eq!(
-        run(&["board", "set", "r", "lane=full", "gate2=2026-10-03"]),
+        run(&["board", "set", "r", "split=[6]", "gate2=2026-10-03"]),
         "card-set=reject reason=owned key=gate2 hint=only ferrule sets gate2, with `ferrule gate approve <slug> gate2`\nexit=2"
     );
     assert_eq!(
@@ -479,19 +511,19 @@ fn it_new_and_set_validate_fields() {
         run(&["board", "new", "r.s9", "--state", "done"]),
         "card-new=reject reason=state state=done hint=create the stage open; `ferrule board move` takes it to done once its commit is verified\nexit=2"
     );
-    assert_eq!(run(&["board", "field", "r", "lane"]), "fast\nexit=0");
+    assert_eq!(run(&["board", "field", "r", "split"]), "[5]\nexit=0");
     seed_set(p, "r", &["gate2=2026-10-03", "pr=7"]);
     assert_eq!(
-        run(&["board", "set", "r", "lane=fast", "color=red"]),
-        "card-set=reject reason=key key=color hint=a parent card takes only kind, epic, slices, issue, pr, branch, lane, gate1, with-arch, with-plan, skipped, arch, no-arch, gate2, gate3, gate4, split, upstream, artifacts, worktree, named-issue, milestone, slice, live-repo\nexit=2"
+        run(&["board", "set", "r", "split=[5]", "color=red"]),
+        "card-set=reject reason=key key=color hint=a parent card takes only kind, epic, slices, issue, pr, branch, plan-stop, gate1, skipped, arch, no-arch, gate2, gate4, split, upstream, artifacts, worktree, named-issue, milestone, slice, live-repo\nexit=2"
     );
     assert_eq!(run(&["board", "field", "r", "issue"]), "exit=0");
-    assert_eq!(run(&["board", "set", "r", "lane="]), "exit=0");
+    assert_eq!(run(&["board", "set", "r", "split="]), "exit=0");
     assert_eq!(run(&["board", "field", "r", "gate2"]), "2026-10-03\nexit=0");
-    assert_eq!(run(&["board", "field", "r", "lane"]), "exit=0");
+    assert_eq!(run(&["board", "field", "r", "split"]), "exit=0");
     assert_eq!(run(&["board", "field", "r", "state"]), "open\nexit=0");
     assert_eq!(
-        run(&["board", "set", "x", "lane=fast"]),
+        run(&["board", "set", "x", "split=[5]"]),
         "card-set=refused reason=card hint=check the slug with `ferrule board list`\nexit=1"
     );
     assert_eq!(
@@ -553,6 +585,34 @@ fn it_import_is_all_or_nothing() {
     )
     .text();
     assert!(got.contains("differs from the open directory"), "{got}");
+}
+
+/// GA-E-022 — a `gate3` date on a saved parent card is skipped by import, and
+/// `gate approve` has no gate3.
+#[test]
+fn it_saved_gate3_date_ignored() {
+    let board = tempfile::tempdir().unwrap();
+    std::fs::create_dir(board.path().join("inprogress")).unwrap();
+    std::fs::write(
+        board.path().join("inprogress/old.md"),
+        "---\nid: old\nbranch: feat/old\ngate2: 2026-10-02\ngate3: 2026-10-03\n---\n",
+    )
+    .unwrap();
+    let fresh = tempfile::tempdir().unwrap();
+    let got = ferrule(
+        fresh.path(),
+        &["board", "import", board.path().to_str().unwrap()],
+    )
+    .text();
+    assert_eq!(got, "import=ok cards=1\nexit=0");
+    assert_eq!(
+        ferrule(fresh.path(), &["board", "field", "old", "gate3"]).text(),
+        "exit=0"
+    );
+    assert_eq!(
+        ferrule(fresh.path(), &["gate", "approve", "old", "gate3"]).text(),
+        "exit=2"
+    );
 }
 
 #[test]
@@ -783,13 +843,102 @@ fn it_metrics_count_the_runs_events_and_need_green_ci() {
     );
     assert!(metrics(p, "demo").ends_with(" ci=waived\nexit=0"));
     assert_eq!(all().lines().count(), 2, "a rerun replaces its line");
-    assert!(metrics(p, "lb").ends_with(" lane=epic ci=-\nexit=0"));
+    assert!(metrics(p, "lb").ends_with(" ci=-\nexit=0"));
+    assert!(metrics(p, "lb").contains(" kind=epic "));
     let none = metrics(p, "mrc");
     assert!(
         none.starts_with("metrics=refused reason=no-ci hint=") && none.ends_with("\nexit=1"),
         "{none}"
     );
     check("metrics-no-card", &metrics(p, "nosuch"));
+}
+
+/// A run `mt` with a parent and one stage card, for the metrics tests.
+fn metrics_run(kind: &[&str]) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    seed_card(dir.path(), "mt", "inprogress", kind);
+    seed_card(dir.path(), "mt.s1", "done", &[]);
+    dir
+}
+
+/// RU-R-074 — the metrics line counts the plan reviews and the stage,
+/// batch and branch reviews.
+#[test]
+fn it_metrics_count_review_passes() {
+    let dir = metrics_run(&[]);
+    let p = dir.path();
+    for (at, line) in [
+        ("2026-10-03T08:00", "plan-review=findings count=1 round=1"),
+        ("2026-10-03T08:05", "plan-review=clean round=2"),
+        ("2026-10-03T09:00", "review=1-open scope=stage round=1"),
+        ("2026-10-03T09:10", "review=clean scope=stage"),
+        ("2026-10-03T09:20", "review=clean scope=batch"),
+        ("2026-10-03T10:00", "review=1-open scope=branch"),
+        ("2026-10-03T10:10", "review=1-resolved"),
+        ("2026-10-03T10:20", "ci=0"),
+    ] {
+        let mut words = vec!["mt"];
+        words.extend(line.split(' '));
+        log_at(p, at, &words);
+    }
+    let out = metrics(p, "mt");
+    assert!(
+        out.contains(" reviews=plan:2,stage:2,batch:1,branch:2 "),
+        "{out}"
+    );
+}
+
+/// RU-R-075 — the metrics line holds the whole minutes each phase took,
+/// `-` for one the run did not have.
+#[test]
+fn it_metrics_time_per_phase() {
+    let dir = metrics_run(&[]);
+    let p = dir.path();
+    log_at(p, "2026-10-03T08:00", &["mt", "spawn", "agent=architect"]);
+    log_at(p, "2026-10-03T08:10", &["mt", "approved=arch"]);
+    log_at(p, "2026-10-03T08:30", &["mt", "approved=gate2"]);
+    log_at(p, "2026-10-03T09:30", &["mt.s1", "commit=abc1234"]);
+    log_at(p, "2026-10-03T10:00", &["mt", "review=clean"]);
+    log_at(p, "2026-10-03T10:05", &["mt", "ci=0"]);
+    let out = metrics(p, "mt");
+    assert!(
+        out.contains(" time=brief:0,arch:10,plan:20,stages:60,branch:30,pr:5 "),
+        "{out}"
+    );
+
+    let dir = metrics_run(&[]);
+    let p = dir.path();
+    log_at(p, "2026-10-03T08:00", &["mt", "spawn", "agent=planner"]);
+    log_at(p, "2026-10-03T08:30", &["mt", "approved=gate2"]);
+    log_at(p, "2026-10-03T09:30", &["mt.s1", "commit=abc1234"]);
+    log_at(p, "2026-10-03T10:05", &["mt", "ci=0"]);
+    let out = metrics(p, "mt");
+    assert!(
+        out.contains(" time=brief:0,arch:-,plan:30,stages:60,branch:-,pr:35 "),
+        "{out}"
+    );
+}
+
+/// RU-R-076 — the metrics line records the run's kind in place of `lane=`.
+#[test]
+fn it_metrics_kind() {
+    let dir = metrics_run(&[]);
+    let p = dir.path();
+    log_at(p, "2026-10-03T10:05", &["mt", "ci=0"]);
+    let out = metrics(p, "mt");
+    assert!(
+        out.contains(" kind=plain ") && !out.contains("lane="),
+        "{out}"
+    );
+
+    let dir = metrics_run(&["kind=request"]);
+    let p = dir.path();
+    log_at(p, "2026-10-03T10:05", &["mt", "ci=0"]);
+    let out = metrics(p, "mt");
+    assert!(
+        out.contains(" kind=request ") && !out.contains("lane="),
+        "{out}"
+    );
 }
 
 #[test]

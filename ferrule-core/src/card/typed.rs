@@ -29,6 +29,7 @@ pub enum Name {
     SpecKeep,
     Review,
     PlanReview,
+    Approved,
     Read,
     Overturned,
     TestRed,
@@ -42,7 +43,7 @@ pub enum Name {
 }
 
 impl Name {
-    pub const ALL: [Name; 30] = [
+    pub const ALL: [Name; 31] = [
         Name::Commit,
         Name::Gauntlet,
         Name::Pushed,
@@ -63,6 +64,7 @@ impl Name {
         Name::SpecKeep,
         Name::Review,
         Name::PlanReview,
+        Name::Approved,
         Name::Read,
         Name::Overturned,
         Name::TestRed,
@@ -99,6 +101,7 @@ impl Name {
             Name::SpecKeep => "spec-keep=",
             Name::Review => "review=",
             Name::PlanReview => "plan-review=",
+            Name::Approved => "approved=",
             Name::Read => "read",
             Name::Overturned => "overturned",
             Name::TestRed => "test-red",
@@ -231,6 +234,7 @@ pub enum Typed<'a> {
     SpecKeep,
     Review(&'a str),
     PlanReview(&'a str),
+    Approved(&'a str),
     Read {
         path: Option<&'a str>,
     },
@@ -302,6 +306,7 @@ impl Typed<'_> {
             Typed::SpecKeep => Name::SpecKeep,
             Typed::Review(_) => Name::Review,
             Typed::PlanReview(_) => Name::PlanReview,
+            Typed::Approved(_) => Name::Approved,
             Typed::Read { .. } => Name::Read,
             Typed::Overturned { .. } => Name::Overturned,
             Typed::TestRed { .. } => Name::TestRed,
@@ -408,6 +413,7 @@ impl Event {
             Name::SpecKeep => Typed::SpecKeep,
             Name::Review => Typed::Review(value?),
             Name::PlanReview => Typed::PlanReview(value?),
+            Name::Approved => Typed::Approved(value?),
             Name::Read => Typed::Read { path: key("path") },
             Name::Overturned => Typed::Overturned {
                 count: key("count").and_then(|c| c.parse().ok()),

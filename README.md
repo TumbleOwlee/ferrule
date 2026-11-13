@@ -45,7 +45,7 @@ flowchart LR
 
 Merging stays with you, outside the workflow.
 
-**Lanes.** Small changes take the *fast* lane: fewer stops, with the brief, architecture and plan approved together. Larger changes take the *full* lane, with a stop at every gate. Ferrule proposes a lane by size and you settle it at the first stop.
+**Early stops.** A small brief (up to 3 entries) skips the brief's own stop: it is approved with the architecture, or with the plan when the brief has at most 1 entry. A larger brief stops at every gate. The brief's size decides, not a choice you make.
 
 **Epics.** A feature too big for one run becomes an epic: its run settles the shared core and cuts the feature into slices, each filed as an issue and later done as a normal run.
 
@@ -117,7 +117,7 @@ Commands are grouped by what they act on. Most are run by the orchestrating agen
 
 | Command | Does |
 |---|---|
-| `ferrule guide show <topic> [--section <heading>…] [--slug <s>] [--stage s<n>] [--lane fast\|full]` | One topic, or some of its sections, cut to the run's lane, steps the card shows done marked, placeholders filled |
+| `ferrule guide show <topic> [--section <heading>…] [--slug <s>] [--stage s<n>]` | One topic, or some of its sections, with steps the card shows done marked, placeholders filled |
 | `ferrule guide list` | Every topic, grouped into orchestrator and agent topics |
 | `ferrule guide check` | Fail on a broken topic reference, section reference or tag |
 
@@ -145,7 +145,7 @@ Commands are grouped by what they act on. Most are run by the orchestrating agen
 | Command | Does |
 |---|---|
 | `ferrule gate approve <slug> <gate> [--<flag>…]` | Record an approval; gate 2 files the issue, adds the worktree and creates the stage cards from `plan.md`'s `## Shared` table |
-| `ferrule gate next <slug> <gate2\|replan\|stage\|gate3\|gate4\|ci> <status…>` | The next step after an agent's status line, with the guide topic to read |
+| `ferrule gate next <slug> <gate1\|gate2\|replan\|stage\|gate3\|gate4\|ci> <status…>` | The next step after an agent's status line, with the guide topic to read |
 
 ### Stage
 
@@ -166,7 +166,7 @@ Commands are grouped by what they act on. Most are run by the orchestrating agen
 
 | Command | Does |
 |---|---|
-| `ferrule ci gauntlet <slug> [--level push\|review\|full] [--stage s<n>] [--force]` | Run the `ferrule.toml` gauntlet steps of one level (default full) in the run's worktree, cached by tree; `--stage` adds the tests the stage's diff adds or rewrites, and the review-level steps over the stage's crates for a batched, skipped or fast-lane stage; at full on a clean worktree the result is logged on the run card |
+| `ferrule ci gauntlet <slug> [--level push\|review\|full] [--stage s<n>] [--force]` | Run the `ferrule.toml` gauntlet steps of one level (default full) in the run's worktree, cached by tree; `--stage` adds the tests the stage's diff adds or rewrites, and the review-level steps over the stage's crates for a batched or skipped stage; at full on a clean worktree the result is logged on the run card |
 | `ferrule ci wait <slug>` | Wait for the PR's checks, log `ci=`, print the next step and the failed run's errors |
 | `ferrule ci failed [<branch>] [--run <id>] [--job <name>] [--context <n>]` | The error lines of a failed CI run, the branch's latest unless `--run` names one, each with `n` lines after it |
 
@@ -284,7 +284,6 @@ The workflow's instructions ship inside the binary as topics (`ferrule-core/guid
 
 | Syntax | Effect |
 |---|---|
-| `<!-- lane: fast -->` or `<!-- lane: full -->` | On the line above a block, keeps it for that lane only; above a heading it covers the heading's section. Without a lane both are printed, labelled |
 | `<!-- done: <token> -->` | Marks a block `(done)` once the run's parent card carries the token (`pr=ready`, or a bare field name such as `gate2`) |
 | `{slug}`, `{stage}`, `{card}`, `{run_dir}`, `{worktree}`, `{branch}`, `{issue}`, `{pr}`, `{main}` | Filled from the run; unknown ones print as `<slug>` |
 

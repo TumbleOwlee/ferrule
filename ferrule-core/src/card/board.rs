@@ -178,6 +178,9 @@ pub fn parse_card_id(s: &str) -> Result<String, String> {
     }
 }
 
+/// Parent fields an older board may carry: import skips them.
+const RETIRED_FIELDS: &[&str] = &["gate3", "lane", "with-arch", "with-plan"];
+
 /// Frontmatter keys a parent card may carry; `id` is the card's own.
 pub const PARENT_FIELDS: &[&str] = &[
     "kind",
@@ -186,15 +189,12 @@ pub const PARENT_FIELDS: &[&str] = &[
     "issue",
     "pr",
     "branch",
-    "lane",
+    "plan-stop",
     "gate1",
-    "with-arch",
-    "with-plan",
     "skipped",
     "arch",
     "no-arch",
     "gate2",
-    "gate3",
     "gate4",
     "split",
     "upstream",
@@ -227,7 +227,7 @@ pub const FERRULE_FIELDS: &[(&str, &str)] = &[
         "live-repo",
         "ferrule gate approve <slug> gate2 --live-repo <owner/name>",
     ),
-    ("gate3", "ferrule gate approve <slug> gate3"),
+    ("plan-stop", "ferrule gate approve <slug> arch --plan-stop"),
     ("gate4", "ferrule gate approve <slug> gate4"),
     ("branch", "ferrule gate approve <slug> gate2"),
     ("worktree", "ferrule gate approve <slug> gate2"),
@@ -346,6 +346,25 @@ fn civil(days: i64) -> (i64, i64, i64) {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     (yoe + era * 400 + i64::from(m <= 2), m, d)
+}
+
+/// Minutes since 1970-01-01T00:00 of a `YYYY-MM-DDTHH:MM` stamp (Howard
+/// Hinnant's `days_from_civil`, the inverse of `civil`); `None` unless the
+/// stamp is valid.
+#[must_use]
+pub fn stamp_minutes(s: &str) -> Option<i64> {
+    if !valid_stamp(s) {
+        return None;
+    }
+    let num = |from: usize, to: usize| s[from..to].parse::<i64>().ok();
+    let (year, month, day) = (num(0, 4)?, num(5, 7)?, num(8, 10)?);
+    let year = year - i64::from(month <= 2);
+    let era = year.div_euclid(400);
+    let yoe = year.rem_euclid(400);
+    let doy = (153 * (if month > 2 { month - 3 } else { month + 9 }) + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    Some(days * 1440 + num(11, 13)? * 60 + num(14, 16)?)
 }
 
 pub fn state(conn: &Connection, id: &str) -> rusqlite::Result<Option<State>> {
@@ -1473,6 +1492,7 @@ pub fn import(conn: &mut Connection, board: &Path, now: &str) -> Result<usize, I
                     return Err(bad(format!("state: {v} differs from the {st} directory")));
                 }
                 "id" | "parent" | "state" => {}
+                k if cid.stage.is_none() && RETIRED_FIELDS.contains(&k) => {}
                 _ => fields.push((k, v)),
             }
         }
@@ -1653,6 +1673,18 @@ mod tests {
     }
 
     #[test]
+    fn ut_stamp_minutes() {
+        assert_eq!(stamp_minutes("1970-01-01T00:00"), Some(0));
+        assert_eq!(stamp_minutes("2026-10-17T00:00"), Some(20_743 * 1440));
+        assert_eq!(stamp_minutes("2026-10-17T01:02"), Some(20_743 * 1440 + 62));
+        assert_eq!(stamp_minutes("not a stamp"), None);
+        for (y, m, d) in [(2024, 2, 29), (2000, 3, 1), (1999, 12, 31), (2026, 1, 1)] {
+            let days = stamp_minutes(&format!("{y:04}-{m:02}-{d:02}T00:00")).unwrap() / 1440;
+            assert_eq!(civil(days), (y, m, d));
+        }
+    }
+
+    #[test]
     fn ut_slug_is_one_plain_path_segment() {
         for ok in [
             "demo",
@@ -1823,7 +1855,7 @@ mod tests {
     fn ut_a_refused_move_writes_no_field_and_no_card() {
         let mut s = store();
         let f = |k: &str, v: &str| (k.to_owned(), v.to_owned());
-        create(&mut s.conn, "r", State::Done, &[f("lane", "full")], "t").unwrap();
+        create(&mut s.conn, "r", State::Done, &[f("issue", "12")], "t").unwrap();
         let card = NewCard {
             id: "r.s0".to_owned(),
             state: State::Open,
@@ -1850,7 +1882,7 @@ mod tests {
                 }
             )
         ));
-        assert_eq!(fields(&s.conn, "r").unwrap(), [f("lane", "full")]);
+        assert_eq!(fields(&s.conn, "r").unwrap(), [f("issue", "12")]);
         assert!(stages(&s.conn, "r").unwrap().is_empty());
         assert!(events(&s.conn, "r", &[]).unwrap().is_empty());
 

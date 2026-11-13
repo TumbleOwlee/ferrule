@@ -1,4 +1,4 @@
-# gate1 — The brief: grilling, lane, approval
+# gate1 — The brief: grilling, early stops, approval
 
 ## Gate 1 — brief
 
@@ -6,9 +6,8 @@
 
 - **Board:** `ferrule run preflight` first: `preflight=refused` → stop, relay its `hint=` to the user, no card is made; then `ferrule run init {slug} [--issue <n>]` before spawning: the parent card and `{run_dir}/`; with a named issue also its body (`request.md`) and the brief it may already carry (`issue-spec.md`). `init=done … kind=slice milestone=<m> slice=<k>` (without milestones: `kind=slice epic=<e>`) → the issue is a slice: `ferrule guide show epic` first. `init=refused reason=blocked issue=<n> blockers=<list> [unreadable=<k>]`: the slice has open blockers; ask the user, naming the blockers and any `unreadable` count (blockers the host does not show). Approved → rerun `ferrule run init {slug} --issue <n> --start-blocked`; declined → no run (the refusal left no card).
 - `status=question` → relay question and answer without comment.
-- `status=ready size=epic` → always a stop, whatever the lane would be: `ferrule prompt render {slug} gate1 --epic --reason <the author's reason>`. Option 1 (epic) → `ferrule gate approve {slug} gate1 --epic` (records `kind: epic`, removes `lane`; refused once the run is past gate 1); `ferrule guide show epic`. Option 2 or 3 (single run) → as below, with that lane.
-- `status=ready` or `status=no-diff` (spec already covers the goal; the file names the violated requirements) → recommend the lane by `count=` (`ferrule guide show lanes`):
-  - **full** recommended → `ferrule prompt render {slug} gate1`: approval **and lane** in one prompt. Change requested → relay to the same agent. Approved → `ferrule gate approve {slug} gate1 --lane <the lane>`.
-  - **fast** recommended → no stop: `ferrule board set {slug} lane=fast gate1=with-arch`; at most 1 entry or `no-diff`: `ferrule board set {slug} lane=fast gate1=with-plan arch=skipped`, then `ferrule guide show gate2`. Else the brief is approved at the architecture stop.
-  - Then `ferrule guide show architecture` (skipped: `ferrule guide show gate2`).
+- `status=ready`, `status=no-diff` (spec already covers the goal; the file names the violated requirements) or `status=ready size=epic` (the brief is too big for one run) → `ferrule gate next {slug} gate1 <status line>`; its `next=` decides by the brief's size:
+  - `next=stop` → `ferrule prompt render {slug} gate1` (an epic: `--epic --reason <the author's reason>`). Change requested → relay to the same agent. Approved → `ferrule gate approve {slug} gate1`; an epic, option 1 → `ferrule gate approve {slug} gate1 --epic` (records `kind: epic`; refused once the run is past gate 1) and `ferrule guide show epic`, option 2 (single run) → as a plain stop. Then `ferrule guide show architecture`.
+  - `next=arch` → no stop: spawn the architect (`ferrule guide show architecture`); the brief is approved at the architecture stop, its option 1 (stop at the plan too) is `ferrule gate approve {slug} arch --plan-stop`.
+  - `next=plan` → no stop: run the printed `ferrule board set` (`arch=skipped`), then `ferrule guide show gate2`; the brief is approved at gate 2's stop.
 - The agent stays alive for `ferrule guide show issue`, `ferrule guide show spec-changes` and gate 4.

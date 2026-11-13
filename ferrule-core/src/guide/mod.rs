@@ -1,11 +1,9 @@
 //! The workflow's instructions as topics, printed one at a time and cut to
 //! the run they are read for.
 //!
-//! A topic is markdown. A line `<!-- lane: fast -->` (or `full`) keeps the
-//! block below it for that lane only; `<!-- done: <token> -->` marks the
-//! block done once the run's parent card carries the token. Below a
-//! heading, a tag covers the heading's whole section. `{slug}`, `{stage}`
-//! and the other names [`Context::vars`] knows are filled in; unknown ones
+//! A topic is markdown. A line `<!-- done: <token> -->` marks the block
+//! below it done once the run's parent card carries the token. `{slug}`,
+//! `{stage}` and the other names [`Context::vars`] knows are filled in; unknown ones
 //! print as `<slug>`.
 //!
 //! Defaults ship in the binary. `.ferrule/guide/<topic>.md` overrides one:
@@ -29,7 +27,7 @@ use crate::markdown;
 pub use fragment::Fragment;
 pub(crate) use fragment::expand;
 use render::tag;
-pub use render::{Context, Lane, VARS, render};
+pub use render::{Context, VARS, render};
 pub use sections::{body, headings, merge, select};
 
 macro_rules! topics {
@@ -62,7 +60,6 @@ macro_rules! topics {
 
 topics! {
     Principles "principles",
-    Lanes "lanes",
     Verify "verify",
     Board "board",
     Handoff "handoff",
@@ -267,7 +264,9 @@ pub fn check(root: &Path) -> Vec<String> {
         }
         for line in markdown::lines(&text) {
             if let Some(Err(bad)) = tag(line) {
-                problems.push(format!("topic={name} bad-tag={bad} hint=a tag is <!-- lane: fast|full --> or <!-- done: pr=ready -->"));
+                problems.push(format!(
+                    "topic={name} bad-tag={bad} hint=a tag is <!-- done: pr=ready -->"
+                ));
             }
         }
         if Topic::parse(name).is_none() && !text.starts_with(&format!("# {name} — ")) {
@@ -285,45 +284,18 @@ mod tests {
     use super::sections::sections;
     use super::*;
 
-    const TEXT: &str = "# stages — Implement\n\nBoth lanes.\n\n<!-- lane: fast -->\n## Fast lane\n\nCommit on green.\n\n- one\n- two\n\n<!-- lane: full -->\n## Full lane\n\nStop per rules.\n\n## After\n\n<!-- done: pr=ready -->\nMark it ready for {slug} in {run_dir}, not {owner}.\n";
+    const TEXT: &str = "# stages — Implement\n\nIntro.\n\n## After\n\n<!-- done: pr=ready -->\nMark it ready for {slug} in {run_dir}, not {owner}.\n";
 
-    fn ctx(lane: Option<Lane>) -> Context {
+    fn ctx() -> Context {
         Context {
-            lane,
             done: vec!["pr=ready".to_owned()],
             vars: vec![("slug", "mrc".to_owned())],
         }
     }
 
     #[test]
-    fn ut_render_cuts_to_the_lane() {
-        let fast = render(TEXT, &ctx(Some(Lane::Fast)));
-        assert!(
-            fast.contains("Commit on green.\n\n- one\n- two\n"),
-            "{fast}"
-        );
-        assert!(
-            !fast.contains("Full lane") && !fast.contains("Stop per rules"),
-            "{fast}"
-        );
-        assert!(
-            fast.contains("## After"),
-            "untagged heading ends the full scope: {fast}"
-        );
-        assert!(!fast.contains("<!--"), "{fast}");
-    }
-
-    #[test]
-    fn ut_render_labels_both_lanes_without_one() {
-        let both = render(TEXT, &ctx(None));
-        assert!(both.contains("## Fast lane (fast lane)\n"), "{both}");
-        assert!(both.contains("## Full lane (full lane)\n"), "{both}");
-        assert!(both.contains("Stop per rules."), "{both}");
-    }
-
-    #[test]
     fn ut_render_marks_done_and_fills_vars() {
-        let out = render(TEXT, &ctx(Some(Lane::Full)));
+        let out = render(TEXT, &ctx());
         assert!(
             out.contains("(done)\nMark it ready for mrc in <run_dir>, not {owner}.\n"),
             "{out}"
@@ -334,15 +306,18 @@ mod tests {
 
     #[test]
     fn ut_render_keeps_fenced_blank_lines_in_one_block() {
-        let text = "<!-- lane: fast -->\n```sh\na\n\nb\n```\n\nafter\n";
-        let out = render(text, &ctx(Some(Lane::Full)));
-        assert_eq!(out, "after\n");
+        let text = "<!-- done: pr=ready -->\n```sh\na\n\nb\n```\n\nafter\n";
+        let out = render(text, &ctx());
+        assert_eq!(out, "(done)\n```sh\na\n\nb\n```\n\nafter\n");
     }
 
     #[test]
     fn ut_a_tilde_fence_hides_its_headings_and_blank_lines() {
-        let text = "<!-- lane: fast -->\n~~~md\n## not a section\n\nb\n~~~\n\nafter\n";
-        assert_eq!(render(text, &ctx(Some(Lane::Full))), "after\n");
+        let text = "<!-- done: pr=ready -->\n~~~md\n## not a section\n\nb\n~~~\n\nafter\n";
+        assert_eq!(
+            render(text, &ctx()),
+            "(done)\n~~~md\n## not a section\n\nb\n~~~\n\nafter\n"
+        );
         let doc = "## A\n\n~~~\n## inside\n~~~\n\n## B\n\nb\n";
         let heads: Vec<String> = sections(doc).into_iter().map(|(h, _, _)| h).collect();
         assert_eq!(heads, ["## A", "## B"]);
@@ -375,8 +350,14 @@ mod tests {
             references("run `ferrule guide show gate4 --slug x`, then ferrule guide list"),
             ["gate4"]
         );
-        assert_eq!(tag("<!-- lane: fast -->"), Some(Ok(Tag::Lane(Lane::Fast))));
-        assert!(matches!(tag("<!-- lane: slow -->"), Some(Err(_))));
+        assert_eq!(
+            tag("<!-- done: pr=ready -->"),
+            Some(Ok(Tag::Done("pr=ready".into())))
+        );
+        assert_eq!(
+            tag("<!-- lane: fast -->"),
+            Some(Err("<!-- lane: fast -->".into()))
+        );
         assert_eq!(tag("<!-- note: x -->"), None);
     }
 
@@ -394,18 +375,15 @@ mod tests {
         );
         assert_eq!(select(text, &["C".into()]), Err(vec!["C".into()]));
         assert_eq!(
-            select(
-                "## Fast lane (fast lane, done)\n\nx\n",
-                &["fast lane".into()]
-            ),
-            Ok("## Fast lane (fast lane, done)\n\nx\n".into())
+            select("## First step (done)\n\nx\n", &["first step".into()]),
+            Ok("## First step (done)\n\nx\n".into())
         );
         assert_eq!(headings("## Gate (2)\n"), ["Gate (2)"]);
         assert_eq!(
             section_references(
-                "see `ferrule guide show stages --section 'Full lane' --section Output`, `ferrule guide show x`"
+                "see `ferrule guide show stages --section 'Gate stop' --section Output`, `ferrule guide show x`"
             ),
-            [("stages", "Full lane"), ("stages", "Output")]
+            [("stages", "Gate stop"), ("stages", "Output")]
         );
     }
 

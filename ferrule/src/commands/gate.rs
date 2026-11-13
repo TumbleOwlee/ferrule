@@ -20,6 +20,7 @@ Output:
       The approval is recorded. `<record>` is what the last stop showed:
       `spec-rev=<n>`, `arch-rev=<n>` and `decisions-seen=<lines>`, also logged
       on the card. `issue=`, `worktree=` and `stages=` appear for gate2 only.
+      Every approval, a repeated one too, logs `approved=<gate>` on the card.
       `action=recorded`: the gate was approved already; its date is kept
       (gate2 still does whatever is missing: worktree, stage cards).
 Gates, the parent card field each dates, what must come first and the
@@ -32,11 +33,12 @@ parent states each is approved in:
   stage    -       gate2                     inprogress, inreview
   replan   -       gate2                     inprogress, inreview
   delta    -       gate2                     inprogress, inreview
-  gate3    gate3   gate2                     inprogress, inreview
   gate4    gate4   gate2                     inprogress, inreview
   arch and epic also date gate1 while it is pending; gate2 does too.
-  `--epic` records `kind: epic` and removes `lane`. `stage replan start`
-  removes gate3 and gate4: the run is approved there anew.
+  `--plan-stop` (arch only, else exit 2) records `plan-stop: yes`: gate 2
+  keeps its own stop after the combined early stop.
+  `--epic` records `kind: epic`. `stage replan start`
+  removes gate4: the run is approved there anew.
   gate2 files the issue and adds the worktree first, then writes its
   fields, the parent's move and the stage cards in one transaction: a
   refused move leaves none of them.
@@ -93,6 +95,8 @@ See: ferrule guide show approval";
 /// Shown after `ferrule gate next --help`.
 const NEXT_AFTER_LONG_HELP: &str = "\
 Statuses each position takes:
+  gate1    ready, no-diff, question; size=epic marks a brief too big for one
+           run
   gate2    ready, findings, clean, question, arch-gap, split, behavior-change,
            new, reuse (with issue=<n>)
   replan   ready, findings, clean, question, arch-gap, split, behavior-change
@@ -108,16 +112,22 @@ Output, in order:
                                    `plan-review=findings count=<n> round=<r>`,
                                    `plan-review=clean round=<r>`,
                                    `review=<n>-open scope=branch`,
-                                   `review=clean scope=stage [minors=<n>]`,
+                                   `review=<n>-open scope=<stage|batch> round=<k>`,
+                                   `review=clean scope=<stage|batch> [minors=<n>]`,
                                    `review=<n>-resolved [minors=<n>]`,
                                    `review=clean [minors=<n>]`,
-                                   `replan=pre-authorized`, `ci=<code>` or
+                                   `replan=pre-authorized`, `ci=<code>`,
                                    `spawn agent=plan-reviewer` (gate2, replan:
-                                   ready). A status line that repeats the
+                                   ready), `spawn agent=architect` or
+                                   `spawn agent=planner` (gate1). A status line that repeats the
                                    newest event of the run's review cycle is a
                                    retry: nothing is logged again, no round is
                                    used up and `next=` is the same.
   next=<word> [reason=<why>]       The one next action:
+    arch             gate1: a brief of 2 or 3 entries: spawn the architect,
+                     no stop
+    plan             gate1: a brief of 0 or 1 entries: run `board set <slug>
+                     arch=skipped`, spawn the planner, no stop
     relay            question: relay the question file to the user
     arch-gap         spawn the architect, then resume the planner
     split            handle the split request
@@ -128,7 +138,8 @@ Output, in order:
                      planner with the review file
     issue            plan review is done (clean, or findings in round 3): ask
                      the spec author for the tracking issue
-    stop             show the stop and wait for the user's approval
+    stop             show the stop and wait for the user's approval (gate1: a
+                     brief of more than 3 entries, or size=epic)
     notice           show the notice, then go on as if approved
     fix              stage: findings are open; gate3: findings are open;
                      ci: CI is red
@@ -143,11 +154,12 @@ Output, in order:
   reason=<why>                     Why `stop` stops, or `pr` has `needs-user`;
                                    `minors` carries the reason of the step it
                                    precedes.
-                                   gate2 stops for: lane (not fast),
-                                   no-arch-stop, needs-user, outgrown (plan
-                                   over two stages) and reuse. A re-plan stops
-                                   for: not-gate4, needs-user, arch-moved and
-                                   outgrown; otherwise it logs
+                                   gate2 stops for: size (a brief of more
+                                   than 3 entries), no-arch-stop, plan-stop
+                                   (asked for at the architecture stop),
+                                   needs-user and reuse. A re-plan stops for: not-gate4,
+                                   needs-user and arch-moved; otherwise it
+                                   logs
                                    replan=pre-authorized and gives `notice`.
   run: <command>                   A command to run now, slug filled in
   do: <what>                       What to do next (spawn, resume, show)
@@ -206,7 +218,7 @@ pub enum GateCommand {
     },
 }
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum GateName {
     /// The brief.
     Gate1,
@@ -222,8 +234,6 @@ pub enum GateName {
     Replan,
     /// A meaningful spec change.
     Delta,
-    /// The branch review.
-    Gate3,
     /// The pull request.
     Gate4,
 }
@@ -234,12 +244,12 @@ pub struct ApproveArgs {
     pub slug: Slug,
     /// The gate the user approved.
     pub gate: GateName,
-    /// The lane the user settled on, recorded on the card.
-    #[arg(long, value_parser = ["fast", "full"])]
-    pub lane: Option<String>,
-    /// gate1: the run is an epic; records `kind: epic` and removes `lane`.
-    #[arg(long, conflicts_with = "lane")]
+    /// gate1: the run is an epic; records `kind: epic`.
+    #[arg(long)]
     pub epic: bool,
+    /// arch: gate 2 keeps its own stop; records `plan-stop: yes`.
+    #[arg(long)]
+    pub plan_stop: bool,
     /// gate2: `new`, or the number of an issue the run reuses.
     #[arg(long)]
     pub issue: Option<String>,
@@ -260,6 +270,8 @@ pub struct ApproveArgs {
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum NextAt {
+    /// The spec author's brief.
+    Gate1,
     /// Planner, plan reviewer, the spec author's issue answer.
     Gate2,
     /// A re-plan's planner and plan reviewer.
@@ -311,7 +323,6 @@ fn approve(args: &ApproveArgs, out: &mut impl Write) -> io::Result<u8> {
         GateName::Stage => Gate::Stage,
         GateName::Replan => Gate::Replan,
         GateName::Delta => Gate::Delta,
-        GateName::Gate3 => Gate::Gate3,
         GateName::Gate4 => Gate::Gate4,
     };
     let gate_name = g.as_str();
@@ -322,7 +333,6 @@ fn approve(args: &ApproveArgs, out: &mut impl Write) -> io::Result<u8> {
             pairs.push((k.to_owned(), v.clone()));
         }
     };
-    pair("lane", args.lane.as_ref());
     pair("issue", args.issue.as_ref());
     pair("branch", args.branch.as_ref());
     pair("stops", args.stops.as_ref());
@@ -330,6 +340,13 @@ fn approve(args: &ApproveArgs, out: &mut impl Write) -> io::Result<u8> {
     pair("live-repo", args.live_repo.as_ref());
     if args.epic {
         pairs.push(("kind".to_owned(), "epic".to_owned()));
+    }
+    if args.plan_stop {
+        if args.gate != GateName::Arch {
+            eprintln!("approve: --plan-stop is taken by the arch gate only");
+            return Ok(exit::USAGE);
+        }
+        pairs.push(("plan-stop".to_owned(), "yes".to_owned()));
     }
     let layout = layout();
     let config = super::config()?;
@@ -363,6 +380,7 @@ fn approve(args: &ApproveArgs, out: &mut impl Write) -> io::Result<u8> {
 
 fn next_step(slug: &str, at: NextAt, status: &[String], out: &mut impl Write) -> io::Result<u8> {
     let at = match at {
+        NextAt::Gate1 => At::Gate1,
         NextAt::Gate2 => At::Gate2,
         NextAt::Replan => At::Replan,
         NextAt::Stage => At::Stage,

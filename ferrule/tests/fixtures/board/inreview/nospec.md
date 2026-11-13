@@ -1,4 +1,3 @@
 ---
 id: nospec
-lane: fast
 ---

@@ -169,3 +169,11 @@
 **RU-R-059** — Each `uncommitted` line of the abandon command's plan names its file by the plain path, without git's quotes or escapes.
 
 **RU-R-060** — The abandon command's plan lists a staged rename as one `uncommitted` line naming the new path.
+
+## Metrics
+
+**RU-R-074** — A run's metrics record its review-pass counts, one per review kind: plan, stage, batch, branch.
+
+**RU-R-075** — A run's metrics record the time spent per run phase: brief, architecture, plan, stages, branch review, PR.
+
+**RU-R-076** — The metrics line records the run's kind, `kind=<plain|epic|slice|request>`, in place of `lane=`.

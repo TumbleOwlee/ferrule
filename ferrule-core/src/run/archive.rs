@@ -243,11 +243,7 @@ pub fn record(w: &Writer<'_>, slug: &str, now: &str, check: CiCheck) -> Result<S
         .min()
         .unwrap_or("-");
     let epic = board::field(conn, slug, "kind")?.as_deref() == Some("epic");
-    let lane = if epic {
-        "epic".to_owned()
-    } else {
-        board::field(conn, slug, "lane")?.unwrap_or_else(|| "-".to_owned())
-    };
+    let kind = board::field(conn, slug, "kind")?.unwrap_or_else(|| "plain".to_owned());
     let ci = if epic || check == CiCheck::Exempt {
         "-".to_owned()
     } else {
@@ -263,8 +259,10 @@ pub fn record(w: &Writer<'_>, slug: &str, now: &str, check: CiCheck) -> Result<S
     let reads = count(&stage_events, |t| {
         matches!(t, Typed::Read { path: Some(_) })
     });
+    let reviews = reviews(&parent);
+    let time = phase_times(&parent, &stage_events, &start);
     let metrics_line = format!(
-        "{slug} start={start} end={now} first-red={first_red} stages={} stops={} question={} approval={} stage={} blocked={} replans={} overturned={overturned} reads={reads} lane={lane} ci={ci}",
+        "{slug} start={start} end={now} first-red={first_red} stages={} stops={} question={} approval={} stage={} blocked={} replans={} overturned={overturned} reads={reads} kind={kind} reviews={reviews} time={time} ci={ci}",
         stages.len(),
         count(&parent, |t| matches!(t, Typed::Stop { kind: Some(_), .. })),
         stops(&parent, "question"),
@@ -279,6 +277,94 @@ pub fn record(w: &Writer<'_>, slug: &str, now: &str, check: CiCheck) -> Result<S
         params![slug, start, metrics_line],
     )?;
     Ok(metrics_line)
+}
+
+/// `plan:<a>,stage:<b>,batch:<c>,branch:<d>`: the plan-review lines and the
+/// `review=` lines by scope, anything but stage or batch counting as branch.
+fn reviews(parent: &[Event]) -> String {
+    let (mut plan, mut stage, mut batch, mut branch) = (0, 0, 0, 0);
+    for e in parent {
+        match e.typed() {
+            Typed::PlanReview(_) => plan += 1,
+            Typed::Review(_) => match e.arg("scope") {
+                Some("stage") => stage += 1,
+                Some("batch") => batch += 1,
+                _ => branch += 1,
+            },
+            _ => {}
+        }
+    }
+    format!("plan:{plan},stage:{stage},batch:{batch},branch:{branch}")
+}
+
+/// `brief:<m>,arch:<m>,plan:<m>,stages:<m>,branch:<m>,pr:<m>`: whole minutes
+/// each phase took, from the end of the previous present phase (the run's
+/// `start` for the first) to its own end, never below 0; `-` for a phase
+/// with no end.
+fn phase_times(parent: &[Event], stage_events: &[Event], start: &str) -> String {
+    let minutes = |e: &Event| board::stamp_minutes(&e.at);
+    let earliest = |es: Vec<&Event>| es.into_iter().filter_map(minutes).min();
+    let latest = |es: Vec<&Event>| es.into_iter().filter_map(minutes).max();
+    let approved = |gates: &[&str]| {
+        parent
+            .iter()
+            .filter(|e| matches!(e.typed(), Typed::Approved(g) if gates.contains(&g)))
+            .collect::<Vec<_>>()
+    };
+    let spawned: Vec<&Event> = parent
+        .iter()
+        .filter(|e| e.name == "spawn" && matches!(e.arg("agent"), Some("architect" | "planner")))
+        .collect();
+    let brief = earliest(approved(&["gate1"]).into_iter().chain(spawned).collect());
+    let arch = earliest(approved(&["arch", "epic"]));
+    let plan = earliest(approved(&["gate2"]));
+    let stages = latest(
+        stage_events
+            .iter()
+            .filter(|e| matches!(e.typed(), Typed::Commit { .. }))
+            .collect(),
+    );
+    let branch = latest(
+        parent
+            .iter()
+            .filter(|e| {
+                !matches!(e.arg("scope"), Some("stage" | "batch"))
+                    && matches!(e.typed(), Typed::Review(v)
+                    if v == "clean" || v.strip_suffix("-resolved").is_some_and(|n| {
+                        !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())
+                    }))
+            })
+            .collect(),
+    );
+    let pr = latest(
+        parent
+            .iter()
+            .filter(|e| matches!(e.typed(), Typed::Ci(_)))
+            .collect(),
+    );
+    let mut prev = board::stamp_minutes(start);
+    let mut out = Vec::new();
+    for (name, end) in [
+        ("brief", brief),
+        ("arch", arch),
+        ("plan", plan),
+        ("stages", stages),
+        ("branch", branch),
+        ("pr", pr),
+    ] {
+        match (end, prev) {
+            (Some(end), Some(from)) => {
+                out.push(format!("{name}:{}", (end - from).max(0)));
+                prev = Some(end);
+            }
+            (Some(end), None) => {
+                out.push(format!("{name}:0"));
+                prev = Some(end);
+            }
+            (None, _) => out.push(format!("{name}:-")),
+        }
+    }
+    out.join(",")
 }
 
 /// Every metrics line recorded, oldest run first.

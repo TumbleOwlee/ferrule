@@ -1,5 +1,31 @@
 # Gates
 
+## Early stops
+
+**GA-R-116** — A brief of at most 3 entries gets one combined early stop.
+
+**GA-R-117** — A brief of more than 3 entries gets separate early stops.
+
+**GA-R-118** — A brief of one entry or none skips architecture.
+
+**GA-R-126** — A run without a brief gets the combined early stop when its architecture has at most 3 new or changed components.
+
+**GA-R-127** — A run without a brief gets separate early stops when its architecture has more than 3 new or changed components.
+
+**GA-R-128** — A run without a brief or an architecture step has gate 2's stop as its one early stop.
+
+**GA-R-122** — After the combined early stop, gate 2 is a notice unless the plan stop was asked for, the plan review leaves a `Needs user` item or the run reuses an issue.
+
+**GA-R-129** — The combined early stop offers the user a separate plan stop.
+
+**GA-R-123** — A run without an architecture step approves its brief at gate 2's stop, together with the plan and the issue.
+
+**GA-R-119** — `ferrule gate approve` has no `--lane` flag.
+
+**GA-R-130** — `ferrule prompt render` has no `--recommend` flag.
+
+**GA-R-121** — A run's card has no lane field.
+
 ## Stage gate
 
 **GA-R-001** — `ferrule gate approve <slug> stage` is approved while the parent card is `inprogress` or `inreview`.
@@ -32,6 +58,8 @@
 
 **GA-R-096** — When a clean gate 3 branch review reports `minors=` above 0, `ferrule gate next` answers a step that resumes the implementer with the minors before the review fixes are committed.
 
+**GA-R-125** — A `Needs user` item the branch review leaves is asked on gate 4's stop, never a stop of its own.
+
 ## Stage review
 
 **GA-R-011** — The reviewer guide's stage scope directs the review to read the worktree's uncommitted changes as well as the commits since its base.
@@ -56,7 +84,7 @@
 
 **GA-R-102** — The auto-continue notice that follows a minors fix step states how many minors were fixed.
 
-**GA-R-103** — `ferrule gate next <slug> stage` logs `review=clean scope=stage` on the run card for a clean stage or batch review.
+**GA-R-103** — `ferrule gate next <slug> stage` logs `review=clean scope=stage` on the run card for a clean stage review and `review=clean scope=batch` for a clean batch review.
 
 ## Review rules
 
@@ -170,6 +198,8 @@
 
 **GA-R-068** — An interface sketch in the architecture binds only what the architecture's `## Public surface` lists.
 
+**GA-R-120** — `ferrule guide show` has no `--lane` flag.
+
 ## Plan gate
 
 **GA-R-062** — The repository for a live check is named at gate 2.
@@ -204,6 +234,10 @@
 
 **GA-R-093** — A board rebuilt from the draft PR gives each stage the tier and stop mark settled at gate 2.
 
+**GA-R-124** — A stage's tier alone decides its review, whatever the brief's size.
+
+**GA-R-131** — The stages guide directs a batched or skipped stage whose question answers come after its tier decision to run `ferrule stage tier` again before its commit.
+
 ## Checks
 
 **GA-R-082** — Every stage runs the format check and its new tests.
@@ -218,7 +252,7 @@
 
 **GA-R-091** — A gauntlet step's `{crates}` argument runs at a review point as the crates the diff since the review point's base touches.
 
-**GA-R-115** — A batched, skipped or fast-lane stage's checks also run the review-level steps, `{crates}` as the crates its own diff touches.
+**GA-R-115** — A batched or skipped stage's checks also run the review-level steps, `{crates}` as the crates its own diff touches.
 
 ## Stage questions
 

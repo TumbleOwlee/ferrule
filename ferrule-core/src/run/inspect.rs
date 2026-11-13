@@ -70,7 +70,6 @@ impl From<GitError> for Error {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Parent {
     pub state: State,
-    pub lane: Option<String>,
     pub branch: Option<String>,
     pub issue: Option<String>,
     pub pr: Option<String>,
@@ -159,7 +158,6 @@ pub fn status(
     }
     let parent = Parent {
         state,
-        lane: field(slug, "lane")?,
         branch: field(slug, "branch")?,
         issue: field(slug, "issue")?,
         pr: field(slug, "pr")?,
@@ -428,7 +426,7 @@ mod tests {
             &mut s.conn,
             "r",
             State::InProgress,
-            &[f("lane", "full"), f("branch", "feat/r"), f("gate1", "d")],
+            &[f("branch", "feat/r"), f("gate1", "d")],
             "t",
         )
         .unwrap();
@@ -443,7 +441,6 @@ mod tests {
             st.parent,
             Parent {
                 state: State::InProgress,
-                lane: Some("full".into()),
                 branch: Some("feat/r".into()),
                 issue: None,
                 pr: None,

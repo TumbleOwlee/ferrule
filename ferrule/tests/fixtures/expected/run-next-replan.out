@@ -35,13 +35,6 @@ guide: ferrule guide show replan --slug ns
 exit=0
 $ gate next ns replan status=clean file=.claude/tasks/artifacts/ns/review.md
 logged: plan-review=clean round=1
-next=stop reason=outgrown
-run: ferrule prompt render ns replan --from s3
-do: show the re-plan stop and wait for the user's approval
-guide: ferrule guide show replan --slug ns
-exit=0
-$ gate next ns replan status=clean file=.claude/tasks/artifacts/ns/review.md
-logged: plan-review=clean round=1
 logged: replan=pre-authorized
 next=notice
 run: ferrule prompt render ns replan-notice --from s3
