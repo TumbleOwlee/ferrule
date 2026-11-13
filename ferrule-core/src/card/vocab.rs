@@ -59,6 +59,8 @@ pub struct Event {
     pub keys: &'static [&'static str],
     pub text: Text,
     pub owner: Owner,
+    /// The line counts against [`MAX_LINE`]; false only for `test-replaced`.
+    pub bounded: bool,
 }
 
 impl Event {
@@ -66,6 +68,14 @@ impl Event {
     const fn by(self, hint: &'static str) -> Event {
         Event {
             owner: Owner::Ferrule(hint),
+            ..self
+        }
+    }
+
+    /// The event, exempt from [`MAX_LINE`].
+    const fn unbounded(self) -> Event {
+        Event {
+            bounded: false,
             ..self
         }
     }
@@ -87,6 +97,7 @@ const fn ev(
         keys,
         text,
         owner: Owner::Agent,
+        bounded: true,
     }
 }
 
@@ -131,7 +142,8 @@ pub const VOCABULARY: &[Event] = &[
         &["old", "new"],
         Text::No,
     )
-    .by("ferrule stage commit <card> --replaced <old>=<new>"),
+    .by("ferrule stage commit <card> --replaced <old>=<new>")
+    .unbounded(),
     ev(Stage, "green", V::None, P::None, &[], Text::No),
     ev(
         Both,
@@ -883,6 +895,17 @@ pub fn table_for(event: Option<&str>, kind: Option<Scope>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// BO-R-010 — only the `test-replaced` event is exempt from the line limit.
+    #[test]
+    fn ut_only_test_replaced_is_unbounded() {
+        let got: Vec<&str> = VOCABULARY
+            .iter()
+            .filter(|e| !e.bounded)
+            .map(|e| e.name)
+            .collect();
+        assert_eq!(got, ["test-replaced"]);
+    }
 
     fn args(s: &str) -> Vec<String> {
         s.split_whitespace().map(str::to_owned).collect()

@@ -23,3 +23,5 @@
 **BO-R-008** — A `ferrule board log` call that answers `card-log=reject`, for any reason, leaves the card's log unchanged.
 
 **BO-R-009** — `ferrule board log` takes every argument after the first `--` as the line's free text, words starting with `--` included.
+
+**BO-R-010** — A card log line longer than 160 characters, timestamp included, is refused with `reason=length`, a `test-replaced` line excepted.

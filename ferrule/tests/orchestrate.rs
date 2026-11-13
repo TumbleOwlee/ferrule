@@ -1859,6 +1859,24 @@ fn it_stage_commit_logs_any_replacement_name() {
     );
 }
 
+/// GW-R-092, S9 — a `--replaced` pair longer than the card-line limit is logged in full, and the notes after it still land.
+#[test]
+fn it_stage_commit_logs_a_long_replacement_in_full() {
+    let p = rust_project();
+    stage_module(&p, &[("t_changed", SAME)]);
+    std::fs::write(p.worktree().join("notes.txt"), "n\n").unwrap();
+    git(&p.worktree(), &["add", "notes.txt"]);
+    let long = "t_".to_owned() + &"x".repeat(160);
+    let got = commit_in(&p, &["--replaced", &format!("t_gone={long}")]);
+    assert!(got.starts_with("commit=done sha="), "{got}");
+    let card = p.ok(&["board", "show", "demo.s1"]);
+    assert!(
+        card.contains(&format!("test-replaced old=t_gone new={long}")),
+        "{card}"
+    );
+    assert!(card.contains("files-outside=notes.txt"), "{card}");
+}
+
 /// GW-R-077, S8 — a path outside the card's files list is committed and noted, on commit and on adopt.
 #[test]
 fn it_stage_commit_notes_files_outside_the_list() {

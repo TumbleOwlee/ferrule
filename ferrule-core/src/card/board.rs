@@ -1091,11 +1091,14 @@ fn append(
         agent,
     };
     let line = vocab::check(event, args, ctx).map_err(LogError::Reject)?;
-    if now.chars().count() + 1 + line.body.chars().count() > vocab::MAX_LINE {
+    let spec = vocab::lookup(line.name);
+    if spec.is_none_or(|s| s.bounded)
+        && now.chars().count() + 1 + line.body.chars().count() > vocab::MAX_LINE
+    {
         return Err(LogError::Reject(Reject {
             event: line.name.trim_end_matches('=').to_owned(),
             reason: vocab::Reason::Length,
-            spec: vocab::lookup(line.name),
+            spec,
         }));
     }
     insert_event(conn, id, now, line.name, &line.parts, &line.body)?;
@@ -1899,6 +1902,49 @@ mod tests {
             Some("2026-10-03")
         );
         assert_eq!(stages(&s.conn, "q").unwrap().len(), 1);
+    }
+
+    /// BO-R-010 — a long `test-replaced` line is appended in full; any other long line is refused for its length.
+    #[test]
+    fn ut_append_exempts_only_test_replaced_from_the_length_limit() {
+        let mut s = store();
+        let now = "2026-10-05T09:00";
+        create(&mut s.conn, "r", State::Open, &[], "t").unwrap();
+        create(&mut s.conn, "r.s1", State::InProgress, &[], "t").unwrap();
+        let (old, new) = ("o".repeat(100), "n".repeat(100));
+        log(
+            &mut s.conn,
+            "r.s1",
+            "test-replaced",
+            &[format!("old={old}"), format!("new={new}")],
+            now,
+        )
+        .unwrap();
+        let body: String = s
+            .conn
+            .query_row(
+                "SELECT body FROM events WHERE name = 'test-replaced'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(body.contains(&old) && body.contains(&new), "{body}");
+
+        let text = |n: usize| vec!["--".to_owned(), "x".repeat(n)];
+        log(&mut s.conn, "r.s1", "stopped", &text(135), now).unwrap();
+        let Err(LogError::Reject(r)) = log(&mut s.conn, "r.s1", "stopped", &text(136), now) else {
+            panic!("a 161-character line is refused");
+        };
+        assert_eq!(r.reason, vocab::Reason::Length);
+        let n: i64 = s
+            .conn
+            .query_row(
+                "SELECT count(*) FROM events WHERE name = 'stopped'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 1);
     }
 
     #[test]

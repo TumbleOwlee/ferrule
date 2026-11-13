@@ -188,6 +188,8 @@
 
 **GW-R-076** — On a Rust project, `ferrule stage commit --replaced <old>=<new>` accepts any test name as the replacement and logs each pair on the card as a replaced-test note.
 
+**GW-R-092** — `ferrule stage commit` logs every `--replaced` pair on the card, whatever the length of its test names.
+
 ## Files list
 
 **GW-R-077** — A stage changing a file outside its `files` list is noted on the card and blocks neither the commit nor the review.
