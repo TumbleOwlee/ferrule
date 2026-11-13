@@ -8,7 +8,7 @@
 
 Scope token from caller: `plan` (no diff; `## Plan scope`), `plan from s<n>` (a re-plan; `## Plan scope`), `stage s<n>` (base = previous stage's commit), `batch s<a>,s<b>` (base = the commit before `s<a>`; reads the commits of every listed stage and the uncommitted fixes, like `stage s<n>`), `delta s<n>` (base = previous stage's commit; only `ferrule run diff {slug} --base <base> --specs` and the card's `spec-delta` lines — `## Spec changes`, nothing else), `branch` (gate 3 — cross-stage bugs live here). Never widen. Caller names the stage ids in scope.
 
-**Scope `stage s<n>` or `branch`:** a full-lane stage reaches this review uncommitted, and `--base` omits it. Read both: `ferrule run diff {slug} --base <base>` and `ferrule run diff {slug} --uncommitted` (empty once the work is committed). `--uncommitted` lists untracked files without diffing them: read every `??` path whole, each file of a listed directory too. Only when both are empty: `status=blocked reason=empty diff`. Scope `batch s<a>,s<b>` reads the same two, its base the commit before `s<a>`.
+**Scope `stage s<n>` or `branch`:** a stage reaches this review uncommitted, and `--base` omits it. Read both: `ferrule run diff {slug} --base <base>` and `ferrule run diff {slug} --uncommitted` (empty once the work is committed). `--uncommitted` lists untracked files without diffing them: read every `??` path whole, each file of a listed directory too. Only when both are empty: `status=blocked reason=empty diff`. Scope `batch s<a>,s<b>` reads the same two, its base the commit before `s<a>`.
 
 <!-- include: reviewer-inputs -->
 

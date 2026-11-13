@@ -290,7 +290,7 @@ pub enum StageCommand {
         /// The commit the implementer reported.
         sha: String,
     },
-    /// Decide whether a green full-lane stage stops for approval.
+    /// Decide whether a green stage reviewed on its own stops for approval.
     ///
     /// Logs the outcome on the stage card.
     #[command(after_long_help = STOP_AFTER_LONG_HELP)]

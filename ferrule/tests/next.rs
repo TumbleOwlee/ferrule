@@ -193,8 +193,6 @@ fn it_next_gate2_notice_after_combined_stop() {
 fn it_needs_user_rides_gate4() {
     let mut b = Board::new();
     b.reset("-", "2026-10-02", 2, "needs-user");
-    // A card saved in the old full lane stops no more at gate 3.
-    b.ok(&["board", "set", "ns", "lane=full"]);
     seed_card(b.root(), "ns.s1", "done", &[]);
     seed_card(b.root(), "ns.s2", "done", &[]);
     b.next(&["ns", "gate3", "status=clean", "minors=0"]);

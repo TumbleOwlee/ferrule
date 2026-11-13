@@ -179,7 +179,7 @@ pub fn parse_card_id(s: &str) -> Result<String, String> {
 }
 
 /// Parent fields an older board may carry: import skips them.
-const RETIRED_FIELDS: &[&str] = &["gate3"];
+const RETIRED_FIELDS: &[&str] = &["gate3", "lane", "with-arch", "with-plan"];
 
 /// Frontmatter keys a parent card may carry; `id` is the card's own.
 pub const PARENT_FIELDS: &[&str] = &[
@@ -189,11 +189,8 @@ pub const PARENT_FIELDS: &[&str] = &[
     "issue",
     "pr",
     "branch",
-    "lane",
     "plan-stop",
     "gate1",
-    "with-arch",
-    "with-plan",
     "skipped",
     "arch",
     "no-arch",
@@ -1827,7 +1824,7 @@ mod tests {
     fn ut_a_refused_move_writes_no_field_and_no_card() {
         let mut s = store();
         let f = |k: &str, v: &str| (k.to_owned(), v.to_owned());
-        create(&mut s.conn, "r", State::Done, &[f("lane", "full")], "t").unwrap();
+        create(&mut s.conn, "r", State::Done, &[f("issue", "12")], "t").unwrap();
         let card = NewCard {
             id: "r.s0".to_owned(),
             state: State::Open,
@@ -1854,7 +1851,7 @@ mod tests {
                 }
             )
         ));
-        assert_eq!(fields(&s.conn, "r").unwrap(), [f("lane", "full")]);
+        assert_eq!(fields(&s.conn, "r").unwrap(), [f("issue", "12")]);
         assert!(stages(&s.conn, "r").unwrap().is_empty());
         assert!(events(&s.conn, "r", &[]).unwrap().is_empty());
 

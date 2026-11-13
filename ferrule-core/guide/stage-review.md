@@ -1,9 +1,8 @@
 # stage-review — Per-stage review and the stage stop
 
-<!-- lane: full -->
 ## Per-stage review
 
-Full lane. A review point is the stage `ferrule stage tier {slug} s<n>` names (`review=stage`) or the batch it closes (`review=batch stages=…`); a stage with `review=none` has none.
+A review point is the stage `ferrule stage tier {slug} s<n>` names (`review=stage`) or the batch it closes (`review=batch stages=…`); a stage with `review=none` has none.
 - Fresh `fe-reviewer`. Scope `stage s<n>`: base = the previous stage's commit (branch point for the first stage). Scope `batch s<a>,s<b>`: base = the commit before `s<a>`, the review reads the commits of every listed stage and the uncommitted fixes. Both scopes run `ferrule ci gauntlet {slug} --level review` first.
 - Every stage or batch status line → `ferrule gate next {slug} stage <status line>` (a batch's stop prompt names its stages); its answer:
   - `fix` → the `count>0` bullet below.
@@ -15,10 +14,9 @@ Full lane. A review point is the stage `ferrule stage tier {slug} s<n>` names (`
 - A batch review status line with `blockers=` above 0 → `ferrule stage tier {slug} s<next> --after-blocker` before the next stage starts: that stage gets its own review.
 - **The last code stage's review point**: scope `branch`, each pass a fresh reviewer — it is the branch review; its status line → `ferrule gate next {slug} gate3 …` (it answers `minors` first when the review left minors, then `stage-stop` or `pr`). With `live-repo` on the run card: the implementer commits the last code stage first, `ferrule pr push {slug}`, the card stays `inreview`; then `ferrule run live-check {slug} start`, the live check, `ferrule run live-check {slug} end`; then the branch review, its fixes committed once and pushed, as a batch's are. `live-check=refused reason=open-stage` → commit and push the stage it names first.
 
-<!-- lane: full -->
 ## Stage stop
 
 The rules run at review points only. A green, clean-reviewed stage at one: `ferrule stage stop {slug} s<n> --threads <n>` (`--threads` from `ferrule pr feedback route {slug}`, `ferrule guide show feedback`) decides and logs it on the card. Its rules, first hit wins: a `Needs user` item, Verification beyond unit tests, open PR threads, a plan-marked stage; no rule holds → the run continues with no stop; `s0` never stops. A plan-marked stage stops after its review even with nothing to decide.
 - The last code stage commits and pushes the stage, or its review fixes when it closes a batch, before gate 4, whether or not its stop is shown: `auto` or `stop=1` (a `Needs user` item rides gate 4's stop) → commit, `ferrule pr push {slug}`, gate 4; any other `stop=` → the `stage` stop; approved → `ferrule gate approve {slug} stage`, commit, `ferrule pr push {slug}`, gate 4.
-- `auto` → the commit and push of `ferrule guide show stages --section 'Full lane'` — step 2 at a stage review, step 4 at a batch review — then `ferrule prompt render {slug} auto --stage s<n>`: one line naming the pushed sha, no answer awaited, the card move having updated the draft PR. A user message while a stage is running is read before the next auto-continue; `stop` holds at the next green.
-- `stop=<rule> reason=<word> [detail=…]` → `ferrule prompt render {slug} stage --stage s<n> --reason <word> [--detail …]`; approved → `ferrule gate approve {slug} stage`, the commit and push of *Full lane* (step 2 at a stage review, step 4 at a batch review).
+- `auto` → the commit and push of `ferrule guide show stages --section 'Per stage'` — step 2 at a stage review, step 4 at a batch review — then `ferrule prompt render {slug} auto --stage s<n>`: one line naming the pushed sha, no answer awaited, the card move having updated the draft PR. A user message while a stage is running is read before the next auto-continue; `stop` holds at the next green.
+- `stop=<rule> reason=<word> [detail=…]` → `ferrule prompt render {slug} stage --stage s<n> --reason <word> [--detail …]`; approved → `ferrule gate approve {slug} stage`, the commit and push of *Per stage* (step 2 at a stage review, step 4 at a batch review).

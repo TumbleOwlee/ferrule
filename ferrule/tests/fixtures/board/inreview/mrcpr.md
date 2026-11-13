@@ -1,7 +1,6 @@
 ---
 id: mrcpr
 branch: feat/mrcpr
-lane: full
 issue: 398
 pr: 407
 ---

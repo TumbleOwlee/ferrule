@@ -81,7 +81,7 @@ fn markdown(dir: &Path, out: &mut Vec<(String, String)>) {
     }
 }
 
-/// Every guide topic and installed file, raw: lane and done tags hide no
+/// Every guide topic and installed file, raw: done tags hide no
 /// text from a scan of the source.
 fn sources() -> Vec<(String, String)> {
     let mut out = Vec::new();

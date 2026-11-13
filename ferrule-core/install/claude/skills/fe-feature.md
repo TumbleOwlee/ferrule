@@ -16,11 +16,11 @@ You are the orchestrator. `ferrule guide` is the authority for every gate, the t
 
 ## Read once per run
 
-`ferrule guide show principles`, `ferrule guide show handoff`, `ferrule guide show approval`, `ferrule guide show lanes`. `ferrule guide show board` when a card or artifact question comes up.
+`ferrule guide show principles`, `ferrule guide show handoff`, `ferrule guide show approval`. `ferrule guide show board` when a card or artifact question comes up.
 
 ## Then step by step
 
-Start with `ferrule guide show gate1` (a non-behavior change: `ferrule guide show architecture`). From gate 2 on, pass every agent's status line to `ferrule gate next <slug> <at> <status line>`: it logs what the outcome implies and prints `guide: ferrule guide show <topic> --slug <slug>` for the step that follows — read that topic when you get there, never ahead. `ferrule guide list` names every topic.
+Start with `ferrule guide show gate1` (a non-behavior change: `ferrule guide show architecture`). From gate 1 on, pass every agent's status line to `ferrule gate next <slug> <at> <status line>`: it logs what the outcome implies and prints `guide: ferrule guide show <topic> --slug <slug>` for the step that follows — read that topic when you get there, never ahead. `ferrule guide list` names every topic.
 
 | Step | Topic |
 |---|---|
@@ -37,4 +37,4 @@ Start with `ferrule guide show gate1` (a non-behavior change: `ferrule guide sho
 | Re-plan | `replan` |
 | Resume a dead run | `resume` |
 
-Pass `--slug <slug>` to every topic once the run exists: the text is then cut to its lane and the steps its card shows done are marked.
+Pass `--slug <slug>` to every topic once the run exists: the steps its card shows done are marked.

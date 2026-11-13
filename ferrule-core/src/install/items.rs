@@ -267,7 +267,7 @@ mod tests {
     }
 
     /// GA-E-004 — no installed file keeps an include line, a run
-    /// placeholder or a lane or done tag.
+    /// placeholder or a done tag.
     #[test]
     fn ut_installed_templates_take_no_placeholders_or_tags() {
         let files = claude_files();
@@ -279,10 +279,7 @@ mod tests {
             }
             for l in text.lines() {
                 let l = l.trim_start();
-                assert!(
-                    !l.starts_with("<!-- lane:") && !l.starts_with("<!-- done:"),
-                    "{path}"
-                );
+                assert!(!l.starts_with("<!-- done:"), "{path}");
             }
         }
     }

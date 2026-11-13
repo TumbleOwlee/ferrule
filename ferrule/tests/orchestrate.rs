@@ -915,7 +915,7 @@ fn it_replan_swaps_the_uncommitted_stages() {
     let p = Project::new();
     p.ok(&["run", "init", "demo"]);
     p.artifacts();
-    p.ok(&["board", "set", "demo", "lane=fast", "arch=skipped"]);
+    p.ok(&["board", "set", "demo", "arch=skipped"]);
     serve(
         &p.gh,
         &find("Reconnect dropped Modbus clients"),
@@ -990,7 +990,7 @@ fn it_replan_keeps_a_stage_committed_past_an_uncommitted_one() {
     let p = Project::new();
     p.ok(&["run", "init", "demo"]);
     p.artifacts();
-    p.ok(&["board", "set", "demo", "lane=fast", "arch=skipped"]);
+    p.ok(&["board", "set", "demo", "arch=skipped"]);
     serve(
         &p.gh,
         &find("Reconnect dropped Modbus clients"),
@@ -1035,7 +1035,7 @@ fn it_replan_approve_is_refused_twice() {
     let p = Project::new();
     p.ok(&["run", "init", "demo"]);
     p.artifacts();
-    p.ok(&["board", "set", "demo", "lane=fast", "arch=skipped"]);
+    p.ok(&["board", "set", "demo", "arch=skipped"]);
     serve(
         &p.gh,
         &find("Reconnect dropped Modbus clients"),
@@ -2283,7 +2283,7 @@ fn pushed_run() -> (Project, String) {
     let p = Project::new();
     p.ok(&["run", "init", "demo"]);
     p.artifacts();
-    p.ok(&["board", "set", "demo", "lane=fast", "arch=skipped"]);
+    p.ok(&["board", "set", "demo", "arch=skipped"]);
     serve(
         &p.gh,
         &find("Reconnect dropped Modbus clients"),
@@ -4139,7 +4139,7 @@ fn gate2_ready(p: &Project, plan: &str) {
     p.artifacts();
     std::fs::remove_file(p.run_dir().join("plan.summary.md")).unwrap();
     std::fs::write(p.run_dir().join("plan.md"), plan).unwrap();
-    p.ok(&["board", "set", "demo", "lane=fast", "arch=skipped"]);
+    p.ok(&["board", "set", "demo", "arch=skipped"]);
     serve(
         &p.gh,
         &find("Reconnect dropped Modbus clients"),
@@ -4475,15 +4475,23 @@ fn it_small_brief_one_combined_stop() {
     assert!(gate2.contains("next=notice"), "{gate2}");
 }
 
-/// S502 — a card saved with `lane=fast` resumes by the brief's size, and no
+/// S502 — a card saved with `lane: fast` resumes by the brief's size, and no
 /// stop names a lane.
 #[test]
 fn it_saved_lane_resumes_by_size() {
     let p = Project::new();
-    p.ok(&["run", "init", "demo"]);
+    let saved = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(saved.path().join("open")).unwrap();
+    std::fs::write(
+        saved.path().join("open/demo.md"),
+        "---\nid: demo\nlane: fast\n---\n",
+    )
+    .unwrap();
+    p.ok(&["board", "import", saved.path().to_str().unwrap()]);
+    assert_eq!(p.field("demo", "lane"), "");
+    std::fs::create_dir_all(p.run_dir()).unwrap();
     p.artifacts();
     brief(&p, 4);
-    p.ok(&["board", "set", "demo", "lane=fast"]);
     let arch = p.ok(&["prompt", "render", "demo", "arch"]);
     p.ok(&["gate", "approve", "demo", "arch"]);
     let gate2 = p.ok(&["gate", "next", "demo", "gate2", "status=new"]);

@@ -21,31 +21,29 @@ fn ok(root: &Path, args: &[&str]) -> String {
     out
 }
 
+/// GA-R-120 — `guide show` has no `--lane` flag.
 #[test]
-fn it_guide_cuts_to_the_cards_lane_and_state() {
+fn it_guide_show_has_no_lane_flag() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
-    seed_card(root, "demo", "open", &["lane=fast", "pr=34"]);
+    let out = ferrule(root, root, &["guide", "stages", "--lane", "full"]);
+    assert!(out.ends_with("exit=2"), "{out}");
+}
+
+#[test]
+fn it_guide_marks_the_cards_done_steps() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    seed_card(root, "demo", "open", &["pr=34"]);
 
     let stages = ok(root, &["guide", "stages", "--slug", "demo"]);
-    assert!(stages.contains("## Fast lane\n"), "{stages}");
-    assert!(!stages.contains("## Full lane"), "{stages}");
+    assert!(!stages.contains("lane"), "{stages}");
     let run_dir = root.join(".ferrule/runs/demo").display().to_string();
     assert!(stages.contains(&format!("`{run_dir}/plan.md`")), "{stages}");
     assert!(stages.contains("`ferrule pr push demo`"), "{stages}");
 
-    let full = ok(
-        root,
-        &["guide", "stages", "--slug", "demo", "--lane", "full"],
-    );
-    assert!(
-        full.contains("## Full lane\n") && !full.contains("## Fast lane"),
-        "{full}"
-    );
-
-    let both = ok(root, &["guide", "stages"]);
-    assert!(both.contains("## Fast lane (fast lane)\n"), "{both}");
-    assert!(both.contains("`ferrule pr push <slug>`"), "{both}");
+    let bare = ok(root, &["guide", "stages"]);
+    assert!(bare.contains("`ferrule pr push <slug>`"), "{bare}");
 
     let gate4 = ok(root, &["guide", "gate4", "--slug", "demo"]);
     assert!(!gate4.contains("(done)"), "{gate4}");
@@ -58,9 +56,9 @@ fn it_guide_cuts_to_the_cards_lane_and_state() {
     assert!(!gate4.contains("(done)\n- **CI**"), "{gate4}");
 
     assert!(!gate4.starts_with("# "), "{gate4}");
-    let fast = ok(root, &["guide", "stages", "--section", "fast lane"]);
-    assert!(fast.starts_with("## Fast lane"), "{fast}");
-    assert!(!fast.contains("## Full lane"), "{fast}");
+    let one = ok(root, &["guide", "stages", "--section", "per stage"]);
+    assert!(one.starts_with("## Per stage"), "{one}");
+    assert!(!one.contains("## Every stage"), "{one}");
     let missing = ferrule(root, root, &["guide", "stages", "--section", "Nope"]);
     assert!(
         missing
@@ -120,12 +118,12 @@ fn it_guide_check_flags_unknown_topics_and_bad_tags() {
     std::fs::create_dir_all(&guide).unwrap();
     std::fs::write(
         guide.join("deploy.md"),
-        "# deploy — Shipping a release\n\nThen `ferrule guide show releases`, `ferrule guide show stages --section 'Nope'`.\n\n<!-- lane: slow -->\nx\n",
+        "# deploy — Shipping a release\n\nThen `ferrule guide show releases`, `ferrule guide show stages --section 'Nope'`.\n\n<!-- lane: fast -->\nx\n",
     )
     .unwrap();
     assert_eq!(
         ferrule(root, root, &["guide", "--check"]),
-        "guide-check=fail topic=deploy names-unknown=releases hint=fix the name or add the topic\nguide-check=fail topic=deploy names-unknown=stages#Nope hint=add the heading to the topic or fix the reference\nguide-check=fail topic=deploy bad-tag=<!-- lane: slow --> hint=a tag is <!-- lane: fast|full --> or <!-- done: pr=ready -->\nexit=1"
+        "guide-check=fail topic=deploy names-unknown=releases hint=fix the name or add the topic\nguide-check=fail topic=deploy names-unknown=stages#Nope hint=add the heading to the topic or fix the reference\nguide-check=fail topic=deploy bad-tag=<!-- lane: fast --> hint=a tag is <!-- done: pr=ready -->\nexit=1"
     );
     assert!(
         ok(root, &["guide", "--list"]).contains("Project:\n  deploy          Shipping a release\n")
@@ -142,7 +140,7 @@ fn it_guide_check_flags_unknown_topics_and_bad_tags() {
 fn it_stage_review_guide_pushes_before_gate4() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let text = ok(
         root,
         &[
@@ -214,7 +212,7 @@ fn it_guides_run_the_preflight_first() {
 /// The topic as the full-lane run `demo` reads it.
 fn topic(name: &str) -> String {
     let tmp = tempfile::tempdir().unwrap();
-    seed_card(tmp.path(), "demo", "open", &["lane=full"]);
+    seed_card(tmp.path(), "demo", "open", &[]);
     ok(tmp.path(), &["guide", "show", name, "--slug", "demo"])
 }
 
@@ -442,7 +440,7 @@ fn it_guides_widen_checks_before_an_unreviewed_commit() {
     says(
         "stages",
         &[
-            "a batched, skipped or fast-lane stage also the review-level steps over the crates its diff touches",
+            "a batched or skipped stage also the review-level steps over the crates its diff touches",
         ],
     );
     says(
@@ -471,7 +469,7 @@ fn it_stages_guide_routes_an_adopted_commit_through_its_tier() {
 fn it_stages_guide_sends_a_diverged_refusal_to_the_blocked_stop() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let text = ok(root, &["guide", "show", "stages", "--slug", "demo"]);
     let line = text
         .lines()
@@ -498,7 +496,7 @@ fn it_stages_guide_sends_a_diverged_refusal_to_the_blocked_stop() {
 fn it_stages_guide_rebases_or_pushes_again_after_a_divergence() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let text = ok(root, &["guide", "show", "stages", "--slug", "demo"]);
     let bullet = text
         .lines()
@@ -576,7 +574,7 @@ fn it_stages_guide_continues_or_pushes_again_after_a_sha_refusal() {
 fn it_stages_guide_sends_a_rebase_conflict_to_the_implementer() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let text = ok(root, &["guide", "show", "stages", "--slug", "demo"]);
     let bullet = text
         .lines()
@@ -592,7 +590,7 @@ fn it_stages_guide_sends_a_rebase_conflict_to_the_implementer() {
 fn it_stages_guide_reruns_the_rebase_after_status_rebased() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let text = ok(root, &["guide", "show", "stages", "--slug", "demo"]);
     let bullet = text
         .lines()
@@ -611,7 +609,7 @@ fn it_stages_guide_reruns_the_rebase_after_status_rebased() {
 fn it_implementer_guide_resolves_only_the_conflicted_files() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let section = ok(
         root,
         &[
@@ -637,7 +635,7 @@ fn it_implementer_guide_resolves_only_the_conflicted_files() {
 fn it_resume_guide_rebases_a_pr_conflicting_with_its_base() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let text = ok(root, &["guide", "show", "resume", "--slug", "demo"]);
     let line = text
         .lines()
@@ -652,7 +650,7 @@ fn it_resume_guide_rebases_a_pr_conflicting_with_its_base() {
 fn it_resume_guide_resolves_a_diverged_row_outside_ferrule() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let text = ok(root, &["guide", "show", "resume", "--slug", "demo"]);
     let row = text
         .lines()
@@ -668,7 +666,7 @@ fn it_resume_guide_resolves_a_diverged_row_outside_ferrule() {
 fn it_reviewer_guide_reads_the_uncommitted_stage() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let section = |name| {
         ok(
             root,
@@ -696,7 +694,7 @@ fn it_reviewer_guide_reads_the_uncommitted_stage() {
 fn it_reviewer_guide_reads_the_uncommitted_stage_in_stage_scope() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let section = |name| {
         ok(
             root,
@@ -729,7 +727,7 @@ fn it_reviewer_guide_reads_the_uncommitted_stage_in_stage_scope() {
 fn it_reviewer_guide_reads_only_sections_the_shipped_readme_has() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     std::fs::create_dir_all(root.join("docs/specs")).unwrap();
     std::fs::write(
         root.join("docs/specs/README.md"),
@@ -772,7 +770,7 @@ fn it_reviewer_guide_reads_only_sections_the_shipped_readme_has() {
 fn it_guides_state_the_tdd_and_standards_rules() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let tdd = ok(
         root,
         &["guide", "implementer", "--slug", "demo", "--section", "TDD"],
@@ -823,7 +821,7 @@ fn it_guides_state_the_tdd_and_standards_rules() {
 fn it_agent_guides_take_the_rules_agents_md_states() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let rules = |topic| {
         ok(
             root,
@@ -858,7 +856,7 @@ fn it_agent_guides_take_the_rules_agents_md_states() {
 fn it_guides_state_what_their_reader_needs() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let guide = |topic| ok(root, &["guide", topic, "--slug", "demo"]);
     let principles = guide("principles");
     assert!(principles.contains("**A non-behavior change, a change that needs no observable behavior to change, skips gate 1**"), "{principles}");
@@ -891,7 +889,7 @@ fn it_guides_state_what_their_reader_needs() {
 fn it_asking_agents_state_the_question_batch() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let section = |topic| {
         ok(
             root,
@@ -941,7 +939,7 @@ fn it_asking_agents_state_the_question_batch() {
 fn it_plan_review_states_the_stage_title_rules() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let text = ok(root, &["guide", "reviewer-plan", "--slug", "demo"]);
     assert!(text.contains("imperative, verb first; ≤ 3 words, ≤ 20 characters; letters, digits, hyphens, spaces only; unique within the plan; no stage id"), "{text}");
     assert!(
@@ -955,7 +953,7 @@ fn it_plan_review_states_the_stage_title_rules() {
 fn it_reviewer_follow_up_names_the_plan_checks_topic() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let text = ok(
         root,
         &[
@@ -980,7 +978,7 @@ fn it_implementer_and_reviewer_state_the_id_citation_rule() {
     const RULE: &str = "test's doc comment lists every requirement or edge-case ID its assertions directly verify, and only those, before the summary (`/// AB-R-012, AB-R-157 — …`)";
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let tdd = ok(
         root,
         &["guide", "implementer", "--slug", "demo", "--section", "TDD"],
@@ -1006,7 +1004,7 @@ fn it_implementer_and_reviewer_state_the_id_citation_rule() {
 fn it_implementer_reads_the_spec_rules_before_a_spec_change() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let text = ok(
         root,
         &[
@@ -1027,7 +1025,7 @@ fn it_planner_guides_read_the_spec_rules_before_a_spec_edit() {
     const READ: &str = "Before you edit an entry, read the rules that bind the text: `ferrule file section 'Rules for writing specs' docs/specs/README.md`.";
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     for guide in ["planner", "planner-replan"] {
         let text = ok(
             root,
@@ -1061,7 +1059,7 @@ fn it_bootstrap_suggests_no_project_rules_override() {
 fn it_replan_guide_states_the_question_format() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let text = ok(root, &["guide", "planner-replan", "--slug", "demo"]);
     for needle in [
         "# demo — questions (gate 2)",
@@ -1078,7 +1076,7 @@ fn it_replan_guide_states_the_question_format() {
 fn it_implementer_guide_blocks_a_clean_nothing_staged() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let text = ok(
         root,
         &[
@@ -1107,7 +1105,7 @@ fn it_implementer_guide_blocks_a_clean_nothing_staged() {
 fn it_stages_guide_routes_an_adopt_suggestion_to_the_blocked_stop() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let section = ok(
         root,
         &[
@@ -1133,7 +1131,7 @@ fn it_stages_guide_routes_an_adopt_suggestion_to_the_blocked_stop() {
 fn it_cleanup_guide_states_exemptions_and_notices() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let text = ok(root, &["guide", "cleanup", "--slug", "demo"]);
     for want in [
         "Done · demo · issue #<n> · cleaned up · archived",
@@ -1153,7 +1151,7 @@ fn it_cleanup_guide_states_exemptions_and_notices() {
 fn it_cleanup_guide_states_the_ci_waiver() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let text = ok(root, &["guide", "cleanup", "--slug", "demo"]);
     for want in [
         "Done · demo · PR #<pr> ready · CI waived · cleaned up · archived",
@@ -1170,7 +1168,7 @@ fn it_cleanup_guide_states_the_ci_waiver() {
 fn it_gate4_guide_waives_missing_checks_on_the_users_word() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let text = ok(root, &["guide", "gate4", "--slug", "demo"]);
     let line = text
         .lines()
@@ -1192,7 +1190,7 @@ fn it_gate4_guide_waives_missing_checks_on_the_users_word() {
 fn it_cleanup_guide_names_abandon_and_its_notices() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let text = ok(root, &["guide", "cleanup", "--slug", "demo"]);
     for want in [
         "ferrule run abandon demo",
@@ -1211,7 +1209,7 @@ fn it_cleanup_guide_names_abandon_and_its_notices() {
 fn it_principles_guide_names_the_run_without_a_pr_ending() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let principles = ok(root, &["guide", "principles", "--slug", "demo"]);
     assert!(
         principles.contains("a run without a PR ends at `ferrule run cleanup`"),
@@ -1224,7 +1222,7 @@ fn it_principles_guide_names_the_run_without_a_pr_ending() {
 fn it_guides_state_the_decision_line_shape() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     for topic in ["author", "architect", "planner", "implementer"] {
         let text = ok(
             root,
@@ -1273,7 +1271,7 @@ fn it_guide_decisions_topic_is_gone() {
 fn it_guide_override_of_shared_text_stays_in_that_guide() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let guide = root.join(".ferrule/guide");
     std::fs::create_dir_all(&guide).unwrap();
     std::fs::write(guide.join("planner.md"), "## Decision lines\n\nmine\n").unwrap();
@@ -1306,7 +1304,7 @@ fn it_project_decisions_file_is_a_project_topic() {
 fn it_job_guides_cite_no_other_guide() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     for topic in [
         "author-late",
         "architect-epic",
@@ -1323,7 +1321,7 @@ fn it_job_guides_cite_no_other_guide() {
 fn it_job_guides_state_what_their_job_needs() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let shape = "- <choice> (<user | chosen>) [";
     let mut missing = Vec::new();
     for (topic, needles) in [
@@ -1385,7 +1383,7 @@ fn it_job_guides_state_what_their_job_needs() {
 fn it_architect_guide_hands_a_tripped_size_guard_to_the_epic_guide() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let text = ok(
         root,
         &[
@@ -1407,7 +1405,7 @@ fn it_architect_guide_hands_a_tripped_size_guard_to_the_epic_guide() {
 fn it_epic_guide_states_a_github_epic_is_a_milestone() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let text = ok(root, &["guide", "show", "epic", "--slug", "demo"]);
     for want in [
         "a GitHub epic is a milestone",
@@ -1423,7 +1421,7 @@ fn it_epic_guide_states_a_github_epic_is_a_milestone() {
 fn it_epic_guide_closing_notice_names_the_milestone() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let text = ok(root, &["guide", "show", "epic", "--slug", "demo"]);
     assert!(
         text.contains(
@@ -1442,7 +1440,7 @@ fn rendered(root: &Path, topic: &str) -> String {
 fn it_implementer_guide_checks_cited_ids_before_review() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let text = rendered(root, "implementer");
     assert!(
         text.contains(
@@ -1457,7 +1455,7 @@ fn it_implementer_guide_checks_cited_ids_before_review() {
 fn it_reviewer_guide_hands_over_the_card_notes() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let text = rendered(root, "reviewer");
     assert!(text.contains("The stage card's notes (`ferrule board show demo.s<n>`) — `files-outside=`, `test-pins` and `test-replaced` lines — point at changes worth a look"), "{text}");
     assert!(
@@ -1472,7 +1470,7 @@ fn it_reviewer_guide_hands_over_the_card_notes() {
 fn it_implementer_guide_logs_bookkeeping_gaps() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let text = rendered(root, "implementer");
     assert!(
         text.contains("is no stop: log `note -- bookkeeping: <gap>` on the card and go on"),
@@ -1490,7 +1488,7 @@ fn it_implementer_guide_logs_bookkeeping_gaps() {
 fn it_reviewer_guide_rates_no_finding_for_bookkeeping() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let text = rendered(root, "reviewer");
     assert!(
         text.contains("is a finding when it is scope creep"),
@@ -1506,7 +1504,7 @@ fn it_reviewer_guide_rates_no_finding_for_bookkeeping() {
 fn it_guides_bind_only_the_public_surface_of_sketches() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    seed_card(root, "demo", "open", &["lane=full"]);
+    seed_card(root, "demo", "open", &[]);
     let reviewer = rendered(root, "reviewer");
     assert!(
         reviewer.contains("A sketch in `## Interfaces` binds only what `## Public surface` lists"),

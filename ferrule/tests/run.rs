@@ -68,7 +68,6 @@ impl Scratch {
             "inprogress",
             &[
                 "branch=feat/ss",
-                "lane=full",
                 "gate1=2026-10-01",
                 "arch=2026-10-02",
                 "gate2=2026-10-03",

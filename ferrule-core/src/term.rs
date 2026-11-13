@@ -709,7 +709,7 @@ mod tests {
 
     #[test]
     fn ut_inline_marks_and_comments() {
-        let md = "<!-- lane: fast -->\nRun `ferrule gate next` for **<slug>**, see [docs](https://x.y).\n";
+        let md = "<!-- done: pr=ready -->\nRun `ferrule gate next` for **<slug>**, see [docs](https://x.y).\n";
         assert_eq!(
             markdown(md, PLAIN),
             "Run `ferrule gate next` for <slug>, see\ndocs (https://x.y).\n"
