@@ -90,9 +90,9 @@ impl Status {
     /// one, a `ci=` that is no exit code, an `issue=` that is neither a
     /// number nor `new` or `status=findings` without a numeric `count=` is
     /// a usage error: the first reach a command line the decision prints,
-    /// and an unreadable count would read as none. At `stage` and `gate3`,
-    /// `clean` or `findings` with a count of 0 without a numeric `minors=`
-    /// is one too.
+    /// and an unreadable count would read as none. At `stage`, `gate3`, `gate2`
+    /// and `replan`, `clean` or `findings` with a count of 0 without a
+    /// numeric `minors=` is one too.
     fn word(&self, at: At) -> Result<String, Error> {
         let digits = |v: &str| !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit());
         let word = match at {
@@ -115,7 +115,7 @@ impl Status {
         let clean = word.as_deref() == Some("clean")
             || (word.as_deref() == Some("findings")
                 && self.count.as_deref().and_then(|c| c.parse::<u64>().ok()) == Some(0));
-        let minors_ok = !matches!(at, At::Stage | At::Gate3)
+        let minors_ok = !matches!(at, At::Stage | At::Gate3 | At::Gate2 | At::Replan)
             || !clean
             || self
                 .minors
@@ -296,6 +296,27 @@ fn marks(e: &Event) -> bool {
     e.name == "spawn" || Name::parse(&e.name).is_some_and(|n| CYCLE.contains(&n))
 }
 
+/// Whether the newest event of the cycle, a question stop and a
+/// pre-authorized re-plan aside, is a plan review that left minors.
+fn minors_pending(events: &[Event]) -> bool {
+    events
+        .iter()
+        .rfind(|e| {
+            marks(e)
+                && !matches!(
+                    e.typed(),
+                    Typed::Stop {
+                        kind: Some("question"),
+                        ..
+                    } | Typed::ReplanApproved(crate::card::typed::Grant::PreAuthorized)
+                )
+        })
+        .is_some_and(|e| {
+            matches!(e.typed(), Typed::PlanReview(_))
+                && e.arg("minors").and_then(|m| m.parse::<u64>().ok()) > Some(0)
+        })
+}
+
 /// A `replan from=…` line.
 fn is_replan(e: &Event) -> bool {
     matches!(e.typed(), Typed::Replan { from: Some(_) })
@@ -380,18 +401,10 @@ pub fn next(
             c.guide(Topic::Principles);
         }
         (At::Gate2 | At::Replan, "ready") => {
-            c.log(&["spawn", "agent=plan-reviewer"])?;
-            if plan_reviews.last() == Some(&"findings") {
-                c.next("follow-up", None);
-                c.act("spawn the plan reviewer again for a follow-up round");
-            } else {
-                c.next("review", None);
-                c.act("spawn the plan reviewer");
-            }
-            c.gate_guide();
+            plan_ready(&mut c, &events, plan_reviews.last() == Some(&"findings"))?;
         }
         (At::Gate2 | At::Replan, "findings" | "clean") => {
-            plan_review(&mut c, &word, round, count, &events)?;
+            plan_review(&mut c, &word, round, count, minors, &events)?;
         }
         (At::Gate2, "new" | "reuse") => gate2_decision(&mut c, &word, status)?,
         (At::Stage, "findings") if count > 0 => stage_findings(&mut c, count)?,
@@ -413,20 +426,50 @@ pub fn next(
     Ok(c.out)
 }
 
-/// A plan review's verdict: logged with its round; a third round, or a
-/// clean one, ends the review.
+/// The planner is ready: the plan reviewer is spawned, unless the review
+/// before left minors, which the planner just fixed.
+fn plan_ready(c: &mut Ctx, events: &[Event], after_findings: bool) -> Result<(), Error> {
+    if minors_pending(events) {
+        if c.at == At::Gate2 {
+            ask_issue(c);
+            return Ok(());
+        }
+        return replan_decision(c, events);
+    }
+    c.log(&["spawn", "agent=plan-reviewer"])?;
+    if after_findings {
+        c.next("follow-up", None);
+        c.act("spawn the plan reviewer again for a follow-up round");
+    } else {
+        c.next("review", None);
+        c.act("spawn the plan reviewer");
+    }
+    c.gate_guide();
+    Ok(())
+}
+
+/// A plan review's verdict: logged with its round. A third round, a clean
+/// review or one with no blocking finding ends the review; minors left go
+/// to the planner first.
 fn plan_review(
     c: &mut Ctx,
     word: &str,
     round: usize,
     count: u64,
+    minors: u64,
     events: &[Event],
 ) -> Result<(), Error> {
     let round_kv = format!("round={round}");
+    let minors_kv = format!("minors={minors}");
+    let mut line = vec!["plan-review=clean"];
+    let count_kv = format!("count={count}");
     if word == "findings" {
-        let count_kv = format!("count={count}");
-        c.log(&["plan-review=findings", &count_kv, &round_kv])?;
-        if round <= 2 {
+        line = vec!["plan-review=findings", &count_kv, &round_kv];
+        if count == 0 && minors > 0 {
+            line.push(&minors_kv);
+        }
+        c.log(&line)?;
+        if count > 0 && round <= 2 {
             c.next("revise", None);
             let dir = format!(".ferrule/runs/{}", c.slug);
             c.run(&format!("cp {dir}/plan.md {dir}/plan.prev.md"));
@@ -435,7 +478,17 @@ fn plan_review(
             return Ok(());
         }
     } else {
-        c.log(&["plan-review=clean", &round_kv])?;
+        line.push(&round_kv);
+        if minors > 0 {
+            line.push(&minors_kv);
+        }
+        c.log(&line)?;
+    }
+    if minors > 0 && (word == "clean" || count == 0) {
+        let then = if c.at == At::Gate2 { "issue" } else { "replan" };
+        minors_step(c, minors, then, None, "planner");
+        c.gate_guide();
+        return Ok(());
     }
     if c.at == At::Gate2 {
         ask_issue(c);
@@ -527,7 +580,7 @@ fn stage_stop_lines(c: &mut Ctx, n: Option<u32>) {
 /// The next step, or the minors fix step ahead of it.
 fn announce(c: &mut Ctx, word: &str, reason: Option<&str>, minors: u64) {
     if minors > 0 {
-        minors_step(c, minors, word, reason);
+        minors_step(c, minors, word, reason, "implementer");
     } else {
         c.next(word, reason);
     }
@@ -535,13 +588,18 @@ fn announce(c: &mut Ctx, word: &str, reason: Option<&str>, minors: u64) {
 
 /// A clean review left minors: the implementer fixes them, no review
 /// follows, then the step `then` names.
-fn minors_step(c: &mut Ctx, minors: u64, then: &str, reason: Option<&str>) {
+fn minors_step(c: &mut Ctx, minors: u64, then: &str, reason: Option<&str>, fixer: &str) {
     match reason {
         Some(r) => c.out.push(format!("next=minors then={then} reason={r}")),
         None => c.out.push(format!("next=minors then={then}")),
     }
+    let tail = if fixer == "planner" {
+        "answer `ferrule gate next` with its status line"
+    } else {
+        "the step below"
+    };
     c.act(&format!(
-        "resume the implementer to fix the minors the verdict lists (count {minors}), with no review after the fix, then the step below"
+        "resume the {fixer} to fix the minors the verdict lists (count {minors}), with no review after the fix, then {tail}"
     ));
 }
 
@@ -780,22 +838,27 @@ mod tests {
         assert_eq!(s.minors.as_deref(), Some("2"));
     }
 
-    /// GA-R-100 — a clean line at `stage` and `gate3` needs a numeric `minors=`.
+    /// GA-R-100 — a clean line at stage, gate3, gate2 and replan needs a numeric minors=.
     #[test]
-    fn ut_clean_needs_minors_at_stage_and_gate3() {
+    fn ut_clean_needs_minors_at_review_positions() {
         let st = |w: &str| Status::parse(&[w.to_owned()]);
         for (at, line) in [
             (At::Stage, "status=clean"),
             (At::Gate3, "status=clean"),
             (At::Gate3, "status=findings count=0"),
             (At::Stage, "status=clean minors=x"),
+            (At::Gate2, "status=clean"),
+            (At::Gate2, "status=findings count=0"),
+            (At::Replan, "status=clean"),
+            (At::Replan, "status=clean minors=x"),
         ] {
             assert!(matches!(st(line).word(at), Err(Error::Usage)), "{line}");
         }
         for (at, line) in [
             (At::Stage, "status=clean minors=0"),
             (At::Stage, "status=findings count=2"),
-            (At::Replan, "status=clean"),
+            (At::Gate2, "status=clean minors=0"),
+            (At::Replan, "status=findings count=1"),
         ] {
             assert!(st(line).word(at).is_ok(), "{line}");
         }

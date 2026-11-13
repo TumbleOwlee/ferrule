@@ -24,4 +24,10 @@ $ gate next ns gate3 status=findings count=0
 exit=2
 $ gate next ns stage status=clean minors=x
 exit=2
+$ gate next ns gate2 status=clean
+exit=2
+$ gate next ns replan status=findings count=0
+exit=2
+$ gate next ns gate2 status=clean minors=x
+exit=2
 exit=0
