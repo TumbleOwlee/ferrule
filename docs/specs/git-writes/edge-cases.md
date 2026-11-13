@@ -48,6 +48,8 @@
 
 **GW-E-022** — On a Rust project, tests are told apart by function name, so two tests of one name in different modules count as one test.
 
+**GW-E-025** — With no stage left to commit after a merge outside ferrule, the sha stop's push again returns the same refusal to the same stop; only stop ends it (GW-E-002, GW-E-005).
+
 ## Body checks
 
 **GW-E-024** — A code span or fenced block whose whole content is a bare stage id or a bare agent name is refused with `reason=stage-ref`.
