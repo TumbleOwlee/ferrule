@@ -1633,3 +1633,60 @@ fn it_checker_guides_write_a_rev_stamped_result() {
         );
     }
 }
+
+/// GA-R-143, GA-R-147, GA-R-154 — the architecture guide spawns both checks
+/// before the stop and adds no stop.
+#[test]
+fn it_architecture_guide_runs_both_checks_before_the_stop() {
+    says(
+        "architecture",
+        &[
+            "`status=ready` → design checks, then `ferrule prompt render demo arch`",
+            "spawn two `fe-checker` agents in parallel",
+            "the checks add no stop",
+        ],
+    );
+}
+
+/// GA-R-156 — the checks run again each time the stop is reached, also on resume.
+#[test]
+fn it_design_checks_rerun_each_time_the_stop_is_reached() {
+    says(
+        "architecture",
+        &[
+            "every time it is reached",
+            "its next `ready` runs the design checks again",
+        ],
+    );
+    says("resume", &["spawns both `fe-checker` agents again"]);
+}
+
+/// GA-R-155, GA-R-160 — a run without an architecture step runs neither check.
+#[test]
+fn it_design_checks_skip_a_run_without_an_architecture_step() {
+    says("architecture", &["runs neither check"]);
+    for name in ["gate1", "gate2"] {
+        assert!(
+            !topic(name).contains("fe-checker"),
+            "{name} names fe-checker"
+        );
+    }
+}
+
+/// GA-R-161 — the epic guide runs the checks after the skeleton.
+#[test]
+fn it_epic_guide_runs_the_checks_after_the_skeleton() {
+    says(
+        "epic",
+        &[
+            "the design checks below run before step 3",
+            "spawn two `fe-checker` agents in parallel",
+        ],
+    );
+}
+
+/// GA-R-157 — a check without a current result is shown as `did not run`.
+#[test]
+fn it_design_check_result_without_a_current_result_says_did_not_run() {
+    says("architecture", &["`did not run`"]);
+}
