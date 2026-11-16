@@ -89,6 +89,8 @@ topics! {
     Implementer "implementer",
     Reviewer "reviewer",
     ReviewerPlan "reviewer-plan",
+    CheckComprehension "check-comprehension",
+    CheckZoomOut "check-zoom-out",
 }
 
 impl Topic {
@@ -117,6 +119,8 @@ impl Topic {
                 | Topic::Implementer
                 | Topic::Reviewer
                 | Topic::ReviewerPlan
+                | Topic::CheckComprehension
+                | Topic::CheckZoomOut
         )
     }
 }
@@ -171,6 +175,7 @@ fn summary(text: &str) -> &str {
 #[must_use]
 pub fn list(root: &Path) -> Vec<String> {
     let local = project_topics(root);
+    let width = Topic::ALL.iter().map(|t| t.name().len()).max().unwrap_or(0);
     let line = |t: &Topic| {
         let text = load(root, t.name()).unwrap_or_default();
         let mark = if local.iter().any(|n| n == t.name()) {
@@ -178,7 +183,7 @@ pub fn list(root: &Path) -> Vec<String> {
         } else {
             ""
         };
-        format!("  {:<15} {}{mark}", t.name(), summary(&text))
+        format!("  {:<w$} {}{mark}", t.name(), summary(&text), w = width)
     };
     let mut out = vec!["Orchestrator:".to_owned()];
     out.extend(Topic::ALL.iter().filter(|t| !t.is_agent()).map(line));
@@ -190,7 +195,7 @@ pub fn list(root: &Path) -> Vec<String> {
     }
     for name in own {
         let text = load(root, name).unwrap_or_default();
-        out.push(format!("  {name:<15} {}", summary(&text)));
+        out.push(format!("  {name:<width$} {}", summary(&text)));
     }
     out
 }

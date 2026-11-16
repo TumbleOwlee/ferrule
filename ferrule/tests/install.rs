@@ -480,3 +480,22 @@ fn it_git_hooks_pass_without_the_shim_and_refuse_without_a_config() {
     assert_eq!(code, 1, "{err}");
     assert!(err.contains("refusing until ferrule.toml reads"), "{err}");
 }
+
+/// GA-R-144 — the design-check agent installs with the project instruction
+/// files left out of its context and the checker's guard on its Bash calls.
+#[test]
+fn it_install_writes_the_checker_agent() {
+    let dir = repo();
+    let root = dir.path();
+    let out = ferrule(root, &["install"]);
+    assert!(out.ends_with("exit=0"), "{out}");
+    let agent = std::fs::read_to_string(root.join(".claude/agents/fe-checker.md")).unwrap();
+    for want in [
+        "omitClaudeMd: true",
+        "model: opus",
+        "/.ferrule/ferrule hook checker",
+        "ferrule guide show check-comprehension",
+    ] {
+        assert!(agent.contains(want), "missing {want}\n{agent}");
+    }
+}

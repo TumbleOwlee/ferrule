@@ -104,7 +104,7 @@ fn it_guide_overrides_merge_by_heading() {
 
     let list = ok(root, &["guide", "--list"]);
     assert!(
-        list.contains("implementer     Implementing a stage under TDD (project override)\n"),
+        list.contains("implementer         Implementing a stage under TDD (project override)\n"),
         "{list}"
     );
 }
@@ -126,7 +126,8 @@ fn it_guide_check_flags_unknown_topics_and_bad_tags() {
         "guide-check=fail topic=deploy names-unknown=releases hint=fix the name or add the topic\nguide-check=fail topic=deploy names-unknown=stages#Nope hint=add the heading to the topic or fix the reference\nguide-check=fail topic=deploy bad-tag=<!-- lane: fast --> hint=a tag is <!-- done: pr=ready -->\nexit=1"
     );
     assert!(
-        ok(root, &["guide", "--list"]).contains("Project:\n  deploy          Shipping a release\n")
+        ok(root, &["guide", "--list"])
+            .contains("Project:\n  deploy              Shipping a release\n")
     );
     assert_eq!(
         ferrule(root, root, &["guide", "nosuch"]),
@@ -1575,4 +1576,60 @@ fn it_no_guide_names_delta() {
         seen += 1;
     }
     assert!(seen > 0, "{list}");
+}
+
+/// GA-R-144, GA-E-028 — the comprehension check reads the two documents, or
+/// `architecture.md` alone, and nothing else.
+#[test]
+fn it_comprehension_guide_reads_only_the_two_documents() {
+    says(
+        "check-comprehension",
+        &[
+            "Read only the two documents your brief names",
+            "`architecture.md` alone",
+        ],
+    );
+}
+
+/// GA-R-145, GA-R-146 — the comprehension check paraphrases and reports what it cannot.
+#[test]
+fn it_comprehension_guide_paraphrases_and_reports_gaps() {
+    says(
+        "check-comprehension",
+        &[
+            "## Paraphrase",
+            "each section you cannot paraphrase",
+            "each term they use without defining it",
+        ],
+    );
+}
+
+/// GA-R-148, GA-R-149, GA-R-150 — the zoom-out check reads the code and names
+/// what to cut or reuse.
+#[test]
+fn it_zoom_out_guide_reads_the_code_and_names_what_to_cut() {
+    says(
+        "check-zoom-out",
+        &[
+            "the project's code",
+            "not needed, could be simpler, or is already covered",
+            "names what could be removed or what to reuse",
+        ],
+    );
+}
+
+/// Both check guides write a result stamped with the revisions
+/// read and hand off one status line.
+#[test]
+fn it_checker_guides_write_a_rev_stamped_result() {
+    for name in ["check-comprehension", "check-zoom-out"] {
+        says(
+            name,
+            &[
+                "Checked: spec-diff.md rev",
+                "Findings:",
+                "status=done file=",
+            ],
+        );
+    }
 }

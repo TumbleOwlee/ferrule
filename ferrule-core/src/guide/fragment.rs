@@ -59,6 +59,7 @@ fragments! {
     ReviewerFollowUpStart "reviewer-follow-up-start",
     ReviewerFollowUpEnd "reviewer-follow-up-end",
     ReviewerOutput "reviewer-output",
+    CheckerOutput "checker-output",
 }
 
 /// The fragment an include line `<!-- include: <name> -->` names.

@@ -27,6 +27,10 @@ pub(super) const AGENTS: &[(&str, &str)] = &[
         "reviewer",
         include_str!("../../install/claude/agents/fe-reviewer.md"),
     ),
+    (
+        "checker",
+        include_str!("../../install/claude/agents/fe-checker.md"),
+    ),
 ];
 
 const SKILLS: &[(&str, &str)] = &[
