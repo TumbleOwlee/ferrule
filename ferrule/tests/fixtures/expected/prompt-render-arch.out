@@ -7,6 +7,9 @@ Architecture: 1 new, 1 changed components in ferrowl-modbus; `ReconnectPolicy` o
 Interfaces: 1 new, 1 changed — sketches in architecture.md `## Interfaces`
 Surface:
 - `ClientError::Reconnecting`
+Design checks:
+- comprehension: did not run
+- zoom-out: did not run
 Confirm:
 - policy owned by the client task — RTU and TCP share it (architect)
 - MB-R-042 — reconnecting is its own state — the tab must tell it from disconnected (architect)

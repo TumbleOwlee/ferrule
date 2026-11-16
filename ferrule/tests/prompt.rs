@@ -740,3 +740,85 @@ fn it_show_says_why_the_viewer_failed() {
     assert!(err.contains("prompt show: sh: no display"), "{err}");
     assert_eq!(out.status.code(), Some(1));
 }
+
+fn check_file(p: &Path, slug: &str, file: &str, stamp: &str, findings: &[&str]) {
+    let items = findings.iter().fold(String::new(), |mut s, f| {
+        let _ = writeln!(s, "- {f}");
+        s
+    });
+    std::fs::write(
+        art(p, slug, file),
+        format!("# {slug} — check\n{stamp}\n## Paraphrase\nx\nFindings:\n{items}"),
+    )
+    .unwrap();
+}
+
+/// GA-R-152, GA-R-153, GA-R-159 — the architecture stop shows each check's
+/// count and path, a check without findings as none found, and numbered findings.
+#[test]
+fn it_arch_stop_shows_design_checks() {
+    let p = project();
+    let p = p.path();
+    let stamp = "Checked: spec-diff.md rev 5, architecture.md rev 1";
+    check_file(
+        p,
+        "demo",
+        "check-comprehension.md",
+        stamp,
+        &["a term is undefined", "section 2 is unclear"],
+    );
+    check_file(p, "demo", "check-zoom-out.md", stamp, &[]);
+    render(p, &["demo", "arch"]).golden("prompt-render-arch-checks");
+}
+
+/// GA-E-029 — a result stamped for another revision shows as did not run.
+#[test]
+fn it_stale_check_result_shows_did_not_run() {
+    let p = project();
+    let p = p.path();
+    let stamp = "Checked: spec-diff.md rev 5, architecture.md rev 1";
+    check_file(p, "demo", "check-comprehension.md", stamp, &["a"]);
+    check_file(p, "demo", "check-zoom-out.md", stamp, &[]);
+    check_file(
+        p,
+        "demo",
+        "check-comprehension.md",
+        "Checked: spec-diff.md rev 4, architecture.md rev 1",
+        &["a"],
+    );
+    let out = render(p, &["demo", "arch"]).text();
+    assert!(out.contains("- comprehension: did not run"), "{out}");
+    assert!(!out.contains("- C1 "), "{out}");
+}
+
+/// GA-R-158, GA-R-161 — the combined early stop and the epic stop carry the
+/// design checks block.
+#[test]
+fn it_combined_and_epic_stops_show_design_checks() {
+    let p = project();
+    let p = p.path();
+    assert_eq!(
+        ferrule(p, &["board", "set", "demo", "gate1="]).text(),
+        "exit=0"
+    );
+    check_file(
+        p,
+        "demo",
+        "check-comprehension.md",
+        "Checked: spec-diff.md rev 5, architecture.md rev 1",
+        &["a"],
+    );
+    check_file(
+        p,
+        "lb",
+        "check-zoom-out.md",
+        "Checked: spec-diff.md rev 2, architecture.md rev 1",
+        &["drop the helper"],
+    );
+    assert!(render(p, &["demo", "arch"]).text().contains("- C1 a"));
+    let epic = render(p, &["lb", "epic"]).text();
+    assert!(
+        epic.contains("Design checks:") && epic.contains("- Z1 drop the helper"),
+        "{epic}"
+    );
+}

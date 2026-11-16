@@ -317,6 +317,36 @@ fn it_read_only_guard_lets_the_format_check_run() {
     );
 }
 
+/// GA-R-151, SG-R-023 — the checker guard allows reads and a rewrite of its
+/// two result files, and refuses the review append and every other write.
+#[test]
+fn it_checker_guard_allows_reads_and_its_result_files_only() {
+    let p = project();
+    check(
+        "checker",
+        p.path(),
+        &[
+            ("git diff main...HEAD -- src", "allow"),
+            ("git grep -n MB-R-161 main -- docs/specs", "allow"),
+            ("cargo test 2>&1 | tail -5", "allow"),
+            ("ferrule run diff s --specs", "allow"),
+            ("sed -n '1,5p' f", "allow"),
+            (
+                "cat > .ferrule/runs/demo/check-comprehension.md <<EOF\nx\nEOF",
+                "allow",
+            ),
+            ("echo x > .ferrule/runs/demo/check-zoom-out.md", "allow"),
+            ("tee .ferrule/runs/demo/check-zoom-out.md", "allow"),
+            ("echo x >> .ferrule/runs/demo/review.md", "deny"),
+            ("echo x > .ferrule/runs/demo/spec-diff.md", "deny"),
+            ("echo x > .ferrule/runs/demo/architecture.md", "deny"),
+            ("echo x > src/lib.rs", "deny"),
+            ("rm -rf target", "deny"),
+            ("git checkout src/x.rs", "deny"),
+        ],
+    );
+}
+
 #[test]
 fn it_reviewer_guard_allows_reads_and_the_review_files_only() {
     let p = project();
@@ -510,7 +540,7 @@ fn it_attribution_in_a_message_file_is_refused() {
 #[test]
 fn it_unreadable_payload_blocks() {
     let p = tempfile::tempdir().unwrap();
-    for hook in ["shell", "reviewer", "attribution"] {
+    for hook in ["shell", "reviewer", "checker", "attribution"] {
         for payload in [
             &b"not json"[..],
             b"{\"tool_name\": \"Bash\", \"tool_input\": {\"command\": \"ls \xff\"}}",

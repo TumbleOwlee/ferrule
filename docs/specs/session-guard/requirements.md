@@ -54,7 +54,7 @@
 
 **SG-R-022** — The read-only guard lets ferrule's read commands run: `board show|list|field|events|vocab`, `run status|diff|log|plan-diff`, `stage verify`, `file headings|section`, `spec id|related|next|refs|collisions|render`, `issue view|search|request|body|milestones`, `pr view|body`, `guide show|list|check`, `prompt lines` and `ci failed`.
 
-**SG-R-023** — The read-only guard lets a command append to the run's `review.md`.
+**SG-R-023** — The reviewer's read-only guard lets a command append to the run's `review.md`.
 
 ## Files written in a call
 

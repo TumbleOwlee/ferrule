@@ -91,6 +91,7 @@ hook
 hook shell
 hook attribution
 hook reviewer
+hook checker
 hook session-start
 hook git
 ";

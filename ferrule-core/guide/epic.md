@@ -5,7 +5,7 @@
 A feature too big for one run: the author answered `size=epic`, or the architect's size guard tripped. The epic run settles the shared core and cuts the feature into slices; it writes no code and has no plan, worktree or PR. Each slice is later a normal run on its own issue.
 
 1. **Brief** — gate 1 as usual; its stop approves `epic`. Or the architect's size guard turned a behavior run into one: `ferrule board set {slug} kind=epic`, go to step 3; the epic stop approves the brief too when `gate1` is not yet a date.
-2. **Skeleton and slices** — spawn `fe-architect` with the brief and `mode=epic`. It writes `architecture.md` and its summary for the **skeleton** only (the core abstractions every slice builds on, with their `## Interfaces`) and `slices.md`. Questions relayed as usual; it answers `status=ready … slices={run_dir}/slices.md`.
+2. **Skeleton and slices** — spawn `fe-architect` with the brief and `mode=epic`. It writes `architecture.md` and its summary for the **skeleton** only (the core abstractions every slice builds on, with their `## Interfaces`) and `slices.md`. Questions relayed as usual; it answers `status=ready … slices={run_dir}/slices.md`. On `ready`, the design checks below run before step 3.
 3. **Epic issue draft** — `fe-author` drafts `issue.md` (`ferrule guide show issue`: existing issues searched, `reuse` or `new`).
 4. **Epic stop** — `ferrule prompt render {slug} epic [--issue <n>]` (`<n>`: the author answered `reuse`); its `Confirm:` names every brief ID no slice or two slices claim. Approved → `ferrule gate approve {slug} epic` (records `arch`, and `gate1` while pending).
 5. **On approval, in order** — no further stop. On GitHub a GitHub epic is a milestone and slices are the issues in it:
@@ -14,6 +14,8 @@ A feature too big for one run: the author answered `size=epic`, or the architect
    3. Without milestones (a tracker that has none): `ferrule issue post {slug}` once more rewrites the epic issue, the one exception to `ferrule guide show issue`'s never-rewritten rule, so its `## Slices` list links every child. On GitHub this step does not apply.
    4. `ferrule run cleanup {slug}` — no worktree, no CI; it records the metrics; cards and artifacts are archived.
    5. One notice line: `Epic · {slug} · milestone #<m> · slices #a, #b, … filed · start with /fe-feature on #a`. Without milestones: `Epic · {slug} · #<e> · slices #a, #b, … filed · start with /fe-feature on #a`.
+
+<!-- include: design-checks -->
 
 The human closes the milestone once its last slice merges; the epic stays open until then.
 

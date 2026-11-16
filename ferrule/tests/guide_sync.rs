@@ -26,6 +26,8 @@ const AGENTS: &[&[&str]] = &[
     &["planner", "planner-replan"],
     &["implementer"],
     &["reviewer", "reviewer-plan"],
+    &["check-comprehension"],
+    &["check-zoom-out"],
 ];
 
 /// Every guide an agent reads, flattened.
@@ -400,7 +402,13 @@ fn it_agent_files_name_one_guide_per_job() {
     for (name, text) in &files {
         assert!(!text.contains("also `ferrule guide show"), "{name}");
     }
-    for agent in ["fe-author", "fe-architect", "fe-planner", "fe-reviewer"] {
+    for agent in [
+        "fe-author",
+        "fe-architect",
+        "fe-planner",
+        "fe-reviewer",
+        "fe-checker",
+    ] {
         let (_, text) = files
             .iter()
             .find(|(n, _)| n.ends_with(&format!("{agent}.md")))

@@ -199,10 +199,10 @@ impl Default for Guard {
 #[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Readonly {
-    /// Commands the reviewer's guard refuses besides its own list, as word
+    /// Commands the reviewer's and the checker's guards refuse besides their own list, as word
     /// prefixes (`cargo add` refuses `cargo add serde`).
     pub mutating: Vec<String>,
-    /// Commands the reviewer's guard lets through besides its allowlist, as
+    /// Commands the reviewer's and the checker's guards let through besides their allowlist, as
     /// word prefixes (`make check` allows `make check ARGS=x`).
     pub allow: Vec<String>,
 }

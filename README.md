@@ -37,7 +37,7 @@ flowchart LR
 | Step | Agent | Produces |
 |---|---|---|
 | Gate 1: brief | `fe-author` | Scenarios, requirements and edge cases, grilled out of you one question at a time |
-| Architecture | `fe-architect` | Types, modules, ownership and interactions, with a capped summary to approve |
+| Architecture | `fe-architect`, `fe-checker` | Types, modules, ownership and interactions, with a capped summary to approve; two read-only design checks, comprehension and zoom-out, shown at its stop |
 | Gate 2: plan | `fe-planner` | Stages with files and dependencies, fixed spec IDs; on approval the tracking issue is filed and the worktree created |
 | Stages | `fe-implementer` | Strict test-first commits, one stage at a time, pushed to a draft PR |
 | Gate 3: review | `fe-reviewer` | An independent review against the spec, the architecture and the repo's standards |
@@ -243,6 +243,7 @@ Commands are grouped by what they act on. Most are run by the orchestrating agen
 | `ferrule hook shell` | Session-wide Bash guard: refuses writes to `.ferrule/state.db` and the lock, output floods, and the raw git and `gh` calls ferrule runs itself, naming the command to run instead |
 | `ferrule hook attribution` | Hands the Bash command back with attribution trailers removed |
 | `ferrule hook reviewer` | Read-only Bash guard for the reviewer agent |
+| `ferrule hook checker` | Read-only Bash guard for the design-check agent |
 | `ferrule hook session-start` | Names the cards an interrupted run left in progress |
 | `ferrule hook git pre-commit\|commit-msg\|pre-push` | Git hooks: no commit or push to the main branch; trailers stripped from commit messages |
 
@@ -344,7 +345,7 @@ cat_max_lines = 200          # most lines a cat may read, summed over its files
 cat_max_words = 1500         # most words a cat may read, summed over its files
 
 [hook.readonly]
-mutating = ["cargo add"]     # word prefixes the reviewer's guard also refuses
+mutating = ["cargo add"]     # word prefixes the read-only guards (reviewer, checker) also refuse
 allow = ["make check"]       # word prefixes it lets through; it runs only its read-only list otherwise
 
 [thresholds]

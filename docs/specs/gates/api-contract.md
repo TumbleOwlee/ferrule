@@ -31,16 +31,19 @@
 ## ferrule guide show
 
 - no `--lane` flag (GA-R-120)
+- agent topics `check-comprehension` and `check-zoom-out` (GA-R-145, GA-R-148)
 
 ## ferrule prompt render
 
 - no `--recommend` flag; the gate 1 stop offers no lane (GA-R-130)
 - `Minors fixed after the review, not re-reviewed: <n>` on the gate 2 and re-plan stops, ` · minors fixed <n>` in the gate 2 and re-plan notice headers (GA-R-142, GA-R-137)
 - no `delta` kind; `prompt render <slug> delta` is a usage error (exit 2) (GA-R-133, GA-E-025)
+- the arch and epic stops carry a `Design checks:` block: per check `- <comprehension|zoom-out>: <n> finding|findings · <path>`, `- <check>: none found · <path>` or `- <check>: did not run`, then `- C<n> <finding>` and `- Z<n> <finding>` lines (GA-R-152, GA-R-153, GA-R-157, GA-R-159)
 
 ## Run files
 
 - a `decisions.md` line supersedes an earlier one when it has the same `[spec <ID>]` tag or its why starts `supersedes "<earlier choice>"`; a superseded line is left out of `Confirm:` (GA-R-111)
+- `check-comprehension.md` and `check-zoom-out.md` in the run directory, each with a `Checked: spec-diff.md rev <n>, architecture.md rev <m>` line (`rev -` without `spec-diff.md`) and a `Findings:` list (GA-R-156, GA-E-029)
 
 ## Reviewer status line
 
@@ -66,3 +69,7 @@
 - `plan-review=clean round=<k> [minors=<n>]` and `plan-review=findings count=0 round=<k> [minors=<n>]` on the run card, logged by `ferrule gate next` (GA-R-140, GA-R-135)
 - `review=<n>-open scope=<stage|batch> round=<k>` on the run card, logged by `ferrule gate next` (RU-R-074)
 - `spawn agent=architect|planner` on the run card, logged by `ferrule gate next <slug> gate1` when gate 1 passes without a stop; the brief phase ends there (RU-R-075)
+
+## ferrule hook checker
+
+- a `PreToolUse` guard that refuses every Bash write but a rewrite of the run's two check result files (GA-R-151)

@@ -15,6 +15,7 @@ use crate::config::Config;
 use crate::project::Layout;
 use crate::prompt::{approval, lines};
 use crate::remote;
+use crate::run::check::{self, Check};
 use crate::run::stops::{self, EarlyStops};
 use crate::store::Board;
 
@@ -140,25 +141,26 @@ fn rank(l: &str) -> u8 {
         ("Interfaces: ", 7),
         ("Surface:", 8),
         ("Slices:", 9),
-        ("Plan: ", 10),
-        ("Spec since arch: ", 11),
-        ("Stops:", 12),
-        ("Issue: ", 13),
-        ("Split: ", 14),
-        ("PR: ", 15),
-        ("Follow-up ", 16),
-        ("Verification:", 17),
-        ("Confirm", 18),
-        ("Review: ", 19),
-        ("Not checked: ", 20),
-        ("Spec changes: ", 22),
-        ("Spec: ", 21),
-        ("Needs user", 24),
+        ("Design checks:", 10),
+        ("Plan: ", 11),
+        ("Spec since arch: ", 12),
+        ("Stops:", 13),
+        ("Issue: ", 14),
+        ("Split: ", 15),
+        ("PR: ", 16),
+        ("Follow-up ", 17),
+        ("Verification:", 18),
+        ("Confirm", 19),
+        ("Review: ", 20),
+        ("Not checked: ", 21),
+        ("Spec changes: ", 23),
+        ("Spec: ", 22),
+        ("Needs user", 25),
     ];
     HEADS
         .iter()
         .find(|(h, _)| l.starts_with(h))
-        .map_or(25, |(_, r)| *r)
+        .map_or(26, |(_, r)| *r)
 }
 
 /// The quoted lines reordered into the prompt's block order; list items
@@ -481,6 +483,18 @@ fn viewer_note(
     }
 }
 
+/// The `Design checks:` block of the architecture and epic stops; empty
+/// for any other stop.
+fn design_checks(layout: &Layout, slug: &str, kind: Kind) -> Vec<String> {
+    if !matches!(kind, Kind::Arch | Kind::Epic) {
+        return Vec::new();
+    }
+    check::lines(
+        &Check::ALL.map(|c| check::outcome(layout, slug, c)),
+        &layout.root,
+    )
+}
+
 /// The quoted lines of every file, plus gate 1's size line, in block order.
 fn quoted(
     show: &[PathBuf],
@@ -488,6 +502,7 @@ fn quoted(
     seen: usize,
     kind: Kind,
     args: &[(String, String)],
+    checks: Vec<String>,
 ) -> Vec<String> {
     let files: Vec<&Path> = show.iter().chain(quote).map(PathBuf::as_path).collect();
     let mut lines = if files.is_empty() {
@@ -495,6 +510,7 @@ fn quoted(
     } else {
         lines::lines(&files, seen).0
     };
+    lines.extend(checks);
     if kind == Kind::Gate1 && arg(args, "size") == Some("epic") {
         lines.push(format!(
             "Size: epic recommended — {}",
@@ -563,7 +579,14 @@ pub(crate) fn render_in(
                 facts.decide,
                 issue_word(args)
             )];
-            out.extend(confirm_only(&quoted(&show, &quote, facts.seen, kind, args)));
+            out.extend(confirm_only(&quoted(
+                &show,
+                &quote,
+                facts.seen,
+                kind,
+                args,
+                Vec::new(),
+            )));
             return Ok(out);
         }
         Kind::ReplanNotice => {
@@ -575,7 +598,14 @@ pub(crate) fn render_in(
                 "Re-plan from {from} · {slug} · {}{m} · starting {from} (pre-authorized at gate 4 — say stop to hold)",
                 facts.decide
             )];
-            out.extend(confirm_only(&quoted(&show, &quote, facts.seen, kind, args)));
+            out.extend(confirm_only(&quoted(
+                &show,
+                &quote,
+                facts.seen,
+                kind,
+                args,
+                Vec::new(),
+            )));
             return Ok(out);
         }
         _ => {}
@@ -595,7 +625,8 @@ pub(crate) fn render_in(
     }
     let mut out = vec![header(&approval.title, slug, &show, kind, args)];
     out.extend(note);
-    out.extend(quoted(&show, &quote, facts.seen, kind, args));
+    let checks = design_checks(layout, slug, kind);
+    out.extend(quoted(&show, &quote, facts.seen, kind, args, checks));
     if let Some(n) = minors {
         out.push(format!(
             "Minors fixed after the review, not re-reviewed: {n}"

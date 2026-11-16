@@ -3,6 +3,9 @@ Architecture: 1 new, 1 changed components in ferrowl-modbus; `ReconnectPolicy` o
 Interfaces: 1 new, 1 changed — sketches in architecture.md `## Interfaces`
 Surface:
 - `ClientError::Reconnecting`
+Design checks:
+- comprehension: did not run
+- zoom-out: did not run
 Confirm: nothing flagged
 Approving will:
 - hand brief and architecture to the planner
