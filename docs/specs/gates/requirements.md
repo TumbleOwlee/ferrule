@@ -304,9 +304,9 @@
 
 ## Design checks
 
-**GA-R-143** — After the architect answers `ready`, a comprehension check runs before the architecture stop is shown.
+**GA-R-162** — After the architect answers `ready`, a comprehension check runs before the architecture stop is shown.
 
-**GA-R-144** — The comprehension check reads only the run's `spec-diff.md` and `architecture.md`, with no project instruction file in its context.
+**GA-R-163** — The comprehension check reads only the run's `spec-diff.md` and `architecture.md`, with no project instruction file in its context.
 
 **GA-R-145** — The comprehension check states in its own words what the change proposes and how the existing system works.
 

@@ -481,7 +481,7 @@ fn it_git_hooks_pass_without_the_shim_and_refuse_without_a_config() {
     assert!(err.contains("refusing until ferrule.toml reads"), "{err}");
 }
 
-/// GA-R-144 — the design-check agent installs with the project instruction
+/// GA-R-163 — the design-check agent installs with the project instruction
 /// files left out of its context and the checker's guard on its Bash calls.
 #[test]
 fn it_install_writes_the_checker_agent() {

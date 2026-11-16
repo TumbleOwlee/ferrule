@@ -1578,7 +1578,7 @@ fn it_no_guide_names_delta() {
     assert!(seen > 0, "{list}");
 }
 
-/// GA-R-144, GA-E-028 — the comprehension check reads the two documents, or
+/// GA-R-163, GA-E-028 — the comprehension check reads the two documents, or
 /// `architecture.md` alone, and nothing else.
 #[test]
 fn it_comprehension_guide_reads_only_the_two_documents() {
@@ -1634,7 +1634,7 @@ fn it_checker_guides_write_a_rev_stamped_result() {
     }
 }
 
-/// GA-R-143, GA-R-147, GA-R-154 — the architecture guide spawns both checks
+/// GA-R-162, GA-R-147, GA-R-154 — the architecture guide spawns both checks
 /// before the stop and adds no stop.
 #[test]
 fn it_architecture_guide_runs_both_checks_before_the_stop() {
