@@ -4,6 +4,7 @@
 
 pub mod abandon;
 pub mod archive;
+pub mod check;
 pub mod ci;
 pub mod commit;
 pub mod diverged;

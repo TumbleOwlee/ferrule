@@ -11,6 +11,9 @@ Slices:
 - 1: Walking skeleton — depends on none — S1 · R1
 - 2: Batteries — depends on 1 — S2 · R2, E1
 - 3: Nested groups — depends on 1, 2 — S3 · R3
+Design checks:
+- comprehension: did not run
+- zoom-out: did not run
 Issue: new — Load balancing core
 Confirm: nothing flagged
 Approving will:
