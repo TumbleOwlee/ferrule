@@ -695,7 +695,7 @@ pub(crate) struct Seal {
     pub checks: Vec<Logged>,
 }
 
-/// One transaction: [abandoned line], metrics, archive row with pending
+/// One transaction: [design-check lines], [abandoned line], metrics, archive row with pending
 /// marks, cards deleted; then `finish`. `None` when nothing was archived.
 pub(crate) fn seal(
     conn: &mut Connection,
