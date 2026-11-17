@@ -234,7 +234,12 @@ const SOURCES: &[(&str, &[&str])] = &[
     ),
     (
         "ferrule/src/commands/hook/mod.rs",
-        &["hook shell", "hook reviewer", "hook session-start"],
+        &[
+            "hook shell",
+            "hook reviewer",
+            "hook checker",
+            "hook session-start",
+        ],
     ),
     (
         "ferrule/src/commands/prompt.rs",
@@ -605,6 +610,18 @@ fn it_help_prompt_hook() {
     check_group(&["prompt", "hook"]);
 }
 
+/// GA-R-164 — The `hook checker` help states the guard's refusal and its one exemption.
+#[test]
+fn it_help_hook_checker_states_guard() {
+    let help = help_of("hook checker");
+    assert!(
+        help.contains(
+            "Refuses every write except the run's check-comprehension.md and check-zoom-out.md."
+        ),
+        "`ferrule hook checker --help` no longer states its refusal and exemption:\n{help}"
+    );
+}
+
 // Help to code: every refusal the long help documents can be produced.
 
 /// Core files that build refusals and have no `SOURCES` entry of their own,
@@ -624,11 +641,16 @@ const REFUSAL_SOURCES: &[(&str, &[&str])] = &[
     ("ferrule-core/src/card/vocab.rs", &["board move"]),
     (
         "ferrule-core/src/install/mod.rs",
-        &["hook shell", "hook reviewer"],
+        &["hook shell", "hook reviewer", "hook checker"],
     ),
     (
         "ferrule-core/src/install/version.rs",
-        &["hook shell", "hook reviewer", "setup install"],
+        &[
+            "hook shell",
+            "hook reviewer",
+            "hook checker",
+            "setup install",
+        ],
     ),
     ("ferrule-core/src/pr/publish/mod.rs", &["gate approve"]),
     ("ferrule-core/src/pr/publish/post.rs", &["gate approve"]),
