@@ -52,8 +52,26 @@
 
 ## ferrule run metrics output
 
-- `kind=<plain|epic|slice|request>` in place of `lane=`, `reviews=plan:<n>,stage:<n>,batch:<n>,branch:<n>` and `time=brief:<m>,arch:<m>,plan:<m>,stages:<m>,branch:<m>,pr:<m>` in whole minutes, `-` for a phase the run did not have (RU-R-076, RU-R-074, RU-R-075)
-- `comprehension=<checks>/<findings>/<changed> zoom-out=<checks>/<findings>/<changed>` right after `reads=`, zeros without `design-check` events (RU-R-077, RU-E-040)
+- One line, fields separated by single spaces in this order: `<slug>`, `start=`, `end=`, `first-red=`, `stages=`, `stops=`, `question=`, `approval=`, `stage=`, `blocked=`, `replans=`, `overturned=`, `reads=`, `comprehension=`, `zoom-out=`, `kind=`, `reviews=`, `time=`, `ci=`
+- `<slug>` — the run's slug
+- `start=<t>` — the time of the run's first logged event
+- `end=<t>` — the time the line was recorded
+- `first-red=<t|->` — the time of the run's first `test-red` event, `-` without one
+- `stages=<n>` — the run's stage cards
+- `stops=<n>` — the `stop kind=` events on the run card
+- `question=<n>` — the `stop kind=question` events
+- `approval=<n>` — the `stop kind=approval` events
+- `stage=<n>` — the `stop kind=stage` events
+- `blocked=<n>` — the `stop kind=blocked` events
+- `replans=<n>` — the `replan from=` events
+- `overturned=<n>` — the sum of `count=` over the `overturned` events
+- `reads=<n>` — the `read path=` events
+- `comprehension=<checks>/<findings>/<changed>` — the `design-check scope=comprehension` events, findings and changed summed, zeros without one (RU-R-077, RU-E-040)
+- `zoom-out=<checks>/<findings>/<changed>` — the `design-check scope=zoom-out` events, findings and changed summed, zeros without one (RU-R-077, RU-E-040)
+- `kind=<plain|epic|slice|request>` — the run's kind, `plain` when the card has none, in place of `lane=` (RU-R-076)
+- `reviews=plan:<n>,stage:<n>,batch:<n>,branch:<n>` — review passes per kind (RU-R-074)
+- `time=brief:<m>,arch:<m>,plan:<m>,stages:<m>,branch:<m>,pr:<m>` — whole minutes per phase, `-` for a phase the run did not have (RU-R-075)
+- `ci=<0|waived|->` — the last field: `0` for green CI, `waived`, or `-` in the cases of RU-R-012, RU-R-055 and RU-R-065
 
 ## Card fields
 
