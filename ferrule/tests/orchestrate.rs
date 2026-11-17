@@ -4694,7 +4694,8 @@ fn it_gate_change_without_named_finding_logs_zero() {
     assert!(got.contains("comprehension=2/0 zoom-out=1/0"), "{got}");
 }
 
-/// Finding IDs match as case-insensitive whole words, once each, shown only.
+/// GA-E-033, GA-E-034, GA-E-035, GA-E-036 — finding IDs match as
+/// case-insensitive whole words, once each, shown only.
 #[test]
 fn it_gate_change_matches_ids_as_words() {
     let p = change_project();
