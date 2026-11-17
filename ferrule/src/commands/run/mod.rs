@@ -326,6 +326,7 @@ const METRICS_AFTER_LONG_HELP: &str = "\
 Output, one line (recorded; a rerun replaces the run's line):
   <slug> start=<t> end=<t> first-red=<t|-> stages=<n> stops=<n> question=<n>
   approval=<n> stage=<n> blocked=<n> replans=<n> overturned=<n> reads=<n>
+  comprehension=<n>/<n>/<n> zoom-out=<n>/<n>/<n>
   kind=<plain|epic|slice|request> reviews=plan:<n>,stage:<n>,batch:<n>,branch:<n>
   time=brief:<m>,arch:<m>,plan:<m>,stages:<m>,branch:<m>,pr:<m> ci=<code>
     start, end       First logged event and now; first-red the first test-red
@@ -333,6 +334,8 @@ Output, one line (recorded; a rerun replaces the run's line):
                      stage and blocked count them by kind
     replans          `replan from=` lines; overturned sums `count=` of the
                      `overturned` lines; reads counts `read path=` lines
+    comprehension,   `design-check` lines of that scope as
+    zoom-out         <checks>/<findings>/<changed>, findings and changed summed
     kind             the card's `kind`, `plain` when it has none
     reviews          `plan-review=` lines, and `review=` lines by scope:
                      stage, batch, anything else counts as branch

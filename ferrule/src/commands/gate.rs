@@ -6,6 +6,7 @@ use std::io::{self, Write};
 use clap::{Args, Subcommand, ValueEnum};
 use ferrule_core::card::board;
 use ferrule_core::refusal::Refusal;
+use ferrule_core::run::check::Check;
 use ferrule_core::run::gate::{self, Gate};
 use ferrule_core::run::next::{self, At, Status};
 use ferrule_core::run::tier::{self, TierRefused};
@@ -21,6 +22,9 @@ Output:
       `spec-rev=<n>`, `arch-rev=<n>` and `decisions-seen=<lines>`, also logged
       on the card. `issue=`, `worktree=` and `stages=` appear for gate2 only.
       Every approval, a repeated one too, logs `approved=<gate>` on the card.
+      At `arch` and `epic`, each design check with a current result logs
+      `design-check scope=<scope> findings=<n> changed=0` on the card, and
+      both check result files are removed.
       `action=recorded`: the gate was approved already; its date is kept
       (gate2 still does whatever is missing: worktree, stage cards).
 Gates, the parent card field each dates, what must come first and the
@@ -187,6 +191,26 @@ Example:
 Dev build: the open that takes a copy of an older shared board prints to stderr
 `ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.";
 
+const CHANGE_AFTER_LONG_HELP: &str = "\
+Usage: ferrule gate change <slug> <arch|epic> -- <answer>
+  The answer words are joined with spaces and relayed verbatim; a finding
+  counts as changed when the answer names its ID (`C2`, `z1`) as a whole word.
+Output:
+  change=done gate=<gate> comprehension=<findings>/<changed>|- zoom-out=<findings>/<changed>|-
+      One `design-check scope=<scope> findings=<n> changed=<n>` line is logged
+      per check with a current result; `-` marks a check without a result,
+      which logs no line. Both check result files are removed.
+  change=refused reason=card|order|state|answered ... hint=<fix>
+      card: no such run. order: `epic` on a run that is not an epic. state:
+      the run is not open. answered: the `arch` field already holds a value.
+      Nothing is logged.
+Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
+
+Example:
+  ferrule gate change <slug> arch -- change C2 and Z1
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.";
+
 #[derive(Debug, Subcommand)]
 pub enum GateCommand {
     /// Record an approved gate.
@@ -195,6 +219,21 @@ pub enum GateCommand {
     /// card to inprogress and creates the stage cards.
     #[command(after_long_help = APPROVE_AFTER_LONG_HELP)]
     Approve(ApproveArgs),
+    /// Record a `change` answer at the architecture or epic stop.
+    ///
+    /// Logs the stop's design-check lines and removes both check result
+    /// files.
+    #[command(after_long_help = CHANGE_AFTER_LONG_HELP)]
+    Change {
+        /// The run's slug.
+        slug: Slug,
+        /// The stop answered.
+        #[arg(value_enum)]
+        gate: ChangeGate,
+        /// The user's answer, joined with spaces.
+        #[arg(last = true, required = true)]
+        answer: Vec<String>,
+    },
     /// Log an agent's outcome and print the next step.
     ///
     /// Prints `next=`, then `run:` and `do:` lines and a `guide:` line
@@ -236,6 +275,14 @@ pub enum GateName {
     Replan,
     /// The pull request.
     Gate4,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum ChangeGate {
+    /// The architecture.
+    Arch,
+    /// An epic's slices.
+    Epic,
 }
 
 #[derive(Debug, Args)]
@@ -289,6 +336,7 @@ pub enum NextAt {
 pub fn run(command: &GateCommand, out: &mut impl Write) -> io::Result<u8> {
     match command {
         GateCommand::Approve(args) => approve(args, out),
+        GateCommand::Change { slug, gate, answer } => change(slug, *gate, answer, out),
         GateCommand::Next {
             slug,
             position,
@@ -374,6 +422,30 @@ fn approve(args: &ApproveArgs, out: &mut impl Write) -> io::Result<u8> {
             Ok(exit::OK)
         }
         Err(e) => failed(e, "approve", slug, out),
+    }
+}
+
+fn change(slug: &str, gate: ChangeGate, answer: &[String], out: &mut impl Write) -> io::Result<u8> {
+    let g = match gate {
+        ChangeGate::Arch => Gate::Arch,
+        ChangeGate::Epic => Gate::Epic,
+    };
+    let Some(mut s) = store()? else {
+        return refuse(out, &Refusal::card("change"));
+    };
+    match gate::change(&mut s, &layout(), g, slug, &answer.join(" "), &board::now()) {
+        Ok(c) => {
+            write!(out, "change=done gate={}", g.as_str())?;
+            for check in Check::ALL {
+                match c.logged.iter().find(|l| l.check == check) {
+                    Some(l) => write!(out, " {}={}/{}", check.scope(), l.findings, l.changed)?,
+                    None => write!(out, " {}=-", check.scope())?,
+                }
+            }
+            writeln!(out)?;
+            Ok(exit::OK)
+        }
+        Err(e) => failed(e, "change", slug, out),
     }
 }
 

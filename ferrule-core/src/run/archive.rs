@@ -17,6 +17,7 @@ use crate::git;
 use crate::project::Layout;
 use crate::refusal::Refusal;
 use crate::remote::{IssueTracker, ItemRef, refs};
+use crate::run::check::{self, Logged};
 use crate::store::{Board, Reader, Writer};
 
 /// Why a run's metrics are refused: its CI is not known green.
@@ -256,13 +257,32 @@ pub fn record(w: &Writer<'_>, slug: &str, now: &str, check: CiCheck) -> Result<S
             _ => None,
         })
         .sum();
+    let design = |c: check::Check| {
+        let mut sum = (0u64, 0u64, 0u64);
+        for e in &parent {
+            if let Typed::DesignCheck {
+                scope: Some(s),
+                findings,
+                changed,
+            } = e.typed()
+                && check::Check::parse(s) == Some(c)
+            {
+                sum.0 += 1;
+                sum.1 += findings.unwrap_or(0);
+                sum.2 += changed.unwrap_or(0);
+            }
+        }
+        format!("{}/{}/{}", sum.0, sum.1, sum.2)
+    };
+    let comprehension = design(check::Check::Comprehension);
+    let zoom_out = design(check::Check::ZoomOut);
     let reads = count(&stage_events, |t| {
         matches!(t, Typed::Read { path: Some(_) })
     });
     let reviews = reviews(&parent);
     let time = phase_times(&parent, &stage_events, &start);
     let metrics_line = format!(
-        "{slug} start={start} end={now} first-red={first_red} stages={} stops={} question={} approval={} stage={} blocked={} replans={} overturned={overturned} reads={reads} kind={kind} reviews={reviews} time={time} ci={ci}",
+        "{slug} start={start} end={now} first-red={first_red} stages={} stops={} question={} approval={} stage={} blocked={} replans={} overturned={overturned} reads={reads} comprehension={comprehension} zoom-out={zoom_out} kind={kind} reviews={reviews} time={time} ci={ci}",
         stages.len(),
         count(&parent, |t| matches!(t, Typed::Stop { kind: Some(_), .. })),
         stops(&parent, "question"),
@@ -617,6 +637,7 @@ pub fn cleanup(
             branch,
             check,
             abandoned: false,
+            checks: vec![],
         },
     )?;
     Ok(Cleaned {
@@ -689,9 +710,11 @@ pub(crate) struct Seal {
     pub check: CiCheck,
     /// Logs `abandoned` in the transaction and sets `archives.abandoned`.
     pub abandoned: bool,
+    /// `design-check` lines logged in the transaction before `abandoned`.
+    pub checks: Vec<Logged>,
 }
 
-/// One transaction: [abandoned line], metrics, archive row with pending
+/// One transaction: [design-check lines], [abandoned line], metrics, archive row with pending
 /// marks, cards deleted; then `finish`. `None` when nothing was archived.
 pub(crate) fn seal(
     conn: &mut Connection,
@@ -709,6 +732,15 @@ pub(crate) fn seal(
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let has_parent = board::state(&tx, slug)?.is_some();
     if has_parent {
+        for l in &s.checks {
+            Writer::new(&tx)
+                .log(slug, check::EVENT, &l.args(), now)
+                .map_err(|e| match e {
+                    board::LogError::Card => Error::Card,
+                    board::LogError::Sql(e) => Error::Sql(e),
+                    board::LogError::Reject(r) => Error::Io(std::io::Error::other(r.to_string())),
+                })?;
+        }
         if s.abandoned {
             board::log_in(&tx, slug, "abandoned", now).map_err(|e| match e {
                 board::LogError::Card => Error::Card,
@@ -972,6 +1004,7 @@ mod tests {
             branch: None,
             check: CiCheck::Exempt,
             abandoned,
+            checks: vec![],
         };
         let id = super::seal(&mut s.conn, &layout, "r", "2026-10-04T12:00", spec).unwrap();
         (s, id)

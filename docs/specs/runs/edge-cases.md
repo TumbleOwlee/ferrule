@@ -99,3 +99,5 @@
 ## Metrics
 
 **RU-E-039** — A stage or batch review's open line whose count equals the previous open line of the same scope, with no review-cycle event between, counts as one pass with it.
+
+**RU-E-040** — Metrics over runs with no `design-check` event report zero totals for both checks.

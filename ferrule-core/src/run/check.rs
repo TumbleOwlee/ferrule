@@ -1,5 +1,6 @@
 //! The design checks' result files read for the architecture and epic stops.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use crate::artifacts;
@@ -141,6 +142,100 @@ pub fn lines(outcomes: &[Outcome], root: &Path) -> Vec<String> {
     out
 }
 
+/// The event a check's result is logged as on the run card.
+pub const EVENT: &str = "design-check";
+
+/// The answer a stop's design-check lines are logged for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Answer<'a> {
+    Approve,
+    Change(&'a str),
+    Abandon,
+}
+
+/// One `design-check` event to log.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Logged {
+    pub check: Check,
+    pub findings: usize,
+    pub changed: u64,
+}
+
+impl Logged {
+    /// `["scope=<scope>", "findings=<n>", "changed=<n>"]`
+    #[must_use]
+    pub fn args(&self) -> Vec<String> {
+        vec![
+            format!("scope={}", self.check.scope()),
+            format!("findings={}", self.findings),
+            format!("changed={}", self.changed),
+        ]
+    }
+}
+
+/// The distinct finding IDs of `answer` for `check`: words (split on every
+/// non-ASCII-alphanumeric char) of `check.letter()` in either case followed by
+/// decimal digits without a leading zero, with `1 <= n <= shown`.
+#[must_use]
+pub fn named(answer: &str, check: Check, shown: usize) -> u64 {
+    let ids: BTreeSet<usize> = answer
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter_map(|word| {
+            let mut chars = word.chars();
+            let first = chars.next()?;
+            let digits = chars.as_str();
+            if !first.eq_ignore_ascii_case(&check.letter())
+                || digits.is_empty()
+                || digits.starts_with('0')
+                || !digits.bytes().all(|b| b.is_ascii_digit())
+            {
+                return None;
+            }
+            digits
+                .parse::<usize>()
+                .ok()
+                .filter(|n| (1..=shown).contains(n))
+        })
+        .collect();
+    ids.len() as u64
+}
+
+/// One line per check with a current result; `changed` from `named` for
+/// `Answer::Change`, 0 otherwise. Read only: the caller logs in its own
+/// transaction.
+#[must_use]
+pub fn pending(layout: &Layout, slug: &str, answer: Answer<'_>) -> Vec<Logged> {
+    Check::ALL
+        .into_iter()
+        .filter_map(|check| {
+            let found = outcome(layout, slug, check).findings?;
+            let changed = match answer {
+                Answer::Change(a) => named(a, check, found.len()),
+                _ => 0,
+            };
+            Some(Logged {
+                check,
+                findings: found.len(),
+                changed,
+            })
+        })
+        .collect()
+}
+
+/// Removes both result files; an absent file is no error.
+///
+/// # Errors
+/// Any removal failure other than a missing file.
+pub fn clear(layout: &Layout, slug: &str) -> std::io::Result<()> {
+    for check in Check::ALL {
+        match std::fs::remove_file(layout.run_dir(slug).join(check.file())) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -277,5 +372,107 @@ mod tests {
                 "- Z1 z",
             ]
         );
+    }
+
+    /// GA-E-036 — a finding named more than once counts once.
+    #[test]
+    fn ut_named_counts_distinct_ids() {
+        assert_eq!(named("C2 C2 c2", Check::Comprehension, 3), 1);
+    }
+
+    /// GA-E-034 — the letter's case does not matter.
+    #[test]
+    fn ut_named_ignores_case() {
+        assert_eq!(named("c2", Check::Comprehension, 3), 1);
+    }
+
+    /// GA-E-035 — an ID counts only as a whole word.
+    #[test]
+    fn ut_named_whole_words_only() {
+        assert_eq!(named("C2,", Check::Comprehension, 30), 1);
+        assert_eq!(named("(C2)", Check::Comprehension, 30), 1);
+        for w in ["C2a", "C02", "C0"] {
+            assert_eq!(named(w, Check::Comprehension, 30), 0, "{w}");
+        }
+        assert_eq!(named("C20", Check::Comprehension, 3), 0);
+    }
+
+    /// GA-E-033 — an ID the stop did not show does not count.
+    #[test]
+    fn ut_named_ignores_ids_not_shown() {
+        assert_eq!(named("C4", Check::Comprehension, 3), 0);
+    }
+
+    #[test]
+    fn ut_named_ignores_the_other_letter() {
+        assert_eq!(named("Z1", Check::Comprehension, 3), 0);
+    }
+
+    /// GA-R-167 — a check without a result logs nothing.
+    #[test]
+    fn ut_pending_skips_a_check_without_result() {
+        let (_d, l) = run(true);
+        write(&l, "check-comprehension.md", CURRENT, "Findings:\n- a\n");
+        let got = pending(&l, "demo", Answer::Approve);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].check, Check::Comprehension);
+    }
+
+    #[test]
+    fn ut_pending_change_counts_named() {
+        let (_d, l) = run(true);
+        write(
+            &l,
+            "check-comprehension.md",
+            CURRENT,
+            "Findings:\n- a\n- b\n",
+        );
+        write(&l, "check-zoom-out.md", CURRENT, "Findings:\n- z\n");
+        let got = pending(&l, "demo", Answer::Change("fix C1, C2 and Z1"));
+        assert_eq!(
+            got,
+            [
+                Logged {
+                    check: Check::Comprehension,
+                    findings: 2,
+                    changed: 2
+                },
+                Logged {
+                    check: Check::ZoomOut,
+                    findings: 1,
+                    changed: 1
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn ut_pending_approve_logs_zero() {
+        let (_d, l) = run(true);
+        write(&l, "check-zoom-out.md", CURRENT, "Findings:\n- z\n");
+        let got = pending(&l, "demo", Answer::Approve);
+        assert_eq!(got[0].changed, 0);
+        assert_eq!(pending(&l, "demo", Answer::Abandon)[0].changed, 0);
+    }
+
+    #[test]
+    fn ut_clear_removes_both_and_tolerates_absent() {
+        let (_d, l) = run(true);
+        write(&l, "check-zoom-out.md", CURRENT, "Findings:\n");
+        clear(&l, "demo").unwrap();
+        for c in Check::ALL {
+            assert!(!l.run_dir("demo").join(c.file()).exists());
+        }
+        clear(&l, "demo").unwrap();
+    }
+
+    #[test]
+    fn ut_logged_args() {
+        let l = Logged {
+            check: Check::ZoomOut,
+            findings: 3,
+            changed: 1,
+        };
+        assert_eq!(l.args(), ["scope=zoom-out", "findings=3", "changed=1"]);
     }
 }

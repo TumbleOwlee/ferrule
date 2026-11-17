@@ -32,6 +32,7 @@ run plan-diff
 run export
 gate
 gate approve
+gate change
 gate next
 stage
 stage commit

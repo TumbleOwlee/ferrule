@@ -1648,6 +1648,24 @@ fn it_architecture_guide_runs_both_checks_before_the_stop() {
     );
 }
 
+/// S3 — the architecture guide records a `change` answer before relaying it.
+#[test]
+fn it_architecture_guide_records_a_change_answer() {
+    says(
+        "architecture",
+        &["ferrule gate change demo arch -- <the user's answer>`, then relay"],
+    );
+}
+
+/// S3 — the epic guide records a `change` answer at the epic stop.
+#[test]
+fn it_epic_guide_records_a_change_answer() {
+    says(
+        "epic",
+        &["ferrule gate change demo epic -- <the user's answer>"],
+    );
+}
+
 /// GA-R-156 — the checks run again each time the stop is reached, also on resume.
 #[test]
 fn it_design_checks_rerun_each_time_the_stop_is_reached() {

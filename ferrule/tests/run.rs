@@ -1800,6 +1800,62 @@ fn it_abandon_confirm_clears_a_run_whose_worktree_is_gone() {
     assert!(card.lines().any(|l| l.ends_with(" abandoned")), "{card}");
 }
 
+/// Both design-check result files of `demo`, current and with findings.
+fn seed_checks(s: &Scratch) {
+    let dir = s.root.join(".ferrule/runs/demo");
+    let stamp = "Checked: spec-diff.md rev 5, architecture.md rev 1";
+    for (file, items) in [
+        ("check-comprehension.md", "- a\n- b\n"),
+        ("check-zoom-out.md", "- c\n"),
+    ] {
+        std::fs::write(
+            dir.join(file),
+            format!("# demo — check\n{stamp}\n## Paraphrase\nx\nFindings:\n{items}"),
+        )
+        .unwrap();
+    }
+}
+
+/// The exported card of the abandoned `demo` run.
+fn abandoned_card(s: &Scratch) -> String {
+    let gh = FakeGh::new();
+    serve_issue(&gh, "OPEN");
+    serve_pr(&gh, "OPEN");
+    serve_close(&gh);
+    let got = say_on(s, &gh, &["run", "abandon", "demo", "--confirm"]);
+    assert!(got.starts_with("abandon=done archive=1"), "{got}");
+    let to = s.root.join("out");
+    s.say(&["run", "export", "demo", "--to", to.to_str().unwrap()]);
+    std::fs::read_to_string(to.join("cards/demo.md")).unwrap()
+}
+
+/// GA-R-169 — abandoning at the architecture stop logs each current design
+/// check before the `abandoned` line.
+#[test]
+fn it_abandon_at_the_architecture_stop_logs_design_checks() {
+    let s = pushed_run();
+    seed_set(&s.root, "demo", &["arch="]);
+    seed_checks(&s);
+    let card = abandoned_card(&s);
+    let lines: Vec<&str> = card.lines().collect();
+    let at = |end: &str| lines.iter().position(|l| l.ends_with(end));
+    let c = at("design-check scope=comprehension findings=2 changed=0");
+    let z = at("design-check scope=zoom-out findings=1 changed=0");
+    let a = at(" abandoned");
+    assert!(c.is_some() && z.is_some() && a.is_some(), "{card}");
+    assert!(c < z && z < a, "{card}");
+}
+
+/// GA-R-169 — abandoning past the architecture stop logs no design check.
+#[test]
+fn it_abandon_past_the_architecture_stop_logs_no_design_check() {
+    let s = pushed_run();
+    seed_checks(&s);
+    let card = abandoned_card(&s);
+    assert!(card.lines().any(|l| l.ends_with(" abandoned")), "{card}");
+    assert!(!card.contains("design-check"), "{card}");
+}
+
 /// RU-R-048 — a confirmed abandon removes a worktree holding uncommitted and
 /// unpushed work.
 #[test]

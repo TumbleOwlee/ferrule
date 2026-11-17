@@ -256,6 +256,15 @@ pub const VOCABULARY: &[Event] = &[
     .by("ferrule run live-check <slug> start|end"),
     ev(Parent, "abandoned", V::None, P::None, &[], Text::No)
         .by("ferrule run abandon <slug> --confirm"),
+    ev(
+        Parent,
+        "design-check",
+        V::None,
+        P::None,
+        &["scope", "findings", "changed"],
+        Text::No,
+    )
+    .by("ferrule gate approve <slug> arch|epic | ferrule gate change <slug> <arch|epic> | ferrule run abandon <slug> --confirm"),
     ev(Parent, "replan", V::None, P::None, &["from"], Text::No)
         .by("ferrule stage replan <slug> start"),
     ev(
