@@ -73,3 +73,21 @@
 **GA-E-028** — In a run without `spec-diff.md` (a non-behavior change), the comprehension check reads `architecture.md` alone.
 
 **GA-E-029** — A check result written for other revisions of `spec-diff.md` or `architecture.md` than the current ones counts as no result.
+
+**GA-E-030** — `changed` counts only findings named in a `change` answer, so a finding that changed the user's thinking without one is not counted.
+
+**GA-E-031** — A `change` answer that names no finding logs `changed=0` for both checks.
+
+**GA-E-032** — A stop shown again before it was answered (a held run resumed) logs `design-check` events only for its last showing.
+
+**GA-E-033** — A finding ID named in a `change` answer that the stop did not show is not counted in `changed`.
+
+**GA-E-034** — A finding ID named in a `change` answer counts whatever its letter case: `c2` names C2.
+
+**GA-E-035** — A finding ID counts only as a whole word of the `change` answer: `C2,` and `(C2)` name C2, `C20` and `C2a` do not.
+
+**GA-E-036** — A finding named more than once in one `change` answer counts once in `changed`.
+
+**GA-E-037** — `ferrule gate change` on a run whose `arch` field already holds a value is refused and logs no `design-check` event.
+
+**GA-E-038** — A repeated `ferrule gate approve` of an architecture stop already approved logs no `design-check` event.

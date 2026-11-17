@@ -11,6 +11,13 @@
 - no `gate3` gate; `ferrule prompt render` has no `gate3` kind (GA-R-143, GA-R-144)
 - no `delta` gate; `gate approve <slug> delta` is a usage error (exit 2) (GA-R-132, GA-E-023)
 
+## ferrule gate change
+
+- `ferrule gate change <slug> <arch|epic> -- <answer>` records a `change` answer; the answer words are joined with spaces (GA-R-168)
+- `change=done gate=<gate> comprehension=<findings>/<changed>|- zoom-out=<findings>/<changed>|-`; `-` marks a check without a result, which logs no event (GA-R-168, GA-R-167)
+- `change=refused reason=card|order|state|answered … hint=<fix>`, exit 1; nothing is logged (GA-R-168, GA-E-037)
+- an unknown gate or a missing answer is a usage error (exit 2) (GA-R-168)
+
 ## ferrule stage tier
 
 - `ferrule stage tier <slug> s<n> [--after-blocker]` prints `tier=<own|batched|skipped> review=<stage|batch|none> [stages=s<a>,…] [promoted=spec-change|batch-blocker]` (GA-R-072, GA-R-073, GA-R-074, GA-R-086, GA-R-087, GA-R-088)
@@ -44,6 +51,7 @@
 
 - a `decisions.md` line supersedes an earlier one when it has the same `[spec <ID>]` tag or its why starts `supersedes "<earlier choice>"`; a superseded line is left out of `Confirm:` (GA-R-111)
 - `check-comprehension.md` and `check-zoom-out.md` in the run directory, each with a `Checked: spec-diff.md rev <n>, architecture.md rev <m>` line (`rev -` without `spec-diff.md`) and a `Findings:` list (GA-R-156, GA-E-029)
+- `check-comprehension.md` and `check-zoom-out.md` are removed once `ferrule gate approve` or `ferrule gate change` answers the stop; a confirmed abandon archives them (GA-R-170, GA-R-171)
 
 ## Reviewer status line
 
@@ -69,6 +77,7 @@
 - `plan-review=clean round=<k> [minors=<n>]` and `plan-review=findings count=0 round=<k> [minors=<n>]` on the run card, logged by `ferrule gate next` (GA-R-140, GA-R-135)
 - `review=<n>-open scope=<stage|batch> round=<k>` on the run card, logged by `ferrule gate next` (RU-R-074)
 - `spawn agent=architect|planner` on the run card, logged by `ferrule gate next <slug> gate1` when gate 1 passes without a stop; the brief phase ends there (RU-R-075)
+- `design-check scope=<comprehension|zoom-out> findings=<n> changed=<n>` on the run card, logged by `ferrule gate approve <slug> arch|epic`, `ferrule gate change` and `ferrule run abandon <slug> --confirm` (GA-R-165, GA-R-168, GA-R-169)
 
 ## ferrule hook checker
 

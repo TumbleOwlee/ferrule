@@ -347,3 +347,17 @@
 **GA-R-159** — A check that produced a result without findings is shown at the architecture stop with a line saying it found none.
 
 **GA-R-164** — The `ferrule hook checker` help states that the guard refuses every Bash write except a rewrite of the run's `check-comprehension.md` or `check-zoom-out.md` (GA-R-151).
+
+**GA-R-165** — Each check that produced a result logs one `design-check` event on the parent card once the architecture stop it preceded is answered (GA-R-158, GA-R-161: the combined early stop and the epic stop count as that stop).
+
+**GA-R-166** — An event's `changed` counts that check's findings a `change` answer at the stop names; any other answer logs `changed=0`.
+
+**GA-R-167** — A check that produced no result logs no `design-check` event (GA-R-157).
+
+**GA-R-168** — `ferrule gate change <slug> <arch|epic> -- <answer>` logs the `design-check` events of the stop the `change` answer replies to.
+
+**GA-R-169** — A confirmed abandon (RU-R-047) of a run waiting at the architecture stop logs that stop's `design-check` events with `changed=0` before archiving.
+
+**GA-R-170** — `ferrule gate approve` at the architecture stop removes both check result files once it logs the stop's `design-check` events.
+
+**GA-R-171** — `ferrule gate change` removes both check result files once it logs the stop's `design-check` events.

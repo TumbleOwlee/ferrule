@@ -53,6 +53,7 @@
 ## ferrule run metrics output
 
 - `kind=<plain|epic|slice|request>` in place of `lane=`, `reviews=plan:<n>,stage:<n>,batch:<n>,branch:<n>` and `time=brief:<m>,arch:<m>,plan:<m>,stages:<m>,branch:<m>,pr:<m>` in whole minutes, `-` for a phase the run did not have (RU-R-076, RU-R-074, RU-R-075)
+- `comprehension=<checks>/<findings>/<changed> zoom-out=<checks>/<findings>/<changed>` right after `reads=`, zeros without `design-check` events (RU-R-077, RU-E-040)
 
 ## Card fields
 
