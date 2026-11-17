@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use rusqlite::Connection;
 
 use super::archive::{self, CiCheck, CleanupRefusal, Seal};
+use super::check::{self, Answer};
 use super::diverged::{Remote, remote_head};
 use crate::card::board;
 use crate::git;
@@ -278,11 +279,18 @@ pub fn abandon(
         return Ok(Err(AbandonRefused::DeleteRemote(e)));
     }
     let issue = archive::issue_ref(conn, slug)?;
+    let arch = board::field(conn, slug, "arch")?.filter(|a| !a.is_empty());
+    let checks = if arch.is_some() {
+        vec![]
+    } else {
+        check::pending(layout, slug, Answer::Abandon)
+    };
     let seal = Seal {
         worktree: plan.worktree.map(|p| p.to_string_lossy().into_owned()),
         branch: plan.local_branch,
         check: CiCheck::Exempt,
         abandoned: true,
+        checks,
     };
     match archive::seal(conn, layout, slug, now, seal) {
         Ok(archive) => Ok(Ok(Abandoned {

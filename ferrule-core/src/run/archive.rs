@@ -17,6 +17,7 @@ use crate::git;
 use crate::project::Layout;
 use crate::refusal::Refusal;
 use crate::remote::{IssueTracker, ItemRef, refs};
+use crate::run::check::{self, Logged};
 use crate::store::{Board, Reader, Writer};
 
 /// Why a run's metrics are refused: its CI is not known green.
@@ -617,6 +618,7 @@ pub fn cleanup(
             branch,
             check,
             abandoned: false,
+            checks: vec![],
         },
     )?;
     Ok(Cleaned {
@@ -689,6 +691,8 @@ pub(crate) struct Seal {
     pub check: CiCheck,
     /// Logs `abandoned` in the transaction and sets `archives.abandoned`.
     pub abandoned: bool,
+    /// `design-check` lines logged in the transaction before `abandoned`.
+    pub checks: Vec<Logged>,
 }
 
 /// One transaction: [abandoned line], metrics, archive row with pending
@@ -709,6 +713,15 @@ pub(crate) fn seal(
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let has_parent = board::state(&tx, slug)?.is_some();
     if has_parent {
+        for l in &s.checks {
+            Writer::new(&tx)
+                .log(slug, check::EVENT, &l.args(), now)
+                .map_err(|e| match e {
+                    board::LogError::Card => Error::Card,
+                    board::LogError::Sql(e) => Error::Sql(e),
+                    board::LogError::Reject(r) => Error::Io(std::io::Error::other(r.to_string())),
+                })?;
+        }
         if s.abandoned {
             board::log_in(&tx, slug, "abandoned", now).map_err(|e| match e {
                 board::LogError::Card => Error::Card,
@@ -972,6 +985,7 @@ mod tests {
             branch: None,
             check: CiCheck::Exempt,
             abandoned,
+            checks: vec![],
         };
         let id = super::seal(&mut s.conn, &layout, "r", "2026-10-04T12:00", spec).unwrap();
         (s, id)
