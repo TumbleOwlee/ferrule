@@ -345,3 +345,5 @@
 **GA-R-161** — An epic run's epic stop counts as the architecture stop for every design-check entry.
 
 **GA-R-159** — A check that produced a result without findings is shown at the architecture stop with a line saying it found none.
+
+**GA-R-164** — The `ferrule hook checker` help states that the guard refuses every Bash write except a rewrite of the run's `check-comprehension.md` or `check-zoom-out.md` (GA-R-151).
