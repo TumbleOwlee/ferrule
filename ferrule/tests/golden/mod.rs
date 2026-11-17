@@ -97,7 +97,8 @@ pub fn check(name: &str, got: &str) {
 
 /// A fake `gh` on `PATH`: prints the fixture filed under its arguments
 /// ([`FakeGh::serve`]), answers any other `gh api` call that sends a body
-/// with `{}`, fails the rest, and logs every call.
+/// with `{}`, fails the rest, logs every call, and keeps the body of the
+/// last `--body-file -` call.
 pub struct FakeGh {
     pub dir: tempfile::TempDir,
 }
@@ -109,6 +110,7 @@ impl FakeGh {
         std::fs::create_dir(dir.path().join("fx")).unwrap();
         let script = r#"#!/bin/sh
 printf '%s\n' "$*" >> "$GH_DIR/log"
+case "$*" in *"--body-file -"*) cat > "$GH_DIR/body" ;; esac
 key=$(printf '%s' "$*" | tr -c 'A-Za-z0-9=._-' '_' | cut -c1-120)
 if [ -f "$GH_DIR/fx/$key" ]; then
   cat "$GH_DIR/fx/$key"
@@ -184,6 +186,11 @@ exit 1
     /// The calls made, one line each.
     pub fn log(&self) -> String {
         std::fs::read_to_string(self.dir.path().join("log")).unwrap_or_default()
+    }
+
+    /// The body the last `--body-file -` call sent.
+    pub fn body(&self) -> String {
+        std::fs::read_to_string(self.dir.path().join("body")).unwrap_or_default()
     }
 
     pub fn on(&self, run: Run) -> Run {

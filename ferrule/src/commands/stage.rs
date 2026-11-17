@@ -206,7 +206,7 @@ Output:
                                    `spec-delta <id> added origin=<o>` line of
                                    the dropped stages is logged again on the
                                    parent, so the ids stay retired
-  pr-body=pushed|unchanged         After approve: the draft PR's body synced
+  pr-body=pushed|unchanged         After approve: the PR's body synced
   pr-body=refused reason=stage-ref stage-ref=s<n> hint=<fix>
                                    The body names stage s<n> that has no card
   pr-body=failed                   The sync failed (details on stderr)
@@ -559,7 +559,7 @@ fn replan(
         Ok(line) => {
             writeln!(out, "{line}")?;
             if matches!(step, ReplanStep::Approve) {
-                super::board::sync_draft(&mut s, slug, out)?;
+                super::board::sync_body(&mut s, slug, out)?;
             }
             Ok(exit::OK)
         }

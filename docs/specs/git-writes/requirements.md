@@ -199,3 +199,11 @@
 **GW-R-080** — PR and issue body assembly refuses prose naming a stage id with `reason=stage-ref`.
 
 **GW-R-081** — The stage-ref check skips a code span or fenced block whose content is anything other than a bare stage id or a bare agent name.
+
+## Ready PR body
+
+**GW-R-093** — Once `ferrule pr publish` has marked the run's PR ready, every later PR body sync of the run writes the full body, never the draft body.
+
+**GW-R-094** — A full body written by a sync after publish reflects the run's state at that sync, as the draft body does before publish.
+
+**GW-R-095** — A PR body sync before `ferrule pr publish` has run writes the draft body.

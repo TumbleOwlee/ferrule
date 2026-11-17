@@ -53,3 +53,11 @@
 ## Body checks
 
 **GW-E-024** — A code span or fenced block whose whole content is a bare stage id or a bare agent name is refused with `reason=stage-ref`.
+
+## Ready PR body
+
+**GW-E-026** — A published PR whose run reopens stages through the PR feedback route or a replan keeps the full body; it is never returned to the draft body.
+
+**GW-E-027** — A PR marked ready outside ferrule before `ferrule pr publish` has run keeps receiving the draft body from every body sync.
+
+**GW-E-028** — A PR returned to draft outside ferrule after `ferrule pr publish` has run keeps receiving the full body from every body sync.

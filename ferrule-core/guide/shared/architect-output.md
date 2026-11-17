@@ -14,7 +14,7 @@ Shape: <one line>
 |---|---|---|---|---|
 | `<Name>` | struct · trait · enum · module · fn | <package> › <module> | new · changed · existing · removed | <≤ 10 words; longer when it names what a reviewer needs — key members, variants, signatures> |
 
-Both `ferrule pr body` forms, the draft re-rendered on every card move and the gate 4 full body, put this table verbatim under the PR's `## Architecture`; the PR has no interfaces section, so a Role cell carries what a reviewer must know without the diff.
+Both `ferrule pr body` forms, the draft until `ferrule pr publish` and the full body from `ferrule pr publish` on, each re-rendered on every body sync, put this table verbatim under the PR's `## Architecture`; the PR has no interfaces section, so a Role cell carries what a reviewer must know without the diff.
 
 ## Structure
 ```text

@@ -812,6 +812,120 @@ fn it_one_run_from_init_to_ci() {
     publish_and_ci(&p);
 }
 
+/// The full PR body of the demo run, as `ferrule pr body demo full` renders
+/// it without its title line.
+fn full_body(p: &Project) -> String {
+    let out = p.ok(&["pr", "body", "demo", "full"]);
+    let lines = out.lines().skip(1).skip_while(|l| l.is_empty());
+    lines.collect::<Vec<_>>().join("\n")
+}
+
+/// GW-R-093, GW-E-026 — after publish a body sync writes the full body, on a
+/// card move, a push and a feedback route, passing no title.
+#[test]
+fn it_body_sync_after_publish_keeps_the_full_body() {
+    let p = Project::new();
+    through_gate2(&p);
+    first_stage(&p);
+    publish_and_ci(&p);
+    let gh = &p.gh;
+    let same = |p: &Project| {
+        let full = full_body(p);
+        assert_eq!(gh.body().trim_end(), full.trim_end());
+        assert!(!gh.body().starts_with("Draft"), "{}", gh.body());
+    };
+
+    assert_eq!(
+        p.ok(&["board", "move", "demo.s1", "inprogress"]),
+        "pr-body=pushed"
+    );
+    same(&p);
+
+    let path = p.worktree().join("src/client.rs");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, "s1\n").unwrap();
+    git(&p.worktree(), &["add", "."]);
+    git(&p.worktree(), &["commit", "-qm", "s1"]);
+    let sha = git(&p.worktree(), &["rev-parse", "--short", "HEAD"]);
+    p.ok(&["board", "move", "demo.s1", "inreview"]);
+    seed_log(
+        &p.root,
+        "2026-10-05T09:00",
+        "demo.s1",
+        &[&format!("commit={sha}")],
+    );
+    let pushed = p.ok(&["pr", "push", "demo"]);
+    assert!(pushed.ends_with("pr-body=pushed"), "{pushed}");
+    let log = gh.log();
+    let last = log
+        .lines()
+        .rev()
+        .find(|l| l.starts_with("pr edit 34"))
+        .unwrap();
+    assert_eq!(last, "pr edit 34 --body-file -", "{log}");
+    same(&p);
+
+    serve(
+        gh,
+        &graphql("34"),
+        &threads("docs/specs/modbus/requirements.md"),
+    );
+    assert_eq!(
+        p.ok(&["pr", "feedback", "route", "demo"]),
+        "pr=34 threads=1 stages=s0\npr-body=pushed"
+    );
+    assert_eq!(p.field("demo.s0", "state"), "inprogress");
+    same(&p);
+}
+
+/// GW-E-026 — a replan approved after publish keeps the full body.
+#[test]
+fn it_replan_after_publish_keeps_the_full_body() {
+    let p = Project::new();
+    p.ok(&["run", "init", "demo"]);
+    p.artifacts();
+    p.ok(&["board", "set", "demo", "arch=skipped"]);
+    serve(
+        &p.gh,
+        &find("Reconnect dropped Modbus clients"),
+        r#"[{"number":12,"title":"Reconnect dropped Modbus clients"}]"#,
+    );
+    serve(
+        &p.gh,
+        &edit_issue("12", "Reconnect dropped Modbus clients"),
+        "",
+    );
+    adopted_issue(&p.gh, "12");
+    p.ok(&["gate", "approve", "demo", "gate2"]);
+    let sha0 = p.land("s0", "docs/specs/modbus/requirements.md");
+    seed_log(
+        &p.root,
+        "2026-10-05T09:00",
+        "demo",
+        &["gauntlet=pass", "cov=80%", &format!("sha={sha0}")],
+    );
+    p.ok(&["board", "move", "demo.s0", "done"]);
+    p.ok(&["board", "move", "demo.s1", "inprogress"]);
+    p.ok(&["gate", "approve", "demo", "gate4"]);
+    seed_set(&p.root, "demo", &["pr=34", "branch=feat/demo"]);
+    seed_log(&p.root, "2026-10-05T09:00", "demo", &["pr=ready"]);
+    p.gh.serve(
+        &["pr", "view", "34", "--json", "state,isDraft,body"],
+        r#"{"state":"OPEN","isDraft":false,"body":"stale"}"#,
+    );
+    p.gh.serve(&["pr", "edit", "34", "--body-file", "-"], "");
+    p.ok(&["stage", "replan", "demo", "start"]);
+    std::fs::write(
+        p.run_dir().join("plan.md"),
+        PLAN.replace("| s1 | Add backoff | src/client.rs | s0 |\n| s2 | Show status | src/tab.rs, src/view.rs | s1 |", "| s1 | Retry loop | src/retry.rs | s0 |"),
+    )
+    .unwrap();
+    let approved = p.ok(&["stage", "replan", "demo", "approve", "--stops", "s1"]);
+    assert!(approved.contains("pr-body=pushed"), "{approved}");
+    assert!(!p.gh.body().starts_with("Draft"), "{}", p.gh.body());
+    assert_eq!(p.gh.body().trim_end(), full_body(&p).trim_end());
+}
+
 #[test]
 fn it_publish_refuses_threads_and_stage_refs() {
     let p = Project::new();

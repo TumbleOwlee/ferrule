@@ -2,8 +2,8 @@
 //! waited for.
 
 use super::{
-    Action, Error, Exit, Form, ItemRef, Name, PrState, Refusal, Run, Target, Typed, board, body,
-    follow_up_numbers, git, numbers, remote, snapshot, spec, split_title,
+    Action, Error, Exit, Form, ItemRef, Refusal, Run, Target, board, body, follow_up_numbers, git,
+    numbers, remote, snapshot, spec, split_title,
 };
 
 /// Why `pr publish` did not mark the PR ready.
@@ -97,9 +97,7 @@ impl Run<'_> {
             Err(e) => return Err(e.into()),
         };
         let (title, body) = split_title(&rendered);
-        let logged = board::events(self.conn, self.slug, &[Name::Pr])?
-            .iter()
-            .any(|e| e.typed() == Typed::Pr(PrState::Ready));
+        let logged = self.published()?;
         // Logged and ready, or merged or closed since: nothing to mark, the
         // follow-ups still to file.
         let ready = logged && {

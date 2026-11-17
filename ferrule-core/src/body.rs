@@ -467,10 +467,11 @@ fn epic_parts(c: &Ctx, out: &mut String, metadata: Metadata) -> Result<(), Error
 /// The PR body's form.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Form {
-    /// From the first push to gate 4: progress, rendered again on every
-    /// board move.
+    /// Until `ferrule pr publish`: progress, rendered again on every body
+    /// sync.
     Draft,
-    /// At gate 4, from pr.md.
+    /// From `ferrule pr publish` on, from pr.md; rendered again on every
+    /// body sync.
     Full,
 }
 

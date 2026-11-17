@@ -249,7 +249,7 @@ impl Run<'_> {
             return Ok(Err(PushRefused::Push(e)));
         }
         self.log(&format!("pushed={sha}"), &[])?;
-        let body = match self.sync_draft()? {
+        let body = match self.sync_body()? {
             Some(sync) => Body::Synced(sync),
             None => Body::Opened(self.open_pr()?.0),
         };
