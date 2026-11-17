@@ -8,6 +8,8 @@
 
 **RU-R-012** — The metrics line of a run `ferrule run cleanup` archives without a CI check records `ci=-`.
 
+**RU-R-078** — The metrics line of an epic run records `ci=-`, whether or not its card carries a `ci=` line.
+
 ## CI waiver
 
 **RU-R-061** — `ferrule run cleanup` refuses a PR run whose card carries neither a `ci=` line nor a `ci-waived` line.
@@ -124,7 +126,7 @@
 
 **RU-R-070** — The `ferrule run cleanup` help states the CI refusals of RU-R-061 and RU-R-062 and the waivers of RU-R-063 and RU-R-064.
 
-**RU-R-071** — The `ferrule run metrics` help names every case in which the metrics line records `ci=-`: the runs of RU-R-012, an abandoned run (RU-R-055) and a run waived with no `ci=` line (RU-R-065).
+**RU-R-071** — The `ferrule run metrics` help names every case in which the metrics line records `ci=-`: an epic run (RU-R-078), the runs of RU-R-012, an abandoned run (RU-R-055) and a run waived with no `ci=` line (RU-R-065).
 
 ## Preflight
 

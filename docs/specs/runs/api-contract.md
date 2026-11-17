@@ -71,7 +71,7 @@
 - `kind=<plain|epic|slice|request>` — the run's kind, `plain` when the card has none, in place of `lane=` (RU-R-076)
 - `reviews=plan:<n>,stage:<n>,batch:<n>,branch:<n>` — review passes per kind (RU-R-074)
 - `time=brief:<m>,arch:<m>,plan:<m>,stages:<m>,branch:<m>,pr:<m>` — whole minutes per phase, `-` for a phase the run did not have (RU-R-075)
-- `ci=<0|waived|->` — the last field: `0` for green CI, `waived`, or `-` in the cases of RU-R-012, RU-R-055 and RU-R-065
+- `ci=<0|waived|->` — the last field: `0` for green CI, `waived`, or `-` in the cases of RU-R-012, RU-R-055, RU-R-065 and RU-R-078
 
 ## Card fields
 

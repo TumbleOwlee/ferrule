@@ -965,6 +965,16 @@ fn it_metrics_kind() {
     );
 }
 
+/// RU-R-078 — an epic's metrics line records `ci=-`, with or without a `ci=` line.
+#[test]
+fn it_metrics_of_an_epic_record_no_ci() {
+    let dir = metrics_run(&["kind=epic"]);
+    let p = dir.path();
+    assert!(metrics(p, "mt").ends_with(" ci=-\nexit=0"));
+    log_at(p, "2026-10-03T10:05", &["mt", "ci=0"]);
+    assert!(metrics(p, "mt").ends_with(" ci=-\nexit=0"));
+}
+
 /// RU-R-077 — the metrics line sums the `design-check` lines per check as
 /// checks/findings/changed.
 #[test]
