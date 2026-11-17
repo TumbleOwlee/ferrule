@@ -32,6 +32,7 @@ pub enum Name {
     Approved,
     Read,
     Overturned,
+    DesignCheck,
     TestRed,
     TestPins,
     TestReplaced,
@@ -43,7 +44,7 @@ pub enum Name {
 }
 
 impl Name {
-    pub const ALL: [Name; 31] = [
+    pub const ALL: [Name; 32] = [
         Name::Commit,
         Name::Gauntlet,
         Name::Pushed,
@@ -67,6 +68,7 @@ impl Name {
         Name::Approved,
         Name::Read,
         Name::Overturned,
+        Name::DesignCheck,
         Name::TestRed,
         Name::TestPins,
         Name::TestReplaced,
@@ -104,6 +106,7 @@ impl Name {
             Name::Approved => "approved=",
             Name::Read => "read",
             Name::Overturned => "overturned",
+            Name::DesignCheck => "design-check",
             Name::TestRed => "test-red",
             Name::TestPins => "test-pins",
             Name::TestReplaced => "test-replaced",
@@ -125,6 +128,7 @@ impl Name {
             Name::SpecDelta => &["origin", "quote"],
             Name::Read => &["path"],
             Name::Overturned => &["count"],
+            Name::DesignCheck => &["scope", "findings", "changed"],
             Name::Posted => &["issue", "sum", "k"],
             Name::Rebase => &["base", "from"],
             Name::TestRed => &["test", "mutation"],
@@ -238,6 +242,11 @@ pub enum Typed<'a> {
     Read {
         path: Option<&'a str>,
     },
+    DesignCheck {
+        scope: Option<&'a str>,
+        findings: Option<u64>,
+        changed: Option<u64>,
+    },
     Overturned {
         count: Option<u64>,
     },
@@ -309,6 +318,7 @@ impl Typed<'_> {
             Typed::Approved(_) => Name::Approved,
             Typed::Read { .. } => Name::Read,
             Typed::Overturned { .. } => Name::Overturned,
+            Typed::DesignCheck { .. } => Name::DesignCheck,
             Typed::TestRed { .. } => Name::TestRed,
             Typed::TestPins { .. } => Name::TestPins,
             Typed::TestReplaced { .. } => Name::TestReplaced,
@@ -336,6 +346,7 @@ impl Event {
         self.read().unwrap_or(Typed::Other)
     }
 
+    #[allow(clippy::too_many_lines)]
     fn read(&self) -> Option<Typed<'_>> {
         let name = Name::parse(&self.name)?;
         let value = self.value.as_deref();
@@ -415,6 +426,11 @@ impl Event {
             Name::PlanReview => Typed::PlanReview(value?),
             Name::Approved => Typed::Approved(value?),
             Name::Read => Typed::Read { path: key("path") },
+            Name::DesignCheck => Typed::DesignCheck {
+                scope: key("scope"),
+                findings: key("findings").and_then(|c| c.parse().ok()),
+                changed: key("changed").and_then(|c| c.parse().ok()),
+            },
             Name::Overturned => Typed::Overturned {
                 count: key("count").and_then(|c| c.parse().ok()),
             },
