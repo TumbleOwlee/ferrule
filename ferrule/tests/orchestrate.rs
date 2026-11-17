@@ -4508,6 +4508,144 @@ fn it_gate_approve_logs_approved() {
     assert_eq!(shown.matches(" approved=arch").count(), 2, "{shown}");
 }
 
+/// A design check's result file for the demo run, stamped for the fixture's
+/// current revisions.
+fn check_file(p: &Project, file: &str, findings: &[&str]) {
+    use std::fmt::Write as _;
+    let items = findings.iter().fold(String::new(), |mut s, f| {
+        let _ = writeln!(s, "- {f}");
+        s
+    });
+    std::fs::write(
+        p.run_dir().join(file),
+        format!(
+            "# demo — check\nChecked: spec-diff.md rev 5, architecture.md rev 1\n## Paraphrase\nx\nFindings:\n{items}"
+        ),
+    )
+    .unwrap();
+}
+
+fn both_checks(p: &Project) {
+    check_file(p, "check-comprehension.md", &["a", "b"]);
+    check_file(p, "check-zoom-out.md", &["z"]);
+}
+
+/// GA-R-165 — approving the architecture stop logs one `design-check` event
+/// per check, before `approved=arch`.
+#[test]
+fn it_arch_approve_logs_one_design_check_per_check() {
+    let p = Project::new();
+    p.ok(&["run", "init", "demo"]);
+    p.artifacts();
+    p.ok(&["gate", "approve", "demo", "gate1"]);
+    both_checks(&p);
+    p.ok(&["gate", "approve", "demo", "arch"]);
+    let shown = p.ok(&["board", "show", "demo"]);
+    let c = shown
+        .find(" design-check scope=comprehension findings=2 changed=0")
+        .unwrap_or_else(|| panic!("{shown}"));
+    let z = shown
+        .find(" design-check scope=zoom-out findings=1 changed=0")
+        .unwrap_or_else(|| panic!("{shown}"));
+    let a = shown.find(" approved=arch").unwrap();
+    assert!(c < a && z < a, "{shown}");
+}
+
+/// GA-R-165 — the epic stop logs the events too.
+#[test]
+fn it_epic_approve_logs_design_checks() {
+    let p = Project::new();
+    p.ok(&["run", "init", "demo"]);
+    p.artifacts();
+    p.ok(&["board", "set", "demo", "kind=epic"]);
+    p.ok(&["gate", "approve", "demo", "gate1"]);
+    both_checks(&p);
+    p.ok(&["gate", "approve", "demo", "epic"]);
+    let shown = p.ok(&["board", "show", "demo"]);
+    assert_eq!(shown.matches(" design-check scope=").count(), 2, "{shown}");
+}
+
+/// GA-R-170 — the approval removes both result files.
+#[test]
+fn it_approve_removes_check_result_files() {
+    let p = Project::new();
+    p.ok(&["run", "init", "demo"]);
+    p.artifacts();
+    both_checks(&p);
+    p.ok(&["gate", "approve", "demo", "arch"]);
+    assert!(!p.run_dir().join("check-comprehension.md").exists());
+    assert!(!p.run_dir().join("check-zoom-out.md").exists());
+}
+
+/// GA-R-167 — a check without a result logs no event.
+#[test]
+fn it_approve_without_one_result_logs_only_the_other() {
+    let p = Project::new();
+    p.ok(&["run", "init", "demo"]);
+    p.artifacts();
+    check_file(&p, "check-zoom-out.md", &["z"]);
+    let arch = p.ok(&["prompt", "render", "demo", "arch"]);
+    assert!(arch.contains("- comprehension: did not run"), "{arch}");
+    p.ok(&["gate", "approve", "demo", "arch"]);
+    let shown = p.ok(&["board", "show", "demo"]);
+    assert_eq!(
+        shown.matches(" design-check scope=zoom-out").count(),
+        1,
+        "{shown}"
+    );
+    assert!(!shown.contains("scope=comprehension"), "{shown}");
+}
+
+/// GA-E-038 — a repeated approval logs no further event.
+#[test]
+fn it_repeated_arch_approve_logs_no_design_check() {
+    let p = Project::new();
+    p.ok(&["run", "init", "demo"]);
+    p.artifacts();
+    both_checks(&p);
+    p.ok(&["gate", "approve", "demo", "arch"]);
+    both_checks(&p);
+    p.ok(&["gate", "approve", "demo", "arch"]);
+    let shown = p.ok(&["board", "show", "demo"]);
+    assert_eq!(shown.matches(" design-check scope=").count(), 2, "{shown}");
+}
+
+/// GA-E-032 — a stop shown again after a rerun logs only the last showing.
+#[test]
+fn it_resumed_stop_logs_only_the_last_showing() {
+    let p = Project::new();
+    p.ok(&["run", "init", "demo"]);
+    p.artifacts();
+    check_file(&p, "check-comprehension.md", &["a"]);
+    check_file(&p, "check-comprehension.md", &["a", "b", "c"]);
+    p.ok(&["gate", "approve", "demo", "arch"]);
+    let shown = p.ok(&["board", "show", "demo"]);
+    assert_eq!(shown.matches(" design-check scope=").count(), 1, "{shown}");
+    assert!(
+        shown.contains("scope=comprehension findings=3 changed=0"),
+        "{shown}"
+    );
+}
+
+/// GA-R-165 — the combined early stop's approval logs the events.
+#[test]
+fn it_combined_stop_approve_logs_design_checks() {
+    let p = Project::new();
+    p.ok(&["run", "init", "demo"]);
+    p.artifacts();
+    brief(&p, 2);
+    std::fs::write(
+        p.run_dir().join("review.verdict.md"),
+        "Verdict: clean — ready for approval\n",
+    )
+    .unwrap();
+    p.ok(&["gate", "next", "demo", "gate1", "status=ready"]);
+    both_checks(&p);
+    p.ok(&["gate", "approve", "demo", "arch"]);
+    let shown = p.ok(&["board", "show", "demo"]);
+    assert_eq!(shown.matches(" design-check scope=").count(), 2, "{shown}");
+}
+
 /// S12 — a brief of 2 entries has one combined early stop: gate 1 goes to
 /// the architect, the architecture stop approves the brief, gate 2 is a notice.
 #[test]

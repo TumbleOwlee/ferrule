@@ -25,6 +25,7 @@ use crate::project::Layout;
 use crate::prompt;
 use crate::refusal::Refusal;
 use crate::remote::{self, IssueTracker, Item, ItemRef, Milestones};
+use crate::run::check;
 use crate::run::tier::{self, Risk, Tier, TierRefused};
 use crate::store::Board;
 
@@ -927,6 +928,12 @@ pub fn approve(
     } else if gate == Gate::Arch && arg(args, "plan-stop") == Some("yes") {
         fields.push(("plan-stop".to_owned(), "yes".to_owned()));
     }
+    let stop = matches!(gate, Gate::Arch | Gate::Epic);
+    let checks = if stop && !out.recorded {
+        check::pending(layout, slug, check::Answer::Approve)
+    } else {
+        Vec::new()
+    };
     // The fields and what was shown in one transaction, the log lines
     // last: a refused line leaves the gate unapproved.
     db.write(|w| {
@@ -942,6 +949,13 @@ pub fn approve(
                 e => Error::Board(board::BatchError::Log(slug.to_owned(), e)),
             })?;
         }
+        for l in &checks {
+            w.log(slug, check::EVENT, &l.args(), now)
+                .map_err(|e| match e {
+                    board::LogError::Sql(e) => Error::Sql(e),
+                    e => Error::Board(board::BatchError::Log(slug.to_owned(), e)),
+                })?;
+        }
         let approved = format!("approved={}", gate.as_str());
         w.log(slug, &approved, &[], now).map_err(|e| match e {
             board::LogError::Sql(e) => Error::Sql(e),
@@ -949,6 +963,9 @@ pub fn approve(
         })?;
         Ok::<_, Error>(())
     })?;
+    if stop {
+        check::clear(layout, slug)?;
+    }
     out.record = seen.join(" ");
     Ok(out)
 }

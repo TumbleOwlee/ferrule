@@ -18,6 +18,7 @@ const SOURCES: &[(&str, &[&str])] = &[
         "ferrule-core/src/guide/mod.rs",
         &["guide show", "guide check"],
     ),
+    ("ferrule-core/src/run/check.rs", &["gate approve"]),
     ("ferrule-core/src/run/abandon.rs", &["run abandon"]),
     ("ferrule-core/src/run/diverged.rs", &["run reconcile"]),
     ("ferrule-core/src/run/live.rs", &["run live-check"]),
