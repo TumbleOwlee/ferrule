@@ -59,6 +59,8 @@ pub enum GateRefusal {
     State { gate: Gate, state: State },
     /// `gate1 --epic` on a run past gate 1.
     Epic,
+    /// `gate change` on a run whose `arch` field already holds a value.
+    Answered { gate: Gate, arch: String },
     /// gate2's `--branch` differs from the branch the card records.
     Branch(String),
     /// The new plan redefines a stage already committed.
@@ -93,6 +95,7 @@ impl GateRefusal {
             GateRefusal::Order { .. } => "order",
             GateRefusal::State { .. } => "state",
             GateRefusal::Epic => "epic",
+            GateRefusal::Answered { .. } => "answered",
             GateRefusal::Branch(_) => "branch",
             GateRefusal::Committed(_) => "committed",
             GateRefusal::Tier { .. } | GateRefusal::RiskWord { .. } => "tier",
@@ -135,6 +138,11 @@ impl GateRefusal {
             GateRefusal::Epic => r.hint(format!(
                 "the run is past gate 1 (arch or gate2 recorded, or stage cards exist); \
                  an epic is chosen at gate 1 only; see `ferrule run status {slug}`"
+            )),
+            GateRefusal::Answered { gate, arch } => r.field("arch", arch).hint(format!(
+                "the {} stop was answered on {arch}; a later change goes through a new revision; \
+                 see `ferrule run status {slug}`",
+                gate.as_str()
             )),
             GateRefusal::Branch(card) => r.field("branch", card).hint(format!(
                 "the run's branch is {card}; drop --branch or pass --branch {card}"
@@ -968,6 +976,56 @@ pub fn approve(
     }
     out.record = seen.join(" ");
     Ok(out)
+}
+
+/// What a `change` answer did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Changed {
+    pub gate: Gate,
+    pub logged: Vec<check::Logged>,
+}
+
+/// Records a `change` answer at the arch or epic stop: refused `Card`,
+/// `Order` (epic without `kind: epic`), `State` (not open), `Answered`
+/// (`arch` holds a value); else the design-check lines in one `db.write`,
+/// then the check result files are removed.
+///
+/// # Errors
+/// A refusal, or a board or file failure.
+pub fn change(
+    db: &mut Board,
+    layout: &Layout,
+    gate: Gate,
+    slug: &str,
+    answer: &str,
+    now: &str,
+) -> Result<Changed, Error> {
+    let conn = db.conn_mut();
+    let Some(state) = board::state(conn, slug)? else {
+        return Err(Error::Refused(GateRefusal::Card));
+    };
+    if let Some((missing, flags)) = missing(conn, slug, gate)? {
+        return Err(Error::Refused(GateRefusal::Order { missing, flags }));
+    }
+    if !gate.states().contains(&state) {
+        return Err(Error::Refused(GateRefusal::State { gate, state }));
+    }
+    if let Some(arch) = board::field(conn, slug, "arch")?.filter(|a| has(Some(a))) {
+        return Err(Error::Refused(GateRefusal::Answered { gate, arch }));
+    }
+    let logged = check::pending(layout, slug, check::Answer::Change(answer));
+    db.write(|w| {
+        for l in &logged {
+            w.log(slug, check::EVENT, &l.args(), now)
+                .map_err(|e| match e {
+                    board::LogError::Sql(e) => Error::Sql(e),
+                    e => Error::Board(board::BatchError::Log(slug.to_owned(), e)),
+                })?;
+        }
+        Ok::<_, Error>(())
+    })?;
+    check::clear(layout, slug)?;
+    Ok(Changed { gate, logged })
 }
 
 /// The stage a re-plan starts from: the lowest without a commit, or, when

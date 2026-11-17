@@ -4646,6 +4646,164 @@ fn it_combined_stop_approve_logs_design_checks() {
     assert_eq!(shown.matches(" design-check scope=").count(), 2, "{shown}");
 }
 
+/// A run at gate 1 with both checks' results: comprehension C1-C2, zoom-out Z1.
+fn change_project() -> Project {
+    let p = Project::new();
+    p.ok(&["run", "init", "demo"]);
+    p.artifacts();
+    p.ok(&["gate", "approve", "demo", "gate1"]);
+    both_checks(&p);
+    p
+}
+
+fn design_lines(p: &Project) -> usize {
+    p.ok(&["board", "show", "demo"])
+        .matches(" design-check scope=")
+        .count()
+}
+
+/// GA-R-168, GA-R-166 — a `change` answer naming findings logs both checks
+/// with the named count and leaves `arch` unset.
+#[test]
+fn it_gate_change_counts_named_findings() {
+    let p = change_project();
+    let got = p.ok(&[
+        "gate", "change", "demo", "arch", "--", "change", "C2", "and", "Z1",
+    ]);
+    assert!(
+        got.contains("change=done gate=arch comprehension=2/1 zoom-out=1/1"),
+        "{got}"
+    );
+    let shown = p.ok(&["board", "show", "demo"]);
+    assert!(
+        shown.contains("design-check scope=comprehension findings=2 changed=1"),
+        "{shown}"
+    );
+    assert!(
+        shown.contains("design-check scope=zoom-out findings=1 changed=1"),
+        "{shown}"
+    );
+    assert_eq!(p.field("demo", "arch"), "");
+}
+
+/// GA-E-031, GA-E-030 — an answer naming no finding logs `changed=0`.
+#[test]
+fn it_gate_change_without_named_finding_logs_zero() {
+    let p = change_project();
+    let got = p.ok(&["gate", "change", "demo", "arch", "--", "rename the module"]);
+    assert!(got.contains("comprehension=2/0 zoom-out=1/0"), "{got}");
+}
+
+/// Finding IDs match as case-insensitive whole words, once each, shown only.
+#[test]
+fn it_gate_change_matches_ids_as_words() {
+    let p = change_project();
+    let got = p.ok(&["gate", "change", "demo", "arch", "--", "c2, (z1) C20 C2 C9"]);
+    assert!(got.contains("comprehension=2/1 zoom-out=1/1"), "{got}");
+}
+
+/// GA-R-171 — the result files are removed; a second change logs nothing.
+#[test]
+fn it_gate_change_removes_check_result_files() {
+    let p = change_project();
+    p.ok(&["gate", "change", "demo", "arch", "--", "C1"]);
+    assert!(!p.run_dir().join("check-comprehension.md").exists());
+    assert!(!p.run_dir().join("check-zoom-out.md").exists());
+    let before = design_lines(&p);
+    let got = p.ok(&["gate", "change", "demo", "arch", "--", "C1"]);
+    assert!(got.contains("comprehension=- zoom-out=-"), "{got}");
+    assert_eq!(design_lines(&p), before);
+}
+
+/// GA-R-166 — after a revision the stop shows the new results; an approve
+/// logs them with `changed=0`.
+#[test]
+fn it_gate_change_after_revision_shows_new_results() {
+    let p = change_project();
+    p.ok(&["gate", "change", "demo", "arch", "--", "C1"]);
+    let arch = p.ok(&["prompt", "render", "demo", "arch"]);
+    assert!(arch.contains("- comprehension: did not run"), "{arch}");
+    assert!(arch.contains("- zoom-out: did not run"), "{arch}");
+    let doc = p.run_dir().join("architecture.md");
+    let text = std::fs::read_to_string(&doc).unwrap();
+    assert!(text.contains("(rev 1)"), "{text}");
+    std::fs::write(&doc, text.replacen("(rev 1)", "(rev 2)", 1)).unwrap();
+    for (file, items) in [
+        ("check-comprehension.md", vec!["a", "b", "c"]),
+        ("check-zoom-out.md", vec!["z", "y"]),
+    ] {
+        check_file(&p, file, &items);
+        let path = p.run_dir().join(file);
+        let t = std::fs::read_to_string(&path).unwrap();
+        std::fs::write(
+            &path,
+            t.replace("architecture.md rev 1", "architecture.md rev 2"),
+        )
+        .unwrap();
+    }
+    let arch = p.ok(&["prompt", "render", "demo", "arch"]);
+    assert!(arch.contains("- comprehension: 3 findings"), "{arch}");
+    p.ok(&["gate", "approve", "demo", "arch"]);
+    let shown = p.ok(&["board", "show", "demo"]);
+    assert!(
+        shown.contains("scope=comprehension findings=3 changed=0"),
+        "{shown}"
+    );
+    assert!(
+        shown.contains("scope=zoom-out findings=2 changed=0"),
+        "{shown}"
+    );
+}
+
+/// GA-E-037 — a stop already answered refuses and logs nothing.
+#[test]
+fn it_gate_change_refuses_an_answered_stop() {
+    let p = change_project();
+    p.ok(&["gate", "approve", "demo", "arch"]);
+    let before = design_lines(&p);
+    both_checks(&p);
+    let out = p
+        .ferrule(&["gate", "change", "demo", "arch", "--", "C1"])
+        .output();
+    assert_eq!(out.status.code(), Some(1));
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("change=refused reason=answered"), "{text}");
+    assert_eq!(design_lines(&p), before);
+}
+
+/// GA-R-168 — refusals: no card, epic order, state.
+#[test]
+fn it_gate_change_refusals() {
+    let p = change_project();
+    let refused = |args: &[&str], reason: &str| {
+        let out = p.ferrule(args).output();
+        assert_eq!(out.status.code(), Some(1), "{args:?}");
+        let text = String::from_utf8_lossy(&out.stdout).into_owned();
+        assert!(
+            text.contains(&format!("change=refused reason={reason}")),
+            "{text}"
+        );
+    };
+    refused(&["gate", "change", "ghost", "arch", "--", "x"], "card");
+    refused(&["gate", "change", "demo", "epic", "--", "x"], "order");
+    p.ok(&["board", "set", "demo", "kind=epic"]);
+    p.ok(&["board", "move", "demo", "inreview"]);
+    refused(&["gate", "change", "demo", "epic", "--", "x"], "state");
+}
+
+/// GA-R-168 — an unknown gate or a missing answer is a usage error.
+#[test]
+fn it_gate_change_usage_errors() {
+    let p = change_project();
+    for args in [
+        &["gate", "change", "demo", "gate2", "--", "x"][..],
+        &["gate", "change", "demo", "arch"][..],
+    ] {
+        let out = p.ferrule(args).output();
+        assert_eq!(out.status.code(), Some(2), "{args:?}");
+    }
+}
+
 /// S12 — a brief of 2 entries has one combined early stop: gate 1 goes to
 /// the architect, the architecture stop approves the brief, gate 2 is a notice.
 #[test]

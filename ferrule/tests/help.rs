@@ -102,7 +102,7 @@ const SOURCES: &[(&str, &[&str])] = &[
     ),
     (
         "ferrule-core/src/run/gate.rs",
-        &["run init", "gate approve", "stage replan"],
+        &["run init", "gate approve", "gate change", "stage replan"],
     ),
     ("ferrule-core/src/run/ci.rs", &["ci wait"]),
     ("ferrule-core/src/run/commit.rs", &["stage commit"]),
@@ -145,7 +145,7 @@ const SOURCES: &[(&str, &[&str])] = &[
     ),
     (
         "ferrule/src/commands/gate.rs",
-        &["gate approve", "gate next"],
+        &["gate approve", "gate change", "gate next"],
     ),
     (
         "ferrule/src/commands/guide.rs",
@@ -1077,6 +1077,7 @@ const BOARD_OPENERS: &[&str] = &[
     "run log",
     "run export",
     "gate approve",
+    "gate change",
     "gate next",
     "stage red",
     "stage pins",
