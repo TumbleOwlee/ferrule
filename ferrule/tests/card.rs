@@ -965,6 +965,66 @@ fn it_metrics_kind() {
     );
 }
 
+/// RU-R-077 — the metrics line sums the `design-check` lines per check as
+/// checks/findings/changed.
+#[test]
+fn it_metrics_sum_design_checks_per_check() {
+    let dir = metrics_run(&[]);
+    let p = dir.path();
+    log_at(
+        p,
+        "2026-10-03T10:01",
+        &[
+            "mt",
+            "design-check",
+            "scope=comprehension",
+            "findings=2",
+            "changed=1",
+        ],
+    );
+    log_at(
+        p,
+        "2026-10-03T10:02",
+        &[
+            "mt",
+            "design-check",
+            "scope=comprehension",
+            "findings=3",
+            "changed=0",
+        ],
+    );
+    log_at(
+        p,
+        "2026-10-03T10:03",
+        &[
+            "mt",
+            "design-check",
+            "scope=zoom-out",
+            "findings=1",
+            "changed=1",
+        ],
+    );
+    log_at(p, "2026-10-03T10:05", &["mt", "ci=0"]);
+    let out = metrics(p, "mt");
+    assert!(
+        out.contains(" reads=0 comprehension=2/5/1 zoom-out=1/1/1 "),
+        "{out}"
+    );
+}
+
+/// RU-E-040 — a run without `design-check` lines reports zeros for both checks.
+#[test]
+fn it_metrics_without_design_checks_report_zeros() {
+    let dir = metrics_run(&[]);
+    let p = dir.path();
+    log_at(p, "2026-10-03T10:05", &["mt", "ci=0"]);
+    let out = metrics(p, "mt");
+    assert!(
+        out.contains(" comprehension=0/0/0 zoom-out=0/0/0 "),
+        "{out}"
+    );
+}
+
 #[test]
 fn it_metrics_take_a_waiver_without_ci() {
     let dir = project();

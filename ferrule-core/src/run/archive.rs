@@ -257,13 +257,32 @@ pub fn record(w: &Writer<'_>, slug: &str, now: &str, check: CiCheck) -> Result<S
             _ => None,
         })
         .sum();
+    let design = |c: check::Check| {
+        let mut sum = (0u64, 0u64, 0u64);
+        for e in &parent {
+            if let Typed::DesignCheck {
+                scope: Some(s),
+                findings,
+                changed,
+            } = e.typed()
+                && check::Check::parse(s) == Some(c)
+            {
+                sum.0 += 1;
+                sum.1 += findings.unwrap_or(0);
+                sum.2 += changed.unwrap_or(0);
+            }
+        }
+        format!("{}/{}/{}", sum.0, sum.1, sum.2)
+    };
+    let comprehension = design(check::Check::Comprehension);
+    let zoom_out = design(check::Check::ZoomOut);
     let reads = count(&stage_events, |t| {
         matches!(t, Typed::Read { path: Some(_) })
     });
     let reviews = reviews(&parent);
     let time = phase_times(&parent, &stage_events, &start);
     let metrics_line = format!(
-        "{slug} start={start} end={now} first-red={first_red} stages={} stops={} question={} approval={} stage={} blocked={} replans={} overturned={overturned} reads={reads} kind={kind} reviews={reviews} time={time} ci={ci}",
+        "{slug} start={start} end={now} first-red={first_red} stages={} stops={} question={} approval={} stage={} blocked={} replans={} overturned={overturned} reads={reads} comprehension={comprehension} zoom-out={zoom_out} kind={kind} reviews={reviews} time={time} ci={ci}",
         stages.len(),
         count(&parent, |t| matches!(t, Typed::Stop { kind: Some(_), .. })),
         stops(&parent, "question"),
