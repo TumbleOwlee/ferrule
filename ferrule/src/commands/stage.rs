@@ -559,7 +559,7 @@ fn replan(
         Ok(line) => {
             writeln!(out, "{line}")?;
             if matches!(step, ReplanStep::Approve) {
-                super::board::sync_draft(&mut s, slug, out)?;
+                super::board::sync_body(&mut s, slug, out)?;
             }
             Ok(exit::OK)
         }

@@ -351,6 +351,13 @@ impl Run<'_> {
 }
 
 impl Run<'_> {
+    /// `pr=ready` is logged on the run's parent card.
+    fn published(&self) -> Result<bool, Error> {
+        Ok(board::events(self.conn, self.slug, &[Name::Pr])?
+            .iter()
+            .any(|e| e.typed() == Typed::Pr(PrState::Ready)))
+    }
+
     /// What git cannot answer about the run: the issue open and carrying a
     /// comment per kept spec change, the PR's state against the log, and
     /// its body against the board. One `differ` row each; a check the
@@ -378,9 +385,7 @@ impl Run<'_> {
             }
         }
         if let Some(&n) = numbers(self.field("pr")?.as_deref()).first() {
-            let ready = board::events(self.conn, self.slug, &[Name::Pr])?
-                .iter()
-                .any(|e| e.typed() == Typed::Pr(PrState::Ready));
+            let ready = self.published()?;
             match self.host.status(&ItemRef::Number(n)) {
                 Ok(PrStatus {
                     state,
@@ -423,7 +428,7 @@ pub fn follow_up_numbers(dir: &Path) -> Vec<u32> {
         .collect()
 }
 
-/// What re-rendering the draft PR body did.
+/// What re-rendering the PR body did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Sync {
     Pushed,
@@ -635,6 +640,109 @@ mod tests {
             .unwrap();
         assert_eq!(got, Err(PublishRefused::Threads(1)));
         assert_eq!(host.calls(), ["threads 5"]);
+    }
+
+    /// A board with PR 41 on the host (draft per `draft`), a stale body, a
+    /// pr.md with `prose`, and `pr=ready` logged when `ready`.
+    fn synced(
+        ready: bool,
+        draft: bool,
+        prose: &str,
+    ) -> (tempfile::TempDir, Board, Layout, FakeHost) {
+        let (dir, mut db, layout, host) = setup(&[("branch", "feat/r"), ("pr", "41")]);
+        {
+            let mut s = host.0.borrow_mut();
+            s.open = Some(41);
+            "open".clone_into(&mut s.state);
+            s.draft = draft;
+            "stale".clone_into(&mut s.body);
+        }
+        std::fs::write(
+            layout.run_dir("r").join("pr.md"),
+            format!("# Retry clients\n\n{prose}\n"),
+        )
+        .unwrap();
+        if ready {
+            board::log(db.conn_mut(), "r", "pr=ready", &[], "t").unwrap();
+        }
+        (dir, db, layout, host)
+    }
+
+    /// GW-R-095 — a sync before publish writes the draft body.
+    #[test]
+    fn ut_sync_body_before_publish_writes_the_draft_body() {
+        let (_dir, mut db, layout, host) = synced(false, true, "Retries with backoff.");
+        let config = Config::default();
+        let mut run = run_on(&mut db, &layout, &config, &host);
+        assert_eq!(run.sync_body().unwrap(), Some(Sync::Pushed));
+        assert!(host.0.borrow().body.starts_with("Draft"));
+        assert!(host.calls().contains(&"edit 41".to_owned()));
+    }
+
+    /// GW-R-093 — a sync after publish writes the full body and passes no
+    /// title.
+    #[test]
+    fn ut_sync_body_after_publish_writes_the_full_body() {
+        let (_dir, mut db, layout, host) = synced(true, false, "Retries with backoff.");
+        "Kept title".clone_into(&mut host.0.borrow_mut().title);
+        let config = Config::default();
+        let mut run = run_on(&mut db, &layout, &config, &host);
+        assert_eq!(run.sync_body().unwrap(), Some(Sync::Pushed));
+        let s = host.0.borrow();
+        assert!(!s.body.starts_with("Draft"));
+        assert!(s.body.contains("Retries with backoff."));
+        assert_eq!(s.title, "Kept title");
+    }
+
+    /// GW-R-094 — the full body written after publish follows the run's
+    /// state at each sync.
+    #[test]
+    fn ut_sync_body_after_publish_follows_the_run_state() {
+        let (_dir, mut db, layout, host) = synced(true, false, "Retries with backoff.");
+        let config = Config::default();
+        let mut run = run_on(&mut db, &layout, &config, &host);
+        assert_eq!(run.sync_body().unwrap(), Some(Sync::Pushed));
+        assert!(!host.0.borrow().body.contains("review clean"));
+        run.log("review=clean", &[]).unwrap();
+        assert_eq!(run.sync_body().unwrap(), Some(Sync::Pushed));
+        assert!(host.0.borrow().body.contains("review clean"));
+        assert_eq!(run.sync_body().unwrap(), Some(Sync::Unchanged));
+    }
+
+    /// GW-E-027 — a PR already ready on the host, before publish, still gets
+    /// the draft body.
+    #[test]
+    fn ut_sync_body_keeps_the_draft_body_on_a_host_ready_pr() {
+        let (_dir, mut db, layout, host) = synced(false, false, "Retries with backoff.");
+        let config = Config::default();
+        let mut run = run_on(&mut db, &layout, &config, &host);
+        assert_eq!(run.sync_body().unwrap(), Some(Sync::Pushed));
+        assert!(host.0.borrow().body.starts_with("Draft"));
+    }
+
+    /// GW-E-028 — a PR back to draft on the host, after publish, still gets
+    /// the full body.
+    #[test]
+    fn ut_sync_body_keeps_the_full_body_on_a_host_draft_pr() {
+        let (_dir, mut db, layout, host) = synced(true, true, "Retries with backoff.");
+        let config = Config::default();
+        let mut run = run_on(&mut db, &layout, &config, &host);
+        assert_eq!(run.sync_body().unwrap(), Some(Sync::Pushed));
+        let s = host.0.borrow();
+        assert!(!s.body.starts_with("Draft"));
+        assert!(s.body.contains("Retries with backoff."));
+    }
+
+    /// GW-R-093 — a full body naming a stage is refused, never replaced by
+    /// the draft body.
+    #[test]
+    fn ut_sync_body_refuses_a_full_body_naming_a_stage() {
+        let (_dir, mut db, layout, host) = synced(true, false, "Fixed in s2.");
+        let config = Config::default();
+        let mut run = run_on(&mut db, &layout, &config, &host);
+        assert!(matches!(run.sync_body().unwrap(), Some(Sync::Refused(_))));
+        assert_eq!(host.0.borrow().body, "stale");
+        assert!(!host.calls().iter().any(|c| c.starts_with("edit")));
     }
 
     #[test]

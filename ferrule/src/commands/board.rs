@@ -663,7 +663,7 @@ fn move_card(card: &str, to: State, out: &mut impl Write) -> io::Result<u8> {
     };
     match s.write(|w| w.move_card(card, to, &board::now())) {
         Ok(()) => {
-            sync_draft(&mut s, card, out)?;
+            sync_body(&mut s, card, out)?;
             Ok(exit::OK)
         }
         Err(e) => match e.refusal(card, to) {
@@ -901,12 +901,12 @@ pub(crate) fn run_on<T>(
     f(&mut run)
 }
 
-/// After a move, the run's draft PR body re-rendered and pushed when the
+/// After a move, the run's PR body re-rendered and pushed when the
 /// run has a PR. A failure to reach the host does not undo the move.
 #[allow(clippy::redundant_closure_for_method_calls)]
-pub(crate) fn sync_draft(s: &mut Board, card: &str, out: &mut impl Write) -> io::Result<()> {
+pub(crate) fn sync_body(s: &mut Board, card: &str, out: &mut impl Write) -> io::Result<()> {
     let config = super::config()?;
-    match run_on(s, &config, publish::run_of(card), |r| r.sync_draft()) {
+    match run_on(s, &config, publish::run_of(card), |r| r.sync_body()) {
         Ok(Some(sync)) => writeln!(out, "{sync}"),
         Ok(None) => Ok(()),
         Err(e) => {

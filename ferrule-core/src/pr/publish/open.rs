@@ -1,5 +1,5 @@
-//! The draft PR: opened or adopted once, its body kept in step with the
-//! board.
+//! The PR: opened as a draft or adopted once, its body kept in step with
+//! the board.
 
 use super::{
     Error, Form, ItemRef, Name, PrState, Run, Sync, Typed, board, body, numbers, snapshot,
@@ -44,25 +44,25 @@ impl Run<'_> {
             self.log("pr=draft", &[])?;
         }
         if adopted.is_some() {
-            self.sync_draft()?;
+            self.sync_body()?;
         }
         Ok((n, true))
     }
 
-    /// Re-renders the draft body and pushes it when it differs from the
-    /// PR's; `None` while the run has no PR.
-    pub fn sync_draft(&mut self) -> Result<Option<Sync>, Error> {
+    /// Re-renders the PR body, full form once `pr=ready` is logged, draft
+    /// form before, and pushes it when it differs from the PR's; `None`
+    /// while the run has no PR.
+    pub fn sync_body(&mut self) -> Result<Option<Sync>, Error> {
         let Some(&n) = numbers(self.field("pr")?.as_deref()).first() else {
             return Ok(None);
         };
+        let form = if self.published()? {
+            Form::Full
+        } else {
+            Form::Draft
+        };
         let rendered = match snapshot(self.conn, |r| {
-            body::pr(
-                r,
-                self.layout,
-                self.slug,
-                Form::Draft,
-                &self.config.main_branch,
-            )
+            body::pr(r, self.layout, self.slug, form, &self.config.main_branch)
         }) {
             Ok(r) => r,
             Err(body::Error::StageRef(t)) => return Ok(Some(Sync::Refused(t))),

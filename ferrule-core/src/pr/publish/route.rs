@@ -8,7 +8,7 @@ impl Run<'_> {
     /// any, logs `feedback=<count>` and moves the stages owning their files
     /// back to inprogress (a file no stage lists goes to the last stage).
     /// The PR, the thread count, the stages moved and, when any moved, the
-    /// draft body's sync.
+    /// PR body's sync.
     pub fn route_feedback(&mut self) -> Result<(u64, usize, Vec<u32>, Option<Sync>), Error> {
         if board::state(self.conn, self.slug)?.is_none() {
             return Err(Error::Card);
@@ -74,7 +74,7 @@ impl Run<'_> {
         let sync = if owners.is_empty() {
             None
         } else {
-            self.sync_draft()?
+            self.sync_body()?
         };
         Ok((pr, count, owners, sync))
     }
