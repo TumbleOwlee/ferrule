@@ -136,10 +136,10 @@ Output:
       `--force-with-lease=refs/heads/<branch>:<sha>` on the head ferrule
       last pushed. Only the push-level steps ran (`checks=fast`), and the
       push logs `pushed=<sha>` on the card.
-      The PR's draft body was updated. `pr-body=unchanged` when it already
+      The PR's body was updated. `pr-body=unchanged` when it already
       matched.
   push=done sha=<sha> checks=fast pr-body=refused reason=stage-ref stage-ref=<token> hint=reword the text naming it; the PR keeps its previous body
-      Pushed (exit 0), but the draft body names a stage or an agent: the
+      Pushed (exit 0), but the body names a stage or an agent: the
       token sits in a card's `spec-delta` why or a `decisions.md` line.
       Fix: have the agent that wrote it reword it, then push again.
   push=done sha=<sha> checks=fast [cached] pr-body=opened pr=<n>

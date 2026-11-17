@@ -219,7 +219,7 @@ const MOVE_AFTER_LONG_HELP: &str = "\
 Output:
   (nothing)                      Moved, and `moved=<state>` logged on the card.
                                  Moving to the card's own state is a no-op.
-  pr-body=pushed                 The run has a PR; its draft body was
+  pr-body=pushed                 The run has a PR; its body was
                                  re-rendered and pushed.
   pr-body=unchanged              The run has a PR; the body did not change.
   pr-body=refused reason=stage-ref stage-ref=<t> hint=<fix>

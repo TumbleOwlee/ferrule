@@ -27,7 +27,7 @@ Output:
   pr-body=<state>
       Printed after it when a stage moved: `pushed` or `unchanged`.
   pr-body=refused reason=stage-ref stage-ref=<token> hint=reword the text naming it; the PR keeps its previous body
-      The draft body names a stage or an agent (the token sits in a card's
+      The PR body names a stage or an agent (the token sits in a card's
       `spec-delta` why or a `decisions.md` line); the PR keeps its body.
 Refusals (stdout, exit 1):
   route=refused reason=card hint=check the slug with `ferrule board list`
