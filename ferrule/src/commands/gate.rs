@@ -196,10 +196,15 @@ Usage: ferrule gate change <slug> <arch|epic> -- <answer>
   The answer words are joined with spaces and relayed verbatim; a finding
   counts as changed when the answer names its ID (`C2`, `z1`) as a whole word.
 Output:
-  change=done gate=<gate> comprehension=<findings>/<changed>|- zoom-out=<findings>/<changed>|-
+  change=done gate=<gate> comprehension=<findings>/<changed>|logged|- zoom-out=<findings>/<changed>|logged|-
       One `design-check scope=<scope> findings=<n> changed=<n>` line is logged
       per check with a current result; `-` marks a check without a result,
-      which logs no line. Both check result files are removed.
+      which logs no line. `logged` marks a result an earlier `change` answer
+      already logged: no line again. Both files are kept, each logged one
+      ending in a `Logged: change` line.
+  do: relay to the architect: <answer> · check results: <path>, <path>|none
+      The answer and the result files present, paths relative to the project
+      root; relay the line verbatim.
   change=refused reason=card|order|state|answered ... hint=<fix>
       card: no such run. order: `epic` on a run that is not an epic. state:
       the run is not open. answered: the `arch` field already holds a value.
@@ -208,6 +213,23 @@ Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
 
 Example:
   ferrule gate change <slug> arch -- change C2 and Z1
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.";
+
+const READY_AFTER_LONG_HELP: &str = "\
+Usage: ferrule gate ready <slug> <arch|epic>
+  Run after the architect answers `ready`, before the checks rerun.
+Output:
+  ready=done gate=<gate> removed=<0|1|2>
+      The check result files removed; an absent file is no error.
+  ready=refused reason=card|order|state|answered … hint=<fix>
+      card: no such run. order: `epic` on a run that is not an epic. state:
+      the run is not open. answered: the `arch` field already holds a value.
+      Nothing is removed.
+Exit codes: 0 ok, 1 refused, 2 usage, 4 internal error.
+
+Example:
+  ferrule gate ready <slug> arch
 Dev build: the open that takes a copy of an older shared board prints to stderr
 `ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.";
 
@@ -221,8 +243,7 @@ pub enum GateCommand {
     Approve(ApproveArgs),
     /// Record a `change` answer at the architecture or epic stop.
     ///
-    /// Logs the stop's design-check lines and removes both check result
-    /// files.
+    /// Logs the stop's design-check lines and keeps both check result files.
     #[command(after_long_help = CHANGE_AFTER_LONG_HELP)]
     Change {
         /// The run's slug.
@@ -233,6 +254,15 @@ pub enum GateCommand {
         /// The user's answer, joined with spaces.
         #[arg(last = true, required = true)]
         answer: Vec<String>,
+    },
+    /// Clear the stop's check results before the checks rerun.
+    #[command(after_long_help = READY_AFTER_LONG_HELP)]
+    Ready {
+        /// The run's slug.
+        slug: Slug,
+        /// The stop answered.
+        #[arg(value_enum)]
+        gate: ChangeGate,
     },
     /// Log an agent's outcome and print the next step.
     ///
@@ -337,6 +367,7 @@ pub fn run(command: &GateCommand, out: &mut impl Write) -> io::Result<u8> {
     match command {
         GateCommand::Approve(args) => approve(args, out),
         GateCommand::Change { slug, gate, answer } => change(slug, *gate, answer, out),
+        GateCommand::Ready { slug, gate } => ready(slug, *gate, out),
         GateCommand::Next {
             slug,
             position,
@@ -433,19 +464,60 @@ fn change(slug: &str, gate: ChangeGate, answer: &[String], out: &mut impl Write)
     let Some(mut s) = store()? else {
         return refuse(out, &Refusal::card("change"));
     };
-    match gate::change(&mut s, &layout(), g, slug, &answer.join(" "), &board::now()) {
+    let layout = layout();
+    let answer = answer.join(" ");
+    match gate::change(&mut s, &layout, g, slug, &answer, &board::now()) {
         Ok(c) => {
             write!(out, "change=done gate={}", g.as_str())?;
             for check in Check::ALL {
                 match c.logged.iter().find(|l| l.check == check) {
                     Some(l) => write!(out, " {}={}/{}", check.scope(), l.findings, l.changed)?,
+                    None if c.marked.contains(&check) => {
+                        write!(out, " {}=logged", check.scope())?;
+                    }
                     None => write!(out, " {}=-", check.scope())?,
                 }
             }
             writeln!(out)?;
+            let paths: Vec<String> = c
+                .results
+                .iter()
+                .map(|p| {
+                    p.strip_prefix(&layout.root)
+                        .unwrap_or(p)
+                        .display()
+                        .to_string()
+                })
+                .collect();
+            let paths = if paths.is_empty() {
+                "none".to_owned()
+            } else {
+                paths.join(", ")
+            };
+            writeln!(
+                out,
+                "do: relay to the architect: {answer} · check results: {paths}"
+            )?;
             Ok(exit::OK)
         }
         Err(e) => failed(e, "change", slug, out),
+    }
+}
+
+fn ready(slug: &str, gate: ChangeGate, out: &mut impl Write) -> io::Result<u8> {
+    let g = match gate {
+        ChangeGate::Arch => Gate::Arch,
+        ChangeGate::Epic => Gate::Epic,
+    };
+    let Some(mut s) = store()? else {
+        return refuse(out, &Refusal::card("ready"));
+    };
+    match gate::ready(&mut s, &layout(), g, slug) {
+        Ok(r) => {
+            writeln!(out, "ready=done gate={} removed={}", g.as_str(), r.removed)?;
+            Ok(exit::OK)
+        }
+        Err(e) => failed(e, "ready", slug, out),
     }
 }
 

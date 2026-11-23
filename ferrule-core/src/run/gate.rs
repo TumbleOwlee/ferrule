@@ -11,7 +11,7 @@
 //! | s1 | Add backoff | ferrowl-modbus/src/client_core.rs, ferrowl-modbus/src/lib.rs | s0 |
 //! ```
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 
@@ -982,25 +982,17 @@ pub fn approve(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Changed {
     pub gate: Gate,
+    /// The events this answer logged.
     pub logged: Vec<check::Logged>,
+    /// The result files present in the run directory afterwards.
+    pub results: Vec<PathBuf>,
+    /// The checks whose result an earlier `change` answer had already logged.
+    pub marked: Vec<check::Check>,
 }
 
-/// Records a `change` answer at the arch or epic stop: refused `Card`,
-/// `Order` (epic without `kind: epic`), `State` (not open), `Answered`
-/// (`arch` holds a value); else the design-check lines in one `db.write`,
-/// then the check result files are removed.
-///
-/// # Errors
-/// A refusal, or a board or file failure.
-pub fn change(
-    db: &mut Board,
-    layout: &Layout,
-    gate: Gate,
-    slug: &str,
-    answer: &str,
-    now: &str,
-) -> Result<Changed, Error> {
-    let conn = db.conn_mut();
+/// The refusals shared by `change` and `ready`: `Card`, `Order` (epic without
+/// `kind: epic`), `State` (not open), `Answered` (`arch` holds a value).
+fn stop_open(conn: &Connection, slug: &str, gate: Gate) -> Result<(), Error> {
     let Some(state) = board::state(conn, slug)? else {
         return Err(Error::Refused(GateRefusal::Card));
     };
@@ -1013,6 +1005,29 @@ pub fn change(
     if let Some(arch) = board::field(conn, slug, "arch")?.filter(|a| has(Some(a))) {
         return Err(Error::Refused(GateRefusal::Answered { gate, arch }));
     }
+    Ok(())
+}
+
+/// Records a `change` answer at the arch or epic stop: refused `Card`,
+/// `Order`, `State`, `Answered`; else the design-check lines in one
+/// `db.write`. No result file is removed: each result logged is marked so a
+/// later answer logs it no more.
+///
+/// # Errors
+/// A refusal, or a board or file failure.
+pub fn change(
+    db: &mut Board,
+    layout: &Layout,
+    gate: Gate,
+    slug: &str,
+    answer: &str,
+    now: &str,
+) -> Result<Changed, Error> {
+    stop_open(db.conn_mut(), slug, gate)?;
+    let marked: Vec<check::Check> = check::Check::ALL
+        .into_iter()
+        .filter(|&c| check::is_marked(layout, slug, c))
+        .collect();
     let logged = check::pending(layout, slug, check::Answer::Change(answer));
     db.write(|w| {
         for l in &logged {
@@ -1024,8 +1039,39 @@ pub fn change(
         }
         Ok::<_, Error>(())
     })?;
-    check::clear(layout, slug)?;
-    Ok(Changed { gate, logged })
+    for l in &logged {
+        check::mark(layout, slug, l.check)?;
+    }
+    let results = check::Check::ALL
+        .into_iter()
+        .map(|c| layout.run_dir(slug).join(c.file()))
+        .filter(|p| p.is_file())
+        .collect();
+    Ok(Changed {
+        gate,
+        logged,
+        results,
+        marked,
+    })
+}
+
+/// What a `ready` answer did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Ready {
+    pub gate: Gate,
+    /// The result files removed.
+    pub removed: usize,
+}
+
+/// Removes the stop's check result files before the checks rerun: refused as
+/// `change` is; logs nothing.
+///
+/// # Errors
+/// A refusal, or a board or file failure.
+pub fn ready(db: &mut Board, layout: &Layout, gate: Gate, slug: &str) -> Result<Ready, Error> {
+    stop_open(db.conn_mut(), slug, gate)?;
+    let removed = check::clear(layout, slug)?;
+    Ok(Ready { gate, removed })
 }
 
 /// The stage a re-plan starts from: the lowest without a commit, or, when
