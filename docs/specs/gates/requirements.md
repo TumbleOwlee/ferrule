@@ -360,4 +360,12 @@
 
 **GA-R-170** — `ferrule gate approve` at the architecture stop removes both check result files once it logs the stop's `design-check` events.
 
-**GA-R-171** — `ferrule gate change` removes both check result files once it logs the stop's `design-check` events.
+**GA-R-171** — `ferrule gate change` keeps both check result files after it logs the stop's `design-check` events.
+
+**GA-R-172** — Each time the architect answers `ready`, both check result files are removed before the checks rerun (GA-R-156).
+
+**GA-R-173** — `ferrule gate change` prints the relay of the `change` answer, which names the paths of the check result files present in the run directory.
+
+**GA-R-174** — `ferrule gate ready <slug> <arch|epic>` removes both check result files of the run; an absent file is no error.
+
+**GA-R-175** — `ferrule gate ready` refuses every run `ferrule gate change` refuses, for the same reason, and removes nothing.

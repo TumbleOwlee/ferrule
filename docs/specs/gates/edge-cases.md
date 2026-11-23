@@ -91,3 +91,5 @@
 **GA-E-037** — `ferrule gate change` on a run whose `arch` field already holds a value is refused and logs no `design-check` event.
 
 **GA-E-038** — A repeated `ferrule gate approve` of an architecture stop already approved logs no `design-check` event.
+
+**GA-E-039** — A check result whose `design-check` event a `change` answer has logged logs no further event when the stop is answered again before the result is replaced (GA-R-171, GA-R-165).
