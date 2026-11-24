@@ -23,8 +23,9 @@ Output:
       on the card. `issue=`, `worktree=` and `stages=` appear for gate2 only.
       Every approval, a repeated one too, logs `approved=<gate>` on the card.
       At `arch` and `epic`, each design check with a current result logs
-      `design-check scope=<scope> findings=<n> changed=0` on the card, and
-      both check result files are removed.
+      `design-check scope=<scope> findings=<n> changed=0` on the card, except
+      a result ending in `Logged: change` (an earlier `change` answer logged
+      it), and both check result files are removed.
       `action=recorded`: the gate was approved already; its date is kept
       (gate2 still does whatever is missing: worktree, stage cards).
 Gates, the parent card field each dates, what must come first and the
