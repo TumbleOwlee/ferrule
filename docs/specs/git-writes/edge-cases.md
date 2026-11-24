@@ -12,6 +12,14 @@
 
 **GW-E-023** — On a Rust project, an existing test counts as rewritten only when its body loses or changes a line, whitespace ignored; a test that only gains lines is not rewritten.
 
+**GW-E-029** — On a project whose stack is not Rust and with no configured test command, `ferrule stage red` refuses with `reason=stack`.
+
+**GW-E-031** — A `ferrule.toml` whose test command has no argument containing `{test}` is refused when it loads.
+
+**GW-E-032** — On a Rust project, a configured test command whose output names no failed test the way `cargo test` prints it gets `red=refused reason=no-failure` from `ferrule stage red`.
+
+**GW-E-034** — On a project whose stack is not Rust, a configured test command that exits zero gets `red=refused reason=no-failure` from `ferrule stage red`.
+
 ## Known gaps
 
 **GW-E-001** — A remote that moves after the divergence check passes fails at the push with the existing `reason=push` refusal.
@@ -49,6 +57,12 @@
 **GW-E-022** — On a Rust project, tests are told apart by function name, so two tests of one name in different modules count as one test.
 
 **GW-E-025** — With no stage left to commit after a merge outside ferrule, the sha stop's push again returns the same refusal to the same stop; only stop ends it (GW-E-002, GW-E-005).
+
+**GW-E-030** — On a project whose stack is not Rust, a non-zero exit of the configured test command is recorded as the named test's red whatever its cause, a failure of the environment it needs included.
+
+**GW-E-033** — With a configured test command, a test marked ignored runs only when that command's own arguments include ignored tests; ferrule adds none.
+
+**GW-E-035** — On a project whose stack is not Rust, the `test-red` a configured command records is read by no check: `ferrule stage commit` applies no test check (GW-E-017) and the stage checks run no new tests (GA-E-010); it stays on the card as the proof a reviewer reads.
 
 ## Body checks
 

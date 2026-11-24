@@ -190,6 +190,16 @@
 
 **GW-R-092** — `ferrule stage commit` logs every `--replaced` pair on the card, whatever the length of its test names.
 
+**GW-R-096** — `ferrule stage red` runs the tests matching `<test>` with the project's configured test command, `<test>` in place of its placeholder.
+
+**GW-R-097** — On a Rust project with no configured test command, `ferrule stage red` runs the tests matching `<test>` including those marked ignored.
+
+**GW-R-098** — On a project whose stack is not Rust, `ferrule stage red` with a configured test command records the named test as failed when the command exits non-zero.
+
+**GW-R-099** — A `ferrule stage red` run that exceeds the test command's timeout is refused with `reason=run`.
+
+**GW-R-100** — The test command's timeout is 30 minutes when `ferrule.toml` sets none.
+
 ## Files list
 
 **GW-R-077** — A stage changing a file outside its `files` list is noted on the card and blocks neither the commit nor the review.
