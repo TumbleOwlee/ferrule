@@ -223,6 +223,7 @@ fn run_gauntlet(
             stage,
             base: base.as_deref(),
             stack: config.stack.as_deref(),
+            test: &config.test,
             unreviewed,
         },
         force,

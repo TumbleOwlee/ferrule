@@ -246,6 +246,48 @@ pub fn pins(
     Ok(Ok(()))
 }
 
+/// The command one test runs with: a template whose `{test}` stands for the
+/// test's name, and the time it may take.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TestCommand {
+    template: Vec<String>,
+    pub timeout: Duration,
+}
+
+impl TestCommand {
+    /// The configured template; else on `stack = rust` the default; else none.
+    #[must_use]
+    pub fn resolve(test: &crate::config::Test, stack: Option<&str>) -> Option<TestCommand> {
+        let template = match (&test.command, stack) {
+            (Some(t), _) => t.clone(),
+            (None, Some("rust")) => [
+                "cargo",
+                "test",
+                "--workspace",
+                "--",
+                "{test}",
+                "--include-ignored",
+            ]
+            .map(str::to_owned)
+            .to_vec(),
+            (None, _) => return None,
+        };
+        Some(TestCommand {
+            template,
+            timeout: test.timeout,
+        })
+    }
+
+    /// The template with every `{test}` replaced by `test`.
+    #[must_use]
+    pub fn argv(&self, test: &str) -> Vec<String> {
+        self.template
+            .iter()
+            .map(|a| a.replace("{test}", test))
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -442,5 +484,62 @@ mod tests {
         log(&mut db, "demo.s1", "test-red", &["--", "t_new"]);
         let got = checked(&db, "demo.s1", &added(&["t_new"]), &[]);
         assert!(matches!(got, Err(CommitRefused::TestUnproven { .. })));
+    }
+
+    fn table(command: Option<&[&str]>, timeout: Duration) -> crate::config::Test {
+        crate::config::Test {
+            command: command.map(|c| c.iter().map(|a| (*a).to_owned()).collect()),
+            timeout,
+        }
+    }
+
+    fn strings(a: &[&str]) -> Vec<String> {
+        a.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    /// A configured command wins on every stack.
+    #[test]
+    fn ut_resolve_prefers_the_configured_command() {
+        let t = table(Some(&["sh", "-c", "go {test}"]), Duration::from_secs(7));
+        for stack in [Some("rust"), Some("node"), None] {
+            let c = TestCommand::resolve(&t, stack).unwrap();
+            assert_eq!(c.timeout, Duration::from_secs(7));
+            assert_eq!(c.argv("t"), strings(&["sh", "-c", "go t"]));
+        }
+    }
+
+    /// With no command only a Rust project gets the cargo default.
+    #[test]
+    fn ut_resolve_defaults_on_rust_only() {
+        let t = crate::config::Test::default();
+        let c = TestCommand::resolve(&t, Some("rust")).unwrap();
+        assert_eq!(
+            c.argv("t"),
+            strings(&[
+                "cargo",
+                "test",
+                "--workspace",
+                "--",
+                "t",
+                "--include-ignored"
+            ])
+        );
+        assert_eq!(c.timeout, Duration::from_mins(30));
+        assert_eq!(TestCommand::resolve(&t, Some("node")), None);
+        assert_eq!(TestCommand::resolve(&t, None), None);
+    }
+
+    /// GW-E-033 — the argument vector has the template's length: ferrule adds
+    /// no argument of its own.
+    #[test]
+    fn ut_argv_adds_no_argument() {
+        let t = table(
+            Some(&["run", "--filter={test}", "x{test}y"]),
+            Duration::from_secs(1),
+        );
+        let c = TestCommand::resolve(&t, None).unwrap();
+        let argv = c.argv("a::b");
+        assert_eq!(argv, strings(&["run", "--filter=a::b", "xa::by"]));
+        assert_eq!(argv.len(), 3);
     }
 }

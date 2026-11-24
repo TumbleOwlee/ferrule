@@ -227,6 +227,7 @@ impl Run<'_> {
             gauntlet::Steps {
                 all: &self.config.gauntlet.step,
                 level: Level::Push,
+                test: &self.config.test,
                 stage: None,
                 base: None,
                 stack: self.config.stack.as_deref(),
