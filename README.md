@@ -338,6 +338,10 @@ name = "cov"
 cmd = ["cargo", "llvm-cov", "--workspace", "--fail-under-lines", "80"]
 coverage = "llvm-cov"        # how the pass's cov= is read from the output
 
+[test]
+command = ["cargo", "test", "--workspace", "--", "{test}", "--include-ignored"]   # stage red and the stage checks run one test with it; {test} is required; unset: this on Rust, none elsewhere
+timeout = "30m"              # bounds each such run
+
 [viewer]
 command = ["glow"]           # prompt show appends the file path; unset or not startable: stdout
 

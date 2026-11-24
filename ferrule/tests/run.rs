@@ -2141,3 +2141,20 @@ esac
     let decline = at("pullrequests/34/decline").expect(&log);
     assert!(comment < decline, "{log}");
 }
+
+/// GW-E-031 — a `[test] command` without a `{test}` argument is refused when
+/// `ferrule.toml` loads: exit 4, nothing on stdout.
+#[test]
+fn it_test_command_without_placeholder_exits_4() {
+    let s = Scratch::new(1);
+    s.config("[test]\ncommand = [\"make\", \"check\"]\n");
+    let out = s.run(&["run", "status", "ss"]).output();
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(4), "{err}");
+    assert!(err.starts_with("ferrule: ferrule.toml: "), "{err}");
+    assert!(
+        err.contains("test command needs a {test} argument"),
+        "{err}"
+    );
+    assert!(out.stdout.is_empty());
+}

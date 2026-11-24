@@ -29,6 +29,7 @@ pub struct Config {
     pub hook: Hook,
     pub guard: Guard,
     pub thresholds: Thresholds,
+    pub test: Test,
 }
 
 /// A value accepted and dropped, so a key nothing reads any more still
@@ -55,6 +56,7 @@ impl Default for Config {
             hook: Hook::default(),
             guard: Guard::default(),
             thresholds: Thresholds::default(),
+            test: Test::default(),
         }
     }
 }
@@ -156,6 +158,39 @@ fn duration<'de, D: Deserializer<'de>>(d: D) -> Result<Duration, D::Error> {
     let s = String::deserialize(d)?;
     parse_duration(&s)
         .ok_or_else(|| serde::de::Error::custom(format!("expected <n>s, <n>m or <n>h, got {s}")))
+}
+
+/// `[test]`: the command `stage red` and the stage checks run one test with.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Test {
+    /// Program and arguments, run without a shell; `{test}` is replaced by
+    /// the test name. Unset: the stack's default.
+    #[serde(deserialize_with = "test_command")]
+    pub command: Option<Vec<String>>,
+    /// `90s`, `15m`, `1h`.
+    #[serde(deserialize_with = "duration")]
+    pub timeout: Duration,
+}
+
+impl Default for Test {
+    fn default() -> Self {
+        Test {
+            command: None,
+            timeout: default_timeout(),
+        }
+    }
+}
+
+fn test_command<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Vec<String>>, D::Error> {
+    let cmd = Vec::<String>::deserialize(d)?;
+    if cmd.iter().any(|a| a.contains("{test}")) {
+        Ok(Some(cmd))
+    } else {
+        Err(serde::de::Error::custom(
+            "test command needs a {test} argument",
+        ))
+    }
 }
 
 /// Where `prompt show` opens files.
@@ -290,6 +325,45 @@ mod tests {
             "[[gauntlet.step]]\nname = \"a\"\ncmd = [\"x\"]\nat = [\"never\"]\n",
         );
         assert!(bad.is_err());
+    }
+
+    /// GW-R-100 — `[test]` defaults to no command and a 30-minute timeout.
+    #[test]
+    fn ut_test_table_defaults() {
+        let d = Config::default();
+        assert_eq!(d.test, Test::default());
+        assert_eq!(d.test.command, None);
+        assert_eq!(d.test.timeout, Duration::from_mins(30));
+        let c: Config = toml::from_str("[test]\ncommand = [\"x\", \"{test}\"]\n").unwrap();
+        assert_eq!(c.test.timeout, Duration::from_mins(30));
+        let c: Config = toml::from_str("[test]\ntimeout = \"90s\"\n").unwrap();
+        assert_eq!(c.test.timeout, Duration::from_secs(90));
+        assert_eq!(c.test.command, None);
+    }
+
+    /// GW-E-031 — a test command with no `{test}` argument is refused at load.
+    #[test]
+    fn ut_test_command_needs_a_placeholder() {
+        for bad in ["[\"make\", \"check\"]", "[]"] {
+            let e = toml::from_str::<Config>(&format!("[test]\ncommand = {bad}\n")).unwrap_err();
+            assert!(
+                e.to_string()
+                    .contains("test command needs a {test} argument"),
+                "{e}"
+            );
+        }
+        let c: Config =
+            toml::from_str("[test]\ncommand = [\"sh\", \"-c\", \"run --filter={test}\"]\n")
+                .unwrap();
+        assert_eq!(
+            c.test.command,
+            Some(vec![
+                "sh".to_owned(),
+                "-c".to_owned(),
+                "run --filter={test}".to_owned()
+            ])
+        );
+        assert!(toml::from_str::<Config>("[test]\nnope = 1\n").is_err());
     }
 
     /// GA-R-113 — `[thresholds]` no longer reads the stage-stop size keys.
