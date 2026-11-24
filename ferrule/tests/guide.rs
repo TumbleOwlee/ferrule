@@ -1641,7 +1641,7 @@ fn it_architecture_guide_runs_both_checks_before_the_stop() {
     says(
         "architecture",
         &[
-            "`status=ready` → design checks, then `ferrule prompt render demo arch`",
+            "`status=ready` → `ferrule gate ready demo arch`, then the design checks, then `ferrule prompt render demo arch`",
             "spawn two `fe-checker` agents in parallel",
             "the checks add no stop",
         ],
@@ -1664,6 +1664,19 @@ fn it_epic_guide_records_a_change_answer() {
         "epic",
         &["ferrule gate change demo epic -- <the user's answer>"],
     );
+}
+
+/// GA-R-172, S3 — the stop topics clear the check results on the architect's `ready`.
+#[test]
+fn it_stop_topics_clear_check_results_on_ready() {
+    says(
+        "architecture",
+        &[
+            "ferrule gate ready demo arch",
+            "then relay its `do:` line verbatim",
+        ],
+    );
+    says("epic", &["ferrule gate ready demo epic"]);
 }
 
 /// GA-R-156 — the checks run again each time the stop is reached, also on resume.
@@ -1697,7 +1710,7 @@ fn it_epic_guide_runs_the_checks_after_the_skeleton() {
     says(
         "epic",
         &[
-            "the design checks below run before step 3",
+            "then the design checks below, before step 3",
             "spawn two `fe-checker` agents in parallel",
         ],
     );

@@ -145,7 +145,8 @@ Commands are grouped by what they act on. Most are run by the orchestrating agen
 | Command | Does |
 |---|---|
 | `ferrule gate approve <slug> <gate> [--<flag>…]` | Record an approval; gate 2 files the issue, adds the worktree and creates the stage cards from `plan.md`'s `## Shared` table |
-| `ferrule gate change <slug> <arch\|epic> -- <answer>` | Record a `change` answer at the architecture or epic stop: logs the design-check lines and removes the check results |
+| `ferrule gate change <slug> <arch\|epic> -- <answer>` | Record a `change` answer at the architecture or epic stop: logs the design-check lines, keeps the check results and prints the relay line |
+| `ferrule gate ready <slug> <arch\|epic>` | Remove the stop's check results after the architect's `ready`, before the checks rerun |
 | `ferrule gate next <slug> <gate1\|gate2\|replan\|stage\|gate3\|gate4\|ci> <status…>` | The next step after an agent's status line, with the guide topic to read |
 
 ### Stage

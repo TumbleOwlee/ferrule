@@ -9,7 +9,7 @@
 - `status=behavior-change` (non-behavior run) → `ferrule guide show principles --section 'Principles — implementation'`.
 - `status=no-arch` → `ferrule board set {slug} arch=no-arch`; no stop; gate 2 (its stop approves the brief while `gate1` is pending).
 - `status=ready slices=…` → the user chose an epic at the architect's size guard: `ferrule board set {slug} kind=epic`; the design checks, then `ferrule guide show epic` step 3.
-- `status=ready` → design checks, then `ferrule prompt render {slug} arch` (shows `architecture.summary.md`, `architecture.md` with the interface sketches, and the brief when still pending or moved). Change requested → `ferrule gate change {slug} arch -- <the user's answer>`, then relay to the same agent; its next `ready` runs the design checks again.
+- `status=ready` → `ferrule gate ready {slug} arch`, then the design checks, then `ferrule prompt render {slug} arch` (shows `architecture.summary.md`, `architecture.md` with the interface sketches, and the brief when still pending or moved). Change requested → `ferrule gate change {slug} arch -- <the user's answer>`, then relay its `do:` line verbatim to the same agent; its next `ready` runs the design checks again, after `ferrule gate ready {slug} arch`.
   - Approved → `ferrule gate approve {slug} arch` (records `gate1` too while it is pending); `ferrule guide show gate2`. Option 1, *stop at the plan too*: `--plan-stop`; without it the approval pre-authorizes gate 2's *On approval* once the plan review is clean.
 - The agent stays alive until gate 2's approval, for the planner's `arch-gap`; a resumed run spawns a fresh one, which re-reads `architecture.md`.
 

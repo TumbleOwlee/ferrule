@@ -1846,6 +1846,25 @@ fn it_abandon_at_the_architecture_stop_logs_design_checks() {
     assert!(c < z && z < a, "{card}");
 }
 
+/// GA-E-039 — an abandon logs no event for a result a `change` answer
+/// already logged.
+#[test]
+fn it_abandon_logs_no_marked_design_check() {
+    use std::io::Write as _;
+    let s = pushed_run();
+    seed_set(&s.root, "demo", &["arch="]);
+    seed_checks(&s);
+    let mut f = std::fs::OpenOptions::new()
+        .append(true)
+        .open(s.root.join(".ferrule/runs/demo/check-zoom-out.md"))
+        .unwrap();
+    f.write_all(b"Logged: change\n").unwrap();
+    drop(f);
+    let card = abandoned_card(&s);
+    assert!(card.contains("design-check scope=comprehension"), "{card}");
+    assert!(!card.contains("design-check scope=zoom-out"), "{card}");
+}
+
 /// GA-R-169 — abandoning past the architecture stop logs no design check.
 #[test]
 fn it_abandon_past_the_architecture_stop_logs_no_design_check() {

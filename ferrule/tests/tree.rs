@@ -33,6 +33,7 @@ run export
 gate
 gate approve
 gate change
+gate ready
 gate next
 stage
 stage commit

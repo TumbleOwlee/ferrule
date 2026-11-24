@@ -208,6 +208,9 @@ pub fn pending(layout: &Layout, slug: &str, answer: Answer<'_>) -> Vec<Logged> {
     Check::ALL
         .into_iter()
         .filter_map(|check| {
+            if is_marked(layout, slug, check) {
+                return None;
+            }
             let found = outcome(layout, slug, check).findings?;
             let changed = match answer {
                 Answer::Change(a) => named(a, check, found.len()),
@@ -222,18 +225,52 @@ pub fn pending(layout: &Layout, slug: &str, answer: Answer<'_>) -> Vec<Logged> {
         .collect()
 }
 
-/// Removes both result files; an absent file is no error.
+/// The last line of a result file whose event a `change` answer logged.
+pub const MARK: &str = "Logged: change";
+
+/// Whether the check's result file carries the `MARK` line. An absent or
+/// unreadable file is not marked.
+#[must_use]
+pub fn is_marked(layout: &Layout, slug: &str, check: Check) -> bool {
+    std::fs::read_to_string(layout.run_dir(slug).join(check.file()))
+        .is_ok_and(|t| t.lines().any(|l| l.trim_end() == MARK))
+}
+
+/// Appends the `MARK` line to the check's result file, after a newline when
+/// the file lacks one at its end. An absent file is no error.
+///
+/// # Errors
+/// Any read or write failure other than a missing file.
+pub fn mark(layout: &Layout, slug: &str, check: Check) -> std::io::Result<()> {
+    use std::io::Write;
+    let path = layout.run_dir(slug).join(check.file());
+    let text = match std::fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    let mut file = std::fs::OpenOptions::new().append(true).open(&path)?;
+    if !text.is_empty() && !text.ends_with('\n') {
+        file.write_all(b"\n")?;
+    }
+    writeln!(file, "{MARK}")
+}
+
+/// Removes both result files and returns how many existed; an absent file is
+/// no error.
 ///
 /// # Errors
 /// Any removal failure other than a missing file.
-pub fn clear(layout: &Layout, slug: &str) -> std::io::Result<()> {
+pub fn clear(layout: &Layout, slug: &str) -> std::io::Result<usize> {
+    let mut removed = 0;
     for check in Check::ALL {
         match std::fs::remove_file(layout.run_dir(slug).join(check.file())) {
+            Ok(()) => removed += 1,
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
-            _ => {}
+            Err(_) => {}
         }
     }
-    Ok(())
+    Ok(removed)
 }
 
 #[cfg(test)]
@@ -474,5 +511,39 @@ mod tests {
             changed: 1,
         };
         assert_eq!(l.args(), ["scope=zoom-out", "findings=3", "changed=1"]);
+    }
+
+    #[test]
+    fn ut_mark_puts_the_line_on_its_own_line() {
+        let (_d, l) = run(true);
+        write(&l, "check-zoom-out.md", CURRENT, "Findings:\n- a");
+        assert!(!is_marked(&l, "demo", Check::ZoomOut));
+        mark(&l, "demo", Check::ZoomOut).unwrap();
+        assert!(is_marked(&l, "demo", Check::ZoomOut));
+        let text = std::fs::read_to_string(l.run_dir("demo").join("check-zoom-out.md")).unwrap();
+        assert!(text.ends_with("- a\nLogged: change\n"), "{text}");
+        mark(&l, "demo", Check::Comprehension).unwrap();
+    }
+
+    #[test]
+    fn ut_marked_result_still_reads_and_is_not_pending() {
+        let (_d, l) = run(true);
+        write(&l, "check-comprehension.md", CURRENT, "Findings:\n- a\n");
+        write(&l, "check-zoom-out.md", CURRENT, "Findings:\n- z\n");
+        mark(&l, "demo", Check::Comprehension).unwrap();
+        let o = outcome(&l, "demo", Check::Comprehension);
+        assert_eq!(o.findings, Some(vec!["a".to_owned()]));
+        let got = pending(&l, "demo", Answer::Approve);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].check, Check::ZoomOut);
+    }
+
+    #[test]
+    fn ut_clear_counts_removed_files() {
+        let (_d, l) = run(true);
+        write(&l, "check-comprehension.md", CURRENT, "Findings:\n");
+        write(&l, "check-zoom-out.md", CURRENT, "Findings:\n");
+        assert_eq!(clear(&l, "demo").unwrap(), 2);
+        assert_eq!(clear(&l, "demo").unwrap(), 0);
     }
 }

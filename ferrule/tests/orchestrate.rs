@@ -4817,25 +4817,139 @@ fn it_gate_change_matches_ids_as_words() {
     assert!(got.contains("comprehension=2/1 zoom-out=1/1"), "{got}");
 }
 
-/// GA-R-171 — the result files are removed; a second change logs nothing.
+/// GA-R-171 — `change` keeps both result files and ends each logged one
+/// with the `Logged: change` line.
 #[test]
-fn it_gate_change_removes_check_result_files() {
+fn it_gate_change_keeps_check_result_files() {
     let p = change_project();
     p.ok(&["gate", "change", "demo", "arch", "--", "C1"]);
-    assert!(!p.run_dir().join("check-comprehension.md").exists());
-    assert!(!p.run_dir().join("check-zoom-out.md").exists());
+    for file in ["check-comprehension.md", "check-zoom-out.md"] {
+        let text = std::fs::read_to_string(p.run_dir().join(file)).unwrap();
+        assert_eq!(text.lines().last(), Some("Logged: change"), "{text}");
+    }
+}
+
+/// GA-E-039 — a marked result logs no further event on a second `change`
+/// or on `approve`.
+#[test]
+fn it_second_answer_logs_a_marked_result_once() {
+    let p = change_project();
+    p.ok(&["gate", "change", "demo", "arch", "--", "C1"]);
     let before = design_lines(&p);
+    assert_eq!(before, 2);
     let got = p.ok(&["gate", "change", "demo", "arch", "--", "C1"]);
-    assert!(got.contains("comprehension=- zoom-out=-"), "{got}");
+    assert!(
+        got.contains("comprehension=logged zoom-out=logged"),
+        "{got}"
+    );
+    assert_eq!(design_lines(&p), before);
+    p.ok(&["gate", "approve", "demo", "arch"]);
     assert_eq!(design_lines(&p), before);
 }
 
-/// GA-R-166 — after a revision the stop shows the new results; an approve
+/// GA-R-173, S2 — `change` prints the relay line naming the result files
+/// present, or `none`.
+#[test]
+fn it_gate_change_relays_the_check_result_paths() {
+    let p = change_project();
+    let got = p.ok(&["gate", "change", "demo", "arch", "--", "C1"]);
+    assert!(
+        got.contains(
+            "do: relay to the architect: C1 · check results: .ferrule/runs/demo/check-comprehension.md, .ferrule/runs/demo/check-zoom-out.md"
+        ),
+        "{got}"
+    );
+    let p = change_project();
+    std::fs::remove_file(p.run_dir().join("check-comprehension.md")).unwrap();
+    std::fs::remove_file(p.run_dir().join("check-zoom-out.md")).unwrap();
+    let got = p.ok(&["gate", "change", "demo", "arch", "--", "C1"]);
+    assert!(got.contains("· check results: none"), "{got}");
+}
+
+/// GA-R-174, S1 — `ready` removes both result files `change` kept; an absent
+/// file is no error; an unknown gate is a usage error.
+#[test]
+fn it_gate_ready_removes_check_result_files() {
+    let p = change_project();
+    p.ok(&["gate", "change", "demo", "arch", "--", "C1"]);
+    assert!(p.run_dir().join("check-comprehension.md").exists());
+    assert!(p.run_dir().join("check-zoom-out.md").exists());
+    let got = p.ok(&["gate", "ready", "demo", "arch"]);
+    assert!(got.contains("ready=done gate=arch removed=2"), "{got}");
+    assert!(!p.run_dir().join("check-comprehension.md").exists());
+    assert!(!p.run_dir().join("check-zoom-out.md").exists());
+    let got = p.ok(&["gate", "ready", "demo", "arch"]);
+    assert!(got.contains("removed=0"), "{got}");
+    let out = p.ferrule(&["gate", "ready", "demo", "gate2"]).output();
+    assert_eq!(out.status.code(), Some(2));
+}
+
+/// GA-R-175 — `ready` refuses what `change` refuses and removes nothing.
+#[test]
+fn it_gate_ready_refusals() {
+    let p = change_project();
+    let refused = |args: &[&str], reason: &str| {
+        let out = p.ferrule(args).output();
+        assert_eq!(out.status.code(), Some(1), "{args:?}");
+        let text = String::from_utf8_lossy(&out.stdout).into_owned();
+        assert!(
+            text.contains(&format!("ready=refused reason={reason}")),
+            "{text}"
+        );
+        assert!(p.run_dir().join("check-comprehension.md").exists());
+        assert!(p.run_dir().join("check-zoom-out.md").exists());
+    };
+    refused(&["gate", "ready", "ghost", "arch"], "card");
+    refused(&["gate", "ready", "demo", "epic"], "order");
+    p.ok(&["board", "set", "demo", "kind=epic"]);
+    p.ok(&["board", "move", "demo", "inreview"]);
+    refused(&["gate", "ready", "demo", "epic"], "state");
+    let p = change_project();
+    p.ok(&["gate", "approve", "demo", "arch"]);
+    both_checks(&p);
+    let out = p.ferrule(&["gate", "ready", "demo", "arch"]).output();
+    assert_eq!(out.status.code(), Some(1));
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("ready=refused reason=answered"), "{text}");
+    assert!(p.run_dir().join("check-comprehension.md").exists());
+    assert!(p.run_dir().join("check-zoom-out.md").exists());
+}
+
+/// S4 — after `ready`, a rerun that wrote one result leaves the other check
+/// as did not run, and approve logs just the one.
+#[test]
+fn it_failed_rerun_shows_no_stale_findings() {
+    let p = change_project();
+    p.ok(&["gate", "change", "demo", "arch", "--", "C1"]);
+    p.ok(&["gate", "ready", "demo", "arch"]);
+    check_file(&p, "check-comprehension.md", &["n"]);
+    let arch = p.ok(&["prompt", "render", "demo", "arch"]);
+    assert!(arch.contains("- zoom-out: did not run"), "{arch}");
+    assert!(!arch.contains("- Z1"), "{arch}");
+    let before = design_lines(&p);
+    p.ok(&["gate", "approve", "demo", "arch"]);
+    assert_eq!(design_lines(&p), before + 1);
+}
+
+/// S5 — the epic stop keeps the results on `change` until `ready`.
+#[test]
+fn it_epic_stop_keeps_check_results_until_ready() {
+    let p = change_project();
+    p.ok(&["board", "set", "demo", "kind=epic"]);
+    p.ok(&["gate", "change", "demo", "epic", "--", "x"]);
+    assert!(p.run_dir().join("check-comprehension.md").exists());
+    assert!(p.run_dir().join("check-zoom-out.md").exists());
+    let got = p.ok(&["gate", "ready", "demo", "epic"]);
+    assert!(got.contains("removed=2"), "{got}");
+}
+
+/// GA-R-166, GA-R-174, S3 — after a revision the stop shows the new results; an approve
 /// logs them with `changed=0`.
 #[test]
 fn it_gate_change_after_revision_shows_new_results() {
     let p = change_project();
     p.ok(&["gate", "change", "demo", "arch", "--", "C1"]);
+    p.ok(&["gate", "ready", "demo", "arch"]);
     let arch = p.ok(&["prompt", "render", "demo", "arch"]);
     assert!(arch.contains("- comprehension: did not run"), "{arch}");
     assert!(arch.contains("- zoom-out: did not run"), "{arch}");

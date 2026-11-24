@@ -14,9 +14,17 @@
 ## ferrule gate change
 
 - `ferrule gate change <slug> <arch|epic> -- <answer>` records a `change` answer; the answer words are joined with spaces (GA-R-168)
-- `change=done gate=<gate> comprehension=<findings>/<changed>|- zoom-out=<findings>/<changed>|-`; `-` marks a check without a result, which logs no event (GA-R-168, GA-R-167)
+- `change=done gate=<gate> comprehension=<findings>/<changed>|logged|- zoom-out=<findings>/<changed>|logged|-`; `logged` marks a result whose event an earlier `change` answer logged, `-` a check without a result; neither logs an event (GA-R-168, GA-R-167, GA-E-039)
+- `do: relay to the architect: <answer> · check results: <path>, <path>` (`· check results: none` without a result file), paths relative to the project root (GA-R-173)
 - `change=refused reason=card|order|state|answered … hint=<fix>`, exit 1; nothing is logged (GA-R-168, GA-E-037)
 - an unknown gate or a missing answer is a usage error (exit 2) (GA-R-168)
+
+## ferrule gate ready
+
+- `ferrule gate ready <slug> <arch|epic>` removes the stop's check result files before the checks rerun (GA-R-174, GA-R-172)
+- `ready=done gate=<gate> removed=<0|1|2>` (GA-R-174)
+- `ready=refused reason=card|order|state|answered … hint=<fix>`, exit 1; nothing is removed (GA-R-175)
+- an unknown gate is a usage error (exit 2) (GA-R-174)
 
 ## ferrule stage tier
 
@@ -51,7 +59,8 @@
 
 - a `decisions.md` line supersedes an earlier one when it has the same `[spec <ID>]` tag or its why starts `supersedes "<earlier choice>"`; a superseded line is left out of `Confirm:` (GA-R-111)
 - `check-comprehension.md` and `check-zoom-out.md` in the run directory, each with a `Checked: spec-diff.md rev <n>, architecture.md rev <m>` line (`rev -` without `spec-diff.md`) and a `Findings:` list (GA-R-156, GA-E-029)
-- `check-comprehension.md` and `check-zoom-out.md` are removed once `ferrule gate approve` or `ferrule gate change` answers the stop; a confirmed abandon archives them (GA-R-170, GA-R-171)
+- `check-comprehension.md` and `check-zoom-out.md` are removed once `ferrule gate approve` answers the stop or `ferrule gate ready` runs; `ferrule gate change` keeps them; a confirmed abandon archives them (GA-R-170, GA-R-171, GA-R-174)
+- a result file whose event `ferrule gate change` has logged ends with a `Logged: change` line and logs no event again; a checker's rewrite drops it (GA-E-039)
 
 ## Reviewer status line
 
