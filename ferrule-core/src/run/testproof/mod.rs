@@ -28,8 +28,6 @@ pub trait TestScanner {
     fn changes(&self, diff: &str) -> TestChanges;
     /// The tests a test run's output reports failed, as the runner names them.
     fn failed(&self, output: &str) -> Vec<String>;
-    /// Program and arguments that run the tests matching `test`.
-    fn command(&self, test: &str) -> Vec<String>;
     /// The pathspecs the diff is limited to.
     fn paths(&self) -> &'static [&'static str];
 }
@@ -99,7 +97,7 @@ pub fn check(
 pub enum ProofRefused {
     Card,
     State(State),
-    /// Not a Rust project.
+    /// Not a Rust project and no `[test] command`.
     Stack,
     /// The run reported no failed test.
     NoFailure,
@@ -121,15 +119,18 @@ fn gate(db: &Board, card: &str) -> rusqlite::Result<Result<(), ProofRefused>> {
     })
 }
 
-/// Runs the tests matching `test` in `wt`; logs one `test-red` per failed test.
+/// Runs the tests matching `test` in `wt` with the project's test command;
+/// logs one `test-red` per failed test.
 ///
 /// # Errors
 ///
 /// The state database failed.
+#[allow(clippy::too_many_arguments)]
 pub fn red(
     db: &mut Board,
     wt: &Path,
     card: &str,
+    config: &crate::config::Test,
     stack: Option<&str>,
     test: &str,
     mutation: Option<&str>,
@@ -138,18 +139,28 @@ pub fn red(
     if let Err(refused) = gate(db, card)? {
         return Ok(Err(refused));
     }
-    let Some(scanner) = scanner(stack) else {
+    let Some(command) = TestCommand::resolve(config, stack) else {
         return Ok(Err(ProofRefused::Stack));
     };
-    red_with(db, wt, card, scanner.as_ref(), test, mutation, now)
+    red_with(
+        db,
+        wt,
+        card,
+        scanner(stack).as_deref(),
+        &command,
+        test,
+        mutation,
+        now,
+    )
 }
 
-/// How long a `stage red` run may take.
-const RED_TIMEOUT: Duration = Duration::from_mins(30);
-
-/// The output of `scanner`'s command for `test` in `wt`, `None` when it
+/// The result and output of `command` for `test` in `wt`, `None` when it
 /// could not start or timed out.
-fn run_tests(wt: &Path, scanner: &dyn TestScanner, test: &str) -> Option<String> {
+fn run_tests(
+    wt: &Path,
+    command: &TestCommand,
+    test: &str,
+) -> Option<(gauntlet::StepResult, String)> {
     let log = std::env::temp_dir().join(format!(
         "ferrule-red-{}-{}.log",
         std::process::id(),
@@ -159,8 +170,8 @@ fn run_tests(wt: &Path, scanner: &dyn TestScanner, test: &str) -> Option<String>
     ));
     let step = Step {
         name: "red".to_owned(),
-        cmd: scanner.command(test),
-        timeout: RED_TIMEOUT,
+        cmd: command.argv(test),
+        timeout: command.timeout,
         coverage: None,
         at: vec![crate::config::Level::Full],
     };
@@ -169,24 +180,26 @@ fn run_tests(wt: &Path, scanner: &dyn TestScanner, test: &str) -> Option<String>
     let _ = std::fs::remove_file(&log);
     match result {
         // A failing test run is the point; only an unstartable or timed-out one is not.
-        Ok(gauntlet::StepResult::Ok | gauntlet::StepResult::Failed) => {
+        Ok(r @ (gauntlet::StepResult::Ok | gauntlet::StepResult::Failed)) => {
             let out = output?;
             // The step runner writes this line right after its header line.
             let spawn_failed = out
                 .lines()
                 .nth(1)
                 .is_some_and(|l| l.starts_with("ferrule: could not start "));
-            (!spawn_failed).then_some(out)
+            (!spawn_failed).then_some((r, out))
         }
         _ => None,
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn red_with(
     db: &mut Board,
     wt: &Path,
     card: &str,
-    scanner: &dyn TestScanner,
+    scanner: Option<&dyn TestScanner>,
+    command: &TestCommand,
     test: &str,
     mutation: Option<&str>,
     now: &str,
@@ -194,10 +207,14 @@ fn red_with(
     if let Err(refused) = gate(db, card)? {
         return Ok(Err(refused));
     }
-    let Some(output) = run_tests(wt, scanner, test) else {
+    let Some((result, output)) = run_tests(wt, command, test) else {
         return Ok(Err(ProofRefused::Run));
     };
-    let failed = scanner.failed(&output);
+    let failed = match scanner {
+        Some(s) => s.failed(&output),
+        None if matches!(result, gauntlet::StepResult::Failed) => vec![test.to_owned()],
+        None => Vec::new(),
+    };
     if failed.is_empty() {
         return Ok(Err(ProofRefused::NoFailure));
     }
@@ -295,9 +312,8 @@ mod tests {
 
     const NOW: &str = "2026-11-10T12:00";
 
-    /// Runs the shell script it holds whatever the test asked, and reads
-    /// `test <name> ... FAILED` lines as failures.
-    struct Fake(&'static str);
+    /// Reads `test <name> ... FAILED` lines as failures.
+    struct Fake;
 
     impl TestScanner for Fake {
         fn changes(&self, _diff: &str) -> TestChanges {
@@ -310,11 +326,16 @@ mod tests {
                 .map(str::to_owned)
                 .collect()
         }
-        fn command(&self, _test: &str) -> Vec<String> {
-            ["sh", "-c", self.0].map(str::to_owned).to_vec()
-        }
         fn paths(&self) -> &'static [&'static str] {
             &[]
+        }
+    }
+
+    /// Runs the shell script whatever the test asked.
+    fn sh(script: &str) -> TestCommand {
+        TestCommand {
+            template: vec!["sh".into(), "-c".into(), script.into()],
+            timeout: Duration::from_secs(30),
         }
     }
 
@@ -344,7 +365,8 @@ mod tests {
             &mut db,
             Path::new("."),
             "demo.s1",
-            &Fake(RED),
+            Some(&Fake),
+            &sh(RED),
             "t_",
             None,
             NOW,
@@ -362,7 +384,8 @@ mod tests {
             &mut db,
             Path::new("."),
             "demo.s1",
-            &Fake("printf 'test a::t_ok ... ok\\n'"),
+            Some(&Fake),
+            &sh("printf 'test a::t_ok ... ok\\n'"),
             "t_",
             None,
             NOW,
@@ -372,10 +395,125 @@ mod tests {
         assert!(lines(&db, "test-red").is_empty());
     }
 
+    fn config(command: &[&str], timeout: Duration) -> crate::config::Test {
+        crate::config::Test {
+            command: Some(command.iter().map(|a| (*a).to_owned()).collect()),
+            timeout,
+        }
+    }
+
+    fn red_in(
+        db: &mut Board,
+        config: &crate::config::Test,
+        stack: Option<&str>,
+    ) -> Result<Vec<String>, ProofRefused> {
+        red(
+            db,
+            Path::new("."),
+            "demo.s1",
+            config,
+            stack,
+            "t_x",
+            None,
+            NOW,
+        )
+        .unwrap()
+    }
+
+    /// GW-R-096 — `red` runs the configured command with the test in place of `{test}`.
+    #[test]
+    fn ut_red_runs_the_configured_command() {
+        let mut db = board(State::InProgress);
+        let c = config(
+            &["sh", "-c", "printf 'test a::{test} ... FAILED\\n'"],
+            Duration::from_secs(30),
+        );
+        assert_eq!(
+            red_in(&mut db, &c, Some("rust")),
+            Ok(vec!["a::t_x".to_owned()])
+        );
+        assert_eq!(lines(&db, "test-red"), ["test-red test=a::t_x"]);
+    }
+
+    /// GW-R-098 — off Rust a configured command that exits non-zero records the named test.
+    #[test]
+    fn ut_red_off_rust_records_a_failing_exit() {
+        let mut db = board(State::InProgress);
+        let c = config(&["sh", "-c", "exit 1 # {test}"], Duration::from_secs(30));
+        assert_eq!(red_in(&mut db, &c, None), Ok(vec!["t_x".to_owned()]));
+        assert_eq!(lines(&db, "test-red"), ["test-red test=t_x"]);
+    }
+
+    /// GW-E-030 — off Rust a failure of the environment is recorded like any non-zero exit.
+    #[test]
+    fn ut_red_off_rust_records_an_environment_failure() {
+        let mut db = board(State::InProgress);
+        let c = config(
+            &["sh", "-c", "echo db down >&2; exit 3 # {test}"],
+            Duration::from_secs(30),
+        );
+        assert_eq!(
+            red_in(&mut db, &c, Some("node")),
+            Ok(vec!["t_x".to_owned()])
+        );
+    }
+
+    /// GW-E-034 — off Rust a command that exits zero is refused with `NoFailure`.
+    #[test]
+    fn ut_red_off_rust_refuses_a_passing_exit() {
+        let mut db = board(State::InProgress);
+        let c = config(&["sh", "-c", "exit 0 # {test}"], Duration::from_secs(30));
+        assert_eq!(red_in(&mut db, &c, None), Err(ProofRefused::NoFailure));
+        assert!(lines(&db, "test-red").is_empty());
+    }
+
+    /// GW-E-032 — on Rust a failing exit with no failed test in the output is `NoFailure`.
+    #[test]
+    fn ut_red_on_rust_reads_failures_not_the_exit() {
+        let mut db = board(State::InProgress);
+        let c = config(
+            &["sh", "-c", "echo boom; exit 1 # {test}"],
+            Duration::from_secs(30),
+        );
+        assert_eq!(
+            red_in(&mut db, &c, Some("rust")),
+            Err(ProofRefused::NoFailure)
+        );
+    }
+
+    /// GW-R-099 — a run past the command's timeout is refused with `Run`.
+    #[test]
+    fn ut_red_refuses_a_run_past_its_timeout() {
+        let mut db = board(State::InProgress);
+        let c = config(&["sh", "-c", "sleep 5 # {test}"], Duration::from_secs(1));
+        assert_eq!(red_in(&mut db, &c, None), Err(ProofRefused::Run));
+        assert!(lines(&db, "test-red").is_empty());
+    }
+
+    /// A command that cannot start is `Run`, never a recorded failure.
+    #[test]
+    fn ut_red_refuses_an_unstartable_command() {
+        let mut db = board(State::InProgress);
+        let c = config(&["ferrule-no-such-program-{test}"], Duration::from_secs(30));
+        assert_eq!(red_in(&mut db, &c, None), Err(ProofRefused::Run));
+    }
+
+    /// GW-E-029 — off Rust with no configured command `red` refuses with `Stack`.
     #[test]
     fn ut_red_and_pins_refuse_off_rust() {
         let mut db = board(State::InProgress);
-        let got = red(&mut db, Path::new("."), "demo.s1", None, "t", None, NOW).unwrap();
+        let none = crate::config::Test::default();
+        let got = red(
+            &mut db,
+            Path::new("."),
+            "demo.s1",
+            &none,
+            None,
+            "t",
+            None,
+            NOW,
+        )
+        .unwrap();
         assert_eq!(got, Err(ProofRefused::Stack));
         let got = pins(&mut db, "demo.s1", Some("node"), "t", "why", NOW).unwrap();
         assert_eq!(got, Err(ProofRefused::Stack));
@@ -389,7 +527,8 @@ mod tests {
             &mut db,
             Path::new("."),
             "demo.s9",
-            &Fake(RED),
+            Some(&Fake),
+            &sh(RED),
             "t",
             None,
             NOW,
@@ -400,7 +539,8 @@ mod tests {
             &mut db,
             Path::new("."),
             "demo.s1",
-            &Fake(RED),
+            Some(&Fake),
+            &sh(RED),
             "t",
             None,
             NOW,

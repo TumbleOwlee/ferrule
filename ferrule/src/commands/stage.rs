@@ -91,11 +91,13 @@ See: ferrule guide show stages";
 
 /// Shown after `ferrule stage red --help`.
 const RED_AFTER_LONG_HELP: &str = "\
-Runs the tests matching <test> in the current directory with the stack's test
-command (a Rust project: `cargo test --workspace -- <test>`) and logs one
-`test-red test=<name>` per test the run reports failed; with --mutation <text>
-each line also carries `mutation=<text>`, the proof that the test fails when
-the code under it is broken.
+Runs the tests matching <test> in the current directory with the project's test
+command: `[test] command` in ferrule.toml with <test> in place of `{test}`, or on
+a Rust project without one `cargo test --workspace -- <test> --include-ignored`.
+Logs one `test-red test=<name>` per test the run reports failed (off Rust: <test>
+when the command exits non-zero); with --mutation <text> each line also carries
+`mutation=<text>`, the proof that the test fails when the code under it is
+broken.
 Output:
   red=recorded tests=<a,b>         One `test-red` logged per failed test
 Refusals (each line ends in `hint=<fix>`):
@@ -104,11 +106,13 @@ Refusals (each line ends in `hint=<fix>`):
   red=refused reason=state state=<s>
                                    The card is in <s>, not inprogress or
                                    inreview
-  red=refused reason=stack         Not a Rust project: only it records proofs
+  red=refused reason=stack         Not a Rust project and no [test] command
   red=refused reason=no-failure    The run reported no failed test (a test
-                                   that does not compile is none): make it
-                                   compile and fail, then run again
-  red=refused reason=run           The test command could not start or timed out
+                                   that does not compile is none; off Rust: the
+                                   command exited zero): make it compile and
+                                   fail, then run again
+  red=refused reason=run           The test command could not start or ran past
+                                   its timeout
 Exit codes: 0 ok, 1 refused, 4 internal error.
 Dev build: the open that takes a copy of an older shared board prints to stderr
 `ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
@@ -411,6 +415,8 @@ fn proof_refusal(verb: &'static str, refused: &ProofRefused) -> Refusal {
         ProofRefused::State(st) => Refusal::new(verb, "state")
             .field("state", st)
             .hint("move the card to inprogress first: `ferrule board move <card> inprogress`"),
+        ProofRefused::Stack if verb == "red" => Refusal::new(verb, "stack")
+            .hint("set [test] command in ferrule.toml, or stack = \"rust\" for the cargo default"),
         ProofRefused::Stack => Refusal::new(verb, "stack").hint(
             "only a Rust project records test proofs; set `stack = \"rust\"` in ferrule.toml",
         ),
@@ -418,7 +424,7 @@ fn proof_refusal(verb: &'static str, refused: &ProofRefused) -> Refusal {
             "the run reported no failed test: make the test compile and fail, then run again",
         ),
         ProofRefused::Run => Refusal::new(verb, "run")
-            .hint("the test command could not start or timed out: run it by hand"),
+            .hint("the test command could not start or ran past its timeout: run it by hand"),
     }
 }
 
@@ -432,6 +438,7 @@ fn red(card: &str, test: &str, mutation: Option<&str>, out: &mut impl Write) -> 
         &mut s,
         &here,
         card,
+        &config.test,
         config.stack.as_deref(),
         test,
         mutation,
