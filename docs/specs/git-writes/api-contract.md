@@ -19,15 +19,21 @@
 
 ## ferrule stage red
 
-- `ferrule stage red <card> <test> [--mutation <text>]` — runs the tests matching `<test>` in the current worktree with the stack's test command (GW-R-068).
+- `ferrule stage red <card> <test> [--mutation <text>]` — runs the tests matching `<test>` in the current worktree with the project's test command: `[test] command`, or on a Rust project without one the workspace tests including ignored ones (GW-R-068, GW-R-096, GW-R-097).
 - `red=recorded tests=<a,b>` — one `test-red` logged per test the run reports failed (GW-R-068, GW-R-073).
-- Refusals, each ending in `hint=<fix>`: `red=refused reason=card|state|stack`, `reason=no-failure` when the run reports no failed test (GW-E-019), `reason=run` when the test command cannot start or times out.
+- Refusals, each ending in `hint=<fix>`: `red=refused reason=card|state`; `reason=stack` only on a project whose stack is not Rust with no `[test] command`, hint `set [test] command in ferrule.toml, or stack = "rust" for the cargo default` (GW-E-029); `reason=no-failure` when the run reports no failed test, or off Rust when the command exits zero (GW-E-019, GW-E-032, GW-E-034); `reason=run` when the test command cannot start or runs past its timeout (GW-R-099).
 
 ## ferrule stage pins
 
 - `ferrule stage pins <card> <test> -- <text>` (GW-R-074).
 - `pins=recorded test=<t>`.
 - Refusals, each ending in `hint=<fix>`: `pins=refused reason=card|state|stack`.
+
+## ferrule.toml [test]
+
+- `command = [<arg>, …]` — program and arguments, run without a shell; `{test}` is replaced by the test name inside any argument and must appear in at least one, else `ferrule.toml` is refused when it loads with `test command needs a {test} argument` (GW-R-096, GW-E-031).
+- unset on a Rust project: `cargo test --workspace -- {test} --include-ignored` (GW-R-097); unset elsewhere: `ferrule stage red` refuses `reason=stack` (GW-E-029).
+- `timeout = "<n>s|<n>m|<n>h"`, default `30m`; bounds each `ferrule stage red` run and each stage-check test (GW-R-099, GW-R-100, GA-R-176).
 
 ## ferrule pr push refusals
 

@@ -199,12 +199,6 @@ impl TestScanner for RustScanner {
         out
     }
 
-    fn command(&self, test: &str) -> Vec<String> {
-        ["cargo", "test", "--workspace", "--", test]
-            .map(str::to_owned)
-            .to_vec()
-    }
-
     fn paths(&self) -> &'static [&'static str] {
         &["*.rs"]
     }
@@ -491,11 +485,7 @@ mod tests {
     }
 
     #[test]
-    fn ut_command_runs_cargo_test() {
-        assert_eq!(
-            RustScanner.command("t"),
-            names(&["cargo", "test", "--workspace", "--", "t"])
-        );
+    fn ut_paths_are_rust_sources() {
         assert_eq!(RustScanner.paths(), &["*.rs"]);
     }
 }

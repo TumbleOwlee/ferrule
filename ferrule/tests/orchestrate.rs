@@ -1791,12 +1791,16 @@ fn it_stage_pins_records_the_mark() {
     );
 }
 
-/// `stage red` and `stage pins` refuse a project whose stack is not Rust.
+/// GW-E-029, S4 — `stage red` and `stage pins` refuse a project whose stack is not Rust and has no test command.
 #[test]
 fn it_stage_red_and_pins_refuse_off_rust() {
     let p = stage_project();
     let red = in_dir(&p, &p.worktree(), &["stage", "red", "demo.s1", "t"]);
     assert!(red.starts_with("red=refused reason=stack hint="), "{red}");
+    assert!(
+        red.contains("hint=set [test] command in ferrule.toml"),
+        "{red}"
+    );
     let pins = in_dir(
         &p,
         &p.worktree(),
@@ -1806,7 +1810,68 @@ fn it_stage_red_and_pins_refuse_off_rust() {
         pins.starts_with("pins=refused reason=stack hint="),
         "{pins}"
     );
+    assert!(!pins.contains("set [test] command"), "{pins}");
     assert!(!p.ok(&["board", "show", "demo.s1"]).contains("test-red"));
+}
+
+/// Appends `table` to the project's `ferrule.toml`.
+fn append_config(p: &Project, table: &str) {
+    let toml = p.root.join(".ferrule").join("ferrule.toml");
+    let body = std::fs::read_to_string(&toml).unwrap();
+    std::fs::write(&toml, format!("{body}\n{table}")).unwrap();
+}
+
+/// GW-R-096, S1 — a configured wrapper runs an ignored test and the proof lets the commit through.
+#[test]
+fn it_stage_red_runs_a_configured_wrapper_on_an_ignored_test() {
+    let p = rust_project();
+    append_config(
+        &p,
+        "[test]\ncommand = [\"sh\", \"-c\", \"touch wrapper.ran && DB=up cargo test -- {test} --include-ignored\"]\n",
+    );
+    let mut tests = module_of(&[("t_gone", SAME), ("t_changed", SAME)]);
+    tests.push_str(
+        "\n    #[test]\n    #[ignore]\n    fn t_db() {\n        assert_eq!(std::env::var(\"DB\").as_deref(), Ok(\"down\"));\n    }\n",
+    );
+    write_tests(&p, &tests);
+    git(&p.worktree(), &["add", "src/lib.rs"]);
+    let got = cargo_in(
+        &p,
+        &["stage", "red", "demo.s1", "t_db", "--mutation", "db flips"],
+    );
+    assert_eq!(got, "red=recorded tests=tests::t_db\nexit=0");
+    assert!(p.worktree().join("wrapper.ran").exists());
+    std::fs::remove_file(p.worktree().join("wrapper.ran")).unwrap();
+    let c = commit_in(&p, &[]);
+    assert!(c.starts_with("commit=done sha="), "{c}");
+}
+
+/// GW-R-097, S2 — with no `[test]` table a Rust project's red run includes ignored tests.
+#[test]
+fn it_stage_red_default_runs_an_ignored_test() {
+    let p = rust_project();
+    write_tests(
+        &p,
+        "    #[test]\n    #[ignore]\n    fn t_new() {\n        assert_eq!(1, 2);\n    }\n",
+    );
+    let got = cargo_in(&p, &["stage", "red", "demo.s1", "t_new", "--mutation", "m"]);
+    assert_eq!(got, "red=recorded tests=tests::t_new\nexit=0");
+}
+
+/// GW-R-098, S3 — off Rust a configured command that exits non-zero records the named test.
+#[test]
+fn it_stage_red_off_rust_records_a_failing_command() {
+    let p = stage_project();
+    append_config(
+        &p,
+        "[test]\ncommand = [\"sh\", \"-c\", \"exit 1 # {test}\"]\n",
+    );
+    let got = in_dir(&p, &p.worktree(), &["stage", "red", "demo.s1", "t_x"]);
+    assert_eq!(got, "red=recorded tests=t_x\nexit=0");
+    assert!(
+        p.ok(&["board", "show", "demo.s1"])
+            .contains("test-red test=t_x")
+    );
 }
 
 /// A test module's body: each `(name, body)` written as the fixture's tests are.

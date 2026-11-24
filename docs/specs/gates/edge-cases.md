@@ -42,6 +42,8 @@
 
 **GA-E-020** — A stage change that breaks only a dependent crate's tests is caught at the review point or gate 3, not at the stage's checks.
 
+**GA-E-040** — A test the stage checks run that exceeds the test command's timeout ends the checks with `gauntlet=fail step=test:<name> reason=timeout`.
+
 ## Review rules
 
 **GA-E-016** — A clean review reporting `minors=0` routes straight to its stop, with no fix step.

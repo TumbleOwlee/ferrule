@@ -1045,7 +1045,7 @@ fn it_gauntlet_stage_checks_run_push_steps_and_new_tests() {
     assert!(log.contains("### pushed:"), "{log}");
     assert!(log.contains("### everywhere:"), "{log}");
     assert!(
-        log.contains("### test:t_added: cargo test --workspace -- t_added"),
+        log.contains("### test:t_added: cargo test --workspace -- t_added --include-ignored"),
         "{log}"
     );
     assert!(
@@ -1061,6 +1061,57 @@ fn stage_checks(s: &Scratch) -> (String, String) {
     args.push("s1");
     let out = s.run(&args).text();
     (out, gauntlet_log(s))
+}
+
+/// A `[test]` table added after the steps of `crate_scratch`.
+fn with_test_table(s: &Scratch, stack: &str, table: &str) {
+    s.config(&format!("{stack}{LEVELS}\n[test]\n{table}"));
+}
+
+/// GA-R-176 — the stage checks run an added test with the configured
+/// test command.
+#[test]
+fn it_gauntlet_stage_checks_use_the_test_command() {
+    let s = crate_scratch("stack = \"rust\"\n");
+    with_test_table(
+        &s,
+        "stack = \"rust\"\n",
+        "command = [\"sh\", \"-c\", \"echo ran-{test}\"]\n",
+    );
+    let (out, log) = stage_checks(&s);
+    assert!(out.starts_with("gauntlet=pass"), "{out}");
+    assert!(
+        log.contains("### test:t_added: sh -c echo ran-t_added"),
+        "{log}"
+    );
+    assert!(log.lines().any(|l| l == "ran-t_added"), "{log}");
+}
+
+/// GA-E-040 — a stage-check test past the test timeout ends the checks
+/// with `reason=timeout`.
+#[test]
+fn it_gauntlet_stage_test_past_timeout_fails() {
+    let s = crate_scratch("stack = \"rust\"\n");
+    with_test_table(
+        &s,
+        "stack = \"rust\"\n",
+        "command = [\"sh\", \"-c\", \"sleep 5 # {test}\"]\ntimeout = \"1s\"\n",
+    );
+    let (out, _) = stage_checks(&s);
+    assert!(out.starts_with("gauntlet=fail step=test:t_added "), "{out}");
+    assert!(out.contains(" reason=timeout"), "{out}");
+}
+
+/// GW-E-035 — off Rust the stage checks run no new test, a configured
+/// command or not.
+#[test]
+fn it_gauntlet_stage_tests_skipped_off_rust_with_a_command() {
+    let s = crate_scratch("");
+    with_test_table(&s, "", "command = [\"sh\", \"-c\", \"echo ran-{test}\"]\n");
+    let (out, log) = stage_checks(&s);
+    assert!(out.starts_with("gauntlet=pass"), "{out}");
+    assert!(log.contains("### pushed:"), "{log}");
+    assert!(!log.contains("### test:") && !log.contains("ran-"), "{log}");
 }
 
 /// GA-R-115 — a batched stage's checks also run the review-level steps, a step
@@ -2140,4 +2191,21 @@ esac
     let comment = at("pullrequests/34/comments").expect(&log);
     let decline = at("pullrequests/34/decline").expect(&log);
     assert!(comment < decline, "{log}");
+}
+
+/// GW-E-031 — a `[test] command` without a `{test}` argument is refused when
+/// `ferrule.toml` loads: exit 4, nothing on stdout.
+#[test]
+fn it_test_command_without_placeholder_exits_4() {
+    let s = Scratch::new(1);
+    s.config("[test]\ncommand = [\"make\", \"check\"]\n");
+    let out = s.run(&["run", "status", "ss"]).output();
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(4), "{err}");
+    assert!(err.starts_with("ferrule: ferrule.toml: "), "{err}");
+    assert!(
+        err.contains("test command needs a {test} argument"),
+        "{err}"
+    );
+    assert!(out.stdout.is_empty());
 }

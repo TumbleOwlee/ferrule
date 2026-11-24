@@ -13,9 +13,10 @@ use std::time::{Duration, Instant};
 
 use rusqlite::{Connection, OptionalExtension, params};
 
-use crate::config::{Coverage, Level, Step, default_timeout};
+use crate::config::{Coverage, Level, Step, Test};
 use crate::git;
 use crate::refusal::Refusal;
+use crate::run::testproof::TestCommand;
 use crate::store::Board;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -258,6 +259,8 @@ pub struct Steps<'a> {
     /// the crates the stage's diff since `base` touches; none when it
     /// touches no crate or the stack is not Rust.
     pub unreviewed: bool,
+    /// The `[test]` table the stage's new tests run with.
+    pub test: &'a Test,
 }
 
 /// Package names of the crates whose files differ between `base` and the
@@ -361,10 +364,11 @@ fn selected(wt: &Path, steps: Steps<'_>) -> Vec<Step> {
 
 /// One step per test the stage's diff since `base` adds or rewrites.
 fn stage_tests(wt: &Path, steps: Steps<'_>) -> Vec<Step> {
-    let (Some(_), Some(base), Some(scanner)) = (
+    let (Some(_), Some(base), Some(scanner), Some(command)) = (
         steps.stage,
         steps.base,
         crate::run::testproof::scanner(steps.stack),
+        TestCommand::resolve(steps.test, steps.stack),
     ) else {
         return Vec::new();
     };
@@ -398,9 +402,9 @@ fn stage_tests(wt: &Path, steps: Steps<'_>) -> Vec<Step> {
     names
         .into_iter()
         .map(|name| Step {
-            cmd: scanner.command(&name),
+            cmd: command.argv(&name),
             name: format!("test:{name}"),
-            timeout: default_timeout(),
+            timeout: command.timeout,
             coverage: None,
             at: Vec::new(),
         })
@@ -675,6 +679,10 @@ mod tests {
         base: Option<&'a str>,
         stack: Option<&'a str>,
     ) -> Steps<'a> {
+        static NO_TEST: Test = Test {
+            command: None,
+            timeout: Duration::from_secs(5),
+        };
         Steps {
             all: steps,
             level,
@@ -682,6 +690,7 @@ mod tests {
             base,
             stack,
             unreviewed: false,
+            test: &NO_TEST,
         }
     }
 
