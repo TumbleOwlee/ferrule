@@ -1,0 +1,25 @@
+version = "0.1.5"
+stack = "rust"
+main_branch = "main"
+
+[backend]
+tracker = "github"
+host = "github"
+
+[[gauntlet.step]]
+name = "fmt"
+cmd = ["cargo", "fmt", "--check"]
+timeout = "30m"
+
+[[gauntlet.step]]
+name = "clippy"
+cmd = ["cargo", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"]
+timeout = "30m"
+
+[[gauntlet.step]]
+name = "test"
+cmd = ["cargo", "test", "--workspace"]
+timeout = "30m"
+
+[viewer]
+command = ["glow"]

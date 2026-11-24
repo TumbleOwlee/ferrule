@@ -27,6 +27,5 @@ rustc-ice-*.txt
 # Added by cargo
 
 /target
-/.ferrule/
 
 .workflow/
