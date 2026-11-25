@@ -4169,6 +4169,97 @@ fn it_pushed_commit_lets_the_stage_move_to_done() {
     assert!(!p.ok(&["board", "show", "demo"]).contains("gauntlet=pass"));
 }
 
+/// Reopens `demo.s1` after a rebase: its last `commit=` is the rebased twin.
+fn reopened_after_rebase() -> Project {
+    let (p, _) = rebased_after_push();
+    p.ok(&["board", "move", "demo.s1", "inprogress"]);
+    p.ok(&["board", "move", "demo.s1", "inreview"]);
+    p
+}
+
+/// A pushed run whose head is `demo.s2`'s commit above `demo.s1`'s, which
+/// is still in review and was never pushed on its own.
+fn inner_in_review() -> Project {
+    let (p, _) = pushed_run();
+    p.land("s1", "src/client.rs");
+    std::fs::write(p.worktree().join("src/server.rs"), "s2\n").unwrap();
+    git(&p.worktree(), &["add", "."]);
+    git(&p.worktree(), &["commit", "-qm", "s2"]);
+    let sha = git(&p.worktree(), &["rev-parse", "--short", "HEAD"]);
+    seed_log(
+        &p.root,
+        "2026-10-05T09:00",
+        "demo.s2",
+        &[&format!("commit={sha}")],
+    );
+    assert!(push_text(&p).starts_with("push=done "));
+    p
+}
+
+/// S1, GW-R-102 — an inner stage commit under the pushed head moves to done.
+#[test]
+fn it_inner_stage_commit_moves_to_done() {
+    let p = inner_in_review();
+    p.ok(&["board", "move", "demo.s1", "done"]);
+    assert!(p.ok(&["board", "show", "demo.s1"]).contains("moved=done"));
+}
+
+/// S2 — a reopened stage moves to done once a push after the rebase holds its twin.
+#[test]
+fn it_reopened_stage_after_rebase_moves_to_done() {
+    let p = inner_in_review();
+    p.diverge_branch("main");
+    assert!(rebase(&p, &[]).starts_with("rebase=done "));
+    p.ok(&["board", "move", "demo.s1", "inprogress"]);
+    p.ok(&["board", "move", "demo.s1", "inreview"]);
+    let got = push_text(&p);
+    assert!(got.starts_with("push=done "), "{got}");
+    p.ok(&["board", "move", "demo.s1", "done"]);
+}
+
+/// S3 — a stuck stage moves to done with no new log line besides `moved=done`.
+#[test]
+fn it_stuck_stage_moves_to_done_without_a_new_push() {
+    let p = inner_in_review();
+    let run = p.ok(&["board", "show", "demo"]);
+    let before = p.ok(&["board", "show", "demo.s1"]);
+    p.ok(&["board", "move", "demo.s1", "done"]);
+    assert_eq!(p.ok(&["board", "show", "demo"]), run);
+    let after = p.ok(&["board", "show", "demo.s1"]);
+    let log = |t: &str| t.rsplit("---\n").next().unwrap().to_owned();
+    assert_eq!(
+        log(&after),
+        format!("{}\n2026-10-05T09:00 moved=done", log(&before)),
+        "{after}"
+    );
+}
+
+/// S4, GW-R-101 — an unpushed stage commit is refused with its sha.
+#[test]
+fn it_unpushed_stage_commit_is_refused_with_its_sha() {
+    let (p, _) = pushed_run();
+    let sha = p.land("s1", "src/client.rs");
+    let got = p.ferrule(&["board", "move", "demo.s1", "done"]).text();
+    assert!(
+        got.starts_with(&format!(
+            "card-move=refused reason=unverified from=inreview to=done commit={sha} hint="
+        )),
+        "{got}"
+    );
+    assert!(got.contains("ferrule pr push"), "{got}");
+}
+
+/// S5 — a push before a rebase does not verify the stage.
+#[test]
+fn it_push_before_a_rebase_does_not_verify() {
+    let p = reopened_after_rebase();
+    let got = p.ferrule(&["board", "move", "demo.s1", "done"]).text();
+    assert!(
+        got.starts_with("card-move=refused reason=unverified "),
+        "{got}"
+    );
+}
+
 /// GW-R-051 — a remote moved by someone else refuses the force-push before the gauntlet.
 #[test]
 fn it_push_after_a_rebase_refuses_a_remote_moved_by_someone_else() {

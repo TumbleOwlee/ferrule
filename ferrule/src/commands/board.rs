@@ -7,6 +7,7 @@ use clap::{Subcommand, ValueEnum};
 use ferrule_core::card::board::{self, CardError, LogError, State};
 use ferrule_core::card::vocab;
 use ferrule_core::config::Config;
+use ferrule_core::git;
 use ferrule_core::pr::publish;
 use ferrule_core::project;
 use ferrule_core::refusal::{Exit, Refusal};
@@ -661,7 +662,9 @@ fn move_card(card: &str, to: State, out: &mut impl Write) -> io::Result<u8> {
     let Some(mut s) = store()? else {
         return refuse(out, &Refusal::card("card-move"));
     };
-    match s.write(|w| w.move_card(card, to, &board::now())) {
+    let cwd = std::env::current_dir()?;
+    let contains = |c: &str, h: &str| git::is_ancestor(&cwd, c, h);
+    match s.write(|w| w.move_card(card, to, &board::now(), &contains)) {
         Ok(()) => {
             sync_body(&mut s, card, out)?;
             Ok(exit::OK)

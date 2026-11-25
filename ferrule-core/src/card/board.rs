@@ -877,7 +877,7 @@ pub fn set_move_create(
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(sql)?;
     set_in(&tx, id, fields).map_err(|e| BatchError::Card(id.to_owned(), e))?;
-    move_in(&tx, id, to, now).map_err(|e| BatchError::Move(id.to_owned(), e))?;
+    move_in(&tx, id, to, now, &|_, _| false).map_err(|e| BatchError::Move(id.to_owned(), e))?;
     insert_all(&tx, create, now)?;
     tx.commit().map_err(sql)
 }
@@ -1237,6 +1237,8 @@ pub enum MoveError {
     Refused {
         from: State,
         reason: Refusal,
+        /// The stage commit an `Unverified` refusal names.
+        commit: Option<String>,
     },
     Sql(rusqlite::Error),
 }
@@ -1249,13 +1251,23 @@ impl MoveError {
         match self {
             MoveError::Card => Some(crate::refusal::Refusal::card("card-move")),
             MoveError::Log(r) => Some(r.refusal()),
-            MoveError::Refused { from, reason } => Some(
-                crate::refusal::Refusal::new("card-move", reason.as_str())
+            MoveError::Refused {
+                from,
+                reason,
+                commit,
+            } => {
+                let line = crate::refusal::Refusal::new("card-move", reason.as_str())
                     .field("from", from)
-                    .field("to", to)
-                    .hint(reason.hint(*from, CardId::parse(id).stage.is_some()))
-                    .exit(crate::refusal::Exit::Usage),
-            ),
+                    .field("to", to);
+                let line = match commit {
+                    Some(sha) => line.field("commit", sha),
+                    None => line,
+                };
+                Some(
+                    line.hint(reason.hint(*from, CardId::parse(id).stage.is_some()))
+                        .exit(crate::refusal::Exit::Usage),
+                )
+            }
             MoveError::Sql(_) => None,
         }
     }
@@ -1266,7 +1278,7 @@ impl fmt::Display for MoveError {
         match self {
             MoveError::Card => f.write_str("no such card"),
             MoveError::Log(r) => write!(f, "{r}"),
-            MoveError::Refused { from, reason } => {
+            MoveError::Refused { from, reason, .. } => {
                 write!(f, "move from {from} refused: {}", reason.as_str())
             }
             MoveError::Sql(e) => write!(f, "state database: {e}"),
@@ -1292,23 +1304,40 @@ impl From<rusqlite::Error> for MoveError {
 
 /// Moves a card, refusing what the board's rules forbid, and logs
 /// `moved=<state>` in the same transaction. Moving to the current state is
-/// a no-op.
-pub fn move_card(conn: &mut Connection, id: &str, to: State, now: &str) -> Result<(), MoveError> {
+/// a no-op. `contains(commit, head)` tells whether `head` holds `commit`;
+/// a stage's done move asks it of each verified sha.
+pub fn move_card(
+    conn: &mut Connection,
+    id: &str,
+    to: State,
+    now: &str,
+    contains: &dyn Fn(&str, &str) -> bool,
+) -> Result<(), MoveError> {
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    move_in(&tx, id, to, now)?;
+    move_in(&tx, id, to, now, contains)?;
     tx.commit()?;
     Ok(())
 }
 
-fn move_in(tx: &Connection, id: &str, to: State, now: &str) -> Result<(), MoveError> {
+fn move_in(
+    tx: &Connection,
+    id: &str,
+    to: State,
+    now: &str,
+    contains: &dyn Fn(&str, &str) -> bool,
+) -> Result<(), MoveError> {
     let Some(from) = state(tx, id)? else {
         return Err(MoveError::Card);
     };
     if from == to {
         return Ok(());
     }
-    if let Some(reason) = refusal(tx, &CardId::parse(id), from, to)? {
-        return Err(MoveError::Refused { from, reason });
+    if let Some((reason, commit)) = refusal(tx, &CardId::parse(id), from, to, contains)? {
+        return Err(MoveError::Refused {
+            from,
+            reason,
+            commit,
+        });
     }
     tx.execute(
         "UPDATE cards SET state = ?1 WHERE id = ?2",
@@ -1336,9 +1365,11 @@ fn refusal(
     card: &CardId,
     from: State,
     to: State,
-) -> rusqlite::Result<Option<Refusal>> {
+    contains: &dyn Fn(&str, &str) -> bool,
+) -> rusqlite::Result<Option<(Refusal, Option<String>)>> {
     use State::{Done, InProgress, InReview, Open};
     if card.stage.is_some() {
+        let plain = |r: Option<Refusal>| r.map(|r| (r, None));
         return Ok(match (from, to) {
             (Open, InProgress) => {
                 let deps = field(conn, card.id, "blocked-by")?.unwrap_or_default();
@@ -1351,29 +1382,34 @@ fn refusal(
                     };
                     blocked |= state(conn, &dep)? != Some(Done);
                 }
-                blocked.then_some(Refusal::BlockedBy)
+                plain(blocked.then_some(Refusal::BlockedBy))
             }
             (InProgress, InReview) | (InReview | Done, InProgress) => None,
             (InReview, Done) => match last_value(conn, card.id, Name::Commit)? {
-                None => Some(Refusal::Commit),
+                None => plain(Some(Refusal::Commit)),
                 Some(sha) => {
                     let verified = verified_shas(conn, card.run)?
                         .iter()
-                        .any(|p| same_commit(p, &sha));
-                    (!verified).then_some(Refusal::Unverified)
+                        .any(|p| same_commit(p, &sha) || contains(&sha, p));
+                    (!verified).then_some((Refusal::Unverified, Some(sha)))
                 }
             },
-            _ => Some(Refusal::Transition),
+            _ => plain(Some(Refusal::Transition)),
         });
     }
+    let plain = |r: Option<Refusal>| r.map(|r| (r, None));
     Ok(match (from, to) {
-        (Open, InProgress) => field(conn, card.id, "gate2")?
-            .is_none_or(|v| v.trim().is_empty())
-            .then_some(Refusal::Gate2),
-        (Open, InReview) => (field(conn, card.id, "kind")?.as_deref() != Some("epic"))
-            .then_some(Refusal::Transition),
+        (Open, InProgress) => plain(
+            field(conn, card.id, "gate2")?
+                .is_none_or(|v| v.trim().is_empty())
+                .then_some(Refusal::Gate2),
+        ),
+        (Open, InReview) => plain(
+            (field(conn, card.id, "kind")?.as_deref() != Some("epic"))
+                .then_some(Refusal::Transition),
+        ),
         (InProgress, InReview) | (InReview, InProgress) => None,
-        _ => Some(Refusal::Transition),
+        _ => plain(Some(Refusal::Transition)),
     })
 }
 
@@ -1643,8 +1679,14 @@ impl Writer<'_> {
         append(self.conn(), id, event, args, now, read_budget, agent)
     }
 
-    pub fn move_card(&self, id: &str, to: State, now: &str) -> Result<(), MoveError> {
-        move_in(self.conn(), id, to, now)
+    pub fn move_card(
+        &self,
+        id: &str,
+        to: State,
+        now: &str,
+        contains: &dyn Fn(&str, &str) -> bool,
+    ) -> Result<(), MoveError> {
+        move_in(self.conn(), id, to, now, contains)
     }
 }
 
@@ -1836,13 +1878,13 @@ mod tests {
         )
         .unwrap();
         create(&mut s.conn, "r.s0", State::Done, &[], "t").unwrap();
-        move_card(&mut s.conn, "r", State::InProgress, "t1").unwrap();
-        move_card(&mut s.conn, "r.s1", State::InProgress, "t2").unwrap();
+        move_card(&mut s.conn, "r", State::InProgress, "t1", &|_, _| false).unwrap();
+        move_card(&mut s.conn, "r.s1", State::InProgress, "t2", &|_, _| false).unwrap();
         assert_eq!(
             log_lines(&s.conn, "r.s1", None).unwrap(),
             [("t2".into(), "moved=inprogress".into())]
         );
-        let err = move_card(&mut s.conn, "r.s1", State::Done, "t3").unwrap_err();
+        let err = move_card(&mut s.conn, "r.s1", State::Done, "t3", &|_, _| false).unwrap_err();
         assert!(matches!(
             err,
             MoveError::Refused {
@@ -2013,7 +2055,7 @@ mod tests {
             Some("abc1234")
         );
         assert!(matches!(
-            move_card(&mut s.conn, "r.s1", State::Done, "t"),
+            move_card(&mut s.conn, "r.s1", State::Done, "t", &|_, _| false),
             Err(MoveError::Refused {
                 reason: Refusal::Unverified,
                 ..
@@ -2021,7 +2063,94 @@ mod tests {
         ));
         log(&mut s.conn, "r", "gauntlet=pass", &a("sha=abc1234"), "t").unwrap();
         assert_eq!(pass_shas(&s.conn, "r").unwrap(), ["abc1234"]);
-        move_card(&mut s.conn, "r.s1", State::Done, "t").unwrap();
+        move_card(&mut s.conn, "r.s1", State::Done, "t", &|_, _| false).unwrap();
+    }
+
+    /// A run `r` with stage `r.s1` in review at commit `abc1234`.
+    fn review_store() -> Store {
+        let mut s = store();
+        let gate2 = [("gate2".to_owned(), "2026-10-03".to_owned())];
+        create(&mut s.conn, "r", State::InProgress, &gate2, "t").unwrap();
+        create(&mut s.conn, "r.s1", State::InReview, &[], "t").unwrap();
+        log(&mut s.conn, "r.s1", "commit=abc1234", &[], "t").unwrap();
+        s
+    }
+
+    /// GW-R-102 — a commit contained in a pushed sha moves to done.
+    #[test]
+    fn ut_done_move_accepts_a_commit_contained_in_a_pushed_sha() {
+        let mut s = review_store();
+        log(&mut s.conn, "r", "pushed=def5678", &[], "t").unwrap();
+        let contains = |c: &str, h: &str| (c, h) == ("abc1234", "def5678");
+        move_card(&mut s.conn, "r.s1", State::Done, "t", &contains).unwrap();
+        assert_eq!(state(&s.conn, "r.s1").unwrap(), Some(State::Done));
+    }
+
+    /// GW-R-101 — a commit no verified sha contains is refused, naming it.
+    #[test]
+    fn ut_done_move_refuses_a_commit_no_verified_sha_contains() {
+        let mut s = review_store();
+        log(&mut s.conn, "r", "pushed=def5678", &[], "t").unwrap();
+        let err = move_card(&mut s.conn, "r.s1", State::Done, "t", &|_, _| false).unwrap_err();
+        assert!(matches!(
+            err,
+            MoveError::Refused {
+                reason: Refusal::Unverified,
+                commit: Some(ref c),
+                ..
+            } if c == "abc1234"
+        ));
+    }
+
+    /// GW-R-103 — a sha logged before the last rebase never verifies.
+    #[test]
+    fn ut_done_move_ignores_shas_before_the_last_rebase() {
+        let mut s = review_store();
+        let a = |s: &str| s.split(' ').map(str::to_owned).collect::<Vec<_>>();
+        log(&mut s.conn, "r", "pushed=def5678", &[], "t").unwrap();
+        log(
+            &mut s.conn,
+            "r",
+            "rebase=111aaaa",
+            &a("base=222bbbb from=def5678"),
+            "t",
+        )
+        .unwrap();
+        let err = move_card(&mut s.conn, "r.s1", State::Done, "t", &|_, _| true).unwrap_err();
+        assert!(matches!(
+            err,
+            MoveError::Refused {
+                reason: Refusal::Unverified,
+                ..
+            }
+        ));
+    }
+
+    /// GW-E-036 — ancestry is asked of the logged sha, no remote lookup.
+    #[test]
+    fn ut_done_move_asks_ancestry_of_the_logged_sha() {
+        let mut s = review_store();
+        log(&mut s.conn, "r", "pushed=def5678", &[], "t").unwrap();
+        let asked = std::cell::RefCell::new(Vec::new());
+        let contains = |c: &str, h: &str| {
+            asked.borrow_mut().push((c.to_owned(), h.to_owned()));
+            true
+        };
+        move_card(&mut s.conn, "r.s1", State::Done, "t", &contains).unwrap();
+        assert_eq!(
+            *asked.borrow(),
+            [("abc1234".to_owned(), "def5678".to_owned())]
+        );
+    }
+
+    /// GW-E-040 — a sha equal to the commit verifies without asking git.
+    #[test]
+    fn ut_done_move_verifies_an_equal_sha_without_asking() {
+        let mut s = review_store();
+        log(&mut s.conn, "r", "pushed=abc1234", &[], "t").unwrap();
+        let contains = |_: &str, _: &str| -> bool { panic!("asked") };
+        move_card(&mut s.conn, "r.s1", State::Done, "t", &contains).unwrap();
+        assert_eq!(state(&s.conn, "r.s1").unwrap(), Some(State::Done));
     }
 
     fn run_card() -> Store {
