@@ -23,3 +23,9 @@ timeout = "30m"
 
 [viewer]
 command = ["glow"]
+
+[[test.command]]
+run     = ["cargo", "test", "--workspace", "--", "{test}", "--include-ignored"]
+failed  = '^test (?:\S+::)?{test} \.\.\. FAILED$'
+files   = ["**/*.rs"]
+declare = '^\s*fn (?P<name>(?:ut|it)_\w+)\('

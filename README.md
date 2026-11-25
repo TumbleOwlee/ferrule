@@ -339,8 +339,15 @@ cmd = ["cargo", "llvm-cov", "--workspace", "--fail-under-lines", "80"]
 coverage = "llvm-cov"        # how the pass's cov= is read from the output
 
 [test]
-command = ["cargo", "test", "--workspace", "--", "{test}", "--include-ignored"]   # stage red and the stage checks run one test with it; {test} is required; unset: this on Rust, none elsewhere
-timeout = "30m"              # bounds each such run
+timeout = "30m"              # bounds each stage red run and each stage-check test, for every command
+
+[[test.command]]             # one per stack; with several, each needs a prefix and test names start with it (cargo:my_test)
+prefix = "cargo:"            # optional with one command
+run = ["cargo", "test", "--workspace", "--", "{test}", "--include-ignored"]   # {test} (the name without the prefix) is required
+failed = '^test (?:\S+::)?{test} \.\.\. FAILED$'   # optional: a line of output matching it is the failure; unset: a non-zero exit is
+files = ["**/*.rs"]          # with declare: where stage commit looks for new, removed and rewritten tests
+declare = '^\s*fn (?P<name>(?:ut|it)_\w+)\('   # a test's declaration; the name group is its name
+# The old form `[test] command = ["cargo", "test", ..., "{test}"]` still loads as one unprefixed command with no failed, files or declare.
 
 [viewer]
 command = ["glow"]           # prompt show appends the file path; unset or not startable: stdout

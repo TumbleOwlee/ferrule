@@ -34,7 +34,7 @@
 
 ## Checks
 
-**GA-E-010** — On a project whose stack is not Rust, a stage's checks run only the push-level steps, not its new tests.
+**GA-E-010** — A stage's checks run no new tests of a test command that declares no test detection; the push-level steps still run.
 
 **GA-E-011** — A `{crates}` argument runs as the whole workspace at a push without a stage, at gate 3 and when the diff touches no crate, and is dropped on a project whose stack is not Rust.
 

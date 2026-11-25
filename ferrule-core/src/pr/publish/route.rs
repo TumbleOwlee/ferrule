@@ -59,6 +59,7 @@ impl Run<'_> {
                 &format!("{}.s{n}", self.slug),
                 board::State::InProgress,
                 self.now,
+                &|_, _| false,
             ) {
                 Ok(()) => {}
                 Err(board::MoveError::Sql(e)) => return Err(Error::Sql(e)),

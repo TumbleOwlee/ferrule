@@ -1014,10 +1014,13 @@ fn gauntlet_log(s: &Scratch) -> String {
     std::fs::read_to_string(s.root.join(".ferrule/runs/ss/gauntlet.log")).unwrap_or_default()
 }
 
+/// The cargo test command of `crate_scratch`: tests named `t_*` in Rust files.
+const CARGO_COMMAND: &str = "\n[[test.command]]\nrun = [\"cargo\", \"test\", \"--workspace\", \"--\", \"{test}\", \"--include-ignored\"]\nfailed = '^test (?:\\S+::)?{test} \\.\\.\\. FAILED$'\nfiles = [\"**/*.rs\"]\ndeclare = '^\\s*fn (?P<name>t_\\w+)\\('\n";
+
 /// A worktree holding a crate whose one test is not yet committed.
 fn crate_scratch(stack: &str) -> Scratch {
     let s = Scratch::new(1);
-    s.config(&format!("{stack}{LEVELS}"));
+    s.config(&format!("{stack}{LEVELS}{CARGO_COMMAND}"));
     std::fs::write(
         s.wt.join("Cargo.toml"),
         "[package]\nname = \"probe\"\nversion = \"0.0.0\"\nedition = \"2021\"\n",
@@ -1063,9 +1066,64 @@ fn stage_checks(s: &Scratch) -> (String, String) {
     (out, gauntlet_log(s))
 }
 
-/// A `[test]` table added after the steps of `crate_scratch`.
+/// The `crate_scratch` config with `table` as its test configuration instead of the cargo command.
 fn with_test_table(s: &Scratch, stack: &str, table: &str) {
-    s.config(&format!("{stack}{LEVELS}\n[test]\n{table}"));
+    s.config(&format!("{stack}{LEVELS}\n{table}"));
+}
+
+/// A test command of the scratch crate: tests `t_*` in Rust files, run by `echo`.
+fn echo_command(extra: &str) -> String {
+    format!(
+        "[test]\ntimeout = \"{extra}\"\n\n[[test.command]]\nrun = [\"sh\", \"-c\", \"echo ran-{{test}}\"]\nfiles = [\"**/*.rs\"]\ndeclare = '^\\s*fn (?P<name>t_\\w+)\\('\n"
+    )
+}
+
+/// GA-R-176, S12 — each added test runs with the command its prefix picks.
+#[test]
+fn it_gauntlet_stage_checks_run_each_test_with_its_command() {
+    let s = crate_scratch("stack = \"rust\"\n");
+    with_test_table(
+        &s,
+        "stack = \"rust\"\n",
+        "[test]\ntimeout = \"2m\"\n\n[[test.command]]\nprefix = \"cargo:\"\nrun = [\"cargo\", \"test\", \"--workspace\", \"--\", \"{test}\", \"--include-ignored\"]\nfiles = [\"**/*.rs\"]\ndeclare = '^\\s*fn (?P<name>t_\\w+)\\('\n\n[[test.command]]\nprefix = \"sh:\"\nrun = [\"sh\", \"-c\", \"echo ran-{test}\"]\nfiles = [\"**/*.sh.test\"]\ndeclare = '^test (?P<name>\\w+)'\n",
+    );
+    std::fs::write(s.wt.join("x.sh.test"), "test sh_added\n").unwrap();
+    let (out, log) = stage_checks(&s);
+    assert!(out.starts_with("gauntlet=pass"), "{out}");
+    assert!(
+        log.contains("### test:cargo:t_added: cargo test --workspace -- t_added --include-ignored"),
+        "{log}"
+    );
+    assert!(
+        log.contains("### test:sh:sh_added: sh -c echo ran-sh_added"),
+        "{log}"
+    );
+    assert!(log.lines().any(|l| l == "ran-sh_added"), "{log}");
+
+    // The one timeout of `[test]` bounds each command's test alike.
+    for (slow, fast) in [("cargo:", "sh:"), ("sh:", "cargo:")] {
+        let run = |prefix: &str| {
+            let script = if prefix == slow { "sleep 5" } else { "true" };
+            format!("run = [\"sh\", \"-c\", \"{script} # {{test}}\"]\n")
+        };
+        let table = format!(
+            "[test]\ntimeout = \"1s\"\n\n[[test.command]]\nprefix = \"cargo:\"\n{}files = [\"**/*.rs\"]\ndeclare = '^\\s*fn (?P<name>t_\\w+)\\('\n\n[[test.command]]\nprefix = \"sh:\"\n{}files = [\"**/*.sh.test\"]\ndeclare = '^test (?P<name>\\w+)'\n",
+            run("cargo:"),
+            run("sh:")
+        );
+        with_test_table(&s, "stack = \"rust\"\n", &table);
+        let (out, _) = stage_checks(&s);
+        let step = if slow == "cargo:" {
+            "test:cargo:t_added"
+        } else {
+            "test:sh:sh_added"
+        };
+        assert!(
+            out.starts_with(&format!("gauntlet=fail step={step} ")),
+            "{slow} slow, {fast} fast: {out}"
+        );
+        assert!(out.contains(" reason=timeout"), "{out}");
+    }
 }
 
 /// GA-R-176 — the stage checks run an added test with the configured
@@ -1073,11 +1131,7 @@ fn with_test_table(s: &Scratch, stack: &str, table: &str) {
 #[test]
 fn it_gauntlet_stage_checks_use_the_test_command() {
     let s = crate_scratch("stack = \"rust\"\n");
-    with_test_table(
-        &s,
-        "stack = \"rust\"\n",
-        "command = [\"sh\", \"-c\", \"echo ran-{test}\"]\n",
-    );
+    with_test_table(&s, "stack = \"rust\"\n", &echo_command("30m"));
     let (out, log) = stage_checks(&s);
     assert!(out.starts_with("gauntlet=pass"), "{out}");
     assert!(
@@ -1095,19 +1149,22 @@ fn it_gauntlet_stage_test_past_timeout_fails() {
     with_test_table(
         &s,
         "stack = \"rust\"\n",
-        "command = [\"sh\", \"-c\", \"sleep 5 # {test}\"]\ntimeout = \"1s\"\n",
+        &echo_command("1s").replace("echo ran-{test}", "sleep 5 # {test}"),
     );
     let (out, _) = stage_checks(&s);
     assert!(out.starts_with("gauntlet=fail step=test:t_added "), "{out}");
     assert!(out.contains(" reason=timeout"), "{out}");
 }
 
-/// GW-E-035 — off Rust the stage checks run no new test, a configured
-/// command or not.
+/// GA-E-010, GW-E-035 — a command that declares no test detection adds no stage-check test; the push steps still run.
 #[test]
-fn it_gauntlet_stage_tests_skipped_off_rust_with_a_command() {
+fn it_gauntlet_stage_checks_skip_tests_of_a_command_without_detection() {
     let s = crate_scratch("");
-    with_test_table(&s, "", "command = [\"sh\", \"-c\", \"echo ran-{test}\"]\n");
+    with_test_table(
+        &s,
+        "",
+        "[[test.command]]\nrun = [\"sh\", \"-c\", \"echo ran-{test}\"]\n",
+    );
     let (out, log) = stage_checks(&s);
     assert!(out.starts_with("gauntlet=pass"), "{out}");
     assert!(log.contains("### pushed:"), "{log}");
@@ -1252,19 +1309,6 @@ fn it_gauntlet_unlabeled_steps_run_only_at_full() {
     }
     assert!(s.run(&["ci", "gauntlet", "ss"]).text().ends_with("exit=0"));
     assert!(gauntlet_log(&s).contains("### plain:"));
-}
-
-/// GA-E-010 — off a Rust stack a stage's checks run only the push steps.
-#[test]
-fn it_gauntlet_stage_tests_skipped_off_rust() {
-    let s = crate_scratch("");
-    let out = s
-        .run(&["ci", "gauntlet", "ss", "--level", "push", "--stage", "s1"])
-        .text();
-    assert!(out.starts_with("gauntlet=pass cov=? sha="), "{out}");
-    let log = gauntlet_log(&s);
-    assert!(log.contains("### pushed:"), "{log}");
-    assert!(!log.contains("### test:"), "{log}");
 }
 
 #[test]

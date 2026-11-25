@@ -44,12 +44,12 @@ Given up to 3 code stages of the run (`s0` aside) — and only the plan: a slice
 ## TDD
 
 Fixed order, every stage:
-1. Write the stage's tests first; once each compiles (a stub of the code under test where needed), record its failure with `ferrule stage red {card} <test>`, which runs it and logs each failure it sees.
+1. Write the stage's tests first; once each compiles (a stub of the code under test where needed), record its failure with `ferrule stage red {card} <test>`, which runs it and logs the named test's failure.
 2. Write the code until they pass, then log `green`.
 3. Never change a test or a spec entry to pass when the code is what is wrong.
 4. A test that passes from the start pins existing behavior: mark it with `ferrule stage pins {card} <test> -- <what it pins>`.
 
-On a Rust project `ferrule stage commit` refuses a new test without a proof (`reason=test-unproven`) and a removed or rewritten test without `--replaced <old>=<new>` (`reason=test-unreplaced`); a rewritten test may name itself and then needs a proof.
+For a test command declaring its test files and declaration pattern, `ferrule stage commit` refuses a new test without a proof (`reason=test-unproven`) and a removed or rewritten test without `--replaced <old>=<new>` (`reason=test-unreplaced`); a rewritten test may name itself and then needs a proof.
 
 <!-- include: id-citation -->
 

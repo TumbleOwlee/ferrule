@@ -7,10 +7,11 @@ use clap::{Subcommand, ValueEnum};
 use ferrule_core::card::board::{self, CardError, LogError, State};
 use ferrule_core::card::vocab;
 use ferrule_core::config::Config;
+use ferrule_core::git;
 use ferrule_core::pr::publish;
 use ferrule_core::project;
 use ferrule_core::refusal::{Exit, Refusal};
-use ferrule_core::run::testproof::TestCheck;
+use ferrule_core::run::testproof::{TestCheck, TestCommands};
 use ferrule_core::store::Site;
 use ferrule_core::store::{Board, Error as StoreError, Origin};
 use ferrule_core::term::{self, Style};
@@ -661,7 +662,9 @@ fn move_card(card: &str, to: State, out: &mut impl Write) -> io::Result<u8> {
     let Some(mut s) = store()? else {
         return refuse(out, &Refusal::card("card-move"));
     };
-    match s.write(|w| w.move_card(card, to, &board::now())) {
+    let cwd = std::env::current_dir()?;
+    let contains = |c: &str, h: &str| git::is_ancestor(&cwd, c, h);
+    match s.write(|w| w.move_card(card, to, &board::now(), &contains)) {
         Ok(()) => {
             sync_body(&mut s, card, out)?;
             Ok(exit::OK)
@@ -934,7 +937,7 @@ pub(super) fn commit(
         card,
         &message.join("\n\n"),
         TestCheck {
-            stack: config.stack.as_deref(),
+            commands: &TestCommands::from_config(&config.test).unwrap_or_default(),
             replaced,
         },
         &board::now(),
@@ -965,7 +968,7 @@ pub(super) fn adopt(
         card,
         sha,
         TestCheck {
-            stack: config.stack.as_deref(),
+            commands: &TestCommands::from_config(&config.test).unwrap_or_default(),
             replaced,
         },
         &board::now(),

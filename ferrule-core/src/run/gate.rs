@@ -1108,7 +1108,7 @@ pub fn replan_start(db: &mut Board, layout: &Layout, slug: &str, now: &str) -> R
             _ => Error::Refused(GateRefusal::Card),
         })?;
         if st != State::InProgress {
-            w.move_card(slug, State::InProgress, now)
+            w.move_card(slug, State::InProgress, now, &|_, _| false)
                 .map_err(|e| match e {
                     board::MoveError::Sql(e) => Error::Sql(e),
                     _ => Error::Refused(GateRefusal::Move),

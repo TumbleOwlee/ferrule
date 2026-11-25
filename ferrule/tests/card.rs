@@ -442,12 +442,12 @@ fn it_move_follows_the_board_rules() {
     seed_log(p, NOW, "ss.s0", &["commit=abc12"]);
     assert_eq!(
         mv("ss.s0", "done"),
-        refused("inreview", "done", "unverified")
+        refused("inreview", "done", "unverified").replace(" hint=", " commit=abc12 hint=")
     );
     seed_log(p, NOW, "ss.s0", &["commit=abc1234"]);
     assert_eq!(
         mv("ss.s0", "done"),
-        refused("inreview", "done", "unverified")
+        refused("inreview", "done", "unverified").replace(" hint=", " commit=abc1234 hint=")
     );
     seed_log(p, NOW, "ss", &["gauntlet=pass", "sha=abc1234def"]);
     assert_eq!(mv("ss.s0", "done"), "exit=0");

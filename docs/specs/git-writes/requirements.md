@@ -164,6 +164,14 @@
 
 **GW-R-079** — The first push after a mapped rebase runs only the fast checks, like every other push.
 
+## Stage done move
+
+**GW-R-101** — `ferrule board move` refuses a stage card `inreview → done` with `reason=unverified` unless the card's last `commit=` is verified.
+
+**GW-R-102** — A stage card's last `commit=` is verified when it equals, or is an ancestor of, a sha logged as `pushed=` or `gauntlet=pass` since the run's last `rebase=`.
+
+**GW-R-103** — Shas logged as `pushed=` or `gauntlet=pass` before the run's last `rebase=` never verify a stage commit.
+
 ## PR decisions list
 
 **GW-R-067** — The PR body's decisions list omits a `(chosen)` decision tagged with a local spec ID the run's brief no longer holds.
@@ -172,33 +180,45 @@
 
 **GW-R-068** — A ferrule command records each new test's real failure on the run.
 
-**GW-R-069** — On a Rust project, `ferrule stage commit` refuses a new test that has no recorded failure, no mutation proof and no mark that it pins existing behaviour.
+**GW-R-069** — For a test command that declares its test files and declaration pattern, `ferrule stage commit` refuses a new test of that command that has no recorded failure, no mutation proof and no mark that it pins existing behaviour under its exact prefixed name.
 
-**GW-R-070** — On a Rust project, `ferrule stage commit` lists every existing test or assertion the commit removes or rewrites.
+**GW-R-070** — For a test command that declares its test files and declaration pattern, `ferrule stage commit` lists every existing test or assertion of that command the commit removes or rewrites.
 
-**GW-R-071** — On a Rust project, `ferrule stage commit` refuses a removed or rewritten test or assertion that has no named replacement.
+**GW-R-071** — For a test command that declares its test files and declaration pattern, `ferrule stage commit` refuses a removed or rewritten test or assertion of that command that has no named replacement.
 
-**GW-R-072** — On a Rust project, a rewritten test may name itself as its replacement and then needs a recorded failure, mutation proof or pins-existing mark, as a new test does.
+**GW-R-072** — A rewritten test may name itself as its replacement and then needs a recorded failure, mutation proof or pins-existing mark, as a new test does.
 
-**GW-R-073** — `ferrule stage red <card> <test> --mutation <text>` records each failure its run reports as a mutation proof naming `<text>`.
+**GW-R-073** — `ferrule stage red <card> <test> --mutation <text>` records the named test's failure as a mutation proof naming `<text>`.
 
 **GW-R-074** — `ferrule stage pins <card> <test> -- <text>` records the mark that the test pins existing behaviour, with `<text>` naming what it pins.
 
 **GW-R-075** — A recorded failure, mutation proof or pins-existing mark counts only for the stage card it was recorded on.
 
-**GW-R-076** — On a Rust project, `ferrule stage commit --replaced <old>=<new>` accepts any test name as the replacement and logs each pair on the card as a replaced-test note.
+**GW-R-076** — `ferrule stage commit --replaced <old>=<new>` accepts any test name as the replacement and logs each pair on the card as a replaced-test note.
 
 **GW-R-092** — `ferrule stage commit` logs every `--replaced` pair on the card, whatever the length of its test names.
 
-**GW-R-096** — `ferrule stage red` runs the tests matching `<test>` with the project's configured test command, `<test>` in place of its placeholder.
+**GW-R-096** — `ferrule stage red` runs the tests matching `<test>` with the configured test command whose prefix `<test>` starts with, `<test>` without that prefix in place of its placeholder.
 
-**GW-R-097** — On a Rust project with no configured test command, `ferrule stage red` runs the tests matching `<test>` including those marked ignored.
-
-**GW-R-098** — On a project whose stack is not Rust, `ferrule stage red` with a configured test command records the named test as failed when the command exits non-zero.
+**GW-R-098** — `ferrule stage red` with a test command that declares no failure pattern records the named test as failed when the command exits non-zero.
 
 **GW-R-099** — A `ferrule stage red` run that exceeds the test command's timeout is refused with `reason=run`.
 
 **GW-R-100** — The test command's timeout is 30 minutes when `ferrule.toml` sets none.
+
+**GW-R-104** — With a single test command that declares no prefix, `ferrule stage red` passes every test name to it as given.
+
+**GW-R-105** — A `ferrule.toml` configuring two or more test commands is refused when it loads unless every command declares a prefix.
+
+**GW-R-106** — While any test command declares a prefix, `ferrule stage red` refuses a test name that starts with no configured prefix, naming the prefixes, and runs nothing.
+
+**GW-R-107** — `ferrule stage red` with a command that declares a failure pattern records the named test as failed only when the command's output matches the pattern, `{test}` replaced by the name without its prefix.
+
+**GW-R-108** — `ferrule stage commit` finds new, removed and rewritten tests only in the files a test command declares, by that command's declaration pattern, each named with the command's prefix.
+
+**GW-R-109** — A test's body is the lines from its declaration up to the next declaration in the same file, or the file's end.
+
+**GW-R-110** — `ferrule stage pins` refuses a test name that starts with no configured prefix while prefixes exist, naming the prefixes, and records nothing.
 
 ## Files list
 

@@ -1668,8 +1668,19 @@ fn in_dir_env(p: &Project, cwd: &Path, env: &[(&str, &Path)], args: &[&str]) -> 
     run.text()
 }
 
-/// `stage_project` with `stack = "rust"` and a one-crate Cargo workspace in the worktree.
+/// The cargo test command of the fixture crate: tests named `t_*` in Rust files.
+const CARGO_COMMAND: &str = "[[test.command]]\nrun = [\"cargo\", \"test\", \"--workspace\", \"--\", \"{test}\", \"--include-ignored\"]\nfailed = '^test (?:\\S+::)?{test} \\.\\.\\. FAILED$'\nfiles = [\"**/*.rs\"]\ndeclare = '^\\s*fn (?P<name>t_\\w+)\\('\n";
+
+/// `rust_bare` with the cargo test command configured.
 fn rust_project() -> Project {
+    let p = rust_bare();
+    append_config(&p, CARGO_COMMAND);
+    p
+}
+
+/// `stage_project` with `stack = "rust"` and a one-crate Cargo workspace in
+/// the worktree, no test command configured.
+fn rust_bare() -> Project {
     let p = stage_project();
     let toml = p.root.join(".ferrule").join("ferrule.toml");
     let body = std::fs::read_to_string(&toml).unwrap();
@@ -1690,11 +1701,7 @@ fn rust_project() -> Project {
     };
     std::fs::write(
         wt.join("src/lib.rs"),
-        format!(
-            "#[cfg(test)]\nmod tests {{\n{}\n{}}}\n",
-            test("t_gone"),
-            test("t_changed")
-        ),
+        format!("{}\n{}", test("t_gone"), test("t_changed")),
     )
     .unwrap();
     git(&wt, &["add", "."]);
@@ -1708,27 +1715,23 @@ fn cargo_in(p: &Project, args: &[&str]) -> String {
     in_dir_env(p, &p.worktree(), &[("CARGO_TARGET_DIR", &target)], args)
 }
 
-/// Overwrites the worktree's `src/lib.rs` with a test module of `tests`.
+/// Overwrites the worktree's `src/lib.rs` with `tests`, declared at the crate root so that a test added after the last one leaves that one's body alone.
 fn write_tests(p: &Project, tests: &str) {
-    std::fs::write(
-        p.worktree().join("src/lib.rs"),
-        format!("#[cfg(test)]\nmod tests {{\n{tests}}}\n"),
-    )
-    .unwrap();
+    std::fs::write(p.worktree().join("src/lib.rs"), tests).unwrap();
 }
 
-/// GW-R-068 — `stage red` runs the matching tests and logs a `test-red` for each one the run reports failed, none for a passing test.
+/// GW-R-068, GW-R-073 — `stage red` logs a `test-red` for the named failing test only, none for a passing one.
 #[test]
-fn it_stage_red_records_each_failed_test() {
+fn it_stage_red_records_the_named_test() {
     let p = rust_project();
     write_tests(
         &p,
         "    #[test]\n    fn t_fails() {\n        assert_eq!(1, 2);\n    }\n    #[test]\n    fn t_passes() {\n        assert!(true);\n    }\n",
     );
-    let got = cargo_in(&p, &["stage", "red", "demo.s1", "t_"]);
-    assert_eq!(got, "red=recorded tests=tests::t_fails\nexit=0");
+    let got = cargo_in(&p, &["stage", "red", "demo.s1", "t_fails"]);
+    assert_eq!(got, "red=recorded tests=t_fails\nexit=0");
     let logged = p.ok(&["board", "show", "demo.s1"]);
-    assert!(logged.contains("test=tests::t_fails"), "{logged}");
+    assert!(logged.contains("test=t_fails"), "{logged}");
     assert!(!logged.contains("t_passes"), "{logged}");
 }
 
@@ -1751,27 +1754,10 @@ fn it_stage_red_records_a_mutation_proof() {
             "flip the sign",
         ],
     );
-    assert_eq!(got, "red=recorded tests=tests::t_fails\nexit=0");
+    assert_eq!(got, "red=recorded tests=t_fails\nexit=0");
     let logged = p.ok(&["board", "show", "demo.s1"]);
-    assert!(logged.contains("test=tests::t_fails"), "{logged}");
+    assert!(logged.contains("test=t_fails"), "{logged}");
     assert!(logged.contains("mutation=\"flip the sign\""), "{logged}");
-}
-
-/// GW-E-019 — a test that does not compile gets no recorded failure.
-#[test]
-fn it_stage_red_records_nothing_for_a_test_that_does_not_compile() {
-    let p = rust_project();
-    write_tests(
-        &p,
-        "    #[test]\n    fn t_broken() {\n        undefined_fn();\n    }\n",
-    );
-    let got = cargo_in(&p, &["stage", "red", "demo.s1", "t_broken"]);
-    assert!(
-        got.starts_with("red=refused reason=no-failure hint="),
-        "{got}"
-    );
-    assert!(got.ends_with("exit=1"), "{got}");
-    assert!(!p.ok(&["board", "show", "demo.s1"]).contains("test-red"));
 }
 
 /// GW-R-074 — `stage pins` marks a test as pinning existing behaviour, with the text.
@@ -1791,26 +1777,25 @@ fn it_stage_pins_records_the_mark() {
     );
 }
 
-/// GW-E-029, S4 — `stage red` and `stage pins` refuse a project whose stack is not Rust and has no test command.
+/// GW-E-029, S10 — `stage red` and `stage pins` refuse a project with no test command, Rust included.
 #[test]
-fn it_stage_red_and_pins_refuse_off_rust() {
-    let p = stage_project();
+fn it_stage_red_and_pins_refuse_with_no_command() {
+    let p = rust_bare();
     let red = in_dir(&p, &p.worktree(), &["stage", "red", "demo.s1", "t"]);
-    assert!(red.starts_with("red=refused reason=stack hint="), "{red}");
     assert!(
-        red.contains("hint=set [test] command in ferrule.toml"),
+        red.starts_with("red=refused reason=no-command hint="),
         "{red}"
     );
+    assert!(red.contains("[[test.command]]"), "{red}");
     let pins = in_dir(
         &p,
         &p.worktree(),
         &["stage", "pins", "demo.s1", "t", "--", "why"],
     );
     assert!(
-        pins.starts_with("pins=refused reason=stack hint="),
+        pins.starts_with("pins=refused reason=no-command hint="),
         "{pins}"
     );
-    assert!(!pins.contains("set [test] command"), "{pins}");
     assert!(!p.ok(&["board", "show", "demo.s1"]).contains("test-red"));
 }
 
@@ -1821,13 +1806,13 @@ fn append_config(p: &Project, table: &str) {
     std::fs::write(&toml, format!("{body}\n{table}")).unwrap();
 }
 
-/// GW-R-096, S1 — a configured wrapper runs an ignored test and the proof lets the commit through.
+/// GW-R-096, GW-E-033 — a configured wrapper runs an ignored test and the proof lets the commit through.
 #[test]
 fn it_stage_red_runs_a_configured_wrapper_on_an_ignored_test() {
-    let p = rust_project();
+    let p = rust_bare();
     append_config(
         &p,
-        "[test]\ncommand = [\"sh\", \"-c\", \"touch wrapper.ran && DB=up cargo test -- {test} --include-ignored\"]\n",
+        "[[test.command]]\nrun = [\"sh\", \"-c\", \"touch wrapper.ran && DB=up cargo test -- {test} --include-ignored\"]\nfailed = '^test (?:\\S+::)?{test} \\.\\.\\. FAILED$'\nfiles = [\"**/*.rs\"]\ndeclare = '^\\s*fn (?P<name>t_\\w+)\\('\n",
     );
     let mut tests = module_of(&[("t_gone", SAME), ("t_changed", SAME)]);
     tests.push_str(
@@ -1839,28 +1824,16 @@ fn it_stage_red_runs_a_configured_wrapper_on_an_ignored_test() {
         &p,
         &["stage", "red", "demo.s1", "t_db", "--mutation", "db flips"],
     );
-    assert_eq!(got, "red=recorded tests=tests::t_db\nexit=0");
+    assert_eq!(got, "red=recorded tests=t_db\nexit=0");
     assert!(p.worktree().join("wrapper.ran").exists());
     std::fs::remove_file(p.worktree().join("wrapper.ran")).unwrap();
     let c = commit_in(&p, &[]);
     assert!(c.starts_with("commit=done sha="), "{c}");
 }
 
-/// GW-R-097, S2 — with no `[test]` table a Rust project's red run includes ignored tests.
+/// GW-R-098 — a command without a failure pattern that exits non-zero records the named test.
 #[test]
-fn it_stage_red_default_runs_an_ignored_test() {
-    let p = rust_project();
-    write_tests(
-        &p,
-        "    #[test]\n    #[ignore]\n    fn t_new() {\n        assert_eq!(1, 2);\n    }\n",
-    );
-    let got = cargo_in(&p, &["stage", "red", "demo.s1", "t_new", "--mutation", "m"]);
-    assert_eq!(got, "red=recorded tests=tests::t_new\nexit=0");
-}
-
-/// GW-R-098, S3 — off Rust a configured command that exits non-zero records the named test.
-#[test]
-fn it_stage_red_off_rust_records_a_failing_command() {
+fn it_stage_red_without_pattern_records_a_failing_command() {
     let p = stage_project();
     append_config(
         &p,
@@ -1871,6 +1844,138 @@ fn it_stage_red_off_rust_records_a_failing_command() {
     assert!(
         p.ok(&["board", "show", "demo.s1"])
             .contains("test-red test=t_x")
+    );
+}
+
+/// Two prefixed test commands: `cargo:` passes, `vitest:` records its argument and prints a failure line.
+const TWO_COMMANDS: &str = r#"[[test.command]]
+prefix = "cargo:"
+run = ["sh", "-c", "touch cargo.ran; exit 0 # {test}"]
+
+[[test.command]]
+prefix = "vitest:"
+run = ["sh", "-c", "echo {test} > vitest.arg; echo \"✗ {test}\""]
+failed = '^✗ {test}$'
+"#;
+
+/// GW-R-096, GW-R-107, S6 — a prefixed name runs its command with the bare name, and its failure pattern decides.
+#[test]
+fn it_stage_red_runs_the_prefixed_command() {
+    let p = stage_project();
+    append_config(&p, TWO_COMMANDS);
+    let got = in_dir(
+        &p,
+        &p.worktree(),
+        &["stage", "red", "demo.s1", "vitest:adds two numbers"],
+    );
+    assert_eq!(got, "red=recorded tests=vitest:adds two numbers\nexit=0");
+    let arg = std::fs::read_to_string(p.worktree().join("vitest.arg")).unwrap();
+    assert_eq!(arg.trim_end(), "adds two numbers");
+    assert!(!p.worktree().join("cargo.ran").exists());
+    let card = p.ok(&["board", "show", "demo.s1"]);
+    assert!(
+        card.contains("test-red test=\"vitest:adds two numbers\""),
+        "{card}"
+    );
+}
+
+/// GW-R-106, S7 — an unprefixed name is refused with two commands, naming the prefixes, and nothing runs.
+#[test]
+fn it_stage_red_refuses_an_unprefixed_name_with_two_commands() {
+    let p = stage_project();
+    append_config(&p, TWO_COMMANDS);
+    let got = in_dir(&p, &p.worktree(), &["stage", "red", "demo.s1", "adds_two"]);
+    assert!(
+        got.starts_with("red=refused reason=prefix prefixes=cargo:,vitest: hint="),
+        "{got}"
+    );
+    assert!(!p.worktree().join("vitest.arg").exists());
+    assert!(!p.worktree().join("cargo.ran").exists());
+}
+
+/// GW-R-110 — `stage pins` refuses an unprefixed name while prefixes exist and records nothing.
+#[test]
+fn it_stage_pins_refuses_an_unprefixed_name_with_two_commands() {
+    let p = stage_project();
+    append_config(&p, TWO_COMMANDS);
+    let got = in_dir(
+        &p,
+        &p.worktree(),
+        &["stage", "pins", "demo.s1", "adds_two", "--", "why"],
+    );
+    assert!(
+        got.starts_with("pins=refused reason=prefix prefixes=cargo:,vitest: hint="),
+        "{got}"
+    );
+    assert!(!p.ok(&["board", "show", "demo.s1"]).contains("test-pins"));
+}
+
+/// GW-E-037, S8 — a prefix starting another is refused when the config loads, naming both.
+#[test]
+fn it_config_with_overlapping_prefixes_is_refused() {
+    let p = stage_project();
+    append_config(
+        &p,
+        "[[test.command]]\nprefix = \"web:\"\nrun = [\"x\", \"{test}\"]\n\n[[test.command]]\nprefix = \"web:e2e:\"\nrun = [\"y\", \"{test}\"]\n",
+    );
+    let out = p.ferrule(&["stage", "red", "demo.s1", "t"]).output();
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(4), "{err}");
+    assert!(err.contains("web:") && err.contains("web:e2e:"), "{err}");
+}
+
+/// GW-R-104, S9 — a lone unprefixed command takes the name as given.
+#[test]
+fn it_stage_red_lone_command_takes_the_name_as_given() {
+    let p = stage_project();
+    append_config(
+        &p,
+        "[[test.command]]\nrun = [\"sh\", \"-c\", \"echo {test} > lone.arg; exit 1\"]\n",
+    );
+    let got = in_dir(&p, &p.worktree(), &["stage", "red", "demo.s1", "adds_two"]);
+    assert_eq!(got, "red=recorded tests=adds_two\nexit=0");
+    let arg = std::fs::read_to_string(p.worktree().join("lone.arg")).unwrap();
+    assert_eq!(arg.trim_end(), "adds_two");
+}
+
+/// GW-E-017, GW-E-035 — a command without test detection is noted as skipped, with its prefix.
+#[test]
+fn it_commit_without_detection_skips_with_a_note() {
+    let p = stage_project();
+    append_config(
+        &p,
+        "[[test.command]]\nprefix = \"a:\"\nrun = [\"x\", \"{test}\"]\nfiles = [\"*.js\"]\ndeclare = 'fn (?P<name>\\w+)'\n\n[[test.command]]\nprefix = \"b:\"\nrun = [\"y\", \"{test}\"]\n",
+    );
+    std::fs::write(p.worktree().join("a.txt"), "a\n").unwrap();
+    git(&p.worktree(), &["add", "a.txt"]);
+    let got = commit_in(&p, &[]);
+    assert!(got.starts_with("commit=done sha="), "{got}");
+    let card = p.ok(&["board", "show", "demo.s1"]);
+    assert!(
+        card.contains("test-checks=skipped reason=no-detection prefixes=b:"),
+        "{card}"
+    );
+}
+
+/// GW-R-069, GW-R-108, S11 — a new test of a second command needs a proof under its prefixed name.
+#[test]
+fn it_stage_commit_refuses_an_unproven_test_of_a_second_command() {
+    let p = stage_project();
+    append_config(
+        &p,
+        "[[test.command]]\nprefix = \"cargo:\"\nrun = [\"x\", \"{test}\"]\n\n[[test.command]]\nprefix = \"vitest:\"\nrun = [\"y\", \"{test}\"]\nfiles = [\"web/**/*.test.js\"]\ndeclare = '^test\\(\"(?P<name>[^\"]+)\"'\n",
+    );
+    std::fs::create_dir(p.worktree().join("web")).unwrap();
+    std::fs::write(
+        p.worktree().join("web/a.test.js"),
+        "test(\"adds two numbers\", () => {\n  expect(1);\n});\n",
+    )
+    .unwrap();
+    git(&p.worktree(), &["add", "web"]);
+    let got = commit_in(&p, &[]);
+    assert!(
+        got.starts_with("commit=refused reason=test-unproven tests=vitest:adds two numbers hint="),
+        "{got}"
     );
 }
 
@@ -1940,7 +2045,7 @@ fn it_stage_commit_takes_a_red_or_pins_proof() {
         got.starts_with("commit=refused reason=test-unproven tests=t_new hint="),
         "{got}"
     );
-    seed_proof(&p, &["test-red", "test=tests::t_new"]);
+    seed_proof(&p, &["test-red", "test=t_new"]);
     let got = commit_in(&p, &[]);
     assert!(got.starts_with("commit=done sha="), "{got}");
 
@@ -2019,7 +2124,7 @@ fn it_stage_commit_takes_a_rewritten_test_as_its_own_replacement() {
         got.starts_with("commit=refused reason=test-unproven tests=t_changed hint="),
         "{got}"
     );
-    seed_proof(&p, &["test-red", "test=tests::t_changed"]);
+    seed_proof(&p, &["test-red", "test=t_changed"]);
     let got = commit_in(&p, &["--replaced", "t_changed=t_changed"]);
     assert!(got.starts_with("commit=done sha="), "{got}");
 }
@@ -2118,16 +2223,19 @@ fn it_no_run_commit_skips_the_test_checks() {
     assert!(got.starts_with("commit=done sha="), "{got}");
 }
 
-/// GW-E-017 — off Rust the test checks are skipped and the card says so.
+/// GW-E-044, S10 — with no test command the test checks are skipped and the card says so.
 #[test]
-fn it_commit_off_rust_skips_the_test_checks_with_a_note() {
+fn it_commit_with_no_command_skips_the_test_checks_with_a_note() {
     let p = stage_project();
     std::fs::write(p.worktree().join("a.txt"), "a\n").unwrap();
     git(&p.worktree(), &["add", "a.txt"]);
     let got = commit_in(&p, &[]);
     assert!(got.starts_with("commit=done sha="), "{got}");
     let card = p.ok(&["board", "show", "demo.s1"]);
-    assert!(card.contains("test-checks=skipped stack=none"), "{card}");
+    assert!(
+        card.contains("test-checks=skipped reason=no-command"),
+        "{card}"
+    );
 }
 
 /// GW-R-001, GW-R-002, S1 — nothing staged on a dirty tree is refused as such, with the `git add` hint.
@@ -4167,6 +4275,97 @@ fn it_pushed_commit_lets_the_stage_move_to_done() {
     assert!(got.starts_with("push=done "), "{got}");
     p.ok(&["board", "move", "demo.s1", "done"]);
     assert!(!p.ok(&["board", "show", "demo"]).contains("gauntlet=pass"));
+}
+
+/// Reopens `demo.s1` after a rebase: its last `commit=` is the rebased twin.
+fn reopened_after_rebase() -> Project {
+    let (p, _) = rebased_after_push();
+    p.ok(&["board", "move", "demo.s1", "inprogress"]);
+    p.ok(&["board", "move", "demo.s1", "inreview"]);
+    p
+}
+
+/// A pushed run whose head is `demo.s2`'s commit above `demo.s1`'s, which
+/// is still in review and was never pushed on its own.
+fn inner_in_review() -> Project {
+    let (p, _) = pushed_run();
+    p.land("s1", "src/client.rs");
+    std::fs::write(p.worktree().join("src/server.rs"), "s2\n").unwrap();
+    git(&p.worktree(), &["add", "."]);
+    git(&p.worktree(), &["commit", "-qm", "s2"]);
+    let sha = git(&p.worktree(), &["rev-parse", "--short", "HEAD"]);
+    seed_log(
+        &p.root,
+        "2026-10-05T09:00",
+        "demo.s2",
+        &[&format!("commit={sha}")],
+    );
+    assert!(push_text(&p).starts_with("push=done "));
+    p
+}
+
+/// S1, GW-R-102 — an inner stage commit under the pushed head moves to done.
+#[test]
+fn it_inner_stage_commit_moves_to_done() {
+    let p = inner_in_review();
+    p.ok(&["board", "move", "demo.s1", "done"]);
+    assert!(p.ok(&["board", "show", "demo.s1"]).contains("moved=done"));
+}
+
+/// S2 — a reopened stage moves to done once a push after the rebase holds its twin.
+#[test]
+fn it_reopened_stage_after_rebase_moves_to_done() {
+    let p = inner_in_review();
+    p.diverge_branch("main");
+    assert!(rebase(&p, &[]).starts_with("rebase=done "));
+    p.ok(&["board", "move", "demo.s1", "inprogress"]);
+    p.ok(&["board", "move", "demo.s1", "inreview"]);
+    let got = push_text(&p);
+    assert!(got.starts_with("push=done "), "{got}");
+    p.ok(&["board", "move", "demo.s1", "done"]);
+}
+
+/// S3 — a stuck stage moves to done with no new log line besides `moved=done`.
+#[test]
+fn it_stuck_stage_moves_to_done_without_a_new_push() {
+    let p = inner_in_review();
+    let run = p.ok(&["board", "show", "demo"]);
+    let before = p.ok(&["board", "show", "demo.s1"]);
+    p.ok(&["board", "move", "demo.s1", "done"]);
+    assert_eq!(p.ok(&["board", "show", "demo"]), run);
+    let after = p.ok(&["board", "show", "demo.s1"]);
+    let log = |t: &str| t.rsplit("---\n").next().unwrap().to_owned();
+    assert_eq!(
+        log(&after),
+        format!("{}\n2026-10-05T09:00 moved=done", log(&before)),
+        "{after}"
+    );
+}
+
+/// S4, GW-R-101 — an unpushed stage commit is refused with its sha.
+#[test]
+fn it_unpushed_stage_commit_is_refused_with_its_sha() {
+    let (p, _) = pushed_run();
+    let sha = p.land("s1", "src/client.rs");
+    let got = p.ferrule(&["board", "move", "demo.s1", "done"]).text();
+    assert!(
+        got.starts_with(&format!(
+            "card-move=refused reason=unverified from=inreview to=done commit={sha} hint="
+        )),
+        "{got}"
+    );
+    assert!(got.contains("ferrule pr push"), "{got}");
+}
+
+/// S5 — a push before a rebase does not verify the stage.
+#[test]
+fn it_push_before_a_rebase_does_not_verify() {
+    let p = reopened_after_rebase();
+    let got = p.ferrule(&["board", "move", "demo.s1", "done"]).text();
+    assert!(
+        got.starts_with("card-move=refused reason=unverified "),
+        "{got}"
+    );
 }
 
 /// GW-R-051 — a remote moved by someone else refuses the force-push before the gauntlet.
