@@ -9,7 +9,7 @@ use crate::git;
 use crate::hook::attribution;
 use crate::refusal::Refusal;
 use crate::run::gauntlet;
-use crate::run::testproof::{self, TestCheck};
+use crate::run::testproof::{self, Skipped, TestChanges, TestCheck};
 use crate::store::Board;
 
 /// Why nothing was committed.
@@ -205,30 +205,46 @@ pub fn commit(
 struct Notes {
     /// Touched paths outside the card's `files` list.
     outside: Vec<String>,
-    /// The stack label when the test checks were skipped.
-    skipped: Option<String>,
+    /// Why the test checks were skipped for some or all tests.
+    skipped: Option<Skipped>,
 }
 
-/// The test check over the diff `diff` selects, limited to the scanner's paths.
-/// `Ok(Some(stack))` when the stack has no scanner and the check was skipped.
+/// The test check over the diff `diff` selects, limited to the files each
+/// test command declares. `Ok(Some(skipped))` when no command is configured
+/// or some command declares no test detection.
 fn check_tests(
     db: &Board,
     here: &Path,
     card: &str,
     tests: TestCheck<'_>,
     diff: &[&str],
-) -> rusqlite::Result<Result<Option<String>, CommitRefused>> {
-    let Some(scanner) = testproof::scanner(tests.stack) else {
-        return Ok(Ok(Some(tests.stack.unwrap_or("none").to_owned())));
-    };
-    let mut args = diff.to_vec();
-    args.push("--");
-    args.extend(scanner.paths());
-    let text = git::out(here, &args).unwrap_or_default();
-    let changes = scanner.changes(&text);
+) -> rusqlite::Result<Result<Option<Skipped>, CommitRefused>> {
+    if tests.commands.is_empty() {
+        return Ok(Ok(Some(Skipped::NoCommand)));
+    }
+    let mut changes = TestChanges::default();
+    let mut blind = Vec::new();
+    let mut blind_any = false;
+    for command in tests.commands.iter() {
+        let Some(detect) = &command.detect else {
+            blind_any = true;
+            blind.extend(command.prefix().map(str::to_owned));
+            continue;
+        };
+        let specs = detect.pathspecs();
+        let mut args = diff.to_vec();
+        args.push("--");
+        args.extend(specs.iter().map(String::as_str));
+        let text = git::out(here, &args).unwrap_or_default();
+        let found = detect.changes(&text, command.prefix());
+        changes.added.extend(found.added);
+        changes.removed.extend(found.removed);
+        changes.rewritten.extend(found.rewritten);
+    }
+    let skipped = blind_any.then_some(Skipped::NoDetection(blind));
     Ok(db
         .read(|r| testproof::check(r, card, &changes, tests.replaced))?
-        .map(|()| None))
+        .map(|()| skipped))
 }
 
 /// The paths of the NUL-separated `touched` outside the card's `files` list;
@@ -287,8 +303,16 @@ fn log_notes(
         for path in &notes.outside {
             w.log(id, &format!("files-outside={path}"), &[], now)?;
         }
-        if let Some(stack) = &notes.skipped {
-            w.log(id, "test-checks=skipped", &[format!("stack={stack}")], now)?;
+        if let Some(skipped) = &notes.skipped {
+            let args = match skipped {
+                Skipped::NoCommand => vec!["reason=no-command".to_owned()],
+                Skipped::NoDetection(p) if p.is_empty() => vec!["reason=no-detection".to_owned()],
+                Skipped::NoDetection(p) => vec![
+                    "reason=no-detection".to_owned(),
+                    format!("prefixes={}", p.join(",")),
+                ],
+            };
+            w.log(id, "test-checks=skipped", &args, now)?;
         }
         Ok(())
     })

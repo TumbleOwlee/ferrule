@@ -1,7 +1,9 @@
 //! Test proof: which tests a commit adds, removes or rewrites, and which
-//! tests a test run reports failed, per project stack.
+//! tests a test run reports failed, per configured test command.
 
-pub mod rust;
+mod detect;
+
+pub use detect::Detector;
 
 use std::path::Path;
 use std::time::Duration;
@@ -21,29 +23,23 @@ pub struct TestChanges {
     pub rewritten: Vec<String>,
 }
 
-/// A stack's way to read tests out of a diff and a test run.
-pub trait TestScanner {
-    /// The tests a full-context unified diff of `paths()` adds, removes or
-    /// rewrites; a test whose body is unchanged in another file is neither.
-    fn changes(&self, diff: &str) -> TestChanges;
-    /// The tests a test run's output reports failed, as the runner names them.
-    fn failed(&self, output: &str) -> Vec<String>;
-    /// The pathspecs the diff is limited to.
-    fn paths(&self) -> &'static [&'static str];
-}
-
-/// What the commit checks need: the project's stack and the replacements named.
+/// What the commit checks need: the configured test commands and the
+/// replacements named.
 #[derive(Debug, Clone, Copy)]
 pub struct TestCheck<'a> {
-    pub stack: Option<&'a str>,
+    pub commands: &'a TestCommands,
     /// `--replaced <old>=<new>`.
     pub replaced: &'a [(String, String)],
 }
 
-/// The Rust scanner for `stack = rust`; `None` on any other stack or none.
-#[must_use]
-pub fn scanner(stack: Option<&str>) -> Option<Box<dyn TestScanner>> {
-    (stack == Some("rust")).then(|| Box::new(rust::RustScanner) as Box<dyn TestScanner>)
+/// Why a stage commit applied a test check to no test of some command.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Skipped {
+    /// No test command is configured.
+    NoCommand,
+    /// Commands declaring no test files and pattern; their prefixes, empty
+    /// when unprefixed.
+    NoDetection(Vec<String>),
 }
 
 /// Refuses unproven new tests and unreplaced removals or rewrites; proofs
@@ -62,9 +58,7 @@ pub fn check(
     let proven: Vec<&str> = events
         .iter()
         .filter_map(|e| match e.typed() {
-            Typed::TestRed { test: Some(t), .. } | Typed::TestPins { test: Some(t) } => {
-                Some(t.rsplit("::").next().unwrap_or(t))
-            }
+            Typed::TestRed { test: Some(t), .. } | Typed::TestPins { test: Some(t) } => Some(t),
             _ => None,
         })
         .collect();
@@ -97,8 +91,10 @@ pub fn check(
 pub enum ProofRefused {
     Card,
     State(State),
-    /// Not a Rust project and no `[test] command`.
-    Stack,
+    /// No test command is configured.
+    NoCommand,
+    /// The name starts with none of the configured prefixes.
+    Prefix(Vec<String>),
     /// The run reported no failed test.
     NoFailure,
     /// The test command could not be started or timed out.
@@ -119,19 +115,17 @@ fn gate(db: &Board, card: &str) -> rusqlite::Result<Result<(), ProofRefused>> {
     })
 }
 
-/// Runs the tests matching `test` in `wt` with the project's test command;
-/// logs one `test-red` per failed test.
+/// Runs the tests matching `test` in `wt` with the test command its prefix
+/// picks; logs one `test-red` for the named test when the run failed it.
 ///
 /// # Errors
 ///
 /// The state database failed.
-#[allow(clippy::too_many_arguments)]
 pub fn red(
     db: &mut Board,
     wt: &Path,
     card: &str,
-    config: &crate::config::Test,
-    stack: Option<&str>,
+    commands: &TestCommands,
     test: &str,
     mutation: Option<&str>,
     now: &str,
@@ -139,19 +133,25 @@ pub fn red(
     if let Err(refused) = gate(db, card)? {
         return Ok(Err(refused));
     }
-    let Some(command) = TestCommand::resolve(config, stack) else {
-        return Ok(Err(ProofRefused::Stack));
+    let (command, bare) = match commands.pick(test) {
+        Pick::Found { command, bare } => (command, bare),
+        Pick::NoCommand => return Ok(Err(ProofRefused::NoCommand)),
+        Pick::Prefix(p) => return Ok(Err(ProofRefused::Prefix(p))),
     };
-    red_with(
-        db,
-        wt,
-        card,
-        scanner(stack).as_deref(),
-        &command,
-        test,
-        mutation,
-        now,
-    )
+    let Some((result, output)) = run_tests(wt, command, bare) else {
+        return Ok(Err(ProofRefused::Run));
+    };
+    if !command.judge(bare, result, &output) {
+        return Ok(Err(ProofRefused::NoFailure));
+    }
+    db.write(|w| {
+        let mut args = vec![format!("test={test}")];
+        if let Some(m) = mutation {
+            args.push(format!("mutation={m}"));
+        }
+        w.log(card, "test-red", &args, now).map_err(log_failed)
+    })?;
+    Ok(Ok(vec![test.to_owned()]))
 }
 
 /// The result and output of `command` for `test` in `wt`, `None` when it
@@ -193,44 +193,6 @@ fn run_tests(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn red_with(
-    db: &mut Board,
-    wt: &Path,
-    card: &str,
-    scanner: Option<&dyn TestScanner>,
-    command: &TestCommand,
-    test: &str,
-    mutation: Option<&str>,
-    now: &str,
-) -> rusqlite::Result<Result<Vec<String>, ProofRefused>> {
-    if let Err(refused) = gate(db, card)? {
-        return Ok(Err(refused));
-    }
-    let Some((result, output)) = run_tests(wt, command, test) else {
-        return Ok(Err(ProofRefused::Run));
-    };
-    let failed = match scanner {
-        Some(s) => s.failed(&output),
-        None if matches!(result, gauntlet::StepResult::Failed) => vec![test.to_owned()],
-        None => Vec::new(),
-    };
-    if failed.is_empty() {
-        return Ok(Err(ProofRefused::NoFailure));
-    }
-    db.write(|w| {
-        for name in &failed {
-            let mut args = vec![format!("test={name}")];
-            if let Some(m) = mutation {
-                args.push(format!("mutation={m}"));
-            }
-            w.log(card, "test-red", &args, now).map_err(log_failed)?;
-        }
-        Ok::<_, rusqlite::Error>(())
-    })?;
-    Ok(Ok(failed))
-}
-
 /// A line the vocabulary refuses is a bug of the caller, not a refusal.
 fn log_failed(e: LogError) -> rusqlite::Error {
     match e {
@@ -247,7 +209,7 @@ fn log_failed(e: LogError) -> rusqlite::Error {
 pub fn pins(
     db: &mut Board,
     card: &str,
-    stack: Option<&str>,
+    commands: &TestCommands,
     test: &str,
     why: &str,
     now: &str,
@@ -255,8 +217,10 @@ pub fn pins(
     if let Err(refused) = gate(db, card)? {
         return Ok(Err(refused));
     }
-    if scanner(stack).is_none() {
-        return Ok(Err(ProofRefused::Stack));
+    match commands.pick(test) {
+        Pick::Found { .. } => {}
+        Pick::NoCommand => return Ok(Err(ProofRefused::NoCommand)),
+        Pick::Prefix(p) => return Ok(Err(ProofRefused::Prefix(p))),
     }
     let args = vec![format!("test={test}"), "--".to_owned(), why.to_owned()];
     db.write(|w| w.log(card, "test-pins", &args, now).map_err(log_failed))?;
@@ -264,43 +228,170 @@ pub fn pins(
 }
 
 /// The command one test runs with: a template whose `{test}` stands for the
-/// test's name, and the time it may take.
+/// test's name, how a failure shows in its output, how its tests are found
+/// in a diff, and the time it may take.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TestCommand {
+    prefix: Option<String>,
     template: Vec<String>,
+    /// Source of the failure pattern, `{test}` still in it.
+    failed: Option<String>,
+    pub detect: Option<Detector>,
     pub timeout: Duration,
 }
 
 impl TestCommand {
-    /// The configured template; else on `stack = rust` the default; else none.
+    /// The prefix a test name carries for this command.
     #[must_use]
-    pub fn resolve(test: &crate::config::Test, stack: Option<&str>) -> Option<TestCommand> {
-        let template = match (&test.command, stack) {
-            (Some(t), _) => t.clone(),
-            (None, Some("rust")) => [
-                "cargo",
-                "test",
-                "--workspace",
-                "--",
-                "{test}",
-                "--include-ignored",
-            ]
-            .map(str::to_owned)
-            .to_vec(),
-            (None, _) => return None,
-        };
-        Some(TestCommand {
-            template,
-            timeout: test.timeout,
-        })
+    pub fn prefix(&self) -> Option<&str> {
+        self.prefix.as_deref()
     }
 
-    /// The template with every `{test}` replaced by `test`.
+    /// The template with every `{test}` replaced by `bare`.
     #[must_use]
-    pub fn argv(&self, test: &str) -> Vec<String> {
+    pub fn argv(&self, bare: &str) -> Vec<String> {
         self.template
             .iter()
-            .map(|a| a.replace("{test}", test))
+            .map(|a| a.replace("{test}", bare))
+            .collect()
+    }
+
+    /// Whether the run failed the test `bare`: with a failure pattern, any
+    /// output line matches it; without, the command exited non-zero.
+    #[must_use]
+    pub(crate) fn judge(&self, bare: &str, result: gauntlet::StepResult, output: &str) -> bool {
+        match &self.failed {
+            Some(source) => regex::Regex::new(&source.replace("{test}", &regex::escape(bare)))
+                .is_ok_and(|re| output.lines().any(|l| re.is_match(l))),
+            None => matches!(result, gauntlet::StepResult::Failed),
+        }
+    }
+}
+
+/// The configured test commands, checked.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TestCommands {
+    commands: Vec<TestCommand>,
+}
+
+/// The command a test name picks.
+#[derive(Debug)]
+pub enum Pick<'a> {
+    Found {
+        command: &'a TestCommand,
+        /// The name without the command's prefix.
+        bare: &'a str,
+    },
+    NoCommand,
+    /// The name starts with none of these prefixes.
+    Prefix(Vec<String>),
+}
+
+impl TestCommands {
+    /// Compiles and checks the configured commands.
+    ///
+    /// # Errors
+    ///
+    /// A command without `{test}` in `run`, one of several without a prefix,
+    /// a prefix starting another, a pattern that is no regular expression, a
+    /// declaration pattern without a `name` group, or `files` and `declare`
+    /// not set together; the message names the command.
+    pub fn from_config(test: &crate::config::Test) -> Result<TestCommands, String> {
+        let several = test.command.len() > 1;
+        let mut commands = Vec::new();
+        for (n, c) in test.command.iter().enumerate() {
+            let who = c.prefix.as_ref().map_or_else(
+                || format!("test command {}", n + 1),
+                |p| format!("test command `{p}`"),
+            );
+            if !c.run.iter().any(|a| a.contains("{test}")) {
+                return Err("test command needs a {test} argument".to_owned());
+            }
+            if several && c.prefix.as_deref().is_none_or(str::is_empty) {
+                return Err(format!(
+                    "{who} needs a prefix: several test commands are configured"
+                ));
+            }
+            let check = |source: &str| regex::Regex::new(&source.replace("{test}", "x"));
+            if let Some(f) = &c.failed {
+                check(f).map_err(|e| format!("{who}: failed is no regular expression: {e}"))?;
+            }
+            if c.files.is_empty() != c.declare.is_none() {
+                return Err(format!("{who}: files and declare go together"));
+            }
+            let detect = match &c.declare {
+                Some(d) => {
+                    let declare = regex::Regex::new(d)
+                        .map_err(|e| format!("{who}: declare is no regular expression: {e}"))?;
+                    if !declare.capture_names().flatten().any(|g| g == "name") {
+                        return Err(format!("{who}: declare needs a group named `name`"));
+                    }
+                    Some(Detector {
+                        files: c.files.clone(),
+                        declare,
+                    })
+                }
+                None => None,
+            };
+            commands.push(TestCommand {
+                prefix: c.prefix.clone().filter(|p| !p.is_empty()),
+                template: c.run.clone(),
+                failed: c.failed.clone(),
+                detect,
+                timeout: test.timeout,
+            });
+        }
+        for a in &commands {
+            for b in &commands {
+                if let (Some(pa), Some(pb)) = (&a.prefix, &b.prefix)
+                    && !std::ptr::eq(a, b)
+                    && pb.starts_with(pa.as_str())
+                {
+                    return Err(format!("test prefix `{pa}` is the start of `{pb}`"));
+                }
+            }
+        }
+        Ok(TestCommands { commands })
+    }
+
+    /// The command whose prefix `name` starts with, and the name without it;
+    /// a lone unprefixed command takes the name as given.
+    #[must_use]
+    pub fn pick<'a>(&'a self, name: &'a str) -> Pick<'a> {
+        if self.commands.is_empty() {
+            return Pick::NoCommand;
+        }
+        for command in &self.commands {
+            if let Some(p) = command.prefix()
+                && let Some(bare) = name.strip_prefix(p)
+            {
+                return Pick::Found { command, bare };
+            }
+        }
+        match self.commands.as_slice() {
+            [command] if command.prefix.is_none() => Pick::Found {
+                command,
+                bare: name,
+            },
+            _ => Pick::Prefix(self.prefixes()),
+        }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &TestCommand> {
+        self.commands.iter()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.commands.is_empty()
+    }
+
+    /// The configured prefixes, in order.
+    #[must_use]
+    pub fn prefixes(&self) -> Vec<String> {
+        self.commands
+            .iter()
+            .filter_map(|c| c.prefix.clone())
             .collect()
     }
 }
@@ -309,37 +400,36 @@ impl TestCommand {
 mod tests {
     use super::*;
     use crate::card::board::State;
+    use crate::config::{Test, TestCommandConfig};
 
     const NOW: &str = "2026-11-10T12:00";
 
-    /// Reads `test <name> ... FAILED` lines as failures.
-    struct Fake;
+    fn strings(a: &[&str]) -> Vec<String> {
+        a.iter().map(|s| (*s).to_owned()).collect()
+    }
 
-    impl TestScanner for Fake {
-        fn changes(&self, _diff: &str) -> TestChanges {
-            TestChanges::default()
-        }
-        fn failed(&self, output: &str) -> Vec<String> {
-            output
-                .lines()
-                .filter_map(|l| l.strip_prefix("test ")?.strip_suffix(" ... FAILED"))
-                .map(str::to_owned)
-                .collect()
-        }
-        fn paths(&self) -> &'static [&'static str] {
-            &[]
+    fn cfg(prefix: Option<&str>, run: &[&str], failed: Option<&str>) -> TestCommandConfig {
+        TestCommandConfig {
+            prefix: prefix.map(str::to_owned),
+            run: strings(run),
+            failed: failed.map(str::to_owned),
+            files: Vec::new(),
+            declare: None,
         }
     }
 
-    /// Runs the shell script whatever the test asked.
-    fn sh(script: &str) -> TestCommand {
-        TestCommand {
-            template: vec!["sh".into(), "-c".into(), script.into()],
+    fn cmds(list: Vec<TestCommandConfig>) -> TestCommands {
+        let t = Test {
+            command: list,
             timeout: Duration::from_secs(30),
-        }
+        };
+        TestCommands::from_config(&t).unwrap()
     }
 
-    const RED: &str = "printf 'test a::t_red ... FAILED\\ntest a::t_ok ... ok\\n'";
+    /// One command that runs the shell script, with `{test}` available to it.
+    fn sh(prefix: Option<&str>, script: &str, failed: Option<&str>) -> TestCommands {
+        cmds(vec![cfg(prefix, &["sh", "-c", script], failed)])
+    }
 
     fn board(state: State) -> Board {
         let mut db = Board::memory().unwrap();
@@ -357,206 +447,197 @@ mod tests {
             .collect()
     }
 
-    /// GW-R-068 — each test the run reports failed gets one `test-red` line, a passing test none.
-    #[test]
-    fn ut_red_logs_one_line_per_failure() {
-        let mut db = board(State::InProgress);
-        let got = red_with(
-            &mut db,
-            Path::new("."),
-            "demo.s1",
-            Some(&Fake),
-            &sh(RED),
-            "t_",
-            None,
-            NOW,
-        )
-        .unwrap();
-        assert_eq!(got, Ok(vec!["a::t_red".to_owned()]));
-        assert_eq!(lines(&db, "test-red"), ["test-red test=a::t_red"]);
-    }
-
-    /// GW-E-019 — a run that reports no failed test logs nothing.
-    #[test]
-    fn ut_red_with_no_failure_logs_nothing() {
-        let mut db = board(State::InProgress);
-        let got = red_with(
-            &mut db,
-            Path::new("."),
-            "demo.s1",
-            Some(&Fake),
-            &sh("printf 'test a::t_ok ... ok\\n'"),
-            "t_",
-            None,
-            NOW,
-        )
-        .unwrap();
-        assert_eq!(got, Err(ProofRefused::NoFailure));
-        assert!(lines(&db, "test-red").is_empty());
-    }
-
-    fn config(command: &[&str], timeout: Duration) -> crate::config::Test {
-        crate::config::Test {
-            command: Some(command.iter().map(|a| (*a).to_owned()).collect()),
-            timeout,
-        }
-    }
-
     fn red_in(
         db: &mut Board,
-        config: &crate::config::Test,
-        stack: Option<&str>,
+        commands: &TestCommands,
+        name: &str,
     ) -> Result<Vec<String>, ProofRefused> {
-        red(
-            db,
+        red(db, Path::new("."), "demo.s1", commands, name, None, NOW).unwrap()
+    }
+
+    /// GW-R-096 — the prefix picks the command and is stripped before substitution.
+    #[test]
+    fn ut_pick_strips_the_matching_prefix() {
+        let c = cmds(vec![
+            cfg(Some("cargo:"), &["cargo", "{test}"], None),
+            cfg(Some("vitest:"), &["vt", "{test}"], None),
+        ]);
+        let Pick::Found { command, bare } = c.pick("vitest:adds two") else {
+            panic!("no command");
+        };
+        assert_eq!(bare, "adds two");
+        assert_eq!(command.argv(bare), strings(&["vt", "adds two"]));
+    }
+
+    /// GW-R-104 — a lone unprefixed command takes the name as given.
+    #[test]
+    fn ut_pick_lone_command_takes_the_name_as_given() {
+        let c = cmds(vec![cfg(None, &["go", "{test}"], None)]);
+        assert!(matches!(c.pick("a::b"), Pick::Found { bare: "a::b", .. }));
+    }
+
+    /// GW-R-106 — a name with no configured prefix is refused, naming the prefixes.
+    #[test]
+    fn ut_pick_unmatched_name_names_the_prefixes() {
+        let c = cmds(vec![
+            cfg(Some("a:"), &["x", "{test}"], None),
+            cfg(Some("b:"), &["y", "{test}"], None),
+        ]);
+        let Pick::Prefix(p) = c.pick("t") else {
+            panic!("picked");
+        };
+        assert_eq!(p, strings(&["a:", "b:"]));
+    }
+
+    /// GW-R-106 — a lone prefixed command refuses a bare name.
+    #[test]
+    fn ut_pick_lone_prefixed_command_refuses_a_bare_name() {
+        let c = cmds(vec![cfg(Some("a:"), &["x", "{test}"], None)]);
+        assert!(matches!(c.pick("t"), Pick::Prefix(p) if p == ["a:"]));
+        assert!(matches!(c.pick("a:t"), Pick::Found { bare: "t", .. }));
+    }
+
+    /// GW-E-029 — no configured command picks nothing, for `red` and `pins` alike.
+    #[test]
+    fn ut_pick_no_command() {
+        let c = cmds(Vec::new());
+        assert!(matches!(c.pick("t"), Pick::NoCommand));
+        let mut db = board(State::InProgress);
+        assert_eq!(red_in(&mut db, &c, "t"), Err(ProofRefused::NoCommand));
+        let got = pins(&mut db, "demo.s1", &c, "t", "why", NOW).unwrap();
+        assert_eq!(got, Err(ProofRefused::NoCommand));
+        assert!(lines(&db, "test-pins").is_empty());
+    }
+
+    /// GW-R-110 — `pins` refuses an unprefixed name while prefixes exist and records nothing.
+    #[test]
+    fn ut_pins_refuses_an_unprefixed_name_while_prefixes_exist() {
+        let c = cmds(vec![cfg(Some("a:"), &["x", "{test}"], None)]);
+        let mut db = board(State::InProgress);
+        let got = pins(&mut db, "demo.s1", &c, "t", "why", NOW).unwrap();
+        assert_eq!(got, Err(ProofRefused::Prefix(strings(&["a:"]))));
+        assert!(lines(&db, "test-pins").is_empty());
+        let got = pins(&mut db, "demo.s1", &c, "a:t", "why", NOW).unwrap();
+        assert_eq!(got, Ok(()));
+        assert_eq!(lines(&db, "test-pins"), ["test-pins test=a:t why"]);
+    }
+
+    fn judged(command: &TestCommands, bare: &str, result: gauntlet::StepResult, out: &str) -> bool {
+        let Pick::Found { command, .. } = command.pick(bare) else {
+            panic!("no command");
+        };
+        command.judge(bare, result, out)
+    }
+
+    /// GW-R-107 — a failure pattern matches the output line by line.
+    #[test]
+    fn ut_judge_matches_the_pattern_line_by_line() {
+        let c = sh(None, "true {test}", Some("^FAIL {test}$"));
+        let ok = || gauntlet::StepResult::Ok;
+        assert!(judged(&c, "t_x", ok(), "a\nFAIL t_x\nb"));
+        assert!(!judged(&c, "t_x", ok(), "FAIL t_x extra\nFAIL t_y"));
+    }
+
+    /// GW-R-107 — the name is escaped inside the failure pattern.
+    #[test]
+    fn ut_judge_escapes_the_name() {
+        let c = sh(None, "true {test}", Some("^FAIL {test}$"));
+        let ok = || gauntlet::StepResult::Ok;
+        assert!(judged(&c, "a.b", ok(), "FAIL a.b"));
+        assert!(!judged(&c, "a.b", ok(), "FAIL aXb"));
+    }
+
+    /// GW-E-039 — with a failure pattern the exit code does not decide.
+    #[test]
+    fn ut_judge_pattern_ignores_exit_code() {
+        let c = sh(None, "true {test}", Some("^FAIL {test}$"));
+        assert!(!judged(&c, "t", gauntlet::StepResult::Failed, "boom"));
+        assert!(judged(&c, "t", gauntlet::StepResult::Ok, "FAIL t"));
+    }
+
+    /// GW-R-098, GW-E-034, GW-E-030 — without a pattern the exit decides, whatever the output.
+    #[test]
+    fn ut_judge_without_pattern_reads_the_exit() {
+        let c = sh(None, "true {test}", None);
+        assert!(judged(&c, "t", gauntlet::StepResult::Failed, ""));
+        assert!(!judged(&c, "t", gauntlet::StepResult::Ok, "FAIL t"));
+    }
+
+    /// GW-R-073, GW-R-096 — `red` runs the picked command with the bare name and logs the given name.
+    #[test]
+    fn ut_red_logs_the_named_test_with_its_prefix() {
+        let c = cmds(vec![
+            cfg(Some("a:"), &["sh", "-c", "exit 0 # {test}"], None),
+            cfg(
+                Some("b:"),
+                &["sh", "-c", "echo 'not ok {test}'"],
+                Some("^not ok {test}$"),
+            ),
+        ]);
+        let mut db = board(State::InProgress);
+        let got = red_in(&mut db, &c, "b:t_x");
+        assert_eq!(got, Ok(vec!["b:t_x".to_owned()]));
+        assert_eq!(lines(&db, "test-red"), ["test-red test=b:t_x"]);
+        assert_eq!(red_in(&mut db, &c, "a:t_x"), Err(ProofRefused::NoFailure));
+        assert_eq!(lines(&db, "test-red").len(), 1);
+    }
+
+    /// GW-R-073 — a mutation proof names the mutation on the one failure.
+    #[test]
+    fn ut_red_logs_a_mutation() {
+        let c = sh(None, "exit 1 # {test}", None);
+        let mut db = board(State::InProgress);
+        let got = red(
+            &mut db,
             Path::new("."),
             "demo.s1",
-            config,
-            stack,
+            &c,
             "t_x",
-            None,
+            Some("broke it"),
             NOW,
         )
-        .unwrap()
-    }
-
-    /// GW-R-096 — `red` runs the configured command with the test in place of `{test}`.
-    #[test]
-    fn ut_red_runs_the_configured_command() {
-        let mut db = board(State::InProgress);
-        let c = config(
-            &["sh", "-c", "printf 'test a::{test} ... FAILED\\n'"],
-            Duration::from_secs(30),
-        );
+        .unwrap();
+        assert_eq!(got, Ok(vec!["t_x".to_owned()]));
         assert_eq!(
-            red_in(&mut db, &c, Some("rust")),
-            Ok(vec!["a::t_x".to_owned()])
-        );
-        assert_eq!(lines(&db, "test-red"), ["test-red test=a::t_x"]);
-    }
-
-    /// GW-R-098 — off Rust a configured command that exits non-zero records the named test.
-    #[test]
-    fn ut_red_off_rust_records_a_failing_exit() {
-        let mut db = board(State::InProgress);
-        let c = config(&["sh", "-c", "exit 1 # {test}"], Duration::from_secs(30));
-        assert_eq!(red_in(&mut db, &c, None), Ok(vec!["t_x".to_owned()]));
-        assert_eq!(lines(&db, "test-red"), ["test-red test=t_x"]);
-    }
-
-    /// GW-E-030 — off Rust a failure of the environment is recorded like any non-zero exit.
-    #[test]
-    fn ut_red_off_rust_records_an_environment_failure() {
-        let mut db = board(State::InProgress);
-        let c = config(
-            &["sh", "-c", "echo db down >&2; exit 3 # {test}"],
-            Duration::from_secs(30),
-        );
-        assert_eq!(
-            red_in(&mut db, &c, Some("node")),
-            Ok(vec!["t_x".to_owned()])
-        );
-    }
-
-    /// GW-E-034 — off Rust a command that exits zero is refused with `NoFailure`.
-    #[test]
-    fn ut_red_off_rust_refuses_a_passing_exit() {
-        let mut db = board(State::InProgress);
-        let c = config(&["sh", "-c", "exit 0 # {test}"], Duration::from_secs(30));
-        assert_eq!(red_in(&mut db, &c, None), Err(ProofRefused::NoFailure));
-        assert!(lines(&db, "test-red").is_empty());
-    }
-
-    /// GW-E-032 — on Rust a failing exit with no failed test in the output is `NoFailure`.
-    #[test]
-    fn ut_red_on_rust_reads_failures_not_the_exit() {
-        let mut db = board(State::InProgress);
-        let c = config(
-            &["sh", "-c", "echo boom; exit 1 # {test}"],
-            Duration::from_secs(30),
-        );
-        assert_eq!(
-            red_in(&mut db, &c, Some("rust")),
-            Err(ProofRefused::NoFailure)
+            lines(&db, "test-red"),
+            ["test-red test=t_x mutation=\"broke it\""]
         );
     }
 
     /// GW-R-099 — a run past the command's timeout is refused with `Run`.
     #[test]
     fn ut_red_refuses_a_run_past_its_timeout() {
+        let t = Test {
+            command: vec![cfg(None, &["sh", "-c", "sleep 5 # {test}"], None)],
+            timeout: Duration::from_secs(1),
+        };
+        let c = TestCommands::from_config(&t).unwrap();
         let mut db = board(State::InProgress);
-        let c = config(&["sh", "-c", "sleep 5 # {test}"], Duration::from_secs(1));
-        assert_eq!(red_in(&mut db, &c, None), Err(ProofRefused::Run));
+        assert_eq!(red_in(&mut db, &c, "t"), Err(ProofRefused::Run));
         assert!(lines(&db, "test-red").is_empty());
     }
 
     /// A command that cannot start is `Run`, never a recorded failure.
     #[test]
     fn ut_red_refuses_an_unstartable_command() {
+        let c = cmds(vec![cfg(None, &["ferrule-no-such-program-{test}"], None)]);
         let mut db = board(State::InProgress);
-        let c = config(&["ferrule-no-such-program-{test}"], Duration::from_secs(30));
-        assert_eq!(red_in(&mut db, &c, None), Err(ProofRefused::Run));
-    }
-
-    /// GW-E-029 — off Rust with no configured command `red` refuses with `Stack`.
-    #[test]
-    fn ut_red_and_pins_refuse_off_rust() {
-        let mut db = board(State::InProgress);
-        let none = crate::config::Test::default();
-        let got = red(
-            &mut db,
-            Path::new("."),
-            "demo.s1",
-            &none,
-            None,
-            "t",
-            None,
-            NOW,
-        )
-        .unwrap();
-        assert_eq!(got, Err(ProofRefused::Stack));
-        let got = pins(&mut db, "demo.s1", Some("node"), "t", "why", NOW).unwrap();
-        assert_eq!(got, Err(ProofRefused::Stack));
-        assert!(lines(&db, "test-pins").is_empty());
+        assert_eq!(red_in(&mut db, &c, "t"), Err(ProofRefused::Run));
     }
 
     #[test]
     fn ut_red_refuses_a_missing_card_and_a_state() {
+        let c = sh(None, "exit 1 # {test}", None);
         let mut db = board(State::Open);
-        let got = red_with(
-            &mut db,
-            Path::new("."),
-            "demo.s9",
-            Some(&Fake),
-            &sh(RED),
-            "t",
-            None,
-            NOW,
-        )
-        .unwrap();
+        let got = red(&mut db, Path::new("."), "demo.s9", &c, "t", None, NOW).unwrap();
         assert_eq!(got, Err(ProofRefused::Card));
-        let got = red_with(
-            &mut db,
-            Path::new("."),
-            "demo.s1",
-            Some(&Fake),
-            &sh(RED),
-            "t",
-            None,
-            NOW,
-        )
-        .unwrap();
-        assert_eq!(got, Err(ProofRefused::State(State::Open)));
-        let got = pins(&mut db, "demo.s9", Some("rust"), "t", "why", NOW).unwrap();
+        assert_eq!(
+            red_in(&mut db, &c, "t"),
+            Err(ProofRefused::State(State::Open))
+        );
+        let got = pins(&mut db, "demo.s9", &c, "t", "why", NOW).unwrap();
         assert_eq!(got, Err(ProofRefused::Card));
         assert!(lines(&db, "test-red").is_empty());
-    }
-
-    #[test]
-    fn ut_scanner_is_rust_only() {
-        assert!(scanner(Some("rust")).is_some());
-        assert!(scanner(Some("node")).is_none());
-        assert!(scanner(None).is_none());
     }
 
     fn log(db: &mut Board, card: &str, event: &str, args: &[&str]) {
@@ -575,7 +656,7 @@ mod tests {
 
     fn added(names: &[&str]) -> TestChanges {
         TestChanges {
-            added: names.iter().map(|n| (*n).to_owned()).collect(),
+            added: strings(names),
             ..TestChanges::default()
         }
     }
@@ -586,7 +667,7 @@ mod tests {
         let mut db = board(State::InReview);
         db.write(|w| w.create("demo.s2", State::InProgress, &[], NOW))
             .unwrap();
-        log(&mut db, "demo.s2", "test-red", &["test=tests::t_new"]);
+        log(&mut db, "demo.s2", "test-red", &["test=t_new"]);
         let got = checked(&db, "demo.s1", &added(&["t_new"]), &[]);
         assert_eq!(
             got,
@@ -597,22 +678,27 @@ mod tests {
         assert_eq!(checked(&db, "demo.s2", &added(&["t_new"]), &[]), Ok(()));
     }
 
-    /// A proof names the test by its last `::` segment, a `test-pins` the same.
+    /// GW-R-069 — a proof counts only under the exact prefixed name.
     #[test]
-    fn ut_check_matches_a_failure_by_its_last_segment() {
+    fn ut_check_matches_exact_prefixed_names() {
         let mut db = board(State::InReview);
-        log(&mut db, "demo.s1", "test-red", &["test=a::b::t_one"]);
+        log(&mut db, "demo.s1", "test-red", &["test=a:t_one"]);
         log(
             &mut db,
             "demo.s1",
             "test-pins",
-            &["test=t_two", "--", "why"],
+            &["test=a:t_two", "--", "why"],
         );
-        let got = checked(&db, "demo.s1", &added(&["t_one", "t_two", "t_three"]), &[]);
+        let got = checked(
+            &db,
+            "demo.s1",
+            &added(&["a:t_one", "a:t_two", "t_one", "b:t_one"]),
+            &[],
+        );
         assert_eq!(
             got,
             Err(CommitRefused::TestUnproven {
-                tests: vec!["t_three".to_owned()]
+                tests: strings(&["t_one", "b:t_one"])
             })
         );
     }
@@ -626,60 +712,18 @@ mod tests {
         assert!(matches!(got, Err(CommitRefused::TestUnproven { .. })));
     }
 
-    fn table(command: Option<&[&str]>, timeout: Duration) -> crate::config::Test {
-        crate::config::Test {
-            command: command.map(|c| c.iter().map(|a| (*a).to_owned()).collect()),
-            timeout,
-        }
-    }
-
-    fn strings(a: &[&str]) -> Vec<String> {
-        a.iter().map(|s| (*s).to_owned()).collect()
-    }
-
-    /// A configured command wins on every stack.
-    #[test]
-    fn ut_resolve_prefers_the_configured_command() {
-        let t = table(Some(&["sh", "-c", "go {test}"]), Duration::from_secs(7));
-        for stack in [Some("rust"), Some("node"), None] {
-            let c = TestCommand::resolve(&t, stack).unwrap();
-            assert_eq!(c.timeout, Duration::from_secs(7));
-            assert_eq!(c.argv("t"), strings(&["sh", "-c", "go t"]));
-        }
-    }
-
-    /// With no command only a Rust project gets the cargo default.
-    #[test]
-    fn ut_resolve_defaults_on_rust_only() {
-        let t = crate::config::Test::default();
-        let c = TestCommand::resolve(&t, Some("rust")).unwrap();
-        assert_eq!(
-            c.argv("t"),
-            strings(&[
-                "cargo",
-                "test",
-                "--workspace",
-                "--",
-                "t",
-                "--include-ignored"
-            ])
-        );
-        assert_eq!(c.timeout, Duration::from_mins(30));
-        assert_eq!(TestCommand::resolve(&t, Some("node")), None);
-        assert_eq!(TestCommand::resolve(&t, None), None);
-    }
-
-    /// GW-E-033 — the argument vector has the template's length: ferrule adds
-    /// no argument of its own.
+    /// GW-E-033 — the argument vector has the template's length: ferrule adds no argument.
     #[test]
     fn ut_argv_adds_no_argument() {
-        let t = table(
-            Some(&["run", "--filter={test}", "x{test}y"]),
-            Duration::from_secs(1),
-        );
-        let c = TestCommand::resolve(&t, None).unwrap();
-        let argv = c.argv("a::b");
+        let c = cmds(vec![cfg(
+            None,
+            &["run", "--filter={test}", "x{test}y"],
+            None,
+        )]);
+        let Pick::Found { command, bare } = c.pick("a::b") else {
+            panic!("no command");
+        };
+        let argv = command.argv(bare);
         assert_eq!(argv, strings(&["run", "--filter=a::b", "xa::by"]));
-        assert_eq!(argv.len(), 3);
     }
 }

@@ -160,37 +160,98 @@ fn duration<'de, D: Deserializer<'de>>(d: D) -> Result<Duration, D::Error> {
         .ok_or_else(|| serde::de::Error::custom(format!("expected <n>s, <n>m or <n>h, got {s}")))
 }
 
-/// `[test]`: the command `stage red` and the stage checks run one test with.
+/// `[test]`: the commands `stage red` and the stage checks run one test with.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
-#[serde(default, deny_unknown_fields)]
+#[serde(try_from = "RawTest")]
 pub struct Test {
-    /// Program and arguments, run without a shell; `{test}` is replaced by
-    /// the test name. Unset: the stack's default.
-    #[serde(deserialize_with = "test_command")]
-    pub command: Option<Vec<String>>,
-    /// `90s`, `15m`, `1h`.
-    #[serde(deserialize_with = "duration")]
+    /// `[[test.command]]` tables, or the old string list as one unprefixed
+    /// command.
+    pub command: Vec<TestCommandConfig>,
+    /// `90s`, `15m`, `1h`; shared by every command.
     pub timeout: Duration,
 }
 
-impl Default for Test {
+/// One `[[test.command]]` table.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TestCommandConfig {
+    /// Starts the names of this command's tests; required with several commands.
+    pub prefix: Option<String>,
+    /// Program and arguments, run without a shell; `{test}` is replaced by
+    /// the test name without its prefix.
+    pub run: Vec<String>,
+    /// A regular expression a failing run prints a line of; `{test}` stands
+    /// for the escaped name. Unset: a non-zero exit is the failure.
+    pub failed: Option<String>,
+    /// Globs of the files this command's tests live in.
+    #[serde(default)]
+    pub files: Vec<String>,
+    /// A regular expression with a `name` group a test's declaration matches.
+    pub declare: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct RawTest {
+    #[serde(deserialize_with = "test_commands")]
+    command: Vec<TestCommandConfig>,
+    #[serde(deserialize_with = "duration")]
+    timeout: Duration,
+}
+
+impl Default for RawTest {
     fn default() -> Self {
-        Test {
-            command: None,
+        RawTest {
+            command: Vec::new(),
             timeout: default_timeout(),
         }
     }
 }
 
-fn test_command<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Vec<String>>, D::Error> {
-    let cmd = Vec::<String>::deserialize(d)?;
-    if cmd.iter().any(|a| a.contains("{test}")) {
-        Ok(Some(cmd))
-    } else {
-        Err(serde::de::Error::custom(
-            "test command needs a {test} argument",
-        ))
+impl TryFrom<RawTest> for Test {
+    type Error = String;
+
+    fn try_from(raw: RawTest) -> Result<Self, String> {
+        let test = Test {
+            command: raw.command,
+            timeout: raw.timeout,
+        };
+        crate::run::testproof::TestCommands::from_config(&test)?;
+        Ok(test)
     }
+}
+
+impl Default for Test {
+    fn default() -> Self {
+        Test {
+            command: Vec::new(),
+            timeout: default_timeout(),
+        }
+    }
+}
+
+fn test_commands<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<TestCommandConfig>, D::Error> {
+    use serde::de::Error;
+    let value = toml::Value::deserialize(d)?;
+    let toml::Value::Array(items) = &value else {
+        return Err(D::Error::custom(
+            "[test] command must be a list of arguments or [[test.command]] tables",
+        ));
+    };
+    if items.iter().all(toml::Value::is_str) {
+        let run = items
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_owned))
+            .collect::<Vec<_>>();
+        return Ok(vec![TestCommandConfig {
+            prefix: None,
+            run,
+            failed: None,
+            files: Vec::new(),
+            declare: None,
+        }]);
+    }
+    value.try_into().map_err(D::Error::custom)
 }
 
 /// Where `prompt show` opens files.
@@ -332,38 +393,112 @@ mod tests {
     fn ut_test_table_defaults() {
         let d = Config::default();
         assert_eq!(d.test, Test::default());
-        assert_eq!(d.test.command, None);
+        assert!(d.test.command.is_empty());
         assert_eq!(d.test.timeout, Duration::from_mins(30));
         let c: Config = toml::from_str("[test]\ncommand = [\"x\", \"{test}\"]\n").unwrap();
         assert_eq!(c.test.timeout, Duration::from_mins(30));
         let c: Config = toml::from_str("[test]\ntimeout = \"90s\"\n").unwrap();
         assert_eq!(c.test.timeout, Duration::from_secs(90));
-        assert_eq!(c.test.command, None);
+        assert!(c.test.command.is_empty());
+    }
+
+    fn load(text: &str) -> Result<Config, toml::de::Error> {
+        toml::from_str(text)
+    }
+
+    fn table(body: &str) -> String {
+        format!("[[test.command]]\nrun = [\"x\", \"{{test}}\"]\n{body}\n")
+    }
+
+    /// The old `[test] command` list loads as one unprefixed command with neither pattern.
+    #[test]
+    fn ut_test_command_list_loads_as_one_command() {
+        let c = load("[test]\ncommand = [\"sh\", \"-c\", \"run --filter={test}\"]\n").unwrap();
+        assert_eq!(
+            c.test.command,
+            vec![TestCommandConfig {
+                prefix: None,
+                run: vec!["sh".into(), "-c".into(), "run --filter={test}".into()],
+                failed: None,
+                files: Vec::new(),
+                declare: None,
+            }]
+        );
+        let c = load(&format!(
+            "{}{}",
+            table("prefix = \"a:\"\nfailed = \"^F {test}$\"\nfiles = [\"*.rs\"]\ndeclare = \"fn (?P<name>\\\\w+)\""),
+            ""
+        ))
+        .unwrap();
+        assert_eq!(c.test.command[0].prefix.as_deref(), Some("a:"));
+        assert_eq!(c.test.command[0].files, ["*.rs"]);
+        assert!(load("[test]\ncommand = 3\n").is_err());
     }
 
     /// GW-E-031 — a test command with no `{test}` argument is refused at load.
     #[test]
     fn ut_test_command_needs_a_placeholder() {
         for bad in ["[\"make\", \"check\"]", "[]"] {
-            let e = toml::from_str::<Config>(&format!("[test]\ncommand = {bad}\n")).unwrap_err();
+            let e = load(&format!("[test]\ncommand = {bad}\n")).unwrap_err();
             assert!(
                 e.to_string()
                     .contains("test command needs a {test} argument"),
                 "{e}"
             );
         }
-        let c: Config =
-            toml::from_str("[test]\ncommand = [\"sh\", \"-c\", \"run --filter={test}\"]\n")
-                .unwrap();
-        assert_eq!(
-            c.test.command,
-            Some(vec![
-                "sh".to_owned(),
-                "-c".to_owned(),
-                "run --filter={test}".to_owned()
-            ])
+        let e = load("[[test.command]]\nrun = [\"make\"]\n").unwrap_err();
+        assert!(e.to_string().contains("needs a {test} argument"), "{e}");
+        assert!(load("[test]\nnope = 1\n").is_err());
+    }
+
+    /// GW-R-105 — several commands each need a prefix.
+    #[test]
+    fn ut_test_commands_need_prefixes_when_several() {
+        let two = format!("{}{}", table("prefix = \"a:\""), table(""));
+        let e = load(&two).unwrap_err();
+        assert!(e.to_string().contains("needs a prefix"), "{e}");
+        let ok = format!("{}{}", table("prefix = \"a:\""), table("prefix = \"b:\""));
+        assert_eq!(load(&ok).unwrap().test.command.len(), 2);
+        assert!(load(&table("")).is_ok());
+    }
+
+    /// GW-E-037 — a prefix starting another is refused, naming both.
+    #[test]
+    fn ut_test_prefix_starting_another_is_refused() {
+        let text = format!(
+            "{}{}",
+            table("prefix = \"web:\""),
+            table("prefix = \"web:e2e:\"")
         );
-        assert!(toml::from_str::<Config>("[test]\nnope = 1\n").is_err());
+        let e = load(&text).unwrap_err().to_string();
+        assert!(e.contains("web:") && e.contains("web:e2e:"), "{e}");
+    }
+
+    /// GW-E-041 — a pattern that is no regular expression is refused.
+    #[test]
+    fn ut_test_pattern_must_compile() {
+        let e = load(&table("failed = \"(\"")).unwrap_err().to_string();
+        assert!(e.contains("failed"), "{e}");
+        let e = load(&table("files = [\"*.rs\"]\ndeclare = \"(?P<name>\""))
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("declare"), "{e}");
+    }
+
+    /// GW-E-042 — a declaration pattern needs a `name` group.
+    #[test]
+    fn ut_test_declare_needs_a_name_group() {
+        let e = load(&table("files = [\"*.rs\"]\ndeclare = \"fn (\\\\w+)\""))
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("name"), "{e}");
+    }
+
+    /// GW-E-043 — files and a declaration pattern go together.
+    #[test]
+    fn ut_test_files_and_declare_go_together() {
+        assert!(load(&table("files = [\"*.rs\"]")).is_err());
+        assert!(load(&table("declare = \"fn (?P<name>x)\"")).is_err());
     }
 
     /// GA-R-113 — `[thresholds]` no longer reads the stage-stop size keys.

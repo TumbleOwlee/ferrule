@@ -802,7 +802,7 @@ fn it_guides_state_the_tdd_and_standards_rules() {
         root,
         &["guide", "implementer", "--slug", "demo", "--section", "TDD"],
     );
-    assert!(tdd.contains("1. Write the stage's tests first; once each compiles (a stub of the code under test where needed), record its failure with `ferrule stage red demo <test>`, which runs it and logs each failure it sees."), "{tdd}");
+    assert!(tdd.contains("1. Write the stage's tests first; once each compiles (a stub of the code under test where needed), record its failure with `ferrule stage red demo <test>`, which runs it and logs the named test's failure."), "{tdd}");
     assert!(
         tdd.contains("2. Write the code until they pass, then log `green`."),
         "{tdd}"
@@ -814,7 +814,7 @@ fn it_guides_state_the_tdd_and_standards_rules() {
         "{tdd}"
     );
     assert!(tdd.contains("4. A test that passes from the start pins existing behavior: mark it with `ferrule stage pins demo <test> -- <what it pins>`."), "{tdd}");
-    assert!(tdd.contains("On a Rust project `ferrule stage commit` refuses a new test without a proof (`reason=test-unproven`) and a removed or rewritten test without `--replaced <old>=<new>` (`reason=test-unreplaced`); a rewritten test may name itself and then needs a proof."), "{tdd}");
+    assert!(tdd.contains("For a test command declaring its test files and declaration pattern, `ferrule stage commit` refuses a new test without a proof (`reason=test-unproven`) and a removed or rewritten test without `--replaced <old>=<new>` (`reason=test-unreplaced`); a rewritten test may name itself and then needs a proof."), "{tdd}");
     let axes = ok(
         root,
         &[

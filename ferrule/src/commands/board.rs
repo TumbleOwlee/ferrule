@@ -11,7 +11,7 @@ use ferrule_core::git;
 use ferrule_core::pr::publish;
 use ferrule_core::project;
 use ferrule_core::refusal::{Exit, Refusal};
-use ferrule_core::run::testproof::TestCheck;
+use ferrule_core::run::testproof::{TestCheck, TestCommands};
 use ferrule_core::store::Site;
 use ferrule_core::store::{Board, Error as StoreError, Origin};
 use ferrule_core::term::{self, Style};
@@ -937,7 +937,7 @@ pub(super) fn commit(
         card,
         &message.join("\n\n"),
         TestCheck {
-            stack: config.stack.as_deref(),
+            commands: &TestCommands::from_config(&config.test).unwrap_or_default(),
             replaced,
         },
         &board::now(),
@@ -968,7 +968,7 @@ pub(super) fn adopt(
         card,
         sha,
         TestCheck {
-            stack: config.stack.as_deref(),
+            commands: &TestCommands::from_config(&config.test).unwrap_or_default(),
             replaced,
         },
         &board::now(),

@@ -16,7 +16,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use crate::config::{Coverage, Level, Step, Test};
 use crate::git;
 use crate::refusal::Refusal;
-use crate::run::testproof::TestCommand;
+use crate::run::testproof::TestCommands;
 use crate::store::Board;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -167,6 +167,7 @@ pub fn coverage(output: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
+#[derive(Clone, Copy)]
 pub(crate) enum StepResult {
     Ok,
     Failed,
@@ -362,53 +363,60 @@ fn selected(wt: &Path, steps: Steps<'_>) -> Vec<Step> {
         .collect()
 }
 
-/// One step per test the stage's diff since `base` adds or rewrites.
+/// One step per test the stage's diff since `base` adds or rewrites, each
+/// run with the command its prefix picks; commands without test detection
+/// add none.
 fn stage_tests(wt: &Path, steps: Steps<'_>) -> Vec<Step> {
-    let (Some(_), Some(base), Some(scanner), Some(command)) = (
+    let (Some(_), Some(base), Ok(commands)) = (
         steps.stage,
         steps.base,
-        crate::run::testproof::scanner(steps.stack),
-        TestCommand::resolve(steps.test, steps.stack),
+        TestCommands::from_config(steps.test),
     ) else {
         return Vec::new();
     };
-    let specs = scanner.paths();
-    let mut args = vec!["diff", "--no-renames", "-U1000000", base, "--"];
-    args.extend(specs);
-    let mut text = git::out(wt, &args).unwrap_or_default();
-    for path in untracked(wt, specs) {
-        let added = git::bytes(
-            wt,
-            &[
-                "diff",
-                "--no-index",
-                "--no-renames",
-                "-U1000000",
-                "--",
-                "/dev/null",
-                &path,
-            ],
-            &[1],
-        )
-        .unwrap_or_default();
-        text.push('\n');
-        text.push_str(&String::from_utf8_lossy(&added));
-    }
-    let changes = scanner.changes(&text);
-    let mut names = changes.added;
-    names.extend(changes.rewritten);
-    names.sort();
-    names.dedup();
-    names
-        .into_iter()
-        .map(|name| Step {
-            cmd: command.argv(&name),
+    let mut out = Vec::new();
+    for command in commands.iter() {
+        let Some(detect) = &command.detect else {
+            continue;
+        };
+        let specs = detect.pathspecs();
+        let specs: Vec<&str> = specs.iter().map(String::as_str).collect();
+        let mut args = vec!["diff", "--no-renames", "-U1000000", base, "--"];
+        args.extend(&specs);
+        let mut text = git::out(wt, &args).unwrap_or_default();
+        for path in untracked(wt, &specs) {
+            let added = git::bytes(
+                wt,
+                &[
+                    "diff",
+                    "--no-index",
+                    "--no-renames",
+                    "-U1000000",
+                    "--",
+                    "/dev/null",
+                    &path,
+                ],
+                &[1],
+            )
+            .unwrap_or_default();
+            text.push('\n');
+            text.push_str(&String::from_utf8_lossy(&added));
+        }
+        let changes = detect.changes(&text, command.prefix());
+        let mut names = changes.added;
+        names.extend(changes.rewritten);
+        names.sort();
+        names.dedup();
+        let cut = command.prefix().map_or(0, str::len);
+        out.extend(names.into_iter().map(|name| Step {
+            cmd: command.argv(&name[cut..]),
             name: format!("test:{name}"),
             timeout: command.timeout,
             coverage: None,
             at: Vec::new(),
-        })
-        .collect()
+        }));
+    }
+    out
 }
 
 /// The commit a run at `level` measures from: at push the base of `stage`,
@@ -680,7 +688,7 @@ mod tests {
         stack: Option<&'a str>,
     ) -> Steps<'a> {
         static NO_TEST: Test = Test {
-            command: None,
+            command: Vec::new(),
             timeout: Duration::from_secs(5),
         };
         Steps {

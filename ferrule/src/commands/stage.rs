@@ -6,7 +6,7 @@ use std::io::{self, Write};
 use clap::{Subcommand, ValueEnum};
 use ferrule_core::card::board;
 use ferrule_core::refusal::{CARD_HINT, Refusal};
-use ferrule_core::run::testproof::{self, ProofRefused};
+use ferrule_core::run::testproof::{self, ProofRefused, TestCommands};
 use ferrule_core::run::{self as core_run, Error, gate};
 
 use super::board::store;
@@ -46,10 +46,12 @@ Refusals (checked in this order; each line ends in `hint=<fix>`):
                                  the changes with `git add`; on a clean one
                                  they may already be committed, <sha> is HEAD
   commit=refused reason=test-unproven tests=<a,b>
-                                 Rust: new tests with no `ferrule stage red`
-                                 failure or `ferrule stage pins` mark on the card
+                                 New tests of a command declaring its test files
+                                 and pattern, named with their prefix, with no
+                                 `ferrule stage red` failure or `ferrule stage
+                                 pins` mark on the card
   commit=refused reason=test-unreplaced tests=<a,b>
-                                 Rust: removed or rewritten tests no
+                                 Removed or rewritten tests no
                                  `--replaced <old>=<new>` names
   commit=refused reason=git      `git commit` failed with changes staged (a
                                  hook refused); git's message is on stderr
@@ -80,7 +82,9 @@ as the stage's commit; no commit is created and history is unchanged:
 (repeatable, also with --adopt; conflicts with --no-run).
 Notes logged on the card after `commit=`: `files-outside=<path>` per path
 outside the card's files list, `test-replaced old=<o> new=<n>` per
---replaced, `test-checks=skipped stack=<s>` when the stack has no test checks.
+--replaced, `test-checks=skipped reason=no-command` with no test command, or
+`test-checks=skipped reason=no-detection [prefixes=<a,b>]` when a command
+declares no test files and pattern.
 With --no-run the nothing-staged check applies, the new-test and removed-test
 checks do not, and no card is touched; the main-branch check applies too.
 Attribution trailers are stripped from the message first.
@@ -91,26 +95,27 @@ See: ferrule guide show stages";
 
 /// Shown after `ferrule stage red --help`.
 const RED_AFTER_LONG_HELP: &str = "\
-Runs the tests matching <test> in the current directory with the project's test
-command: `[test] command` in ferrule.toml with <test> in place of `{test}`, or on
-a Rust project without one `cargo test --workspace -- <test> --include-ignored`.
-Logs one `test-red test=<name>` per test the run reports failed (off Rust: <test>
-when the command exits non-zero); with --mutation <text> each line also carries
+Runs the tests matching <test> in the current directory with the
+`[[test.command]]` of ferrule.toml whose prefix <test> starts with, <test>
+without the prefix in place of `{test}`. Logs `test-red test=<test>` when the
+run failed it (the command's `failed` pattern matched, or without one it
+exited non-zero); with --mutation <text> the line also carries
 `mutation=<text>`, the proof that the test fails when the code under it is
 broken.
 Output:
-  red=recorded tests=<a,b>         One `test-red` logged per failed test
+  red=recorded tests=<test>        One `test-red` logged for the named test
 Refusals (each line ends in `hint=<fix>`):
   red=refused reason=card          No such card; check it with
                                    `ferrule board list`
   red=refused reason=state state=<s>
                                    The card is in <s>, not inprogress or
                                    inreview
-  red=refused reason=stack         Not a Rust project and no [test] command
-  red=refused reason=no-failure    The run reported no failed test (a test
-                                   that does not compile is none; off Rust: the
-                                   command exited zero): make it compile and
-                                   fail, then run again
+  red=refused reason=no-command    No [[test.command]] in ferrule.toml
+  red=refused reason=prefix prefixes=<a,b>
+                                   <test> starts with none of the prefixes
+  red=refused reason=no-failure    The run did not fail the test (the failure
+                                   pattern did not match, or the command exited
+                                   zero): make it fail, then run again
   red=refused reason=run           The test command could not start or ran past
                                    its timeout
 Exit codes: 0 ok, 1 refused, 4 internal error.
@@ -130,7 +135,9 @@ Refusals (each line ends in `hint=<fix>`):
   pins=refused reason=state state=<s>
                                    The card is in <s>, not inprogress or
                                    inreview
-  pins=refused reason=stack        Not a Rust project: only it records proofs
+  pins=refused reason=no-command   No [[test.command]] in ferrule.toml
+  pins=refused reason=prefix prefixes=<a,b>
+                                   <test> starts with none of the prefixes
 Exit codes: 0 ok, 1 refused, 4 internal error.
 Dev build: the open that takes a copy of an older shared board prints to stderr
 `ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
@@ -415,14 +422,14 @@ fn proof_refusal(verb: &'static str, refused: &ProofRefused) -> Refusal {
         ProofRefused::State(st) => Refusal::new(verb, "state")
             .field("state", st)
             .hint("move the card to inprogress first: `ferrule board move <card> inprogress`"),
-        ProofRefused::Stack if verb == "red" => Refusal::new(verb, "stack")
-            .hint("set [test] command in ferrule.toml, or stack = \"rust\" for the cargo default"),
-        ProofRefused::Stack => Refusal::new(verb, "stack").hint(
-            "only a Rust project records test proofs; set `stack = \"rust\"` in ferrule.toml",
-        ),
-        ProofRefused::NoFailure => Refusal::new(verb, "no-failure").hint(
-            "the run reported no failed test: make the test compile and fail, then run again",
-        ),
+        ProofRefused::NoCommand => {
+            Refusal::new(verb, "no-command").hint("add a [[test.command]] to ferrule.toml")
+        }
+        ProofRefused::Prefix(p) => Refusal::new(verb, "prefix")
+            .field("prefixes", p.join(","))
+            .hint("start the test name with one of the configured prefixes, as `<prefix><name>`"),
+        ProofRefused::NoFailure => Refusal::new(verb, "no-failure")
+            .hint("the run did not fail the test: make it fail, then run again"),
         ProofRefused::Run => Refusal::new(verb, "run")
             .hint("the test command could not start or ran past its timeout: run it by hand"),
     }
@@ -438,8 +445,7 @@ fn red(card: &str, test: &str, mutation: Option<&str>, out: &mut impl Write) -> 
         &mut s,
         &here,
         card,
-        &config.test,
-        config.stack.as_deref(),
+        &TestCommands::from_config(&config.test).unwrap_or_default(),
         test,
         mutation,
         &board::now(),
@@ -462,7 +468,7 @@ fn pins(card: &str, test: &str, why: &str, out: &mut impl Write) -> io::Result<u
     let got = testproof::pins(
         &mut s,
         card,
-        config.stack.as_deref(),
+        &TestCommands::from_config(&config.test).unwrap_or_default(),
         test,
         why,
         &board::now(),

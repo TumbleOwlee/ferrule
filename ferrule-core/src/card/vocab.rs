@@ -169,7 +169,7 @@ pub const VOCABULARY: &[Event] = &[
         "test-checks=",
         V::OneOf(&["skipped"]),
         P::None,
-        &["stack"],
+        &["reason", "prefixes"],
         Text::No,
     )
     .by("ferrule stage commit <card> -m <msg>"),
