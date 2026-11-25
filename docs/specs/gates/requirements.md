@@ -280,7 +280,7 @@
 
 **GA-R-115** — A batched or skipped stage's checks also run the review-level steps, `{crates}` as the crates its own diff touches.
 
-**GA-R-176** — On a Rust project, `ferrule ci gauntlet --stage` runs each test the stage adds or rewrites with the same test command and timeout as `ferrule stage red`.
+**GA-R-176** — `ferrule ci gauntlet --stage` runs each test the stage adds or rewrites with the test command `ferrule stage red` would pick for that test and the same timeout.
 
 ## Stage questions
 

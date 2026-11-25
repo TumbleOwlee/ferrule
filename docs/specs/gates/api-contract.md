@@ -36,7 +36,7 @@
 
 ## ferrule ci gauntlet
 
-- `--level <push|review|full>`, default full; `--stage s<n>` also runs the tests the stage's diff adds or rewrites, each with the test command and timeout of `ferrule.toml [test]` (git-writes contract), and for a stage that commits before its review the review-level steps, `{crates}` as the stage's crates (GA-R-082, GA-R-083, GA-R-084, GA-R-115, GA-R-176, GA-E-019, GA-E-040)
+- `--level <push|review|full>`, default full; `--stage s<n>` also runs the tests the stage's diff adds or rewrites, each with the test command its prefix picks and the timeout of `ferrule.toml [test]` (git-writes contract), and for a stage that commits before its review the review-level steps, `{crates}` as the stage's crates (GA-R-082, GA-R-083, GA-R-084, GA-R-115, GA-R-176, GA-E-019, GA-E-040)
 - `[[gauntlet.step]] at = [<level>, …]` names the levels a step runs at besides full; `{crates}` in `cmd` expands per level (GA-R-091, GA-R-115, GA-E-009, GA-E-011)
 
 ## ferrule prompt show
