@@ -114,6 +114,8 @@ Statuses each position takes:
            minors=<n>
   gate4    ready, question
   ci       ci=<exit code of gh pr checks>
+  checks   done, none: the checkers' lines are taken but not decided on; the
+           decision reads the result files and `check-loop.md`
 
 Output, in order:
   logged: <event>                  An event logged on the card:
@@ -160,6 +162,10 @@ Output, in order:
     pr               gate3 clean on every stage: spawn the spec author for
                      the PR body
     done             ci=0: clean up the run
+    pass-back        checks: a finding is left and the run is below the third
+                     (`next=pass-back run=<k>`): the findings are copied into
+                     `check-loop.md` and relayed to the architect
+    stop             checks: no finding, or the third run: show the stop
   reason=<why>                     Why `stop` stops, or `pr` has `needs-user`;
                                    `minors` carries the reason of the step it
                                    precedes.
@@ -377,6 +383,8 @@ pub enum NextAt {
     Gate4,
     /// `ci=<exit code of gh pr checks>`.
     Ci,
+    /// Both design checks' hand-offs (`status=none` when neither returned one).
+    Checks,
 }
 
 pub fn run(command: &GateCommand, out: &mut impl Write) -> io::Result<u8> {
@@ -572,6 +580,7 @@ fn next_step(slug: &str, at: NextAt, status: &[String], out: &mut impl Write) ->
         NextAt::Gate3 => At::Gate3,
         NextAt::Gate4 => At::Gate4,
         NextAt::Ci => At::Ci,
+        NextAt::Checks => At::Checks,
     };
     let status = Status::parse(status);
     let Some(mut s) = store()? else {
