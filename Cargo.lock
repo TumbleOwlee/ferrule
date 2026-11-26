@@ -180,7 +180,7 @@ checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 
 [[package]]
 name = "ferrule"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "clap",
  "ferrule-core",
@@ -193,7 +193,7 @@ dependencies = [
 
 [[package]]
 name = "ferrule-core"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "flate2",
  "pulldown-cmark",
