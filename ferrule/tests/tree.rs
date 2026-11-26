@@ -49,6 +49,7 @@ ci wait
 ci failed
 board
 board list
+board dump
 board events
 board show
 board field

@@ -1071,6 +1071,7 @@ const DEV_COPY: &str = "`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`";
 /// Commands that open the board, so may print the dev-copy notice.
 const BOARD_OPENERS: &[&str] = &[
     "run init",
+    "board dump",
     "run reconcile",
     "run live-check",
     "run rebase",

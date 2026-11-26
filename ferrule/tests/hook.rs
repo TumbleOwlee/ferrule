@@ -1128,6 +1128,8 @@ fn it_reviewer_reads_pass_the_guard() {
             ("sha256sum notes.md", "allow"),
             ("rtk bypass rg x", "allow"),
             ("ferrule board show demo", "allow"),
+            ("ferrule board dump", "allow"),
+            ("ferrule board dump --run demo --archived", "allow"),
             ("ferrule issue milestones", "allow"),
             ("ferrule ci failed", "allow"),
             ("echo x >> .ferrule/runs/demo/review.md", "allow"),

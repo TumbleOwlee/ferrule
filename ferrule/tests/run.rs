@@ -2253,3 +2253,38 @@ fn it_test_command_without_placeholder_exits_4() {
     );
     assert!(out.stdout.is_empty());
 }
+
+/// BO-R-020, BO-R-019, BO-R-022, BO-E-008 — an archived run is in the dump only with `--archived`, after the live runs, with its stage cards and no waiting stop.
+#[test]
+fn it_board_dump_lists_archived_runs_on_request() {
+    let s = pushed_run();
+    seed_log(&s.root, NOW, "demo", &["ci=0"]);
+    assert_eq!(
+        s.say(&["run", "cleanup", "demo"]),
+        "cleanup=done archive=1 issue=12"
+    );
+    let dump = |args: &[&str]| -> serde_json::Value {
+        let mut all = vec!["board", "dump"];
+        all.extend_from_slice(args);
+        serde_json::from_str(&s.say(&all)).unwrap()
+    };
+    let slugs = |d: &serde_json::Value| -> Vec<String> {
+        d["runs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["slug"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    assert!(!slugs(&dump(&[])).contains(&"demo".to_owned()));
+    let all = dump(&["--archived"]);
+    let got = slugs(&all);
+    assert_eq!(got.iter().filter(|x| *x == "demo").count(), 1, "{got:?}");
+    assert_eq!(got.last().unwrap(), "demo");
+    let demo = all["runs"].as_array().unwrap().last().unwrap();
+    assert_eq!(demo["archived"]["abandoned"], false);
+    assert!(demo["waiting"].is_null());
+    assert!(!demo["stages"].as_array().unwrap().is_empty());
+    let only = dump(&["--run", "demo", "--archived"]);
+    assert_eq!(slugs(&only), ["demo"]);
+}

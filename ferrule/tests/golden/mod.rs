@@ -83,6 +83,16 @@ pub fn seed_log(root: &Path, at: &str, card: &str, words: &[&str]) {
         .unwrap_or_else(|e| panic!("{words:?}: {e:?}"));
 }
 
+/// Records `files` as the approval marker shown at `at`, as the viewer's
+/// open does; each sits directly under `<root>/.ferrule/runs/<slug>/`.
+pub fn seed_marker(root: &Path, files: &[std::path::PathBuf], at: &str) {
+    let mut board = ferrule_core::store::Board::open_existing(&dev_site(root))
+        .unwrap()
+        .expect("a board");
+    let layout = ferrule_core::project::Layout::new(root.to_path_buf());
+    ferrule_core::prompt::approval::record(&mut board, &layout, files, at).unwrap();
+}
+
 /// Compares `got` with `expected/<name>.out`, or rewrites it under
 /// `UPDATE=1`.
 pub fn check(name: &str, got: &str) {

@@ -88,7 +88,10 @@ const PLAIN: &[&str] = &[
 
 /// The ferrule commands that only read: `(group, subcommands)`.
 const FERRULE_READS: &[(&str, &[&str])] = &[
-    ("board", &["show", "list", "field", "events", "vocab"]),
+    (
+        "board",
+        &["show", "list", "field", "events", "vocab", "dump"],
+    ),
     ("run", &["status", "diff", "log", "plan-diff"]),
     ("stage", &["verify"]),
     ("file", &["headings", "section"]),
