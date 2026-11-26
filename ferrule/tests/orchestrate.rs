@@ -1715,7 +1715,7 @@ fn cargo_in(p: &Project, args: &[&str]) -> String {
     in_dir_env(p, &p.worktree(), &[("CARGO_TARGET_DIR", &target)], args)
 }
 
-/// Overwrites the worktree's `src/lib.rs` with `tests`, declared at the crate root so that a test added after the last one leaves that one's body alone.
+/// Overwrites the worktree's `src/lib.rs` with `tests`.
 fn write_tests(p: &Project, tests: &str) {
     std::fs::write(p.worktree().join("src/lib.rs"), tests).unwrap();
 }
@@ -2064,6 +2064,29 @@ fn it_stage_commit_takes_a_red_or_pins_proof() {
         "{got}"
     );
     seed_proof(&p, &["test-pins", "test=t_other", "--", "pins it"]);
+    let got = commit_in(&p, &[]);
+    assert!(got.starts_with("commit=done sha="), "{got}");
+}
+
+/// GW-R-114 — a test appended inside a test module is new and rewrites the one above it by no line, so no `--replaced` is asked.
+#[test]
+fn it_stage_commit_sees_a_test_appended_in_a_module_as_new() {
+    let p = rust_project();
+    write_tests(
+        &p,
+        &format!("mod tests {{\n{}}}\n", module_of(&[("t_a", SAME)])),
+    );
+    git(&p.worktree(), &["add", "src/lib.rs"]);
+    git(&p.worktree(), &["commit", "-q", "-m", "base"]);
+    write_tests(
+        &p,
+        &format!(
+            "mod tests {{\n{}}}\n",
+            module_of(&[("t_a", SAME), ("t_b", SAME)])
+        ),
+    );
+    git(&p.worktree(), &["add", "src/lib.rs"]);
+    seed_proof(&p, &["test-red", "test=t_b"]);
     let got = commit_in(&p, &[]);
     assert!(got.starts_with("commit=done sha="), "{got}");
 }
