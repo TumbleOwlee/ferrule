@@ -4,7 +4,7 @@ claude_md = false
 deny = []
 
 [files]
-".claude/agents/fe-architect.md" = "f61bbd3bed8e38de"
+".claude/agents/fe-architect.md" = "44ceae1347bfcbfd"
 ".claude/agents/fe-author.md" = "5deefe7da590f67c"
 ".claude/agents/fe-checker.md" = "a2a83a716aec6017"
 ".claude/agents/fe-implementer.md" = "01178a9e3b824176"

@@ -18,7 +18,7 @@ Every turn ends on exactly one line:
 
 ```
 status=question file=<run_dir>/question.md count=<decisions>
-status=ready file=<run_dir>/architecture.md summary=<run_dir>/architecture.summary.md count=<new + changed components> [slices=<run_dir>/slices.md]
+status=ready file=<run_dir>/architecture.md summary=<run_dir>/architecture.summary.md count=<new + changed components> [slices=<run_dir>/slices.md] [fixed=<IDs|-> needs-user=<IDs|->]
 status=no-arch
 status=split reason=<what is split off, one line>
 status=behavior-change reason=<one line>                 # non-behavior run only
