@@ -117,11 +117,12 @@ Refuses:
                        and tag only to list; cargo test|check|clippy|tree|
                        metadata, fmt --check (no --print-config,
                        --config); ferrule's read-only commands (board
-                       show|list|field|events|vocab, run status|diff|log|
-                       plan-diff, stage verify, file, spec, issue view|
-                       search|request|body|milestones, pr view|body,
-                       guide, prompt lines, ci failed). Wrappers (env, timeout, A=b cmd),
-                       sh -c, eval and $'...' are refused. Output goes to
+                       show|list|field|events|vocab|dump, run
+                       status|diff|log|plan-diff, stage verify, file, spec,
+                       issue view|search|request|body|milestones, pr
+                       view|body, guide, prompt lines, ci failed). Wrappers
+                       (env, timeout, A=b cmd), sh -c, eval and $'...' are
+                       refused. Output goes to
                        /dev/null, appends to review.md, rewrites
                        review.verdict.md, or, for a ferrule read command,
                        goes into the system temp directory
@@ -160,11 +161,12 @@ Refuses:
                        and tag only to list; cargo test|check|clippy|tree|
                        metadata, fmt --check (no --print-config,
                        --config); ferrule's read-only commands (board
-                       show|list|field|events|vocab, run status|diff|log|
-                       plan-diff, stage verify, file, spec, issue view|
-                       search|request|body|milestones, pr view|body,
-                       guide, prompt lines, ci failed). Wrappers (env, timeout, A=b cmd),
-                       sh -c, eval and $'...' are refused. Output goes to
+                       show|list|field|events|vocab|dump, run
+                       status|diff|log|plan-diff, stage verify, file, spec,
+                       issue view|search|request|body|milestones, pr
+                       view|body, guide, prompt lines, ci failed). Wrappers
+                       (env, timeout, A=b cmd), sh -c, eval and $'...' are
+                       refused. Output goes to
                        /dev/null, rewrites check-comprehension.md or
                        check-zoom-out.md, or, for a ferrule read command,
                        goes into the system temp directory
