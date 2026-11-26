@@ -113,30 +113,45 @@ fn findings(text: &str, want: &str) -> Option<Vec<String>> {
 }
 
 /// The stop's `Design checks:` block: per check `- <scope>: <n> finding(s) ·
-/// <path>`, `- <scope>: none found · <path>` or `- <scope>: did not run`,
-/// then every finding as `- C<n> <text>` or `- Z<n> <text>`; paths relative
-/// to `root`.
+/// <path>`, `- <scope>: none found · <path>` or `- <scope>: did not run`, each
+/// followed by ` · runs <k>, fixed <n>` from `lp` and ` · cap reached` when
+/// the loop hit its cap with a finding; then per check the result's findings
+/// as `- C<n> <text>` or `- Z<n> <text>`, then the loop's marked findings as
+/// `- C<n> (needs user) <text>` numbered on after them; paths relative to
+/// `root`.
 #[must_use]
-pub fn lines(outcomes: &[Outcome], root: &Path) -> Vec<String> {
+pub fn lines(outcomes: &[Outcome], lp: &Loop, root: &Path) -> Vec<String> {
     let mut out = vec!["Design checks:".to_owned()];
+    let cap = if lp.cap_reached(outcomes) {
+        " · cap reached"
+    } else {
+        ""
+    };
     for o in outcomes {
         let scope = o.check.scope();
+        let (runs, fixed) = (lp.run, lp.fixed[slot(o.check)]);
+        let tail = format!(" · runs {runs}, fixed {fixed}{cap}");
         match &o.findings {
-            None => out.push(format!("- {scope}: did not run")),
+            None => out.push(format!("- {scope}: did not run{tail}")),
             Some(f) => {
                 let path = o.path.strip_prefix(root).unwrap_or(&o.path);
                 let path = path.display();
                 out.push(match f.len() {
-                    0 => format!("- {scope}: none found · {path}"),
-                    1 => format!("- {scope}: 1 finding · {path}"),
-                    n => format!("- {scope}: {n} findings · {path}"),
+                    0 => format!("- {scope}: none found · {path}{tail}"),
+                    1 => format!("- {scope}: 1 finding · {path}{tail}"),
+                    n => format!("- {scope}: {n} findings · {path}{tail}"),
                 });
             }
         }
     }
     for o in outcomes {
+        let letter = o.check.letter();
+        let shown = o.findings.iter().flatten().count();
         for (i, f) in o.findings.iter().flatten().enumerate() {
-            out.push(format!("- {}{} {f}", o.check.letter(), i + 1));
+            out.push(format!("- {letter}{} {f}", i + 1));
+        }
+        for (i, f) in lp.marked(o.check).enumerate() {
+            out.push(format!("- {letter}{} (needs user) {f}", shown + i + 1));
         }
     }
     out
@@ -213,25 +228,40 @@ fn finding_id(word: &str, check: Check) -> Option<usize> {
     digits.parse::<usize>().ok()
 }
 
-/// One line per check with a current result; `changed` from `named` for
-/// `Answer::Change`, 0 otherwise. Read only: the caller logs in its own
-/// transaction.
+/// One line per check with a current result; `findings` counts the result's
+/// findings and the loop's marked ones of that check, `changed` from `named`
+/// over that count for `Answer::Change`, 0 otherwise. `Answer::Abandon` while
+/// a pass-back awaits counts the passed-back run's `Loop.results` instead.
+/// Read only: the caller logs in its own transaction.
 #[must_use]
 pub fn pending(layout: &Layout, slug: &str, answer: Answer<'_>) -> Vec<Logged> {
+    let lp = Loop::load(layout, slug);
+    let passed_back = matches!(answer, Answer::Abandon) && lp.passed_back == Some(lp.run);
     Check::ALL
         .into_iter()
         .filter_map(|check| {
             if is_marked(layout, slug, check) {
                 return None;
             }
+            if passed_back {
+                let n = lp.results[slot(check)]?;
+                return Some(Logged {
+                    check,
+                    findings: n,
+                    changed: 0,
+                    fixed: 0,
+                    round: None,
+                });
+            }
             let found = outcome(layout, slug, check).findings?;
+            let shown = found.len() + lp.marked(check).count();
             let changed = match answer {
-                Answer::Change(a) => named(a, check, found.len()),
+                Answer::Change(a) => named(a, check, shown),
                 _ => 0,
             };
             Some(Logged {
                 check,
-                findings: found.len(),
+                findings: shown,
                 changed,
                 fixed: 0,
                 round: None,
@@ -680,14 +710,15 @@ mod tests {
                 o(Check::Comprehension, Some(&["a", "b"])),
                 o(Check::ZoomOut, Some(&[])),
             ],
+            &Loop::fresh(),
             root,
         );
         assert_eq!(
             two,
             [
                 "Design checks:",
-                "- comprehension: 2 findings · .ferrule/runs/demo/check-comprehension.md",
-                "- zoom-out: none found · .ferrule/runs/demo/check-zoom-out.md",
+                "- comprehension: 2 findings · .ferrule/runs/demo/check-comprehension.md · runs 1, fixed 0",
+                "- zoom-out: none found · .ferrule/runs/demo/check-zoom-out.md · runs 1, fixed 0",
                 "- C1 a",
                 "- C2 b",
             ]
@@ -697,17 +728,153 @@ mod tests {
                 o(Check::Comprehension, None),
                 o(Check::ZoomOut, Some(&["z"])),
             ],
+            &Loop::fresh(),
             root,
         );
         assert_eq!(
             one,
             [
                 "Design checks:",
-                "- comprehension: did not run",
-                "- zoom-out: 1 finding · .ferrule/runs/demo/check-zoom-out.md",
+                "- comprehension: did not run · runs 1, fixed 0",
+                "- zoom-out: 1 finding · .ferrule/runs/demo/check-zoom-out.md · runs 1, fixed 0",
                 "- Z1 z",
             ]
         );
+    }
+
+    fn lines_outcome(check: Check, f: Option<&[&str]>) -> Outcome {
+        let root = Path::new("/r");
+        Outcome {
+            check,
+            path: root.join(".ferrule/runs/demo").join(check.file()),
+            findings: f.map(|f| f.iter().map(|s| (*s).to_owned()).collect()),
+        }
+    }
+
+    /// GA-R-182 — each check line ends with the runs and the fixed count.
+    #[test]
+    fn ut_lines_end_each_check_with_runs_and_fixed() {
+        let mut lp = Loop::fresh();
+        lp.run = 2;
+        lp.fixed = [1, 0];
+        let got = lines(
+            &[
+                lines_outcome(Check::Comprehension, Some(&[])),
+                lines_outcome(Check::ZoomOut, Some(&[])),
+            ],
+            &lp,
+            Path::new("/r"),
+        );
+        assert_eq!(
+            got,
+            [
+                "Design checks:",
+                "- comprehension: none found · .ferrule/runs/demo/check-comprehension.md · runs 2, fixed 1",
+                "- zoom-out: none found · .ferrule/runs/demo/check-zoom-out.md · runs 2, fixed 0",
+            ]
+        );
+    }
+
+    /// GA-R-182 — a loop at its cap with a finding says so on each check line.
+    #[test]
+    fn ut_lines_mark_the_cap() {
+        let mut lp = Loop::fresh();
+        lp.run = CAP;
+        let got = lines(
+            &[
+                lines_outcome(Check::Comprehension, Some(&["a"])),
+                lines_outcome(Check::ZoomOut, None),
+            ],
+            &lp,
+            Path::new("/r"),
+        );
+        assert!(
+            got[1].ends_with(&format!(" · runs {CAP}, fixed 0 · cap reached")),
+            "{got:?}"
+        );
+        assert!(
+            got[2].ends_with(&format!("did not run · runs {CAP}, fixed 0 · cap reached")),
+            "{got:?}"
+        );
+    }
+
+    /// GA-R-157 — a check without a result in the last run says `did not run`.
+    #[test]
+    fn ut_lines_say_did_not_run_only_for_the_last_run() {
+        let lp = Loop::fresh();
+        let got = lines(
+            &[
+                lines_outcome(Check::Comprehension, None),
+                lines_outcome(Check::ZoomOut, Some(&[])),
+            ],
+            &lp,
+            Path::new("/r"),
+        );
+        assert_eq!(got[1], "- comprehension: did not run · runs 1, fixed 0");
+        let got = lines(
+            &[
+                lines_outcome(Check::Comprehension, Some(&[])),
+                lines_outcome(Check::ZoomOut, Some(&[])),
+            ],
+            &lp,
+            Path::new("/r"),
+        );
+        assert!(!got.iter().any(|l| l.contains("did not run")), "{got:?}");
+    }
+
+    /// GA-R-152 — marked findings number on after the last run's, all C before Z.
+    #[test]
+    fn ut_lines_number_marked_findings_after_the_last_runs() {
+        let mut lp = Loop::fresh();
+        lp.needs_user = vec![
+            Marked {
+                check: Check::ZoomOut,
+                text: "zm".to_owned(),
+            },
+            Marked {
+                check: Check::Comprehension,
+                text: "cm".to_owned(),
+            },
+        ];
+        let got = lines(
+            &[
+                lines_outcome(Check::Comprehension, Some(&["a", "b"])),
+                lines_outcome(Check::ZoomOut, None),
+            ],
+            &lp,
+            Path::new("/r"),
+        );
+        assert_eq!(
+            got[3..],
+            [
+                "- C1 a",
+                "- C2 b",
+                "- C3 (needs user) cm",
+                "- Z1 (needs user) zm"
+            ]
+        );
+    }
+
+    /// GA-R-166 — marked findings count in `findings` and can be named.
+    #[test]
+    fn ut_pending_counts_marked_findings() {
+        let (_d, l) = run(true);
+        write(
+            &l,
+            "check-comprehension.md",
+            CURRENT,
+            "Findings:\n- a\n- b\n",
+        );
+        let mut lp = Loop::fresh();
+        lp.needs_user = vec![Marked {
+            check: Check::Comprehension,
+            text: "m".to_owned(),
+        }];
+        lp.save(&l, "demo").unwrap();
+        let got = pending(&l, "demo", Answer::Approve);
+        assert_eq!(got[0].findings, 3);
+        let got = pending(&l, "demo", Answer::Change("fix C3"));
+        assert_eq!((got[0].findings, got[0].changed), (3, 1));
     }
 
     /// GA-E-036 — a finding named more than once counts once.
