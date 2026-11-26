@@ -2,6 +2,8 @@
 //! tests a test run reports failed, per configured test command.
 
 mod detect;
+#[allow(dead_code, reason = "read by the detector")]
+mod syntax;
 
 pub use detect::Detector;
 
