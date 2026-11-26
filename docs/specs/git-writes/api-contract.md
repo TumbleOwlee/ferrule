@@ -35,7 +35,7 @@
 
 ## ferrule.toml [test]
 
-- `[[test.command]]` tables: `prefix` (optional), `run = [<arg>, …]` — program and arguments, run without a shell; `{test}` is replaced by the test name without its prefix inside any argument and must appear in at least one, else `ferrule.toml` is refused when it loads with `test command needs a {test} argument` (GW-R-096, GW-E-031); `failed` (optional regex, GW-R-107); `files = [<glob>, …]` and `declare` (optional regex with a `name` group), set together (GW-R-108, GW-E-041–GW-E-043).
+- `[[test.command]]` tables: `prefix` (optional), `run = [<arg>, …]` — program and arguments, run without a shell; `{test}` is replaced by the test name without its prefix inside any argument and must appear in at least one, else `ferrule.toml` is refused when it loads with `test command needs a {test} argument` (GW-R-096, GW-E-031); `failed` (optional regex, GW-R-107); `files = [<glob>, …]` and `declare` (optional regex with a `name` group, matched across a whole test file so it may span lines, `^`/`$` per line), set together (GW-R-108, GW-R-111, GW-E-041–GW-E-043); test bodies end by syntax tree in `.rs` `.py` `.js` `.mjs` `.cjs` `.jsx` `.ts` `.mts` `.cts` `.tsx` `.go` files, by the next declaration elsewhere (GW-R-113, GW-R-109).
 - Two or more commands need a prefix each, and no prefix starts another (GW-R-105, GW-E-037); a single unprefixed command takes names as given (GW-R-104).
 - `[test] command = [<arg>, …]` still loads as one unprefixed command with neither pattern.
 - No default command: with none configured, `ferrule stage red` refuses `reason=no-command` (GW-E-029).

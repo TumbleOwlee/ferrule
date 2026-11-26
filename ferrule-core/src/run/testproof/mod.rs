@@ -2,6 +2,7 @@
 //! tests a test run reports failed, per configured test command.
 
 mod detect;
+mod syntax;
 
 pub use detect::Detector;
 
@@ -321,7 +322,9 @@ impl TestCommands {
             }
             let detect = match &c.declare {
                 Some(d) => {
-                    let declare = regex::Regex::new(d)
+                    let declare = regex::RegexBuilder::new(d)
+                        .multi_line(true)
+                        .build()
                         .map_err(|e| format!("{who}: declare is no regular expression: {e}"))?;
                     if !declare.capture_names().flatten().any(|g| g == "name") {
                         return Err(format!("{who}: declare needs a group named `name`"));
