@@ -82,9 +82,48 @@ pub fn shown(conn: &Connection, run: &str) -> rusqlite::Result<Vec<PathBuf>> {
         .collect()
 }
 
+/// The approval marker of run `run`: `(shown_at, path)` per file, in the
+/// order shown.
+pub fn marker(conn: &Connection, run: &str) -> rusqlite::Result<Vec<(String, PathBuf)>> {
+    let mut st =
+        conn.prepare("SELECT shown_at, path FROM approvals WHERE run = ?1 ORDER BY pos")?;
+    st.query_map([run], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            PathBuf::from(r.get::<_, String>(1)?),
+        ))
+    })?
+    .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ut_marker_lists_shown_at_and_path_in_order() {
+        let s = crate::store::Store::memory().unwrap();
+        for (run, pos, path, at) in [
+            ("r", 1, "/b", "2026-10-04T11:50"),
+            ("r", 0, "/a", "2026-10-04T11:50"),
+            ("x", 0, "/c", "2026-10-04T11:51"),
+        ] {
+            s.conn
+                .execute(
+                    "INSERT INTO approvals (run, pos, path, rev, shown_at) VALUES (?1, ?2, ?3, NULL, ?4)",
+                    params![run, pos, path, at],
+                )
+                .unwrap();
+        }
+        assert_eq!(
+            marker(&s.conn, "r").unwrap(),
+            vec![
+                ("2026-10-04T11:50".to_owned(), PathBuf::from("/a")),
+                ("2026-10-04T11:50".to_owned(), PathBuf::from("/b")),
+            ]
+        );
+        assert!(marker(&s.conn, "none").unwrap().is_empty());
+    }
 
     #[test]
     fn ut_caps_only_summaries() {

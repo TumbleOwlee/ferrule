@@ -703,6 +703,65 @@ pub(crate) fn archived_issue(
     Ok(None)
 }
 
+/// One archive of a run, with the cards its card files held.
+pub(crate) struct ArchivedRun {
+    pub run: String,
+    pub at: String,
+    pub abandoned: bool,
+    /// `(card id, parsed card file)`: the run card first when archived, then
+    /// stage cards in stage order.
+    pub cards: Vec<(String, board::CardFile)>,
+}
+
+/// Archives of `run` (every run when `None`), oldest first.
+pub(crate) fn archived_runs(
+    conn: &Connection,
+    run: Option<&str>,
+) -> Result<Vec<ArchivedRun>, Error> {
+    let rows: Vec<(i64, String, String, bool)> = {
+        let mut st = conn.prepare(
+            "SELECT id, run, archived_at, abandoned FROM archives
+             WHERE (?1 IS NULL OR run = ?1) ORDER BY id",
+        )?;
+        st.query_map([run], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get::<_, i64>(3)? != 0))
+        })?
+        .collect::<rusqlite::Result<_>>()?
+    };
+    let mut out = Vec::new();
+    for (id, run, at, abandoned) in rows {
+        let files: Vec<(String, Vec<u8>)> = {
+            let mut st = conn.prepare(
+                "SELECT path, data FROM archive_files WHERE archive = ?1 AND path LIKE 'cards/%'",
+            )?;
+            st.query_map([id], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<rusqlite::Result<_>>()?
+        };
+        let mut cards: Vec<(Option<u32>, String, board::CardFile)> = Vec::new();
+        for (path, data) in files {
+            let card = path
+                .strip_prefix("cards/")
+                .and_then(|p| p.strip_suffix(".md"))
+                .unwrap_or(&path);
+            let parsed = board::CardId::parse(card);
+            if parsed.run != run {
+                continue;
+            }
+            let n = parsed.stage.and_then(|s| s.parse::<u32>().ok());
+            let text = String::from_utf8_lossy(&decompress(&data)?).into_owned();
+            cards.push((n, card.to_owned(), board::parse_card(&text)));
+        }
+        cards.sort_by_key(|(n, _, _)| n.map_or(0, |n| n + 1));
+        out.push(ArchivedRun {
+            run,
+            at,
+            abandoned,
+            cards: cards.into_iter().map(|(_, id, f)| (id, f)).collect(),
+        });
+    }
+    Ok(out)
+}
+
 /// What `seal` archives besides the cards and run files.
 pub(crate) struct Seal {
     pub worktree: Option<String>,
@@ -1008,6 +1067,54 @@ mod tests {
         };
         let id = super::seal(&mut s.conn, &layout, "r", "2026-10-04T12:00", spec).unwrap();
         (s, id)
+    }
+
+    /// BO-R-028 — archives list oldest first, each with its run card before
+    /// its stage cards in numeric stage order; a slug filter narrows them.
+    #[test]
+    fn ut_archived_runs_oldest_first_with_cards_in_stage_order() {
+        let mut s = crate::store::Store::memory().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let layout = Layout::new(dir.path().to_path_buf());
+        let seal_at = |s: &mut crate::store::Store, slug: &str, at: &str, abandoned: bool| {
+            let spec = Seal {
+                worktree: None,
+                branch: None,
+                check: CiCheck::Exempt,
+                abandoned,
+                checks: vec![],
+            };
+            super::seal(&mut s.conn, &layout, slug, at, spec).unwrap();
+        };
+        for id in ["r.s10", "r.s2", "r"] {
+            board::create(&mut s.conn, id, board::State::Open, &[], "t").unwrap();
+        }
+        seal_at(&mut s, "r", "2026-10-04T12:00", true);
+        board::create(&mut s.conn, "q", board::State::Done, &[], "t").unwrap();
+        seal_at(&mut s, "q", "2026-10-04T12:05", false);
+        board::create(&mut s.conn, "r", board::State::InReview, &[], "t").unwrap();
+        seal_at(&mut s, "r", "2026-10-04T12:10", false);
+
+        let all = archived_runs(&s.conn, None).unwrap();
+        let heads: Vec<_> = all
+            .iter()
+            .map(|a| (a.run.as_str(), a.at.as_str(), a.abandoned))
+            .collect();
+        assert_eq!(
+            heads,
+            [
+                ("r", "2026-10-04T12:00", true),
+                ("q", "2026-10-04T12:05", false),
+                ("r", "2026-10-04T12:10", false),
+            ]
+        );
+        let ids: Vec<_> = all[0].cards.iter().map(|(id, _)| id.as_str()).collect();
+        assert_eq!(ids, ["r", "r.s2", "r.s10"]);
+        let ids: Vec<_> = all[2].cards.iter().map(|(id, _)| id.as_str()).collect();
+        assert_eq!(ids, ["r"]);
+        let only = archived_runs(&s.conn, Some("r")).unwrap();
+        assert_eq!(only.len(), 2);
+        assert!(archived_runs(&s.conn, Some("none")).unwrap().is_empty());
     }
 
     fn archived_card(s: &crate::store::Store, id: i64) -> String {
