@@ -312,7 +312,7 @@
 
 **GA-R-162** — After the architect answers `ready`, a comprehension check runs before the architecture stop is shown.
 
-**GA-R-163** — The comprehension check reads only the run's `spec-diff.md` and `architecture.md`, with no project instruction file in its context.
+**GA-R-163** — The comprehension check reads only the run's `spec-diff.md`, `architecture.md` and the loop's marked findings, with no project instruction file in its context.
 
 **GA-R-145** — The comprehension check states in its own words what the change proposes and how the existing system works.
 
@@ -328,19 +328,33 @@
 
 **GA-R-151** — Neither design check changes any file but its own result file.
 
-**GA-R-152** — The architecture stop shows every finding of both checks in full, numbered per check as C<n> for comprehension and Z<n> for zoom-out.
+**GA-R-152** — The architecture stop shows every finding of the last check run and every finding marked `Needs user` in the loop in full, numbered per check as C<n> for comprehension and Z<n> for zoom-out, the marked ones after the last run's.
+
+**GA-R-182** — The architecture stop shows, per check, how many times it ran in the loop, how many findings the architect fixed, and whether the cap of 3 runs was reached.
 
 **GA-R-153** — The architecture stop names the file paths of the comprehension paraphrase and the zoom-out reasoning.
 
-**GA-R-154** — The checks add no stop: the architecture stop is shown after them whatever their findings.
+**GA-R-154** — The checks add no stop of their own: the architecture stop is shown once the automatic check runs of GA-R-177–GA-R-181 end.
+
+**GA-R-177** — When a check run reports a finding, the architect is resumed with those findings before the architecture stop is shown, with no user action.
+
+**GA-R-178** — The architect answers each passed-back finding as fixed or `Needs user`; a finding it names as neither counts as not fixed.
+
+**GA-R-179** — A finding marked `Needs user` is never passed back again in the same loop and is shown at the architecture stop.
+
+**GA-R-184** — A design check does not report a finding its loop has already marked `Needs user`.
+
+**GA-R-180** — The checks run at most 3 times between a `ready` that follows the user's answer (or the architect's first `ready`) and the architecture stop.
+
+**GA-R-181** — The architecture stop is shown once a check run reports no finding, or after the third run whatever its findings.
 
 **GA-R-155** — A run whose architecture is skipped at gate 1 runs neither check (GA-R-118).
 
 **GA-R-160** — A run whose brief is approved at gate 2's stop runs neither check (GA-R-123).
 
-**GA-R-156** — Each time the architecture stop is reached, both checks run on the current `spec-diff.md` and `architecture.md`.
+**GA-R-156** — Each time the architect answers `ready`, both checks run on the current `spec-diff.md` and `architecture.md`.
 
-**GA-R-157** — A check that produces no result leaves the architecture stop shown as usual, with a line saying that check did not run.
+**GA-R-157** — A check that produces no result in the last run before the stop leaves the architecture stop shown as usual, with a line saying that check did not run.
 
 **GA-R-158** — The combined early stop counts as the architecture stop for every design-check entry (GA-R-116, GA-R-126).
 
@@ -352,9 +366,11 @@
 
 **GA-R-165** — Each check that produced a result logs one `design-check` event on the parent card once the architecture stop it preceded is answered (GA-R-158, GA-R-161: the combined early stop and the epic stop count as that stop).
 
-**GA-R-166** — An event's `changed` counts that check's findings a `change` answer at the stop names; any other answer logs `changed=0`.
+**GA-R-166** — An event's `findings` counts that check's findings the stop showed, marked ones included, and `changed` counts those a `change` answer at the stop names; any other answer logs `changed=0`.
 
 **GA-R-167** — A check that produced no result logs no `design-check` event (GA-R-157).
+
+**GA-R-183** — Each check run followed by a pass-back logs, at the architect's next `ready`, one `design-check` event per check that produced a result, counting its findings and how many of them the architect fixed.
 
 **GA-R-168** — `ferrule gate change <slug> <arch|epic> -- <answer>` logs the `design-check` events of the stop the `change` answer replies to.
 

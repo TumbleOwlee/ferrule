@@ -22,7 +22,9 @@
 ## ferrule gate ready
 
 - `ferrule gate ready <slug> <arch|epic>` removes the stop's check result files before the checks rerun (GA-R-174, GA-R-172)
-- `ready=done gate=<gate> removed=<0|1|2>` (GA-R-174)
+- `ferrule gate ready <slug> <arch|epic> [--fixed <IDs>] [--needs-user <IDs>]`, IDs comma-separated, read only while a pass-back awaits (GA-R-178, GA-R-183)
+- `ready=done gate=<gate> removed=<0|1|2> run=<k>` (GA-R-174, GA-R-180)
+- an item of either list that is neither `-` nor `C<n>`/`Z<n>` (either case, no leading zero) is a usage error (exit 2) (GA-R-178, GA-R-183)
 - `ready=refused reason=card|order|state|answered … hint=<fix>`, exit 1; nothing is removed (GA-R-175)
 - an unknown gate is a usage error (exit 2) (GA-R-174)
 
@@ -53,7 +55,7 @@
 - no `--recommend` flag; the gate 1 stop offers no lane (GA-R-130)
 - `Minors fixed after the review, not re-reviewed: <n>` on the gate 2 and re-plan stops, ` · minors fixed <n>` in the gate 2 and re-plan notice headers (GA-R-142, GA-R-137)
 - no `delta` kind; `prompt render <slug> delta` is a usage error (exit 2) (GA-R-133, GA-E-025)
-- the arch and epic stops carry a `Design checks:` block: per check `- <comprehension|zoom-out>: <n> finding|findings · <path>`, `- <check>: none found · <path>` or `- <check>: did not run`, then `- C<n> <finding>` and `- Z<n> <finding>` lines (GA-R-152, GA-R-153, GA-R-157, GA-R-159)
+- the arch and epic stops carry a `Design checks:` block: per check `- <comprehension|zoom-out>: <n> finding|findings · <path>`, `- <check>: none found · <path>` or `- <check>: did not run`; each per-check line, `did not run` included, ends ` · runs <k>, fixed <n>`, then ` · cap reached` when the third run ended the loop with a finding; then `- C<n> <finding>` and `- Z<n> <finding>` lines; the marked findings as `- C<n> (needs user) <finding>` after the last run's (GA-R-152, GA-R-153, GA-R-157, GA-R-159, GA-R-182, GA-R-179)
 
 ## Run files
 
@@ -61,6 +63,7 @@
 - `check-comprehension.md` and `check-zoom-out.md` in the run directory, each with a `Checked: spec-diff.md rev <n>, architecture.md rev <m>` line (`rev -` without `spec-diff.md`) and a `Findings:` list (GA-R-156, GA-E-029)
 - `check-comprehension.md` and `check-zoom-out.md` are removed once `ferrule gate approve` answers the stop or `ferrule gate ready` runs; `ferrule gate change` keeps them; a confirmed abandon archives them (GA-R-170, GA-R-171, GA-R-174)
 - a result file whose event `ferrule gate change` has logged ends with a `Logged: change` line and logs no event again; a checker's rewrite drops it (GA-E-039)
+- `check-loop.md`: `Run: <k>`, `Passed back: <k|->`, `Results: comprehension <n|->, zoom-out <n|->`, `Passed:` list of `- C<n> <finding>` / `- Z<n> <finding>` (the passed-back findings; read by `ferrule gate ready` and an abandon, since the architect's revision makes the result files stale), `Fixed: comprehension <n>, zoom-out <n>`, `Needs user:` list of `- <C|Z> <finding>`; written by `ferrule gate ready` and `ferrule gate next … checks`, removed by `ferrule gate approve`, reset by a `ready` without a pending pass-back, archived on abandon (GA-R-179, GA-R-180, GA-R-182, GA-R-183, GA-E-042)
 
 ## Reviewer status line
 
@@ -77,6 +80,7 @@
 - position `gate1` takes the spec author's status line and prints `next=stop` (gate 1 stop), `next=arch` (architecture, no stop) or `next=plan` (architecture skipped, no stop) (GA-R-116, GA-R-117, GA-R-118)
 - gate 2's stop for a brief of more than 3 entries carries `reason=size` (GA-R-117)
 - gate 2's stop carries `reason=plan-stop` when the combined stop asked for it (GA-R-129)
+- position `checks` takes the checkers' hand-off lines (`status=none` when neither returned one) and prints `next=pass-back run=<k>` with `do: relay to the architect: … · check results: <paths>`, or `next=stop` with `run: ferrule prompt render <slug> <arch|epic>`; both followed by `guide: ferrule guide show <architecture|epic> --slug <slug>`, `epic` on a run of kind `epic` (GA-R-177, GA-R-181)
 
 ## Card events
 
@@ -87,6 +91,7 @@
 - `review=<n>-open scope=<stage|batch> round=<k>` on the run card, logged by `ferrule gate next` (RU-R-074)
 - `spawn agent=architect|planner` on the run card, logged by `ferrule gate next <slug> gate1` when gate 1 passes without a stop; the brief phase ends there (RU-R-075)
 - `design-check scope=<comprehension|zoom-out> findings=<n> changed=<n>` on the run card, logged by `ferrule gate approve <slug> arch|epic`, `ferrule gate change` and `ferrule run abandon <slug> --confirm` (GA-R-165, GA-R-168, GA-R-169)
+- `design-check scope=<comprehension|zoom-out> findings=<n> fixed=<n> round=<k>` on the run card, logged by `ferrule gate ready`; `round=` marks a round event (GA-R-183)
 
 ## ferrule hook checker
 

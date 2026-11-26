@@ -66,8 +66,8 @@
 - `replans=<n>` — the `replan from=` events
 - `overturned=<n>` — the sum of `count=` over the `overturned` events
 - `reads=<n>` — the `read path=` events
-- `comprehension=<checks>/<findings>/<changed>` — the `design-check scope=comprehension` events, findings and changed summed, zeros without one (RU-R-077, RU-E-040)
-- `zoom-out=<checks>/<findings>/<changed>` — the `design-check scope=zoom-out` events, findings and changed summed, zeros without one (RU-R-077, RU-E-040)
+- `comprehension=<checks>/<findings>/<changed>/<fixed>` — the `design-check scope=comprehension` events, stop and round events counted as checks, findings, changed and fixed summed, zeros without one (RU-R-077, RU-E-040)
+- `zoom-out=<checks>/<findings>/<changed>/<fixed>` — the `design-check scope=zoom-out` events, stop and round events counted as checks, findings, changed and fixed summed, zeros without one (RU-R-077, RU-E-040)
 - `kind=<plain|epic|slice|request>` — the run's kind, `plain` when the card has none, in place of `lane=` (RU-R-076)
 - `reviews=plan:<n>,stage:<n>,batch:<n>,branch:<n>` — review passes per kind (RU-R-074)
 - `time=brief:<m>,arch:<m>,plan:<m>,stages:<m>,branch:<m>,pr:<m>` — whole minutes per phase, `-` for a phase the run did not have (RU-R-075)
