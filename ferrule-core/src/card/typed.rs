@@ -128,7 +128,7 @@ impl Name {
             Name::SpecDelta => &["origin", "quote"],
             Name::Read => &["path"],
             Name::Overturned => &["count"],
-            Name::DesignCheck => &["scope", "findings", "changed"],
+            Name::DesignCheck => &["scope", "findings", "changed", "fixed", "round"],
             Name::Posted => &["issue", "sum", "k"],
             Name::Rebase => &["base", "from"],
             Name::TestRed => &["test", "mutation"],
@@ -246,6 +246,7 @@ pub enum Typed<'a> {
         scope: Option<&'a str>,
         findings: Option<u64>,
         changed: Option<u64>,
+        fixed: Option<u64>,
     },
     Overturned {
         count: Option<u64>,
@@ -430,6 +431,7 @@ impl Event {
                 scope: key("scope"),
                 findings: key("findings").and_then(|c| c.parse().ok()),
                 changed: key("changed").and_then(|c| c.parse().ok()),
+                fixed: key("fixed").and_then(|c| c.parse().ok()),
             },
             Name::Overturned => Typed::Overturned {
                 count: key("count").and_then(|c| c.parse().ok()),
@@ -580,6 +582,20 @@ mod tests {
                 origin: Some("user"),
                 quote: None,
                 text: Some("why"),
+            }
+        );
+    }
+
+    /// A round event's `fixed` is read; `round` is no typed field.
+    #[test]
+    fn ut_design_check_parses_fixed() {
+        assert_eq!(
+            Event::parsed("design-check scope=zoom-out findings=2 fixed=1 round=2").typed(),
+            Typed::DesignCheck {
+                scope: Some("zoom-out"),
+                findings: Some(2),
+                changed: None,
+                fixed: Some(1),
             }
         );
     }

@@ -261,10 +261,10 @@ pub const VOCABULARY: &[Event] = &[
         "design-check",
         V::None,
         P::None,
-        &["scope", "findings", "changed"],
+        &["scope", "findings", "changed", "fixed", "round"],
         Text::No,
     )
-    .by("ferrule gate approve <slug> arch|epic | ferrule gate change <slug> <arch|epic> | ferrule run abandon <slug> --confirm"),
+    .by("ferrule gate approve <slug> arch|epic | ferrule gate change <slug> <arch|epic> | ferrule run abandon <slug> --confirm | ferrule gate ready <slug> <arch|epic>"),
     ev(Parent, "replan", V::None, P::None, &["from"], Text::No)
         .by("ferrule stage replan <slug> start"),
     ev(

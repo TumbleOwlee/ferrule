@@ -258,21 +258,23 @@ pub fn record(w: &Writer<'_>, slug: &str, now: &str, check: CiCheck) -> Result<S
         })
         .sum();
     let design = |c: check::Check| {
-        let mut sum = (0u64, 0u64, 0u64);
+        let mut sum = (0u64, 0u64, 0u64, 0u64);
         for e in &parent {
             if let Typed::DesignCheck {
                 scope: Some(s),
                 findings,
                 changed,
+                fixed,
             } = e.typed()
                 && check::Check::parse(s) == Some(c)
             {
                 sum.0 += 1;
                 sum.1 += findings.unwrap_or(0);
                 sum.2 += changed.unwrap_or(0);
+                sum.3 += fixed.unwrap_or(0);
             }
         }
-        format!("{}/{}/{}", sum.0, sum.1, sum.2)
+        format!("{}/{}/{}/{}", sum.0, sum.1, sum.2, sum.3)
     };
     let comprehension = design(check::Check::Comprehension);
     let zoom_out = design(check::Check::ZoomOut);

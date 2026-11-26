@@ -976,7 +976,7 @@ fn it_metrics_of_an_epic_record_no_ci() {
 }
 
 /// RU-R-077 — the metrics line sums the `design-check` lines per check as
-/// checks/findings/changed.
+/// checks/findings/changed/fixed.
 #[test]
 fn it_metrics_sum_design_checks_per_check() {
     let dir = metrics_run(&[]);
@@ -1017,7 +1017,44 @@ fn it_metrics_sum_design_checks_per_check() {
     log_at(p, "2026-10-03T10:05", &["mt", "ci=0"]);
     let out = metrics(p, "mt");
     assert!(
-        out.contains(" reads=0 comprehension=2/5/1 zoom-out=1/1/1 "),
+        out.contains(" reads=0 comprehension=2/5/1/0 zoom-out=1/1/1/0 "),
+        "{out}"
+    );
+}
+
+/// RU-R-077 — a stop event and a round event both count as checks, and fixed
+/// is summed.
+#[test]
+fn it_metrics_sum_fixed_per_check() {
+    let dir = metrics_run(&[]);
+    let p = dir.path();
+    log_at(
+        p,
+        "2026-10-03T10:01",
+        &[
+            "mt",
+            "design-check",
+            "scope=comprehension",
+            "findings=2",
+            "fixed=1",
+            "round=1",
+        ],
+    );
+    log_at(
+        p,
+        "2026-10-03T10:02",
+        &[
+            "mt",
+            "design-check",
+            "scope=comprehension",
+            "findings=1",
+            "changed=1",
+        ],
+    );
+    log_at(p, "2026-10-03T10:05", &["mt", "ci=0"]);
+    let out = metrics(p, "mt");
+    assert!(
+        out.contains(" comprehension=2/3/1/1 zoom-out=0/0/0/0 "),
         "{out}"
     );
 }
@@ -1030,7 +1067,7 @@ fn it_metrics_without_design_checks_report_zeros() {
     log_at(p, "2026-10-03T10:05", &["mt", "ci=0"]);
     let out = metrics(p, "mt");
     assert!(
-        out.contains(" comprehension=0/0/0 zoom-out=0/0/0 "),
+        out.contains(" comprehension=0/0/0/0 zoom-out=0/0/0/0 "),
         "{out}"
     );
 }

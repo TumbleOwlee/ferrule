@@ -159,17 +159,29 @@ pub struct Logged {
     pub check: Check,
     pub findings: usize,
     pub changed: u64,
+    /// Findings the architect fixed, in a round event.
+    pub fixed: u64,
+    /// The check run a round event reports; `None` for a stop event.
+    pub round: Option<u32>,
 }
 
 impl Logged {
-    /// `["scope=<scope>", "findings=<n>", "changed=<n>"]`
+    /// `["scope=<scope>", "findings=<n>", "changed=<n>"]`, or for a round
+    /// event `["scope=<scope>", "findings=<n>", "fixed=<n>", "round=<k>"]`.
     #[must_use]
     pub fn args(&self) -> Vec<String> {
-        vec![
+        let mut args = vec![
             format!("scope={}", self.check.scope()),
             format!("findings={}", self.findings),
-            format!("changed={}", self.changed),
-        ]
+        ];
+        match self.round {
+            Some(k) => {
+                args.push(format!("fixed={}", self.fixed));
+                args.push(format!("round={k}"));
+            }
+            None => args.push(format!("changed={}", self.changed)),
+        }
+        args
     }
 }
 
@@ -221,6 +233,8 @@ pub fn pending(layout: &Layout, slug: &str, answer: Answer<'_>) -> Vec<Logged> {
                 check,
                 findings: found.len(),
                 changed,
+                fixed: 0,
+                round: None,
             })
         })
         .collect()
@@ -757,12 +771,16 @@ mod tests {
                 Logged {
                     check: Check::Comprehension,
                     findings: 2,
-                    changed: 2
+                    changed: 2,
+                    fixed: 0,
+                    round: None
                 },
                 Logged {
                     check: Check::ZoomOut,
                     findings: 1,
-                    changed: 1
+                    changed: 1,
+                    fixed: 0,
+                    round: None
                 },
             ]
         );
@@ -794,8 +812,26 @@ mod tests {
             check: Check::ZoomOut,
             findings: 3,
             changed: 1,
+            fixed: 0,
+            round: None,
         };
         assert_eq!(l.args(), ["scope=zoom-out", "findings=3", "changed=1"]);
+    }
+
+    /// GA-R-183 — a round event carries `fixed` and `round` in place of `changed`.
+    #[test]
+    fn ut_logged_round_args() {
+        let l = Logged {
+            check: Check::Comprehension,
+            findings: 2,
+            changed: 0,
+            fixed: 1,
+            round: Some(2),
+        };
+        assert_eq!(
+            l.args(),
+            ["scope=comprehension", "findings=2", "fixed=1", "round=2"]
+        );
     }
 
     #[test]

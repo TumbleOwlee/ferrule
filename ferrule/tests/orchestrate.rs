@@ -5139,13 +5139,140 @@ fn it_gate_ready_removes_check_result_files() {
     assert!(p.run_dir().join("check-comprehension.md").exists());
     assert!(p.run_dir().join("check-zoom-out.md").exists());
     let got = p.ok(&["gate", "ready", "demo", "arch"]);
-    assert!(got.contains("ready=done gate=arch removed=2"), "{got}");
+    assert!(
+        got.contains("ready=done gate=arch removed=2 run=1"),
+        "{got}"
+    );
     assert!(!p.run_dir().join("check-comprehension.md").exists());
     assert!(!p.run_dir().join("check-zoom-out.md").exists());
     let got = p.ok(&["gate", "ready", "demo", "arch"]);
     assert!(got.contains("removed=0"), "{got}");
     let out = p.ferrule(&["gate", "ready", "demo", "gate2"]).output();
     assert_eq!(out.status.code(), Some(2));
+}
+
+/// Writes `check-loop.md` into the run directory.
+fn loop_file(p: &Project, text: &str) {
+    std::fs::write(p.run_dir().join("check-loop.md"), text).unwrap();
+}
+
+const PASSED_BACK: &str = "Run: 1\nPassed back: 1\nResults: comprehension 2, zoom-out 1\nPassed:\n- C1 a\n- C2 b\n- Z1 z\nFixed: comprehension 0, zoom-out 0\nNeeds user:\n";
+
+/// GA-R-183 — `ready` after a pass-back logs one round event per check with a
+/// result and advances the loop.
+#[test]
+fn it_gate_ready_after_a_pass_back_logs_round_events() {
+    let p = change_project();
+    loop_file(&p, PASSED_BACK);
+    let got = p.ok(&["gate", "ready", "demo", "arch", "--fixed", "C1,Z1"]);
+    assert!(
+        got.contains("ready=done gate=arch removed=2 run=2"),
+        "{got}"
+    );
+    let shown = p.ok(&["board", "show", "demo"]);
+    assert!(
+        shown.contains("design-check scope=comprehension findings=2 fixed=1 round=1"),
+        "{shown}"
+    );
+    assert!(
+        shown.contains("design-check scope=zoom-out findings=1 fixed=1 round=1"),
+        "{shown}"
+    );
+    let text = std::fs::read_to_string(p.run_dir().join("check-loop.md")).unwrap();
+    assert!(text.contains("Run: 2\nPassed back: -\n"), "{text}");
+    assert!(
+        text.contains("Fixed: comprehension 1, zoom-out 1\n"),
+        "{text}"
+    );
+}
+
+/// GA-R-178 — a finding the architect names neither fixed nor marked counts as
+/// not fixed.
+#[test]
+fn it_gate_ready_counts_an_unnamed_finding_as_not_fixed() {
+    let p = change_project();
+    loop_file(&p, PASSED_BACK);
+    p.ok(&["gate", "ready", "demo", "arch", "--fixed", "C1"]);
+    let shown = p.ok(&["board", "show", "demo"]);
+    assert!(
+        shown.contains("design-check scope=comprehension findings=2 fixed=1 round=1"),
+        "{shown}"
+    );
+    assert!(
+        shown.contains("design-check scope=zoom-out findings=1 fixed=0 round=1"),
+        "{shown}"
+    );
+}
+
+/// GA-R-178 — a malformed finding ID is a usage error that removes nothing and
+/// logs nothing.
+#[test]
+fn it_gate_ready_refuses_a_malformed_finding_id() {
+    let p = change_project();
+    loop_file(&p, PASSED_BACK);
+    let before = design_lines(&p);
+    let out = p
+        .ferrule(&["gate", "ready", "demo", "arch", "--fixed", "C01"])
+        .output();
+    assert_eq!(out.status.code(), Some(2));
+    assert!(p.run_dir().join("check-comprehension.md").exists());
+    assert_eq!(design_lines(&p), before);
+    let out = p
+        .ferrule(&["gate", "ready", "demo", "arch", "--needs-user", "X1"])
+        .output();
+    assert_eq!(out.status.code(), Some(2));
+}
+
+/// GA-R-180 — a `ready` without a pending pass-back restarts the loop at run 1
+/// and ignores the flags.
+#[test]
+fn it_gate_ready_without_a_pass_back_restarts_the_loop() {
+    let p = change_project();
+    loop_file(
+        &p,
+        "Run: 2\nPassed back: -\nResults: comprehension -, zoom-out -\nPassed:\nFixed: comprehension 1, zoom-out 0\nNeeds user:\n",
+    );
+    let before = design_lines(&p);
+    let got = p.ok(&["gate", "ready", "demo", "arch", "--fixed", "C1"]);
+    assert!(got.contains("run=1"), "{got}");
+    assert_eq!(design_lines(&p), before);
+    let text = std::fs::read_to_string(p.run_dir().join("check-loop.md")).unwrap();
+    assert!(text.contains("Run: 1\n"), "{text}");
+    assert!(
+        text.contains("Fixed: comprehension 0, zoom-out 0\n"),
+        "{text}"
+    );
+}
+
+/// GA-R-167 — a check without a result in the passed-back run logs no round
+/// event.
+#[test]
+fn it_gate_ready_logs_no_round_event_for_a_check_without_result() {
+    let p = change_project();
+    loop_file(
+        &p,
+        "Run: 1\nPassed back: 1\nResults: comprehension -, zoom-out 1\nPassed:\n- Z1 z\nFixed: comprehension 0, zoom-out 0\nNeeds user:\n",
+    );
+    let before = design_lines(&p);
+    p.ok(&["gate", "ready", "demo", "arch", "--fixed", "C1,Z1"]);
+    assert_eq!(design_lines(&p), before + 1);
+    let shown = p.ok(&["board", "show", "demo"]);
+    assert!(
+        shown.contains("scope=zoom-out findings=1 fixed=1 round=1"),
+        "{shown}"
+    );
+}
+
+/// A finding named in `--needs-user` is copied from the passed list into the
+/// loop file.
+#[test]
+fn it_gate_ready_copies_needs_user_findings() {
+    let p = change_project();
+    loop_file(&p, PASSED_BACK);
+    p.ok(&["gate", "ready", "demo", "arch", "--needs-user", "Z1,C9"]);
+    let text = std::fs::read_to_string(p.run_dir().join("check-loop.md")).unwrap();
+    assert!(text.contains("Needs user:\n- Z z\n"), "{text}");
+    assert!(!text.contains("- C "), "{text}");
 }
 
 /// GA-R-175 — `ready` refuses what `change` refuses and removes nothing.
