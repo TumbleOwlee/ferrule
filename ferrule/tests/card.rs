@@ -2,7 +2,7 @@ mod golden;
 
 use std::path::Path;
 
-use golden::{Run, check, fixtures, seed_card, seed_log, seed_set};
+use golden::{Run, check, fixtures, seed_card, seed_log, seed_marker, seed_set};
 
 const NOW: &str = "2026-10-05T09:00";
 
@@ -1154,4 +1154,163 @@ fn it_log_takes_a_word_that_is_not_utf8_without_a_panic() {
         .output()
         .unwrap();
     assert_ne!(out.status.code(), Some(101), "{out:?}");
+}
+
+/// The dump's stdout as JSON, after checking it is one line and exits 0.
+fn dump(project: &Path, args: &[&str]) -> serde_json::Value {
+    let mut all = vec!["board", "dump"];
+    all.extend_from_slice(args);
+    let out = ferrule(project, &all).text();
+    let json = out
+        .strip_suffix("\nexit=0")
+        .unwrap_or_else(|| panic!("{out}"));
+    assert!(!json.contains('\n'), "{json}");
+    serde_json::from_str(json).unwrap()
+}
+
+fn slugs(doc: &serde_json::Value) -> Vec<&str> {
+    doc["runs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["slug"].as_str().unwrap())
+        .collect()
+}
+
+/// BO-R-011, BO-R-013, BO-R-018, BO-R-026, BO-R-027 — the dump is one line with `version` 1 and an entry per run in slug order, each with its cards and events.
+#[test]
+fn it_board_dump_prints_every_run() {
+    let p = project();
+    let doc = dump(p.path(), &[]);
+    assert_eq!(doc["version"], 1);
+    assert_eq!(slugs(&doc), ["demo", "lb", "mrc", "mrcpr", "nospec", "sl"]);
+    let demo = &doc["runs"][0];
+    assert_eq!(demo["card"]["id"], "demo");
+    assert_eq!(demo["card"]["state"], "inprogress");
+    assert!(demo["card"].get("stage").is_none());
+    assert!(demo["card"]["fields"]["branch"].is_string());
+    let stages: Vec<_> = demo["stages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| (c["id"].as_str().unwrap(), c["stage"].as_str().unwrap()))
+        .collect();
+    assert_eq!(
+        stages,
+        [("demo.s0", "s0"), ("demo.s1", "s1"), ("demo.s2", "s2")]
+    );
+    let events = demo["events"].as_array().unwrap();
+    assert!(!events.is_empty());
+    let times: Vec<&str> = events.iter().map(|e| e["at"].as_str().unwrap()).collect();
+    assert!(times.windows(2).all(|w| w[0] <= w[1]), "{times:?}");
+    for run in doc["runs"].as_array().unwrap() {
+        assert!(
+            run["waiting"].is_null() && run["archived"].is_null(),
+            "{run}"
+        );
+    }
+}
+
+/// BO-R-014, BO-R-015, BO-R-017 — a waiting approval shows its kind, gate, time and files, and an `approved=` of its gate clears it.
+#[test]
+fn it_board_dump_shows_a_waiting_approval() {
+    let p = project();
+    let at = "2026-10-05T08:30";
+    let dir = p.path().join(".ferrule/runs/demo");
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("plan.summary.md");
+    std::fs::write(&file, "- plan\n").unwrap();
+    seed_marker(p.path(), std::slice::from_ref(&file), at);
+    seed_log(
+        p.path(),
+        at,
+        "demo",
+        &["stop", "kind=approval", "gate=gate2"],
+    );
+    let doc = dump(p.path(), &["--run", "demo"]);
+    let w = &doc["runs"][0]["waiting"];
+    assert_eq!(w["kind"], "approval");
+    assert_eq!(w["gate"], "gate2");
+    assert_eq!(w["at"], at);
+    let canon = file.canonicalize().unwrap();
+    assert_eq!(w["files"], serde_json::json!([canon.to_str().unwrap()]));
+    seed_log(p.path(), at, "demo", &["approved=gate2"]);
+    let doc = dump(p.path(), &["--run", "demo"]);
+    assert!(doc["runs"][0]["waiting"].is_null());
+}
+
+/// BO-R-016 — a question stop is answered by any later event on the run's cards.
+#[test]
+fn it_board_dump_question_stop_answered_by_a_later_event() {
+    let p = project();
+    let at = "2026-10-05T08:30";
+    seed_log(p.path(), at, "demo", &["stop", "kind=question"]);
+    let doc = dump(p.path(), &["--run", "demo"]);
+    assert_eq!(doc["runs"][0]["waiting"]["kind"], "question");
+    seed_log(p.path(), at, "demo.s1", &["note", "--", "carry on"]);
+    let doc = dump(p.path(), &["--run", "demo"]);
+    assert!(doc["runs"][0]["waiting"].is_null());
+}
+
+/// BO-R-019, BO-R-025 — `--run` keeps one slug and `--state` the runs whose card is in a state, each with all its stage cards.
+#[test]
+fn it_board_dump_filters_by_run_and_state() {
+    let p = project();
+    let doc = dump(p.path(), &["--run", "demo"]);
+    assert_eq!(slugs(&doc), ["demo"]);
+    assert_eq!(doc["runs"][0]["stages"].as_array().unwrap().len(), 3);
+    let doc = dump(p.path(), &["--state", "inreview"]);
+    assert_eq!(slugs(&doc), ["lb", "mrcpr", "nospec", "sl"]);
+    let mrcpr = &doc["runs"][1];
+    assert_eq!(mrcpr["stages"].as_array().unwrap().len(), 4);
+    let doc = dump(p.path(), &["--state", "inreview", "--state", "open"]);
+    assert_eq!(slugs(&doc), ["lb", "mrc", "mrcpr", "nospec", "sl"]);
+}
+
+/// BO-E-006 — an empty board and an unknown `--run` print the empty document and exit 0.
+#[test]
+fn it_board_dump_empty_cases() {
+    let dir = tempfile::tempdir().unwrap();
+    let want = "{\"version\":1,\"runs\":[]}\nexit=0";
+    assert_eq!(ferrule(dir.path(), &["board", "dump"]).text(), want);
+    let p = project();
+    assert_eq!(
+        ferrule(p.path(), &["board", "dump", "--run", "nosuch"]).text(),
+        want
+    );
+}
+
+/// BO-R-023 — the document is the same whatever `--format` says.
+#[test]
+fn it_board_dump_ignores_format() {
+    let p = project();
+    let plain = ferrule(p.path(), &["board", "dump"]).text();
+    assert!(plain.starts_with("{\"version\":1"), "{plain}");
+    for f in ["md", "text"] {
+        let got = ferrule(p.path(), &["--format", f, "board", "dump"]).text();
+        assert_eq!(got, plain, "--format {f}");
+    }
+}
+
+/// BO-R-021 — a dump leaves every card as `board list` and `board show` print it.
+#[test]
+fn it_board_dump_leaves_the_board_unchanged() {
+    let p = project();
+    let snapshot = || {
+        let list = ferrule(p.path(), &["board", "list"]).text();
+        let mut all = list.clone();
+        for id in list
+            .lines()
+            .filter_map(|l| l.split_whitespace().nth(1))
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+        {
+            all.push_str(&ferrule(p.path(), &["board", "show", &id]).text());
+        }
+        all
+    };
+    let before = snapshot();
+    let _ = dump(p.path(), &[]);
+    let _ = dump(p.path(), &["--archived", "--state", "done"]);
+    assert_eq!(snapshot(), before);
 }

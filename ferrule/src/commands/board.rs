@@ -102,6 +102,24 @@ Dev build: the open that takes a copy of an older shared board prints to stderr
 `ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
 See: ferrule guide show board";
 
+const DUMP_AFTER_LONG_HELP: &str = "\
+Output:
+  One compact JSON line: `version` and `runs`, one entry per run with its
+  cards, events, `waiting` stop and `archived` marker. A board with no run
+  prints `{\"version\":1,\"runs\":[]}`. The global `--format` option is
+  ignored: the output is always JSON.
+Filters: --run <slug> keeps that run; --state keeps the runs whose card is in
+that state (repeat for several), each with all its stage cards; --archived
+adds the archived runs after the live ones.
+Exit codes: 0 ok, 4 internal error.
+Examples:
+  ferrule board dump | jq .
+  ferrule board dump --state inreview --state inprogress
+  ferrule board dump --run <slug> --archived
+Dev build: the open that takes a copy of an older shared board prints to stderr
+`ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.
+See: ferrule guide show board";
+
 const SHOW_AFTER_LONG_HELP: &str = "\
 Output:
   ---                        Markdown: frontmatter between `---` fences (id,
@@ -373,6 +391,19 @@ pub enum BoardCommand {
         #[arg(long, value_name = "SLUG")]
         run: Option<String>,
     },
+    /// Print the board as one JSON document.
+    #[command(after_long_help = DUMP_AFTER_LONG_HELP)]
+    Dump {
+        /// Only this run.
+        #[arg(long, value_name = "SLUG")]
+        run: Option<String>,
+        /// Only runs whose card is in this state; repeat for several.
+        #[arg(long, value_enum)]
+        state: Vec<CardState>,
+        /// Archived runs too.
+        #[arg(long)]
+        archived: bool,
+    },
     /// Print the log lines of a run's parent and stage cards.
     #[command(after_long_help = EVENTS_AFTER_LONG_HELP)]
     Events {
@@ -591,6 +622,14 @@ pub fn run(command: &BoardCommand, style: Option<Style>, out: &mut impl Write) -
             let states: Vec<State> = states.iter().map(|s| state(*s)).collect();
             list(&states, run.as_deref(), style, out)
         }
+        BoardCommand::Dump {
+            run,
+            state: states,
+            archived,
+        } => {
+            let states: Vec<State> = states.iter().map(|s| state(*s)).collect();
+            dump_board(run.as_deref(), &states, *archived, out)
+        }
         BoardCommand::Import { board } => import(board, out),
         BoardCommand::Vocab { event, kind } => {
             let scope = kind.map(|k| match k {
@@ -747,6 +786,23 @@ fn events(
     for line in lines {
         writeln!(out, "{line}")?;
     }
+    Ok(exit::OK)
+}
+
+fn dump_board(
+    run: Option<&str>,
+    states: &[State],
+    archived: bool,
+    out: &mut impl Write,
+) -> io::Result<u8> {
+    let Some(s) = store()? else {
+        writeln!(out, "{{\"version\":1,\"runs\":[]}}")?;
+        return Ok(exit::OK);
+    };
+    let doc = s
+        .read(|r| ferrule_core::card::dump::dump(r, run, states, archived))
+        .map_err(internal)?;
+    writeln!(out, "{}", serde_json::to_string(&doc).map_err(internal)?)?;
     Ok(exit::OK)
 }
 

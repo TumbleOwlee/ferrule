@@ -177,6 +177,7 @@ Commands are grouped by what they act on. Most are run by the orchestrating agen
 | Command | Does |
 |---|---|
 | `ferrule board list` | Every card |
+| `ferrule board dump [--run <slug>] [--state s…] [--archived]` | The board as one JSON document |
 | `ferrule board show <card>` | A card as markdown |
 | `ferrule board vocab` | The event vocabulary |
 | `ferrule board field <card> <field>` | A frontmatter field, `log:<key>`, `pass-sha` or `state` |

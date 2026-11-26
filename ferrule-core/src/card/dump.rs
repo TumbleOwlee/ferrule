@@ -165,7 +165,8 @@ fn live(
                 state: st.as_str().to_owned(),
             });
         }
-        let events = r.run_events(slug, &[])?;
+        let mut events = r.run_events(slug, &[])?;
+        events.sort_by(|x, y| x.at.cmp(&y.at));
         let waiting = match waiting(&events) {
             Some(stop) => {
                 let (kind, gate) = match stop.typed() {
@@ -496,8 +497,8 @@ mod tests {
         create(&mut s, "r", State::Open, &[]);
         create(&mut s, "r.s0", State::Open, &[]);
         board::insert_body(&s.conn, "r", "2026-10-04T10:00", "note a");
-        board::insert_body(&s.conn, "r.s0", "2026-10-04T10:01", "note b");
         board::insert_body(&s.conn, "r", "2026-10-04T10:02", "note c");
+        board::insert_body(&s.conn, "r.s0", "2026-10-04T10:01", "note b");
         let d = read(&s, None, &[], false);
         let got: Vec<_> = d.runs[0]
             .events
