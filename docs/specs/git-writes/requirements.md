@@ -216,9 +216,23 @@
 
 **GW-R-108** — `ferrule stage commit` finds new, removed and rewritten tests only in the files a test command declares, by that command's declaration pattern, each named with the command's prefix.
 
-**GW-R-109** — A test's body is the lines from its declaration up to the next declaration in the same file, or the file's end.
+**GW-R-109** — In a file of no supported language, a test's body is the lines from its start up to the next declaration in the same file, or the file's end.
 
 **GW-R-110** — `ferrule stage pins` refuses a test name that starts with no configured prefix while prefixes exist, naming the prefixes, and records nothing.
+
+**GW-R-111** — A command's declaration pattern is matched against each test file its `files` globs select, whole, so one match may span lines, with `^` and `$` matching at every line's start and end.
+
+**GW-R-112** — A test starts at the first line of its declaration pattern's match, so lines the pattern matches above the name, such as an attribute or a decorator, are part of the test.
+
+**GW-R-113** — A file's language follows its extension: `.rs` Rust, `.py` Python, `.js` `.mjs` `.cjs` `.jsx` JavaScript, `.ts` `.mts` `.cts` TypeScript, `.tsx` TSX, `.go` Go; any other extension has no supported language.
+
+**GW-R-114** — In a file of a supported language, a test's body node is the innermost syntax node, other than the file's root, that holds the test's name, ends on a line after its declaration's match's last line and starts on or after that match's first line; the test's body ends at that node's last line, or at the match's last line when the test has no body node.
+
+**GW-R-115** — In a file of a supported language, a test with a body node has its body end on the line before the next declaration in the same file when that declaration starts before the body node ends.
+
+**GW-R-116** — In a file of a supported language, when the innermost syntax node, other than the file's root, that holds a test's name and ends on a line after its declaration's match's last line holds a part the parser could not read or had to supply, the test's body is the lines from its start up to the next declaration in the same file, or the file's end, in place of the body GW-R-114 and GW-R-115 give, wherever that node starts.
+
+**GW-R-117** — A test's body holds at least the lines of its declaration's match, even when the next declaration starts on the match's last line.
 
 ## Files list
 

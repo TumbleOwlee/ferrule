@@ -72,9 +72,11 @@
 
 **GW-E-036** — Done-move verification checks ancestry against the logged sha in the local repository, not the remote branch; a remote changed outside ferrule after the push is not noticed.
 
-**GW-E-038** — A helper or fixture between two tests in one file counts as part of the earlier test's body, so changing it rewrites that test.
+**GW-E-038** — A helper or fixture between two tests in one file of no supported language counts as part of the earlier test's body, so changing it rewrites that test.
 
 **GW-E-040** — A `pushed=` or `gauntlet=pass` sha the local repository does not hold verifies only a stage commit equal to it, never one it would contain.
+
+**GW-E-045** — Lines of an enclosing test after a nested test's declaration belong to no test's body.
 
 ## Body checks
 
