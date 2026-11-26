@@ -8,4 +8,4 @@ Resumed (or spawned fresh after a resume — re-read `architecture.md` first) wi
 
 ## Pass-back
 
-Resumed with design-check findings: fix each in `spec-diff.md`/`architecture.md` (rev N+1, summary rewritten), or mark it `Needs user` when only the user can settle it (scope, a trade-off). Findings are numbered C<n>/Z<n> in each result file's `Findings:` order. Answer `status=ready file=… summary=… count=<n> fixed=<IDs|-> needs-user=<IDs|->`; a finding named in neither counts as not fixed.
+Resumed with design-check findings: fix each in `spec-diff.md`/`architecture.md` (rev N+1, summary rewritten), or mark it `Needs user` when only the user can settle it (scope, a trade-off). Findings are numbered C<n>/Z<n> in each result file's `Findings:` order. Answer `status=ready file=… summary=… count=<n> [slices=<run_dir>/slices.md] fixed=<IDs|-> needs-user=<IDs|->`; a finding named in neither counts as not fixed.

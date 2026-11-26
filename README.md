@@ -37,7 +37,7 @@ flowchart LR
 | Step | Agent | Produces |
 |---|---|---|
 | Gate 1: brief | `fe-author` | Scenarios, requirements and edge cases, grilled out of you one question at a time |
-| Architecture | `fe-architect`, `fe-checker` | Types, modules, ownership and interactions, with a capped summary to approve; two read-only design checks, comprehension and zoom-out, shown at its stop |
+| Architecture | `fe-architect`, `fe-checker` | Types, modules, ownership and interactions, with a capped summary to approve; two read-only design checks, comprehension and zoom-out, whose findings go back to the architect in a loop of up to 3 check runs before the stop |
 | Gate 2: plan | `fe-planner` | Stages with files and dependencies, fixed spec IDs; on approval the tracking issue is filed and the worktree created |
 | Stages | `fe-implementer` | Strict test-first commits, one stage at a time, pushed to a draft PR |
 | Gate 3: review | `fe-reviewer` | An independent review against the spec, the architecture and the repo's standards |
