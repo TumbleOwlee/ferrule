@@ -37,7 +37,7 @@ flowchart LR
 | Step | Agent | Produces |
 |---|---|---|
 | Gate 1: brief | `fe-author` | Scenarios, requirements and edge cases, grilled out of you one question at a time |
-| Architecture | `fe-architect`, `fe-checker` | Types, modules, ownership and interactions, with a capped summary to approve; two read-only design checks, comprehension and zoom-out, shown at its stop |
+| Architecture | `fe-architect`, `fe-checker` | Types, modules, ownership and interactions, with a capped summary to approve; two read-only design checks, comprehension and zoom-out, whose findings go back to the architect in a loop of up to 3 check runs before the stop |
 | Gate 2: plan | `fe-planner` | Stages with files and dependencies, fixed spec IDs; on approval the tracking issue is filed and the worktree created |
 | Stages | `fe-implementer` | Strict test-first commits, one stage at a time, pushed to a draft PR |
 | Gate 3: review | `fe-reviewer` | An independent review against the spec, the architecture and the repo's standards |
@@ -146,8 +146,8 @@ Commands are grouped by what they act on. Most are run by the orchestrating agen
 |---|---|
 | `ferrule gate approve <slug> <gate> [--<flag>…]` | Record an approval; gate 2 files the issue, adds the worktree and creates the stage cards from `plan.md`'s `## Shared` table |
 | `ferrule gate change <slug> <arch\|epic> -- <answer>` | Record a `change` answer at the architecture or epic stop: logs the design-check lines, keeps the check results and prints the relay line |
-| `ferrule gate ready <slug> <arch\|epic>` | Remove the stop's check results after the architect's `ready`, before the checks rerun |
-| `ferrule gate next <slug> <gate1\|gate2\|replan\|stage\|gate3\|gate4\|ci> <status…>` | The next step after an agent's status line, with the guide topic to read |
+| `ferrule gate ready <slug> <arch\|epic> [--fixed <IDs>] [--needs-user <IDs>]` | After the architect's `ready`: log a round `design-check` event per check of a pass-back, advance the check loop, and remove the stop's check results before the checks rerun |
+| `ferrule gate next <slug> <gate1\|gate2\|replan\|stage\|gate3\|gate4\|ci\|checks> <status…>` | The next step after an agent's status line, with the guide topic to read |
 
 ### Stage
 

@@ -8,8 +8,8 @@ Interfaces: 1 new, 1 changed — sketches in architecture.md `## Interfaces`
 Surface:
 - `ClientError::Reconnecting`
 Design checks:
-- comprehension: 2 findings · .ferrule/runs/demo/check-comprehension.md
-- zoom-out: none found · .ferrule/runs/demo/check-zoom-out.md
+- comprehension: 2 findings · .ferrule/runs/demo/check-comprehension.md · runs 1, fixed 0
+- zoom-out: none found · .ferrule/runs/demo/check-zoom-out.md · runs 1, fixed 0
 - C1 a term is undefined
 - C2 section 2 is unclear
 Confirm:

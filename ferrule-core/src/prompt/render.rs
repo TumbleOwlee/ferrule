@@ -491,6 +491,7 @@ fn design_checks(layout: &Layout, slug: &str, kind: Kind) -> Vec<String> {
     }
     check::lines(
         &Check::ALL.map(|c| check::outcome(layout, slug, c)),
+        &check::Loop::load(layout, slug),
         &layout.root,
     )
 }

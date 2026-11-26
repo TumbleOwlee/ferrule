@@ -4912,6 +4912,11 @@ fn it_gate_approve_logs_approved() {
 /// A design check's result file for the demo run, stamped for the fixture's
 /// current revisions.
 fn check_file(p: &Project, file: &str, findings: &[&str]) {
+    check_file_at(p, file, findings, 1);
+}
+
+/// A design check's result file stamped with `architecture.md` revision `rev`.
+fn check_file_at(p: &Project, file: &str, findings: &[&str], rev: u32) {
     use std::fmt::Write as _;
     let items = findings.iter().fold(String::new(), |mut s, f| {
         let _ = writeln!(s, "- {f}");
@@ -4920,10 +4925,50 @@ fn check_file(p: &Project, file: &str, findings: &[&str]) {
     std::fs::write(
         p.run_dir().join(file),
         format!(
-            "# demo — check\nChecked: spec-diff.md rev 5, architecture.md rev 1\n## Paraphrase\nx\nFindings:\n{items}"
+            "# demo — check\nChecked: spec-diff.md rev 5, architecture.md rev {rev}\n## Paraphrase\nx\nFindings:\n{items}"
         ),
     )
     .unwrap();
+}
+
+/// Both result files of a check run on `architecture.md` revision `rev`.
+fn check_run(p: &Project, rev: u32, comprehension: Option<&[&str]>, zoom_out: Option<&[&str]>) {
+    for (file, f) in [
+        ("check-comprehension.md", comprehension),
+        ("check-zoom-out.md", zoom_out),
+    ] {
+        match f {
+            Some(f) => check_file_at(p, file, f, rev),
+            None => {
+                let _ = std::fs::remove_file(p.run_dir().join(file));
+            }
+        }
+    }
+}
+
+/// The architect's revision: `architecture.md` moves to `(rev n)`.
+fn revise(p: &Project, n: u32) {
+    let doc = p.run_dir().join("architecture.md");
+    let text = std::fs::read_to_string(&doc).unwrap();
+    std::fs::write(
+        &doc,
+        text.replacen(&format!("(rev {})", n - 1), &format!("(rev {n})"), 1),
+    )
+    .unwrap();
+}
+
+/// A project at the architecture stop with the check loop started.
+fn loop_project() -> Project {
+    let p = Project::new();
+    p.ok(&["run", "init", "demo"]);
+    p.artifacts();
+    p.ok(&["gate", "approve", "demo", "gate1"]);
+    p.ok(&["gate", "ready", "demo", "arch"]);
+    p
+}
+
+fn next_checks(p: &Project) -> String {
+    p.ok(&["gate", "next", "demo", "checks", "status=done"])
 }
 
 fn both_checks(p: &Project) {
@@ -5162,13 +5207,140 @@ fn it_gate_ready_removes_check_result_files() {
     assert!(p.run_dir().join("check-comprehension.md").exists());
     assert!(p.run_dir().join("check-zoom-out.md").exists());
     let got = p.ok(&["gate", "ready", "demo", "arch"]);
-    assert!(got.contains("ready=done gate=arch removed=2"), "{got}");
+    assert!(
+        got.contains("ready=done gate=arch removed=2 run=1"),
+        "{got}"
+    );
     assert!(!p.run_dir().join("check-comprehension.md").exists());
     assert!(!p.run_dir().join("check-zoom-out.md").exists());
     let got = p.ok(&["gate", "ready", "demo", "arch"]);
     assert!(got.contains("removed=0"), "{got}");
     let out = p.ferrule(&["gate", "ready", "demo", "gate2"]).output();
     assert_eq!(out.status.code(), Some(2));
+}
+
+/// Writes `check-loop.md` into the run directory.
+fn loop_file(p: &Project, text: &str) {
+    std::fs::write(p.run_dir().join("check-loop.md"), text).unwrap();
+}
+
+const PASSED_BACK: &str = "Run: 1\nPassed back: 1\nResults: comprehension 2, zoom-out 1\nPassed:\n- C1 a\n- C2 b\n- Z1 z\nFixed: comprehension 0, zoom-out 0\nNeeds user:\n";
+
+/// GA-R-183 — `ready` after a pass-back logs one round event per check with a
+/// result and advances the loop.
+#[test]
+fn it_gate_ready_after_a_pass_back_logs_round_events() {
+    let p = change_project();
+    loop_file(&p, PASSED_BACK);
+    let got = p.ok(&["gate", "ready", "demo", "arch", "--fixed", "C1,Z1"]);
+    assert!(
+        got.contains("ready=done gate=arch removed=2 run=2"),
+        "{got}"
+    );
+    let shown = p.ok(&["board", "show", "demo"]);
+    assert!(
+        shown.contains("design-check scope=comprehension findings=2 fixed=1 round=1"),
+        "{shown}"
+    );
+    assert!(
+        shown.contains("design-check scope=zoom-out findings=1 fixed=1 round=1"),
+        "{shown}"
+    );
+    let text = std::fs::read_to_string(p.run_dir().join("check-loop.md")).unwrap();
+    assert!(text.contains("Run: 2\nPassed back: -\n"), "{text}");
+    assert!(
+        text.contains("Fixed: comprehension 1, zoom-out 1\n"),
+        "{text}"
+    );
+}
+
+/// GA-R-178 — a finding the architect names neither fixed nor marked counts as
+/// not fixed.
+#[test]
+fn it_gate_ready_counts_an_unnamed_finding_as_not_fixed() {
+    let p = change_project();
+    loop_file(&p, PASSED_BACK);
+    p.ok(&["gate", "ready", "demo", "arch", "--fixed", "C1"]);
+    let shown = p.ok(&["board", "show", "demo"]);
+    assert!(
+        shown.contains("design-check scope=comprehension findings=2 fixed=1 round=1"),
+        "{shown}"
+    );
+    assert!(
+        shown.contains("design-check scope=zoom-out findings=1 fixed=0 round=1"),
+        "{shown}"
+    );
+}
+
+/// GA-R-178 — a malformed finding ID is a usage error that removes nothing and
+/// logs nothing.
+#[test]
+fn it_gate_ready_refuses_a_malformed_finding_id() {
+    let p = change_project();
+    loop_file(&p, PASSED_BACK);
+    let before = design_lines(&p);
+    let out = p
+        .ferrule(&["gate", "ready", "demo", "arch", "--fixed", "C01"])
+        .output();
+    assert_eq!(out.status.code(), Some(2));
+    assert!(p.run_dir().join("check-comprehension.md").exists());
+    assert_eq!(design_lines(&p), before);
+    let out = p
+        .ferrule(&["gate", "ready", "demo", "arch", "--needs-user", "X1"])
+        .output();
+    assert_eq!(out.status.code(), Some(2));
+}
+
+/// GA-R-180 — a `ready` without a pending pass-back restarts the loop at run 1
+/// and ignores the flags.
+#[test]
+fn it_gate_ready_without_a_pass_back_restarts_the_loop() {
+    let p = change_project();
+    loop_file(
+        &p,
+        "Run: 2\nPassed back: -\nResults: comprehension -, zoom-out -\nPassed:\nFixed: comprehension 1, zoom-out 0\nNeeds user:\n",
+    );
+    let before = design_lines(&p);
+    let got = p.ok(&["gate", "ready", "demo", "arch", "--fixed", "C1"]);
+    assert!(got.contains("run=1"), "{got}");
+    assert_eq!(design_lines(&p), before);
+    let text = std::fs::read_to_string(p.run_dir().join("check-loop.md")).unwrap();
+    assert!(text.contains("Run: 1\n"), "{text}");
+    assert!(
+        text.contains("Fixed: comprehension 0, zoom-out 0\n"),
+        "{text}"
+    );
+}
+
+/// GA-R-167 — a check without a result in the passed-back run logs no round
+/// event.
+#[test]
+fn it_gate_ready_logs_no_round_event_for_a_check_without_result() {
+    let p = change_project();
+    loop_file(
+        &p,
+        "Run: 1\nPassed back: 1\nResults: comprehension -, zoom-out 1\nPassed:\n- Z1 z\nFixed: comprehension 0, zoom-out 0\nNeeds user:\n",
+    );
+    let before = design_lines(&p);
+    p.ok(&["gate", "ready", "demo", "arch", "--fixed", "C1,Z1"]);
+    assert_eq!(design_lines(&p), before + 1);
+    let shown = p.ok(&["board", "show", "demo"]);
+    assert!(
+        shown.contains("scope=zoom-out findings=1 fixed=1 round=1"),
+        "{shown}"
+    );
+}
+
+/// A finding named in `--needs-user` is copied from the passed list into the
+/// loop file.
+#[test]
+fn it_gate_ready_copies_needs_user_findings() {
+    let p = change_project();
+    loop_file(&p, PASSED_BACK);
+    p.ok(&["gate", "ready", "demo", "arch", "--needs-user", "Z1,C9"]);
+    let text = std::fs::read_to_string(p.run_dir().join("check-loop.md")).unwrap();
+    assert!(text.contains("Needs user:\n- Z z\n"), "{text}");
+    assert!(!text.contains("- C "), "{text}");
 }
 
 /// GA-R-175 — `ready` refuses what `change` refuses and removes nothing.
@@ -5383,4 +5555,153 @@ fn it_small_brief_plan_stop() {
     p.ok(&["gate", "approve", "demo", "arch", "--plan-stop"]);
     let gate2 = p.ok(&["gate", "next", "demo", "gate2", "status=new"]);
     assert!(gate2.contains("next=stop reason=plan-stop"), "{gate2}");
+}
+
+/// S1 — the findings of the first check run go back to the architect; after
+/// the revision a clean run ends the loop and the stop shows the counts.
+#[test]
+fn it_check_loop_fixes_findings_before_the_stop() {
+    let p = loop_project();
+    check_run(&p, 1, Some(&["a", "b"]), Some(&["z"]));
+    let got = next_checks(&p);
+    assert!(got.contains("next=pass-back run=1"), "{got}");
+    revise(&p, 2);
+    let got = p.ok(&[
+        "gate",
+        "ready",
+        "demo",
+        "arch",
+        "--fixed",
+        "C1,Z1",
+        "--needs-user",
+        "-",
+    ]);
+    assert!(got.contains("run=2"), "{got}");
+    check_run(&p, 2, Some(&[]), Some(&[]));
+    let got = next_checks(&p);
+    assert!(got.contains("next=stop"), "{got}");
+    let arch = p.ok(&["prompt", "render", "demo", "arch"]);
+    assert!(
+        arch.contains("- comprehension: none found")
+            && arch.contains(".ferrule/runs/demo/check-comprehension.md · runs 2, fixed 1\n"),
+        "{arch}"
+    );
+    assert!(
+        arch.contains(".ferrule/runs/demo/check-zoom-out.md · runs 2, fixed 1\n"),
+        "{arch}"
+    );
+    assert!(!arch.contains("cap reached"), "{arch}");
+}
+
+/// S2 — the third run with findings ends the loop; the stop shows the
+/// findings in full and the cap on both check lines.
+#[test]
+fn it_check_loop_stops_at_the_cap_with_findings() {
+    let p = loop_project();
+    for rev in 1..=3 {
+        check_run(&p, rev, Some(&["a", "b"]), Some(&["z"]));
+        let got = next_checks(&p);
+        if rev < 3 {
+            assert!(got.contains(&format!("next=pass-back run={rev}")), "{got}");
+            revise(&p, rev + 1);
+            p.ok(&["gate", "ready", "demo", "arch"]);
+        } else {
+            assert!(got.contains("next=stop"), "{got}");
+        }
+    }
+    let arch = p.ok(&["prompt", "render", "demo", "arch"]);
+    assert!(
+        arch.contains("check-comprehension.md · runs 3, fixed 0 · cap reached\n"),
+        "{arch}"
+    );
+    assert!(
+        arch.contains("check-zoom-out.md · runs 3, fixed 0 · cap reached\n"),
+        "{arch}"
+    );
+    for f in ["- C1 a", "- C2 b", "- Z1 z"] {
+        assert!(arch.contains(f), "{arch}");
+    }
+}
+
+/// S3, GA-R-179 — a finding the architect marked for the user is shown at
+/// the stop although the next run did not report it.
+#[test]
+fn it_check_loop_shows_a_marked_finding_at_the_stop() {
+    let p = loop_project();
+    check_run(&p, 1, Some(&["a"]), Some(&["z"]));
+    next_checks(&p);
+    revise(&p, 2);
+    p.ok(&[
+        "gate",
+        "ready",
+        "demo",
+        "arch",
+        "--fixed",
+        "C1",
+        "--needs-user",
+        "Z1",
+    ]);
+    check_run(&p, 2, Some(&[]), Some(&[]));
+    let got = next_checks(&p);
+    assert!(got.contains("next=stop"), "{got}");
+    let arch = p.ok(&["prompt", "render", "demo", "arch"]);
+    assert!(arch.contains("\n- Z1 (needs user) z\n"), "{arch}");
+}
+
+/// S4, GA-R-157 — a check without a result in a run is run again; once both
+/// report, the stop no longer says `did not run`.
+#[test]
+fn it_check_loop_reruns_a_check_without_result() {
+    let p = loop_project();
+    check_run(&p, 1, None, Some(&["z"]));
+    let got = next_checks(&p);
+    assert!(got.contains("next=pass-back run=1"), "{got}");
+    revise(&p, 2);
+    p.ok(&["gate", "ready", "demo", "arch", "--fixed", "Z1"]);
+    check_run(&p, 2, Some(&[]), Some(&[]));
+    let got = next_checks(&p);
+    assert!(got.contains("next=stop"), "{got}");
+    let arch = p.ok(&["prompt", "render", "demo", "arch"]);
+    assert!(!arch.contains("did not run"), "{arch}");
+}
+
+/// S5 — a `change` answer and its `ready` restart the loop at run 1.
+#[test]
+fn it_check_loop_restarts_after_a_change() {
+    let p = loop_project();
+    loop_file(
+        &p,
+        "Run: 3\nPassed back: -\nResults: comprehension -, zoom-out -\nPassed:\nFixed: comprehension 1, zoom-out 2\nNeeds user:\n- C m\n",
+    );
+    check_run(&p, 1, Some(&["a"]), Some(&[]));
+    p.ok(&["gate", "change", "demo", "arch", "--", "C1"]);
+    let got = p.ok(&["gate", "ready", "demo", "arch"]);
+    assert!(got.contains("run=1"), "{got}");
+    let text = std::fs::read_to_string(p.run_dir().join("check-loop.md")).unwrap();
+    assert!(text.contains("Run: 1\n"), "{text}");
+    assert!(
+        text.contains("Fixed: comprehension 0, zoom-out 0\nNeeds user:\n"),
+        "{text}"
+    );
+    assert!(!text.contains("- C m"), "{text}");
+}
+
+/// GA-R-166 — a `change` answer counts the marked findings and can name them.
+#[test]
+fn it_gate_change_counts_marked_findings() {
+    let p = change_project();
+    loop_file(
+        &p,
+        "Run: 2\nPassed back: -\nResults: comprehension -, zoom-out -\nPassed:\nFixed: comprehension 0, zoom-out 0\nNeeds user:\n- C m\n",
+    );
+    p.ok(&["gate", "change", "demo", "arch", "--", "fix C3"]);
+    let shown = p.ok(&["board", "show", "demo"]);
+    assert!(
+        shown.contains("design-check scope=comprehension findings=3 changed=1"),
+        "{shown}"
+    );
+    assert!(
+        shown.contains("design-check scope=zoom-out findings=1 changed=0"),
+        "{shown}"
+    );
 }

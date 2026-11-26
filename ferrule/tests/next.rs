@@ -837,3 +837,132 @@ fn it_next_retried_status_line_logs_and_counts_once() {
         );
     }
 }
+
+/// A fixture run `ns` with a brief and an architecture, ready for the checks.
+fn checks_board() -> Board {
+    let mut b = Board::new();
+    b.reset("2", "2026-10-02", 1, "clean");
+    b.artifact("architecture.md", "# ns — architecture (rev 1)\n");
+    b
+}
+
+/// A check result stamped with the fixture's current revisions.
+fn result(b: &Board, file: &str, findings: &[&str]) {
+    let mut text = String::from(
+        "# ns — check\nChecked: spec-diff.md rev 1, architecture.md rev 1\nFindings:\n",
+    );
+    for f in findings {
+        let _ = writeln!(text, "- {f}");
+    }
+    b.artifact(file, &text);
+}
+
+fn loop_text(b: &Board) -> String {
+    std::fs::read_to_string(b.root().join(".ferrule/runs/ns/check-loop.md")).unwrap_or_default()
+}
+
+fn checks(b: &Board, status: &str) -> String {
+    b.ferrule(&["gate", "next", "ns", "checks", status]).text()
+}
+
+const PENDING: &str = "Run: 1\nPassed back: 1\nResults: comprehension 2, zoom-out 1\nPassed:\n- C1 a\n- C2 b\n- Z1 z\nFixed: comprehension 0, zoom-out 0\nNeeds user:\n";
+
+/// GA-R-177 — findings in a check run are passed back to the architect and
+/// recorded in the loop file.
+#[test]
+fn it_next_checks_passes_findings_back() {
+    let b = checks_board();
+    result(&b, "check-comprehension.md", &["a", "b"]);
+    result(&b, "check-zoom-out.md", &["z"]);
+    let got = checks(&b, "status=done");
+    assert!(got.contains("next=pass-back run=1"), "{got}");
+    assert!(
+        got.contains("do: relay to the architect:")
+            && got.contains(".ferrule/runs/ns/check-comprehension.md")
+            && got.contains(".ferrule/runs/ns/check-zoom-out.md"),
+        "{got}"
+    );
+    assert!(
+        got.contains("guide: ferrule guide show architecture --slug ns"),
+        "{got}"
+    );
+    assert_eq!(loop_text(&b), PENDING);
+}
+
+/// GA-R-181 — a check run without findings ends the loop at the stop.
+#[test]
+fn it_next_checks_stops_without_findings() {
+    let b = checks_board();
+    result(&b, "check-comprehension.md", &[]);
+    result(&b, "check-zoom-out.md", &[]);
+    let got = checks(&b, "status=none");
+    assert!(got.contains("next=stop"), "{got}");
+    assert!(got.contains("run: ferrule prompt render ns arch"), "{got}");
+}
+
+/// GA-R-181 — the third run ends the loop whatever its findings, and the loop
+/// file is left as it was.
+#[test]
+fn it_next_checks_stops_at_the_third_run() {
+    let b = checks_board();
+    result(&b, "check-comprehension.md", &["a"]);
+    let before = "Run: 3\nPassed back: -\nResults: comprehension -, zoom-out -\nPassed:\nFixed: comprehension 1, zoom-out 0\nNeeds user:\n";
+    b.artifact("check-loop.md", before);
+    let got = checks(&b, "status=done");
+    assert!(got.contains("next=stop"), "{got}");
+    assert_eq!(loop_text(&b), before);
+}
+
+/// GA-E-041 — a check without a result counts as reporting no finding.
+#[test]
+fn it_next_checks_counts_a_check_without_result_as_no_finding() {
+    let b = checks_board();
+    result(&b, "check-zoom-out.md", &["z"]);
+    let got = checks(&b, "status=none");
+    assert!(got.contains("next=pass-back run=1"), "{got}");
+    assert!(
+        loop_text(&b).contains("Results: comprehension -, zoom-out 1\n"),
+        "{}",
+        loop_text(&b)
+    );
+    let b = checks_board();
+    let got = checks(&b, "status=none");
+    assert!(got.contains("next=stop"), "{got}");
+}
+
+/// A pending pass-back is relayed again from the loop although the revised
+/// architecture made the result files stale.
+#[test]
+fn it_next_checks_repeats_a_pending_pass_back() {
+    let b = checks_board();
+    result(&b, "check-comprehension.md", &["a", "b"]);
+    result(&b, "check-zoom-out.md", &["z"]);
+    b.artifact("check-loop.md", PENDING);
+    b.artifact("architecture.md", "# ns — architecture (rev 2)\n");
+    let got = checks(&b, "status=done");
+    assert!(got.contains("next=pass-back run=1"), "{got}");
+    assert!(got.contains("check-zoom-out.md"), "{got}");
+    assert_eq!(loop_text(&b), PENDING);
+}
+
+/// On an epic run the stop and the guide name the epic topic.
+#[test]
+fn it_next_checks_names_the_epic_topic() {
+    let b = checks_board();
+    b.ok(&["board", "set", "ns", "kind=epic"]);
+    let got = checks(&b, "status=none");
+    assert!(got.contains("run: ferrule prompt render ns epic"), "{got}");
+    assert!(
+        got.contains("guide: ferrule guide show epic --slug ns"),
+        "{got}"
+    );
+}
+
+/// Another status at `checks` is refused as unknown.
+#[test]
+fn it_next_checks_refuses_another_status() {
+    let b = checks_board();
+    let got = checks(&b, "status=ready");
+    assert!(got.contains("run-next=refused reason=unknown"), "{got}");
+    assert!(got.ends_with("exit=2"), "{got}");
+}

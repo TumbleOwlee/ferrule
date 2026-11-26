@@ -973,6 +973,7 @@ pub fn approve(
     })?;
     if stop {
         check::clear(layout, slug)?;
+        check::Loop::remove(layout, slug)?;
     }
     out.record = seen.join(" ");
     Ok(out)
@@ -1061,17 +1062,77 @@ pub struct Ready {
     pub gate: Gate,
     /// The result files removed.
     pub removed: usize,
+    /// The loop's check run the checks now start.
+    pub run: u32,
 }
 
-/// Removes the stop's check result files before the checks rerun: refused as
-/// `change` is; logs nothing.
+/// Advances the design-check loop and removes the stop's check result files
+/// before the checks rerun: refused as `change` is. With a pass-back pending
+/// it logs one round event per check with a result and keeps the findings the
+/// `verdict` marks for the user; otherwise the loop restarts and the verdict
+/// is ignored.
 ///
 /// # Errors
 /// A refusal, or a board or file failure.
-pub fn ready(db: &mut Board, layout: &Layout, gate: Gate, slug: &str) -> Result<Ready, Error> {
+pub fn ready(
+    db: &mut Board,
+    layout: &Layout,
+    gate: Gate,
+    slug: &str,
+    verdict: &check::Verdict,
+    now: &str,
+) -> Result<Ready, Error> {
     stop_open(db.conn_mut(), slug, gate)?;
+    let mut lp = check::Loop::load(layout, slug);
+    if lp.passed_back == Some(lp.run) {
+        let mut logged = Vec::new();
+        for (i, check) in check::Check::ALL.into_iter().enumerate() {
+            if let Some(n) = lp.results[i] {
+                let fixed = verdict.fixed_count(check, n);
+                lp.fixed[i] += fixed;
+                logged.push(check::Logged {
+                    check,
+                    findings: n,
+                    changed: 0,
+                    fixed,
+                    round: Some(lp.run),
+                });
+            }
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        for &(check, id) in &verdict.needs_user {
+            if !seen.insert((check.letter(), id)) {
+                continue;
+            }
+            let text = lp.passed(check).nth(id.wrapping_sub(1)).map(str::to_owned);
+            if let Some(text) = text {
+                lp.needs_user.push(check::Marked { check, text });
+            }
+        }
+        db.write(|w| {
+            for l in &logged {
+                w.log(slug, check::EVENT, &l.args(), now)
+                    .map_err(|e| match e {
+                        board::LogError::Sql(e) => Error::Sql(e),
+                        e => Error::Board(board::BatchError::Log(slug.to_owned(), e)),
+                    })?;
+            }
+            Ok::<_, Error>(())
+        })?;
+        lp.run += 1;
+        lp.passed_back = None;
+        lp.results = [None, None];
+        lp.passed.clear();
+    } else {
+        lp = check::Loop::fresh();
+    }
     let removed = check::clear(layout, slug)?;
-    Ok(Ready { gate, removed })
+    lp.save(layout, slug)?;
+    Ok(Ready {
+        gate,
+        removed,
+        run: lp.run,
+    })
 }
 
 /// The stage a re-plan starts from: the lowest without a commit, or, when

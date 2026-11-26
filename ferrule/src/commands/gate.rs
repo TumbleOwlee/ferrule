@@ -6,7 +6,7 @@ use std::io::{self, Write};
 use clap::{Args, Subcommand, ValueEnum};
 use ferrule_core::card::board;
 use ferrule_core::refusal::Refusal;
-use ferrule_core::run::check::Check;
+use ferrule_core::run::check::{self, Check};
 use ferrule_core::run::gate::{self, Gate};
 use ferrule_core::run::next::{self, At, Status};
 use ferrule_core::run::tier::{self, TierRefused};
@@ -25,7 +25,9 @@ Output:
       At `arch` and `epic`, each design check with a current result logs
       `design-check scope=<scope> findings=<n> changed=0` on the card, except
       a result ending in `Logged: change` (an earlier `change` answer logged
-      it), and both check result files are removed.
+      it), and both check result files and `check-loop.md` are removed.
+      `ferrule gate ready` logs the round form
+      `design-check scope=<s> findings=<n> fixed=<n> round=<k>`.
       `action=recorded`: the gate was approved already; its date is kept
       (gate2 still does whatever is missing: worktree, stage cards).
 Gates, the parent card field each dates, what must come first and the
@@ -112,6 +114,8 @@ Statuses each position takes:
            minors=<n>
   gate4    ready, question
   ci       ci=<exit code of gh pr checks>
+  checks   done, none: the checkers' lines are taken but not decided on; the
+           decision reads the result files and `check-loop.md`
 
 Output, in order:
   logged: <event>                  An event logged on the card:
@@ -158,6 +162,10 @@ Output, in order:
     pr               gate3 clean on every stage: spawn the spec author for
                      the PR body
     done             ci=0: clean up the run
+    pass-back        checks: a finding is left and the run is below the third
+                     (`next=pass-back run=<k>`): the findings are copied into
+                     `check-loop.md` and relayed to the architect
+    stop             checks: no finding, or the third run: show the stop
   reason=<why>                     Why `stop` stops, or `pr` has `needs-user`;
                                    `minors` carries the reason of the step it
                                    precedes.
@@ -218,11 +226,18 @@ Dev build: the open that takes a copy of an older shared board prints to stderr
 `ferrule=dev-copy copy=<path> shared=<n> schema=<m>`; the exit code is unchanged.";
 
 const READY_AFTER_LONG_HELP: &str = "\
-Usage: ferrule gate ready <slug> <arch|epic>
-  Run after the architect answers `ready`, before the checks rerun.
+Usage: ferrule gate ready <slug> <arch|epic> [--fixed <IDs>] [--needs-user <IDs>]
+  Run after the architect answers `ready`, before the checks rerun. IDs are
+  comma-separated `C<n>`/`Z<n>` (either case, no leading zero) or `-`.
+  With a pass-back pending, `--fixed` and `--needs-user` log one
+  `design-check scope=<s> findings=<n> fixed=<n> round=<k>` per check with a
+  result and copy the `--needs-user` findings into `check-loop.md`; otherwise
+  the loop restarts at run 1 and the flags are ignored. A malformed ID is
+  exit 2.
 Output:
-  ready=done gate=<gate> removed=<0|1|2>
-      The check result files removed; an absent file is no error.
+  ready=done gate=<gate> removed=<0|1|2> run=<k>
+      The check result files removed; an absent file is no error. `run` is
+      the loop's check run the checks now start.
   ready=refused reason=card|order|state|answered … hint=<fix>
       card: no such run. order: `epic` on a run that is not an epic. state:
       the run is not open. answered: the `arch` field already holds a value.
@@ -256,7 +271,7 @@ pub enum GateCommand {
         #[arg(last = true, required = true)]
         answer: Vec<String>,
     },
-    /// Clear the stop's check results before the checks rerun.
+    /// Clear the stop's check results and advance the design-check loop.
     #[command(after_long_help = READY_AFTER_LONG_HELP)]
     Ready {
         /// The run's slug.
@@ -264,6 +279,12 @@ pub enum GateCommand {
         /// The stop answered.
         #[arg(value_enum)]
         gate: ChangeGate,
+        /// Comma-separated IDs of the passed-back findings the architect fixed.
+        #[arg(long, value_name = "IDS")]
+        fixed: Option<String>,
+        /// Comma-separated IDs of the passed-back findings left for the user.
+        #[arg(long = "needs-user", value_name = "IDS")]
+        needs_user: Option<String>,
     },
     /// Log an agent's outcome and print the next step.
     ///
@@ -362,13 +383,20 @@ pub enum NextAt {
     Gate4,
     /// `ci=<exit code of gh pr checks>`.
     Ci,
+    /// Both design checks' hand-offs (`status=none` when neither returned one).
+    Checks,
 }
 
 pub fn run(command: &GateCommand, out: &mut impl Write) -> io::Result<u8> {
     match command {
         GateCommand::Approve(args) => approve(args, out),
         GateCommand::Change { slug, gate, answer } => change(slug, *gate, answer, out),
-        GateCommand::Ready { slug, gate } => ready(slug, *gate, out),
+        GateCommand::Ready {
+            slug,
+            gate,
+            fixed,
+            needs_user,
+        } => ready(slug, *gate, fixed.as_deref(), needs_user.as_deref(), out),
         GateCommand::Next {
             slug,
             position,
@@ -505,17 +533,38 @@ fn change(slug: &str, gate: ChangeGate, answer: &[String], out: &mut impl Write)
     }
 }
 
-fn ready(slug: &str, gate: ChangeGate, out: &mut impl Write) -> io::Result<u8> {
+fn ready(
+    slug: &str,
+    gate: ChangeGate,
+    fixed: Option<&str>,
+    needs_user: Option<&str>,
+    out: &mut impl Write,
+) -> io::Result<u8> {
     let g = match gate {
         ChangeGate::Arch => Gate::Arch,
         ChangeGate::Epic => Gate::Epic,
     };
+    let verdict = match check::Verdict::parse(fixed, needs_user) {
+        Ok(v) => v,
+        Err(why) => {
+            eprintln!(
+                "usage: ferrule gate ready <slug> <arch|epic> [--fixed <IDs>] [--needs-user <IDs>]: {why}"
+            );
+            return Ok(exit::USAGE);
+        }
+    };
     let Some(mut s) = store()? else {
         return refuse(out, &Refusal::card("ready"));
     };
-    match gate::ready(&mut s, &layout(), g, slug) {
+    match gate::ready(&mut s, &layout(), g, slug, &verdict, &board::now()) {
         Ok(r) => {
-            writeln!(out, "ready=done gate={} removed={}", g.as_str(), r.removed)?;
+            writeln!(
+                out,
+                "ready=done gate={} removed={} run={}",
+                g.as_str(),
+                r.removed,
+                r.run
+            )?;
             Ok(exit::OK)
         }
         Err(e) => failed(e, "ready", slug, out),
@@ -531,6 +580,7 @@ fn next_step(slug: &str, at: NextAt, status: &[String], out: &mut impl Write) ->
         NextAt::Gate3 => At::Gate3,
         NextAt::Gate4 => At::Gate4,
         NextAt::Ci => At::Ci,
+        NextAt::Checks => At::Checks,
     };
     let status = Status::parse(status);
     let Some(mut s) = store()? else {

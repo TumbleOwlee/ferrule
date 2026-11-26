@@ -95,3 +95,13 @@
 **GA-E-038** — A repeated `ferrule gate approve` of an architecture stop already approved logs no `design-check` event.
 
 **GA-E-039** — A check result whose `design-check` event a `change` answer has logged logs no further event when the stop is answered again before the result is replaced (GA-R-171, GA-R-165).
+
+**GA-E-041** — A check that produces no result in a check run counts as reporting no finding in that run.
+
+**GA-E-045** — A check that produces no result in a check run is not respawned before that run ends.
+
+**GA-E-042** — A confirmed abandon while a pass-back awaits the architect's `ready` logs that run's events as the stop's, with `changed=0`, and no round event.
+
+**GA-E-043** — A finding ID in the architect's answer that the passed-back run did not report counts neither as fixed nor as marked.
+
+**GA-E-044** — A finding ID the architect names both fixed and `Needs user` counts as marked only.

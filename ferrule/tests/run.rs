@@ -1960,6 +1960,34 @@ fn it_abandon_logs_no_marked_design_check() {
     assert!(!card.contains("design-check scope=zoom-out"), "{card}");
 }
 
+/// GA-E-042 — an abandon during a pass-back logs the passed-back run's counts,
+/// not the stale or revised result files.
+#[test]
+fn it_abandon_during_a_pass_back_logs_that_run() {
+    let s = pushed_run();
+    seed_set(&s.root, "demo", &["arch="]);
+    seed_checks(&s);
+    let dir = s.root.join(".ferrule/runs/demo");
+    std::fs::write(
+        dir.join("check-loop.md"),
+        "Run: 1\nPassed back: 1\nResults: comprehension 2, zoom-out 1\nPassed:\n- C1 a\n- C2 b\n- Z1 c\nFixed: comprehension 0, zoom-out 0\nNeeds user:\n",
+    )
+    .unwrap();
+    let arch = dir.join("architecture.md");
+    let text = std::fs::read_to_string(&arch).unwrap();
+    std::fs::write(&arch, text.replacen("(rev 1)", "(rev 2)", 1)).unwrap();
+    let card = abandoned_card(&s);
+    assert!(
+        card.contains("design-check scope=comprehension findings=2 changed=0"),
+        "{card}"
+    );
+    assert!(
+        card.contains("design-check scope=zoom-out findings=1 changed=0"),
+        "{card}"
+    );
+    assert!(!card.contains("round="), "{card}");
+}
+
 /// GA-R-169 — abandoning past the architecture stop logs no design check.
 #[test]
 fn it_abandon_past_the_architecture_stop_logs_no_design_check() {

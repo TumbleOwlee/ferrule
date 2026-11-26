@@ -1721,3 +1721,87 @@ fn it_epic_guide_runs_the_checks_after_the_skeleton() {
 fn it_design_check_result_without_a_current_result_says_did_not_run() {
     says("architecture", &["`did not run`"]);
 }
+
+/// GA-R-154 — the design checks end on the `checks` position, which adds no
+/// stop of its own.
+#[test]
+fn it_design_checks_end_on_the_checks_position() {
+    says(
+        "architecture",
+        &[
+            "ferrule gate next demo checks",
+            "add no stop of their own",
+            "`next=pass-back`",
+            "`next=stop`",
+        ],
+    );
+}
+
+/// GA-R-156 — every architect `ready` runs `gate ready`, with the verdict
+/// flags after a pass-back.
+#[test]
+fn it_design_checks_run_on_every_ready() {
+    says(
+        "architecture",
+        &[
+            "`--fixed <IDs|->`",
+            "`--needs-user <IDs|->`",
+            "at most 3 check runs",
+        ],
+    );
+}
+
+/// GA-R-163 — the comprehension check also reads the marked findings of
+/// `check-loop.md`.
+#[test]
+fn it_comprehension_check_reads_the_marked_findings() {
+    says("check-comprehension", &["`check-loop.md`", "`Needs user:`"]);
+}
+
+/// GA-R-184 — neither checker reports a finding already marked for the user.
+#[test]
+fn it_checkers_skip_marked_findings() {
+    for name in ["check-comprehension", "check-zoom-out"] {
+        says(name, &["Never report a finding listed under `Needs user:`"]);
+    }
+}
+
+/// GA-E-045 — a checker that fails is not respawned in that check run.
+#[test]
+fn it_design_checks_do_not_respawn_a_failed_check() {
+    says("architecture", &["not respawned in that check run"]);
+}
+
+/// A resumed run with a pass-back pending reruns no checker and repeats the
+/// pass-back from the loop file.
+#[test]
+fn it_resume_repeats_a_pending_pass_back() {
+    says(
+        "resume",
+        &[
+            "`Passed back:`",
+            "ferrule gate next demo checks status=none",
+        ],
+    );
+}
+
+/// The `status=ready slices=…` bullet runs `gate ready` on the epic before
+/// the design checks.
+#[test]
+fn it_epic_bullet_runs_gate_ready_before_the_checks() {
+    let text = topic("architecture");
+    let kind = text.find("kind=epic").expect("kind=epic");
+    let ready = text[kind..]
+        .find("ferrule gate ready demo epic")
+        .expect("gate ready epic");
+    let checks = text[kind..].find("the design checks").expect("checks");
+    assert!(ready < checks, "{text}");
+}
+
+/// Both architect guides answer a pass-back with the verdict.
+#[test]
+fn it_architect_guides_answer_a_pass_back() {
+    for name in ["architect", "architect-epic"] {
+        says(name, &["## Pass-back", "fixed=<IDs|-> needs-user=<IDs|->"]);
+    }
+}

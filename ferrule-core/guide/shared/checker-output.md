@@ -12,4 +12,6 @@ Findings:
 
 `Checked:` copies each document's `(rev N)` as you read it; `rev -` for `spec-diff.md` when the brief names none. No findings: the `Findings:` line with nothing under it.
 
+Your brief names `{run_dir}/check-loop.md`. Never report a finding listed under `Needs user:` there, in whatever words.
+
 Final message, one line: `status=done file={run_dir}/check-<scope>.md count=<findings>`.

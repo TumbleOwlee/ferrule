@@ -180,4 +180,4 @@
 
 **RU-R-076** — The metrics line records the run's kind, `kind=<plain|epic|slice|request>`, in place of `lane=`.
 
-**RU-R-077** — `ferrule run metrics` reports, per check, the number of checks run and the totals of findings and changed.
+**RU-R-077** — `ferrule run metrics` reports, per check, the number of checks run and the totals of findings, changed and fixed.

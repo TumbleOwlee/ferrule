@@ -1,5 +1,5 @@
 //! The next step of a run after an agent's status line, for the gate 1,
-//! gate 2, re-plan, stage review, branch-review, gate 4 and CI decisions: logs the events the
+//! gate 2, re-plan, stage review, branch-review, gate 4, CI and design-check decisions: logs the events the
 //! outcome implies and names the one next action.
 
 use rusqlite::Connection;
@@ -12,6 +12,7 @@ use crate::config::Config;
 use crate::guide::Topic;
 use crate::project::Layout;
 use crate::refusal::{Exit, Refusal};
+use crate::run::check::{self, Check};
 use crate::run::stops::{self, EarlyStops};
 use crate::run::tier::ReviewPoint;
 use crate::store::Board;
@@ -33,6 +34,8 @@ pub enum At {
     Gate4,
     /// `ci=<exit code of gh pr checks>`.
     Ci,
+    /// Both design checks' hand-offs; decided on the result files and the loop.
+    Checks,
 }
 
 impl At {
@@ -46,6 +49,7 @@ impl At {
             At::Gate3 => "gate3",
             At::Gate4 => "gate4",
             At::Ci => "ci",
+            At::Checks => "checks",
         }
     }
 }
@@ -137,6 +141,8 @@ pub enum Error {
     /// so it is a bug here.
     Rejected(String),
     Sql(rusqlite::Error),
+    /// A run file could not be read or written.
+    Io(std::io::Error),
 }
 
 impl Error {
@@ -153,7 +159,7 @@ impl Error {
                     .hint("`ferrule gate next --help` lists the statuses each position takes")
                     .exit(Exit::Usage),
             ),
-            Error::Usage | Error::Rejected(_) | Error::Sql(_) => None,
+            Error::Usage | Error::Rejected(_) | Error::Sql(_) | Error::Io(_) => None,
         }
     }
 }
@@ -166,6 +172,7 @@ impl std::fmt::Display for Error {
             Error::Unknown(w) => write!(f, "status {w} is not taken here"),
             Error::Rejected(why) => write!(f, "the log refused its own line: {why}"),
             Error::Sql(e) => write!(f, "state database: {e}"),
+            Error::Io(e) => write!(f, "run file: {e}"),
         }
     }
 }
@@ -174,8 +181,15 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Error::Sql(e) => Some(e),
+            Error::Io(e) => Some(e),
             Error::Usage | Error::Card | Error::Unknown(_) | Error::Rejected(_) => None,
         }
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(e: std::io::Error) -> Self {
+        Error::Io(e)
     }
 }
 
@@ -418,12 +432,75 @@ pub fn next(
             c.guide(Topic::Gate4);
         }
         (At::Ci, ci) => ci_result(&mut c, ci)?,
+        (At::Checks, "done" | "none") => checks_decision(&mut c)?,
         _ => return Err(Error::Unknown(word)),
     }
     if branch_clean {
         branch_resolved(&mut c, window, minors)?;
     }
     Ok(c.out)
+}
+
+/// The design checks ended a run: findings below the cap are copied into the
+/// loop file and relayed to the architect, otherwise the stop is next. A
+/// pass-back already pending is relayed again from the loop. Logs nothing.
+fn checks_decision(c: &mut Ctx) -> Result<(), Error> {
+    let outcomes = Check::ALL.map(|ch| check::outcome(c.layout, c.slug, ch));
+    let mut lp = check::Loop::load(c.layout, c.slug);
+    let (gate, topic) = if c.field("kind")?.as_deref() == Some("epic") {
+        ("epic", Topic::Epic)
+    } else {
+        ("arch", Topic::Architecture)
+    };
+    let relative = |p: &std::path::Path| {
+        p.strip_prefix(&c.layout.root)
+            .unwrap_or(p)
+            .display()
+            .to_string()
+    };
+    let passing: Option<Vec<String>> = if lp.passed_back == Some(lp.run) {
+        Some(
+            Check::ALL
+                .into_iter()
+                .enumerate()
+                .filter(|&(i, _)| lp.results[i].is_some())
+                .map(|(_, ch)| relative(&c.layout.run_dir(c.slug).join(ch.file())))
+                .collect(),
+        )
+    } else if lp.run < check::CAP
+        && outcomes
+            .iter()
+            .any(|o| o.findings.as_ref().is_some_and(|f| !f.is_empty()))
+    {
+        lp.pass_back(&outcomes);
+        lp.save(c.layout, c.slug)?;
+        Some(
+            outcomes
+                .iter()
+                .filter(|o| o.findings.is_some())
+                .map(|o| relative(&o.path))
+                .collect(),
+        )
+    } else {
+        None
+    };
+    if let Some(paths) = passing {
+        c.out.push(format!("next=pass-back run={}", lp.run));
+        c.act(&format!(
+            "relay to the architect: fix each finding or mark it Needs user (C<n>/Z<n> in each file's Findings: order), then answer status=ready … fixed=<IDs|-> needs-user=<IDs|-> · check results: {}",
+            paths.join(", ")
+        ));
+    } else {
+        c.next("stop", None);
+        c.run(&format!("ferrule prompt render {} {gate}", c.slug));
+        c.act(if gate == "epic" {
+            "draft the epic issue (step 3), then show the epic stop"
+        } else {
+            "show the architecture stop and wait for the user's answer"
+        });
+    }
+    c.guide(topic);
+    Ok(())
 }
 
 /// The planner is ready: the plan reviewer is spawned, unless the review

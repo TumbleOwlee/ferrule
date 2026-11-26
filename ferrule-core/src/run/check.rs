@@ -113,30 +113,45 @@ fn findings(text: &str, want: &str) -> Option<Vec<String>> {
 }
 
 /// The stop's `Design checks:` block: per check `- <scope>: <n> finding(s) ·
-/// <path>`, `- <scope>: none found · <path>` or `- <scope>: did not run`,
-/// then every finding as `- C<n> <text>` or `- Z<n> <text>`; paths relative
-/// to `root`.
+/// <path>`, `- <scope>: none found · <path>` or `- <scope>: did not run`, each
+/// followed by ` · runs <k>, fixed <n>` from `lp` and ` · cap reached` when
+/// the loop hit its cap with a finding; then per check the result's findings
+/// as `- C<n> <text>` or `- Z<n> <text>`, then the loop's marked findings as
+/// `- C<n> (needs user) <text>` numbered on after them; paths relative to
+/// `root`.
 #[must_use]
-pub fn lines(outcomes: &[Outcome], root: &Path) -> Vec<String> {
+pub fn lines(outcomes: &[Outcome], lp: &Loop, root: &Path) -> Vec<String> {
     let mut out = vec!["Design checks:".to_owned()];
+    let cap = if lp.cap_reached(outcomes) {
+        " · cap reached"
+    } else {
+        ""
+    };
     for o in outcomes {
         let scope = o.check.scope();
+        let (runs, fixed) = (lp.run, lp.fixed[slot(o.check)]);
+        let tail = format!(" · runs {runs}, fixed {fixed}{cap}");
         match &o.findings {
-            None => out.push(format!("- {scope}: did not run")),
+            None => out.push(format!("- {scope}: did not run{tail}")),
             Some(f) => {
                 let path = o.path.strip_prefix(root).unwrap_or(&o.path);
                 let path = path.display();
                 out.push(match f.len() {
-                    0 => format!("- {scope}: none found · {path}"),
-                    1 => format!("- {scope}: 1 finding · {path}"),
-                    n => format!("- {scope}: {n} findings · {path}"),
+                    0 => format!("- {scope}: none found · {path}{tail}"),
+                    1 => format!("- {scope}: 1 finding · {path}{tail}"),
+                    n => format!("- {scope}: {n} findings · {path}{tail}"),
                 });
             }
         }
     }
     for o in outcomes {
+        let letter = o.check.letter();
+        let shown = o.findings.iter().flatten().count();
         for (i, f) in o.findings.iter().flatten().enumerate() {
-            out.push(format!("- {}{} {f}", o.check.letter(), i + 1));
+            out.push(format!("- {letter}{} {f}", i + 1));
+        }
+        for (i, f) in lp.marked(o.check).enumerate() {
+            out.push(format!("- {letter}{} (needs user) {f}", shown + i + 1));
         }
     }
     out
@@ -159,17 +174,29 @@ pub struct Logged {
     pub check: Check,
     pub findings: usize,
     pub changed: u64,
+    /// Findings the architect fixed, in a round event.
+    pub fixed: u64,
+    /// The check run a round event reports; `None` for a stop event.
+    pub round: Option<u32>,
 }
 
 impl Logged {
-    /// `["scope=<scope>", "findings=<n>", "changed=<n>"]`
+    /// `["scope=<scope>", "findings=<n>", "changed=<n>"]`, or for a round
+    /// event `["scope=<scope>", "findings=<n>", "fixed=<n>", "round=<k>"]`.
     #[must_use]
     pub fn args(&self) -> Vec<String> {
-        vec![
+        let mut args = vec![
             format!("scope={}", self.check.scope()),
             format!("findings={}", self.findings),
-            format!("changed={}", self.changed),
-        ]
+        ];
+        match self.round {
+            Some(k) => {
+                args.push(format!("fixed={}", self.fixed));
+                args.push(format!("round={k}"));
+            }
+            None => args.push(format!("changed={}", self.changed)),
+        }
+        args
     }
 }
 
@@ -180,46 +207,64 @@ impl Logged {
 pub fn named(answer: &str, check: Check, shown: usize) -> u64 {
     let ids: BTreeSet<usize> = answer
         .split(|c: char| !c.is_ascii_alphanumeric())
-        .filter_map(|word| {
-            let mut chars = word.chars();
-            let first = chars.next()?;
-            let digits = chars.as_str();
-            if !first.eq_ignore_ascii_case(&check.letter())
-                || digits.is_empty()
-                || digits.starts_with('0')
-                || !digits.bytes().all(|b| b.is_ascii_digit())
-            {
-                return None;
-            }
-            digits
-                .parse::<usize>()
-                .ok()
-                .filter(|n| (1..=shown).contains(n))
-        })
+        .filter_map(|word| finding_id(word, check).filter(|n| (1..=shown).contains(n)))
         .collect();
     ids.len() as u64
 }
 
-/// One line per check with a current result; `changed` from `named` for
-/// `Answer::Change`, 0 otherwise. Read only: the caller logs in its own
-/// transaction.
+/// The number in a finding ID of `check`: its letter in either case followed
+/// by decimal digits without a leading zero.
+fn finding_id(word: &str, check: Check) -> Option<usize> {
+    let mut chars = word.chars();
+    let first = chars.next()?;
+    let digits = chars.as_str();
+    if !first.eq_ignore_ascii_case(&check.letter())
+        || digits.is_empty()
+        || digits.starts_with('0')
+        || !digits.bytes().all(|b| b.is_ascii_digit())
+    {
+        return None;
+    }
+    digits.parse::<usize>().ok()
+}
+
+/// One line per check with a current result; `findings` counts the result's
+/// findings and the loop's marked ones of that check, `changed` from `named`
+/// over that count for `Answer::Change`, 0 otherwise. `Answer::Abandon` while
+/// a pass-back awaits counts the passed-back run's `Loop.results` instead.
+/// Read only: the caller logs in its own transaction.
 #[must_use]
 pub fn pending(layout: &Layout, slug: &str, answer: Answer<'_>) -> Vec<Logged> {
+    let lp = Loop::load(layout, slug);
+    let passed_back = matches!(answer, Answer::Abandon) && lp.passed_back == Some(lp.run);
     Check::ALL
         .into_iter()
         .filter_map(|check| {
             if is_marked(layout, slug, check) {
                 return None;
             }
+            if passed_back {
+                let n = lp.results[slot(check)]?;
+                return Some(Logged {
+                    check,
+                    findings: n,
+                    changed: 0,
+                    fixed: 0,
+                    round: None,
+                });
+            }
             let found = outcome(layout, slug, check).findings?;
+            let shown = found.len() + lp.marked(check).count();
             let changed = match answer {
-                Answer::Change(a) => named(a, check, found.len()),
+                Answer::Change(a) => named(a, check, shown),
                 _ => 0,
             };
             Some(Logged {
                 check,
-                findings: found.len(),
+                findings: shown,
                 changed,
+                fixed: 0,
+                round: None,
             })
         })
         .collect()
@@ -271,6 +316,290 @@ pub fn clear(layout: &Layout, slug: &str) -> std::io::Result<usize> {
         }
     }
     Ok(removed)
+}
+
+/// The loop state file in the run directory.
+pub const LOOP_FILE: &str = "check-loop.md";
+
+/// The most check runs between a `ready` and the architecture stop.
+pub const CAP: u32 = 3;
+
+/// A finding of one check, kept in the loop file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Marked {
+    pub check: Check,
+    pub text: String,
+}
+
+/// The state of the automatic check runs before an architecture stop.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Loop {
+    /// Check runs started in this loop, 1-based.
+    pub run: u32,
+    /// The run whose findings were passed back and await the architect's `ready`.
+    pub passed_back: Option<u32>,
+    /// Per check in `Check::ALL` order, the passed-back run's finding count;
+    /// `None` for a check without a result.
+    pub results: [Option<usize>; 2],
+    /// The passed-back findings, per check in `Findings:` order.
+    pub passed: Vec<Marked>,
+    /// Findings the architect fixed, per check, in `Check::ALL` order.
+    pub fixed: [u64; 2],
+    /// Findings marked for the user.
+    pub needs_user: Vec<Marked>,
+}
+
+fn slot(check: Check) -> usize {
+    match check {
+        Check::Comprehension => 0,
+        Check::ZoomOut => 1,
+    }
+}
+
+fn count_word<T: ToString>(v: Option<T>) -> String {
+    v.map_or_else(|| "-".to_owned(), |n| n.to_string())
+}
+
+/// The value after `prefix` on the first line that starts with it.
+fn field<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
+    text.lines()
+        .find_map(|l| l.strip_prefix(prefix))
+        .map(str::trim)
+}
+
+/// The `- ` items under the `head` line, ending at the first other line.
+fn list<'a>(text: &'a str, head: &str) -> Vec<&'a str> {
+    let mut out = Vec::new();
+    let mut rest = text.lines().skip_while(|l| l.trim_end() != head);
+    rest.next();
+    for line in rest {
+        if line.trim().is_empty() {
+            continue;
+        }
+        match line.strip_prefix("- ") {
+            Some(f) => out.push(f.trim()),
+            None => break,
+        }
+    }
+    out
+}
+
+/// The `<scope> <value>` pairs of a comma-separated line value.
+fn pairs(value: Option<&str>) -> Vec<(Check, &str)> {
+    value
+        .into_iter()
+        .flat_map(|v| v.split(','))
+        .filter_map(|part| {
+            let mut words = part.split_whitespace();
+            Some((Check::parse(words.next()?)?, words.next()?))
+        })
+        .collect()
+}
+
+fn check_of(letter: &str) -> Option<Check> {
+    Check::ALL.into_iter().find(|c| {
+        letter.len() == 1 && letter.starts_with(|l: char| l.eq_ignore_ascii_case(&c.letter()))
+    })
+}
+
+impl Loop {
+    /// The loop of a first check run.
+    #[must_use]
+    pub fn fresh() -> Loop {
+        Loop {
+            run: 1,
+            passed_back: None,
+            results: [None, None],
+            passed: Vec::new(),
+            fixed: [0, 0],
+            needs_user: Vec::new(),
+        }
+    }
+
+    /// The run's loop file; absent or unreadable gives `Loop::fresh()`, and a
+    /// line that is missing or unreadable keeps its fresh value.
+    #[must_use]
+    pub fn load(layout: &Layout, slug: &str) -> Loop {
+        let mut lp = Loop::fresh();
+        let Ok(text) = std::fs::read_to_string(layout.run_dir(slug).join(LOOP_FILE)) else {
+            return lp;
+        };
+        if let Some(n) = field(&text, "Run:").and_then(|v| v.parse().ok()) {
+            lp.run = n;
+        }
+        if let Some(v) = field(&text, "Passed back:") {
+            lp.passed_back = v.parse().ok();
+        }
+        for (c, n) in pairs(field(&text, "Results:")) {
+            lp.results[slot(c)] = n.parse().ok();
+        }
+        for (c, n) in pairs(field(&text, "Fixed:")) {
+            if let Ok(n) = n.parse() {
+                lp.fixed[slot(c)] = n;
+            }
+        }
+        for item in list(&text, "Passed:") {
+            if let Some((id, body)) = item.split_once(' ')
+                && let Some(check) = id.get(..1).and_then(check_of)
+                && finding_id(id, check).is_some()
+            {
+                lp.passed.push(Marked {
+                    check,
+                    text: body.trim().to_owned(),
+                });
+            }
+        }
+        for item in list(&text, "Needs user:") {
+            if let Some((id, body)) = item.split_once(' ')
+                && let Some(check) = check_of(id)
+            {
+                lp.needs_user.push(Marked {
+                    check,
+                    text: body.trim().to_owned(),
+                });
+            }
+        }
+        lp
+    }
+
+    /// Writes the whole loop file.
+    ///
+    /// # Errors
+    /// Any write failure.
+    pub fn save(&self, layout: &Layout, slug: &str) -> std::io::Result<()> {
+        let mut out = vec![
+            format!("Run: {}", self.run),
+            format!("Passed back: {}", count_word(self.passed_back)),
+            format!(
+                "Results: comprehension {}, zoom-out {}",
+                count_word(self.results[0]),
+                count_word(self.results[1])
+            ),
+            "Passed:".to_owned(),
+        ];
+        for check in Check::ALL {
+            for (i, text) in self.passed(check).enumerate() {
+                out.push(format!("- {}{} {text}", check.letter(), i + 1));
+            }
+        }
+        out.push(format!(
+            "Fixed: comprehension {}, zoom-out {}",
+            self.fixed[0], self.fixed[1]
+        ));
+        out.push("Needs user:".to_owned());
+        for m in &self.needs_user {
+            out.push(format!("- {} {}", m.check.letter(), m.text));
+        }
+        out.push(String::new());
+        let out = out.join("\n");
+        std::fs::write(layout.run_dir(slug).join(LOOP_FILE), out)
+    }
+
+    /// Removes the loop file; an absent file is no error.
+    ///
+    /// # Errors
+    /// Any removal failure other than a missing file.
+    pub fn remove(layout: &Layout, slug: &str) -> std::io::Result<()> {
+        match std::fs::remove_file(layout.run_dir(slug).join(LOOP_FILE)) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+            _ => Ok(()),
+        }
+    }
+
+    /// The texts of `check`'s findings marked for the user, in stored order.
+    pub fn marked(&self, check: Check) -> impl Iterator<Item = &str> {
+        self.needs_user
+            .iter()
+            .filter(move |m| m.check == check)
+            .map(|m| m.text.as_str())
+    }
+
+    /// The passed-back findings of `check`, in ID order.
+    pub fn passed(&self, check: Check) -> impl Iterator<Item = &str> {
+        self.passed
+            .iter()
+            .filter(move |m| m.check == check)
+            .map(|m| m.text.as_str())
+    }
+
+    /// Copies the outcomes into `results` and `passed` and sets `passed_back`
+    /// to the current run.
+    pub fn pass_back(&mut self, outcomes: &[Outcome]) {
+        self.results = [None, None];
+        self.passed.clear();
+        for check in Check::ALL {
+            let Some(o) = outcomes.iter().find(|o| o.check == check) else {
+                continue;
+            };
+            self.results[slot(check)] = o.findings.as_ref().map(Vec::len);
+            for text in o.findings.iter().flatten() {
+                self.passed.push(Marked {
+                    check,
+                    text: text.clone(),
+                });
+            }
+        }
+        self.passed_back = Some(self.run);
+    }
+
+    /// Whether the run is the last allowed and an outcome holds a finding.
+    #[must_use]
+    pub fn cap_reached(&self, outcomes: &[Outcome]) -> bool {
+        self.run >= CAP
+            && outcomes
+                .iter()
+                .any(|o| o.findings.as_ref().is_some_and(|f| !f.is_empty()))
+    }
+}
+
+/// The architect's answer to a pass-back: finding IDs fixed and marked.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Verdict {
+    pub fixed: Vec<(Check, usize)>,
+    pub needs_user: Vec<(Check, usize)>,
+}
+
+fn parse_ids(list: Option<&str>) -> Result<Vec<(Check, usize)>, String> {
+    let mut out = Vec::new();
+    for item in list.into_iter().flat_map(|l| l.split(',')) {
+        let item = item.trim();
+        if item == "-" {
+            continue;
+        }
+        let id = Check::ALL
+            .into_iter()
+            .find_map(|c| finding_id(item, c).map(|n| (c, n)))
+            .ok_or_else(|| format!("'{item}' is no finding ID; give them as C1,Z2 or -"))?;
+        out.push(id);
+    }
+    Ok(out)
+}
+
+impl Verdict {
+    /// Reads the comma-separated ID lists (`C1,z2` or `-`).
+    ///
+    /// # Errors
+    /// An item that is neither `-` nor a finding ID.
+    pub fn parse(fixed: Option<&str>, needs_user: Option<&str>) -> Result<Verdict, String> {
+        Ok(Verdict {
+            fixed: parse_ids(fixed)?,
+            needs_user: parse_ids(needs_user)?,
+        })
+    }
+
+    /// The distinct fixed IDs of `check` within `1..=shown`, minus those also
+    /// marked for the user.
+    #[must_use]
+    pub fn fixed_count(&self, check: Check, shown: usize) -> u64 {
+        let ids: BTreeSet<usize> = self
+            .fixed
+            .iter()
+            .filter(|(c, n)| *c == check && (1..=shown).contains(n))
+            .filter(|id| !self.needs_user.contains(id))
+            .map(|(_, n)| *n)
+            .collect();
+        ids.len() as u64
+    }
 }
 
 #[cfg(test)]
@@ -381,14 +710,15 @@ mod tests {
                 o(Check::Comprehension, Some(&["a", "b"])),
                 o(Check::ZoomOut, Some(&[])),
             ],
+            &Loop::fresh(),
             root,
         );
         assert_eq!(
             two,
             [
                 "Design checks:",
-                "- comprehension: 2 findings · .ferrule/runs/demo/check-comprehension.md",
-                "- zoom-out: none found · .ferrule/runs/demo/check-zoom-out.md",
+                "- comprehension: 2 findings · .ferrule/runs/demo/check-comprehension.md · runs 1, fixed 0",
+                "- zoom-out: none found · .ferrule/runs/demo/check-zoom-out.md · runs 1, fixed 0",
                 "- C1 a",
                 "- C2 b",
             ]
@@ -398,17 +728,153 @@ mod tests {
                 o(Check::Comprehension, None),
                 o(Check::ZoomOut, Some(&["z"])),
             ],
+            &Loop::fresh(),
             root,
         );
         assert_eq!(
             one,
             [
                 "Design checks:",
-                "- comprehension: did not run",
-                "- zoom-out: 1 finding · .ferrule/runs/demo/check-zoom-out.md",
+                "- comprehension: did not run · runs 1, fixed 0",
+                "- zoom-out: 1 finding · .ferrule/runs/demo/check-zoom-out.md · runs 1, fixed 0",
                 "- Z1 z",
             ]
         );
+    }
+
+    fn lines_outcome(check: Check, f: Option<&[&str]>) -> Outcome {
+        let root = Path::new("/r");
+        Outcome {
+            check,
+            path: root.join(".ferrule/runs/demo").join(check.file()),
+            findings: f.map(|f| f.iter().map(|s| (*s).to_owned()).collect()),
+        }
+    }
+
+    /// GA-R-182 — each check line ends with the runs and the fixed count.
+    #[test]
+    fn ut_lines_end_each_check_with_runs_and_fixed() {
+        let mut lp = Loop::fresh();
+        lp.run = 2;
+        lp.fixed = [1, 0];
+        let got = lines(
+            &[
+                lines_outcome(Check::Comprehension, Some(&[])),
+                lines_outcome(Check::ZoomOut, Some(&[])),
+            ],
+            &lp,
+            Path::new("/r"),
+        );
+        assert_eq!(
+            got,
+            [
+                "Design checks:",
+                "- comprehension: none found · .ferrule/runs/demo/check-comprehension.md · runs 2, fixed 1",
+                "- zoom-out: none found · .ferrule/runs/demo/check-zoom-out.md · runs 2, fixed 0",
+            ]
+        );
+    }
+
+    /// GA-R-182 — a loop at its cap with a finding says so on each check line.
+    #[test]
+    fn ut_lines_mark_the_cap() {
+        let mut lp = Loop::fresh();
+        lp.run = CAP;
+        let got = lines(
+            &[
+                lines_outcome(Check::Comprehension, Some(&["a"])),
+                lines_outcome(Check::ZoomOut, None),
+            ],
+            &lp,
+            Path::new("/r"),
+        );
+        assert!(
+            got[1].ends_with(&format!(" · runs {CAP}, fixed 0 · cap reached")),
+            "{got:?}"
+        );
+        assert!(
+            got[2].ends_with(&format!("did not run · runs {CAP}, fixed 0 · cap reached")),
+            "{got:?}"
+        );
+    }
+
+    /// GA-R-157 — a check without a result in the last run says `did not run`.
+    #[test]
+    fn ut_lines_say_did_not_run_only_for_the_last_run() {
+        let lp = Loop::fresh();
+        let got = lines(
+            &[
+                lines_outcome(Check::Comprehension, None),
+                lines_outcome(Check::ZoomOut, Some(&[])),
+            ],
+            &lp,
+            Path::new("/r"),
+        );
+        assert_eq!(got[1], "- comprehension: did not run · runs 1, fixed 0");
+        let got = lines(
+            &[
+                lines_outcome(Check::Comprehension, Some(&[])),
+                lines_outcome(Check::ZoomOut, Some(&[])),
+            ],
+            &lp,
+            Path::new("/r"),
+        );
+        assert!(!got.iter().any(|l| l.contains("did not run")), "{got:?}");
+    }
+
+    /// GA-R-152 — marked findings number on after the last run's, all C before Z.
+    #[test]
+    fn ut_lines_number_marked_findings_after_the_last_runs() {
+        let mut lp = Loop::fresh();
+        lp.needs_user = vec![
+            Marked {
+                check: Check::ZoomOut,
+                text: "zm".to_owned(),
+            },
+            Marked {
+                check: Check::Comprehension,
+                text: "cm".to_owned(),
+            },
+        ];
+        let got = lines(
+            &[
+                lines_outcome(Check::Comprehension, Some(&["a", "b"])),
+                lines_outcome(Check::ZoomOut, None),
+            ],
+            &lp,
+            Path::new("/r"),
+        );
+        assert_eq!(
+            got[3..],
+            [
+                "- C1 a",
+                "- C2 b",
+                "- C3 (needs user) cm",
+                "- Z1 (needs user) zm"
+            ]
+        );
+    }
+
+    /// GA-R-166 — marked findings count in `findings` and can be named.
+    #[test]
+    fn ut_pending_counts_marked_findings() {
+        let (_d, l) = run(true);
+        write(
+            &l,
+            "check-comprehension.md",
+            CURRENT,
+            "Findings:\n- a\n- b\n",
+        );
+        let mut lp = Loop::fresh();
+        lp.needs_user = vec![Marked {
+            check: Check::Comprehension,
+            text: "m".to_owned(),
+        }];
+        lp.save(&l, "demo").unwrap();
+        let got = pending(&l, "demo", Answer::Approve);
+        assert_eq!(got[0].findings, 3);
+        let got = pending(&l, "demo", Answer::Change("fix C3"));
+        assert_eq!((got[0].findings, got[0].changed), (3, 1));
     }
 
     /// GA-E-036 — a finding named more than once counts once.
@@ -472,12 +938,16 @@ mod tests {
                 Logged {
                     check: Check::Comprehension,
                     findings: 2,
-                    changed: 2
+                    changed: 2,
+                    fixed: 0,
+                    round: None
                 },
                 Logged {
                     check: Check::ZoomOut,
                     findings: 1,
-                    changed: 1
+                    changed: 1,
+                    fixed: 0,
+                    round: None
                 },
             ]
         );
@@ -509,8 +979,26 @@ mod tests {
             check: Check::ZoomOut,
             findings: 3,
             changed: 1,
+            fixed: 0,
+            round: None,
         };
         assert_eq!(l.args(), ["scope=zoom-out", "findings=3", "changed=1"]);
+    }
+
+    /// GA-R-183 — a round event carries `fixed` and `round` in place of `changed`.
+    #[test]
+    fn ut_logged_round_args() {
+        let l = Logged {
+            check: Check::Comprehension,
+            findings: 2,
+            changed: 0,
+            fixed: 1,
+            round: Some(2),
+        };
+        assert_eq!(
+            l.args(),
+            ["scope=comprehension", "findings=2", "fixed=1", "round=2"]
+        );
     }
 
     #[test]
@@ -545,5 +1033,152 @@ mod tests {
         write(&l, "check-zoom-out.md", CURRENT, "Findings:\n");
         assert_eq!(clear(&l, "demo").unwrap(), 2);
         assert_eq!(clear(&l, "demo").unwrap(), 0);
+    }
+
+    fn outcome_of(check: Check, findings: Option<&[&str]>) -> Outcome {
+        Outcome {
+            check,
+            path: PathBuf::from("x"),
+            findings: findings.map(|f| f.iter().map(|t| (*t).to_owned()).collect()),
+        }
+    }
+
+    fn full_loop() -> Loop {
+        Loop {
+            run: 2,
+            passed_back: Some(2),
+            results: [Some(2), None],
+            passed: vec![
+                Marked {
+                    check: Check::Comprehension,
+                    text: "a b".to_owned(),
+                },
+                Marked {
+                    check: Check::Comprehension,
+                    text: "c".to_owned(),
+                },
+                Marked {
+                    check: Check::ZoomOut,
+                    text: "z".to_owned(),
+                },
+            ],
+            fixed: [1, 4],
+            needs_user: vec![
+                Marked {
+                    check: Check::Comprehension,
+                    text: "m one".to_owned(),
+                },
+                Marked {
+                    check: Check::ZoomOut,
+                    text: "m two".to_owned(),
+                },
+            ],
+        }
+    }
+
+    /// An absent loop file reads as the first run of a fresh loop.
+    #[test]
+    fn ut_loop_absent_file_is_fresh() {
+        let (_d, l) = run(true);
+        assert_eq!(Loop::load(&l, "demo"), Loop::fresh());
+    }
+
+    /// A saved loop reads back whole, both lists with two items.
+    #[test]
+    fn ut_loop_round_trips_through_its_file() {
+        let (_d, l) = run(true);
+        let lp = full_loop();
+        lp.save(&l, "demo").unwrap();
+        assert_eq!(Loop::load(&l, "demo"), lp);
+    }
+
+    /// An unreadable line keeps the fresh value of its field.
+    #[test]
+    fn ut_loop_unreadable_line_keeps_the_fresh_value() {
+        let (_d, l) = run(true);
+        let text = "Run: x\nPassed back: 2\nResults: comprehension q, zoom-out 3\nFixed: comprehension 5\n";
+        std::fs::write(l.run_dir("demo").join(LOOP_FILE), text).unwrap();
+        let lp = Loop::load(&l, "demo");
+        assert_eq!(lp.run, 1);
+        assert_eq!(lp.passed_back, Some(2));
+        assert_eq!(lp.results, [None, Some(3)]);
+        assert_eq!(lp.fixed, [5, 0]);
+    }
+
+    /// Removing an absent loop file is no error.
+    #[test]
+    fn ut_loop_remove_of_an_absent_file_is_ok() {
+        let (_d, l) = run(true);
+        Loop::remove(&l, "demo").unwrap();
+        full_loop().save(&l, "demo").unwrap();
+        Loop::remove(&l, "demo").unwrap();
+        assert!(!l.run_dir("demo").join(LOOP_FILE).exists());
+    }
+
+    /// Passing back copies counts and findings by check, not by position.
+    #[test]
+    fn ut_pass_back_copies_results_and_findings() {
+        let mut lp = Loop::fresh();
+        lp.pass_back(&[
+            outcome_of(Check::ZoomOut, None),
+            outcome_of(Check::Comprehension, Some(&["a", "b"])),
+        ]);
+        assert_eq!(lp.results, [Some(2), None]);
+        assert_eq!(lp.passed_back, Some(1));
+        assert_eq!(
+            lp.passed(Check::Comprehension).collect::<Vec<_>>(),
+            ["a", "b"]
+        );
+        assert_eq!(lp.passed(Check::ZoomOut).count(), 0);
+        assert_eq!(lp.marked(Check::ZoomOut).count(), 0);
+    }
+
+    /// The cap is reached on the third run with a finding only.
+    #[test]
+    fn ut_cap_reached_needs_the_third_run_and_a_finding() {
+        let with = [outcome_of(Check::Comprehension, Some(&["a"]))];
+        let none = [
+            outcome_of(Check::Comprehension, Some(&[])),
+            outcome_of(Check::ZoomOut, None),
+        ];
+        let mut lp = Loop::fresh();
+        lp.run = 2;
+        assert!(!lp.cap_reached(&with));
+        lp.run = CAP;
+        assert!(lp.cap_reached(&with));
+        assert!(!lp.cap_reached(&none));
+    }
+
+    /// Verdict lists take IDs in either case and `-`.
+    #[test]
+    fn ut_verdict_parse_takes_ids_and_dash() {
+        let v = Verdict::parse(Some("C1, z2"), Some("-")).unwrap();
+        assert_eq!(v.fixed, [(Check::Comprehension, 1), (Check::ZoomOut, 2)]);
+        assert!(v.needs_user.is_empty());
+        assert_eq!(Verdict::parse(None, None).unwrap(), Verdict::default());
+    }
+
+    /// A malformed item is refused with its text.
+    #[test]
+    fn ut_verdict_parse_refuses_a_malformed_item() {
+        for bad in ["C01", "X1", "C"] {
+            let e = Verdict::parse(Some(bad), None).unwrap_err();
+            assert!(e.contains(&format!("'{bad}' is no finding ID")), "{e}");
+        }
+    }
+
+    /// GA-E-043 — an ID the passed-back run did not report counts as neither fixed nor marked.
+    #[test]
+    fn ut_fixed_count_skips_ids_the_run_did_not_report() {
+        let v = Verdict::parse(Some("C1,C1,C3,Z1"), None).unwrap();
+        assert_eq!(v.fixed_count(Check::Comprehension, 2), 1);
+        assert_eq!(v.fixed_count(Check::ZoomOut, 0), 0);
+    }
+
+    /// GA-E-044 — an ID named both fixed and `Needs user` counts as marked only.
+    #[test]
+    fn ut_fixed_count_skips_ids_also_marked() {
+        let v = Verdict::parse(Some("C1,C2"), Some("c2")).unwrap();
+        assert_eq!(v.fixed_count(Check::Comprehension, 2), 1);
     }
 }

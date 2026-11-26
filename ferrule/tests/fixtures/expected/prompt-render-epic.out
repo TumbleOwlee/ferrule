@@ -12,8 +12,8 @@ Slices:
 - 2: Batteries — depends on 1 — S2 · R2, E1
 - 3: Nested groups — depends on 1, 2 — S3 · R3
 Design checks:
-- comprehension: did not run
-- zoom-out: did not run
+- comprehension: did not run · runs 1, fixed 0
+- zoom-out: did not run · runs 1, fixed 0
 Issue: new — Load balancing core
 Confirm: nothing flagged
 Approving will:
